@@ -11,6 +11,7 @@ use relm4::gtk::prelude::*;
 
 use crate::{
     ime::preedit::{Preedit, UnderlineKind},
+    femtovg_area,
     math::Vec2D,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, TextEventMsg},
     style::Style,
@@ -26,6 +27,7 @@ pub struct Text {
     style: Style,
     preedit: Option<Preedit>,
     im_context: Option<InputContext>,
+    font_ids: Vec<FontId>,
 }
 
 struct DisplayContent<'a> {
@@ -64,6 +66,7 @@ impl Text {
             style,
             preedit: None,
             im_context,
+            font_ids: femtovg_area::font_stack().to_vec(),
         }
     }
 
@@ -142,6 +145,12 @@ impl Drawable for Text {
 
         let mut base_paint: Paint = self.style.into();
         base_paint.set_font(&[font]);
+
+        if self.font_ids.is_empty() {
+            base_paint.set_font(&[font]);
+        } else {
+            base_paint.set_font(&self.font_ids);
+        }
 
         let transform = canvas.transform();
         let canva_scale = transform.average_scale();
