@@ -12,6 +12,7 @@ use relm4::gtk::prelude::*;
 use crate::{
     configuration::APP_CONFIG,
     ime::preedit::{Preedit, UnderlineKind},
+    femtovg_area,
     math::Vec2D,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, TextEventMsg},
     style::Style,
@@ -37,6 +38,7 @@ pub struct Text {
     line_ranges: RefCell<Vec<Range<usize>>>,
     cursor_visible: RefCell<bool>,
     draw_rect: RefCell<bool>,
+    font_ids: Vec<FontId>,
 }
 
 struct DisplayContent<'a> {
@@ -80,6 +82,7 @@ impl Text {
             line_ranges: RefCell::new(Vec::new()),
             cursor_visible: RefCell::new(true),
             draw_rect: RefCell::new(true),
+            font_ids: femtovg_area::font_stack().to_vec(),
         }
     }
 
@@ -158,6 +161,12 @@ impl Drawable for Text {
 
         let mut base_paint: Paint = self.style.into();
         base_paint.set_font(&[font]);
+
+        if self.font_ids.is_empty() {
+            base_paint.set_font(&[font]);
+        } else {
+            base_paint.set_font(&self.font_ids);
+        }
 
         let transform = canvas.transform();
         let canva_scale = transform.average_scale();
