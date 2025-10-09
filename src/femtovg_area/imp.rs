@@ -30,18 +30,6 @@ use crate::{
 
 use super::set_font_stack;
 
-const CJK_FALLBACK_FONTS: &[&str] = &[
-    "Noto Sans CJK JP",
-    "Noto Sans CJK SC",
-    "Noto Sans CJK TC",
-    "Noto Sans CJK KR",
-    "Noto Serif CJK JP",
-    "Noto Serif JP",
-    "IPAGothic",
-    "IPAexGothic",
-    "Source Han Sans",
-];
-
 #[derive(Default)]
 pub struct FemtoVGArea {
     canvas: RefCell<Option<femtovg::Canvas<femtovg::renderer::OpenGl>>>,
@@ -235,7 +223,7 @@ impl FemtoVGArea {
         }
 
         if let Some(fc) = fontconfig.as_ref() {
-            for family in CJK_FALLBACK_FONTS {
+            for family in app_config.font().fallback() {
                 if let Some(font) = fc.find(family, None) {
                     if loaded_paths.insert(font.path.clone()) {
                         if let Ok(id) = canvas.add_font(font.path.clone()) {

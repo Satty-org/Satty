@@ -163,6 +163,18 @@ highlight = "g"
 [font]
 family = "Roboto"
 style = "Regular"
+# specify fallback fonts (0.20.1)
+fallback = [
+    "Noto Sans CJK JP",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK TC",
+    "Noto Sans CJK KR",
+    "Noto Serif CJK JP",
+    "Noto Serif JP",
+    "IPAGothic",
+    "IPAexGothic",
+    "Source Han Sans"
+]
 
 # Custom colours for the colour palette
 [color-palette]

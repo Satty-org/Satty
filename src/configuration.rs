@@ -137,21 +137,31 @@ impl Default for Keybinds {
 pub struct FontConfiguration {
     family: Option<String>,
     style: Option<String>,
+    fallback: Vec<String>,
 }
 
 impl FontConfiguration {
     pub fn family(&self) -> Option<&str> {
         self.family.as_deref()
     }
+
     pub fn style(&self) -> Option<&str> {
         self.style.as_deref()
     }
+
+    pub fn fallback(&self) -> &[String] {
+        &self.fallback
+    }
+
     fn merge(&mut self, file_font: FontFile) {
         if let Some(v) = file_font.family {
             self.family = Some(v);
         }
         if let Some(v) = file_font.style {
             self.style = Some(v);
+        }
+        if let Some(v) = file_font.fallback {
+            self.fallback = v
         }
     }
 }
@@ -600,6 +610,7 @@ struct KeybindsFile {
 struct FontFile {
     family: Option<String>,
     style: Option<String>,
+    fallback: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
