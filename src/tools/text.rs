@@ -10,8 +10,8 @@ use std::{borrow::Cow, ops::Range};
 use relm4::gtk::prelude::*;
 
 use crate::{
-    ime::preedit::{Preedit, UnderlineKind},
     femtovg_area,
+    ime::preedit::{Preedit, UnderlineKind},
     math::Vec2D,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, TextEventMsg},
     style::Style,
