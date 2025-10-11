@@ -8,7 +8,9 @@ use std::{
 use clap::Parser;
 use hex_color::HexColor;
 use relm4::SharedState;
-use serde_derive::Deserialize;
+
+use serde::de::Deserializer;
+use serde::Deserialize;
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
@@ -17,7 +19,7 @@ use crate::{
     tools::{Highlighters, Tools},
 };
 
-use satty_cli::command_line::{Action as CommandLineAction, CommandLine};
+use satty_cli::command_line::{Action as CommandLineAction, CommandLine, Fullscreen, Resize};
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
 
@@ -36,7 +38,9 @@ enum ConfigurationFileError {
 pub struct Configuration {
     input_filename: String,
     output_filename: Option<String>,
-    fullscreen: bool,
+    fullscreen: Option<Fullscreen>,
+    resize: Option<Resize>,
+    floating_hack: bool,
     early_exit: bool,
     early_exit_save_as: bool,
     corner_roundness: f32,
@@ -192,6 +196,26 @@ impl ColorPalette {
     }
 }
 
+// remain compatible with old config with fullscreen=true/false
+#[derive(Deserialize)]
+#[serde(untagged)]
+#[serde(rename_all = "kebab-case")]
+enum FullscreenCompat {
+    Bool(bool),
+    Mode(Fullscreen),
+}
+
+fn de_fullscreen_mode<'de, D>(d: D) -> Result<Option<Fullscreen>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match FullscreenCompat::deserialize(d)? {
+        FullscreenCompat::Bool(true) => Ok(Some(Fullscreen::CurrentScreen)),
+        FullscreenCompat::Bool(false) => Ok(None),
+        FullscreenCompat::Mode(m) => Ok(Some(m)),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
@@ -245,7 +269,13 @@ impl Configuration {
     }
     fn merge_general(&mut self, general: ConfigurationFileGeneral) {
         if let Some(v) = general.fullscreen {
-            self.fullscreen = v;
+            self.fullscreen = Some(v);
+        }
+        if let Some(v) = general.resize {
+            self.resize = Some(v);
+        }
+        if let Some(v) = general.floating_hack {
+            self.floating_hack = v;
         }
         if let Some(v) = general.early_exit {
             self.early_exit = v;
@@ -350,8 +380,14 @@ impl Configuration {
         }
 
         // overwrite with all specified values from command line
-        if command_line.fullscreen {
-            self.fullscreen = command_line.fullscreen;
+        if let Some(v) = command_line.fullscreen {
+            self.fullscreen = Some(v);
+        }
+        if let Some(v) = command_line.resize {
+            self.resize = Some(v);
+        }
+        if command_line.floating_hack {
+            self.floating_hack = command_line.floating_hack;
         }
         if command_line.early_exit {
             self.early_exit = command_line.early_exit;
@@ -464,8 +500,16 @@ impl Configuration {
         self.copy_command.as_ref()
     }
 
-    pub fn fullscreen(&self) -> bool {
+    pub fn fullscreen(&self) -> Option<Fullscreen> {
         self.fullscreen
+    }
+
+    pub fn resize(&self) -> Option<Resize> {
+        self.resize
+    }
+
+    pub fn floating_hack(&self) -> bool {
+        self.floating_hack
     }
 
     pub fn output_filename(&self) -> Option<&String> {
@@ -561,7 +605,9 @@ impl Default for Configuration {
         Self {
             input_filename: String::new(),
             output_filename: None,
-            fullscreen: false,
+            fullscreen: None,
+            resize: None,
+            floating_hack: false,
             early_exit: false,
             early_exit_save_as: false,
             corner_roundness: 12.0,
@@ -642,7 +688,10 @@ struct FontFile {
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct ConfigurationFileGeneral {
-    fullscreen: Option<bool>,
+    #[serde(deserialize_with = "de_fullscreen_mode", default)]
+    fullscreen: Option<Fullscreen>,
+    resize: Option<Resize>,
+    floating_hack: Option<bool>,
     early_exit: Option<bool>,
     early_exit_save_as: Option<bool>,
     corner_roundness: Option<f32>,

@@ -1,4 +1,6 @@
 use clap::{Parser, ValueEnum};
+use serde::Deserialize;
+use std::str::FromStr;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -11,9 +13,22 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub filename: String,
 
-    /// Start Satty in fullscreen mode
+    /// Start Satty in fullscreen mode. Since NEXTRELEASE, takes optional parameter.
+    /// --fullscreen without parameter is equivalent to --fullscreen current.
+    /// Mileage may vary depending on compositor.
+    #[arg(long, num_args = 0..=1, default_missing_value = "current-screen", value_enum)]
+    pub fullscreen: Option<Fullscreen>,
+
+    /// Resize to coordinates or use smart mode (NEXTRELEASE).
+    /// --resize without parameter is equivalent to --resize smart
+    /// [possible values: smart, WxH.]
+    #[arg(long, num_args=0..=1, value_name="MODE|WIDTHxHEIGHT", default_missing_value = "smart", value_parser = Resize::from_str)]
+    pub resize: Option<Resize>,
+
+    /// Try to enforce floating (NEXTRELEASE).
+    /// Mileage may vary depending on compositor.
     #[arg(long)]
-    pub fullscreen: bool,
+    pub floating_hack: bool,
 
     /// Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format
     /// specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>.
@@ -138,6 +153,40 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,
     // ---
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
+#[value(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum Fullscreen {
+    All,
+    CurrentScreen,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "kebab-case", tag = "mode")]
+pub enum Resize {
+    Size { width: i32, height: i32 },
+    Smart,
+}
+
+impl FromStr for Resize {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim().to_lowercase();
+        match s.as_str() {
+            "smart" => Ok(Resize::Smart),
+            _ => {
+                let (w, h) = s.split_once('x').ok_or("Expected size=WxH")?;
+                let w: i32 = w.parse().map_err(|_| "Invalid width".to_string())?;
+                let h: i32 = h.parse().map_err(|_| "Invalid height".to_string())?;
+                Ok(Resize::Size {
+                    width: w,
+                    height: h,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]

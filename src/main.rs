@@ -11,11 +11,13 @@ use gtk::prelude::*;
 use relm4::gtk::gdk::Rectangle;
 
 use relm4::{
-    gtk::{self, gdk::DisplayManager, CssProvider, Window},
+    gtk::{self, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel, CssProvider, Window},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp,
 };
 
 use anyhow::{anyhow, Context, Result};
+
+use satty_cli::command_line::{Fullscreen, Resize};
 
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
@@ -83,62 +85,86 @@ impl App {
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
         let scale = APP_CONFIG.read().input_scale();
+        let fullscreen = APP_CONFIG.read().fullscreen();
+        let resize = APP_CONFIG.read().resize();
+        let floating_hack = APP_CONFIG.read().floating_hack();
 
-        let monitor_size = match Self::get_monitor_size(root) {
-            Some(s) => s,
-            None => {
-                root.set_default_size(
-                    (self.image_dimensions.0 as f32 / scale) as i32,
-                    (self.image_dimensions.1 as f32 / scale) as i32,
-                );
-                return;
+        eprintln!(
+            "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
+            fullscreen, resize, floating_hack
+        );
+
+        if fullscreen == Some(Fullscreen::All) {
+            if let Some(surface) = root.surface() {
+                if let Ok(toplevel) = surface.downcast::<Toplevel>() {
+                    toplevel.set_fullscreen_mode(FullscreenMode::AllMonitors);
+                }
             }
-        };
-
-        let reduced_monitor_width = monitor_size.width() as f64 * 0.8;
-        let reduced_monitor_height = monitor_size.height() as f64 * 0.8;
-
-        let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
-        let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
-
-        // create a window that uses 80% of the available space max
-        // if necessary, scale down image
-        if reduced_monitor_width > image_width && reduced_monitor_height > image_height {
-            // set window to exact size
-            root.set_default_size(image_width as i32, image_height as i32);
-        } else {
-            // scale down and use windowed mode
-            let aspect_ratio = image_width / image_height;
-
-            // resize
-            let mut new_width = reduced_monitor_width;
-            let mut new_height = new_width / aspect_ratio;
-
-            // if new_height is still bigger than monitor height, then scale on monitor height
-            if new_height > reduced_monitor_height {
-                new_height = reduced_monitor_height;
-                new_width = new_height * aspect_ratio;
-            }
-
-            root.set_default_size(new_width as i32, new_height as i32);
         }
 
-        root.set_resizable(false);
+        if resize == Some(Resize::Smart) {
+            let monitor_size = match Self::get_monitor_size(root) {
+                Some(s) => s,
+                None => {
+                    root.set_default_size((self.image_dimensions.0 as f32 / scale) as i32, (self.image_dimensions.1 as f32 / scale) as i32);
+                    return;
+                }
+            };
 
-        if APP_CONFIG.read().fullscreen() {
-            root.fullscreen();
+            let reduced_monitor_width = monitor_size.width() as f64 * 0.8;
+            let reduced_monitor_height = monitor_size.height() as f64 * 0.8;
+
+            let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
+            let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
+
+            // create a window that uses 80% of the available space max
+            // if necessary, scale down image
+            if reduced_monitor_width > image_width && reduced_monitor_height > image_height {
+                // set window to exact size
+                root.set_default_size(image_width as i32, image_height as i32);
+            } else {
+                // scale down and use windowed mode
+                let aspect_ratio = image_width / image_height;
+
+                // resize
+                let mut new_width = reduced_monitor_width;
+                let mut new_height = new_width / aspect_ratio;
+
+                // if new_height is still bigger than monitor height, then scale on monitor height
+                if new_height > reduced_monitor_height {
+                    new_height = reduced_monitor_height;
+                    new_width = new_height * aspect_ratio;
+                }
+
+                root.set_default_size(new_width as i32, new_height as i32);
+            }
+        } else if let Some(Resize::Size { width, height }) = resize {
+            root.set_default_size(width, height);
         }
 
-        // this is a horrible hack to let sway recognize the window as "not resizable" and
-        // place it floating mode. We then re-enable resizing to let if fit fullscreen (if requested)
-        sender.command(|out, shutdown| {
-            shutdown
-                .register(async move {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                    out.emit(AppCommandOutput::ResetResizable);
-                })
-                .drop_on_shutdown()
-        });
+        if floating_hack {
+            root.set_resizable(false);
+        }
+
+        match fullscreen {
+            Some(Fullscreen::All) | Some(Fullscreen::CurrentScreen) => {
+                root.fullscreen();
+            }
+            _ => {}
+        }
+
+        if floating_hack {
+            // this is a horrible hack to let sway recognize the window as "not resizable" and
+            // place it floating mode. We then re-enable resizing to let if fit fullscreen (if requested)
+            sender.command(|out, shutdown| {
+                shutdown
+                    .register(async move {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        out.emit(AppCommandOutput::ResetResizable);
+                    })
+                    .drop_on_shutdown()
+            });
+        }
     }
 
     fn apply_style() {

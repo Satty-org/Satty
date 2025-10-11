@@ -1395,6 +1395,7 @@ name = "satty_cli"
 version = "0.20.0"
 dependencies = [
  "clap",
+ "serde",
 ]
 
 [[package]]

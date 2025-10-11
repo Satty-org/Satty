@@ -94,6 +94,15 @@ Default single-key shortcuts:
 [general]
 # Start Satty in fullscreen mode
 fullscreen = true
+#fullscreen = false
+# since NEXTRELEASE, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
+#fullscreen = "all"
+#fullscreen = "current-screen"
+# resize initially (NEXTRELEASE)
+#resize = { mode="smart" }
+resize = { mode = "size", width=2000, height=800 }
+# try to have the window float (NEXTRELEASE). This may depend on the compositor.
+floating-hack = true
 # Exit directly after copy/save action. NEXTRELEASE: Does not apply to save as
 early-exit = true
 # Exit directly after save as (NEXTRELEASE)
@@ -221,8 +230,12 @@ Options:
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
-      --fullscreen
-          Start Satty in fullscreen mode
+      --fullscreen [<FULLSCREEN>]
+          Start Satty in fullscreen mode. Since NEXTRELEASE, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
+      --resize [<MODE|WIDTHxHEIGHT>]
+          Resize to coordinates or use smart mode (NEXTRELEASE). --resize without parameter is equivalent to --resize smart [possible values: smart, WxH.]
+      --floating-hack
+          Try to enforce floating (NEXTRELEASE). Mileage may vary depending on compositor
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
       --early-exit
