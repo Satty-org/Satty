@@ -13,10 +13,11 @@ use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
 use crate::{
-    command_line::{Action as CommandLineAction, CommandLine},
     style::Color,
     tools::{Highlighters, Tools},
 };
+
+use satty_cli::command_line::{Action as CommandLineAction, CommandLine};
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
 

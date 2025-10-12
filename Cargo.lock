@@ -1381,12 +1381,20 @@ dependencies = [
  "relm4-icons",
  "relm4-icons-build",
  "resource",
+ "satty_cli",
  "serde",
  "serde_derive",
  "thiserror",
  "tokio",
  "toml 0.9.8",
  "xdg",
+]
+
+[[package]]
+name = "satty_cli"
+version = "0.20.0"
+dependencies = [
+ "clap",
 ]
 
 [[package]]

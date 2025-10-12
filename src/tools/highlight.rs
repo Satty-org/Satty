@@ -7,13 +7,14 @@ use relm4::gtk::gdk::{Key, ModifierType};
 use serde_derive::Deserialize;
 
 use crate::{
-    command_line,
     configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
     tools::DrawableClone,
 };
+
+use satty_cli::command_line;
 
 use super::{Drawable, Tool, ToolUpdateResult, Tools};
 
