@@ -239,6 +239,7 @@ pub struct SketchBoard {
     tools: ToolsManager,
     style: Style,
     im_context: gtk::IMMulticontext,
+    last_saved_filepath: RefCell<Option<String>>,
 }
 
 impl SketchBoard {
@@ -292,6 +293,12 @@ impl SketchBoard {
         let mut early_exit = false;
         while let Some(action) = iter.next() {
             match action {
+                //TODO
+                Action::CopyFilepathToClipboard => {
+                    if let Some(ref pix_buf) = pix_buf {
+                        self.handle_copy_filepath(pix_buf);
+                    }
+                }
                 Action::SaveToClipboard => {
                     if let Some(ref pix_buf) = pix_buf {
                         self.handle_copy_clipboard(pix_buf);
@@ -427,10 +434,14 @@ impl SketchBoard {
                 &format!("Error while saving file: {e}"),
                 !APP_CONFIG.read().disable_notifications(),
             ),
-            Ok(_) => log_result(
-                &format!("File saved to '{}'.", &output_filename),
-                !APP_CONFIG.read().disable_notifications(),
-            ),
+            Ok(_) => {
+                // Store the filepath for copy-filepath action
+                *self.last_saved_filepath.borrow_mut() = Some(output_filename.clone());
+                log_result(
+                    &format!("File saved to '{}'.", &output_filename),
+                    !APP_CONFIG.read().disable_notifications(),
+                )
+            }
         };
     }
 
@@ -563,6 +574,75 @@ impl SketchBoard {
                     self.handle_save(image);
                 };
             }
+        }
+    }
+
+    fn copy_text_to_clipboard(&self, text: &str) -> anyhow::Result<()> {
+        let display = DisplayManager::get()
+            .default_display()
+            .ok_or(anyhow!("Cannot open default display for clipboard."))?;
+        display.clipboard().set_text(text);
+        Ok(())
+    }
+
+    fn copy_text_to_external_process(&self, text: &str, command: &str) -> anyhow::Result<()> {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()?;
+
+        let child_stdin = child.stdin.as_mut().unwrap();
+        child_stdin.write_all(text.as_bytes())?;
+
+        if !child.wait()?.success() {
+            return Err(anyhow!("Writing to process '{command}' failed."));
+        }
+
+        Ok(())
+    }
+
+    fn handle_copy_filepath(&self, image: &Pixbuf) {
+        // Check if we have a saved filepath
+        let filepath = self.last_saved_filepath.borrow().clone();
+
+        // If no filepath exists, save the file first
+        let filepath = match filepath {
+            Some(path) => path,
+            None => {
+                // Save the file first
+                self.handle_save(image);
+                // Get the filepath that was just saved
+                match self.last_saved_filepath.borrow().clone() {
+                    Some(path) => path,
+                    None => {
+                        log_result(
+                            "Could not save file, cannot copy filepath.",
+                            !APP_CONFIG.read().disable_notifications(),
+                        );
+                        return;
+                    }
+                }
+            }
+        };
+
+        // Copy the filepath to clipboard
+        let result = if let Some(command) = APP_CONFIG.read().copy_command() {
+            self.copy_text_to_external_process(&filepath, command)
+        } else {
+            self.copy_text_to_clipboard(&filepath)
+        };
+
+        match result {
+            Err(e) => log_result(
+                &format!("Error copying filepath: {e}"),
+                !APP_CONFIG.read().disable_notifications(),
+            ),
+            Ok(()) => log_result(
+                &format!("Filepath copied to clipboard: {}", filepath),
+                !APP_CONFIG.read().disable_notifications(),
+            ),
         }
     }
 
@@ -963,6 +1043,13 @@ impl Component for SketchBoard {
                             {
                                 self.renderer.request_render(&[Action::SaveToClipboard]);
                                 ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
+                                && ke.modifier
+                                    == (ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
+                            {
+                                self.renderer
+                                    .request_render(&[Action::CopyFilepathToClipboard]);
+                                ToolUpdateResult::Unmodified
                             } else if (ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
                                 || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
                                 || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
@@ -1085,6 +1172,7 @@ impl Component for SketchBoard {
             style: Style::default(),
             tools,
             im_context,
+            last_saved_filepath: RefCell::new(None),
         };
 
         let area = &mut model.renderer;
