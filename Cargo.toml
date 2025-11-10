@@ -39,7 +39,7 @@ chrono = "0.4.42"
 
 # opengl rendering backend
 femtovg = "0.19"
-libloading = "0.8"
+libloading = "0.9"
 epoxy = "0.1.0"
 glow = "0.16.0"
 glib-macros = "0.21.4"
