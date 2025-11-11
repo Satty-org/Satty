@@ -133,6 +133,10 @@ pub struct CommandLine {
     /// defaults to 50.0
     #[arg(long)]
     pub text_move_length: Option<f32>,
+
+    /// Scale the default window size to fit different displays.
+    #[arg(long)]
+    pub monitor_scale: Option<f32>,
     // ---
 }
 

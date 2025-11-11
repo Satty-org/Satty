@@ -82,10 +82,12 @@ impl App {
     }
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
+        let scale = APP_CONFIG.read().monitor_scale();
+
         let monitor_size = match Self::get_monitor_size(root) {
             Some(s) => s,
             None => {
-                root.set_default_size(self.image_dimensions.0, self.image_dimensions.1);
+                root.set_default_size((self.image_dimensions.0 as f32 / scale) as i32, (self.image_dimensions.1 as f32 / scale) as i32);
                 return;
             }
         };
@@ -93,14 +95,14 @@ impl App {
         let reduced_monitor_width = monitor_size.width() as f64 * 0.8;
         let reduced_monitor_height = monitor_size.height() as f64 * 0.8;
 
-        let image_width = self.image_dimensions.0 as f64;
-        let image_height = self.image_dimensions.1 as f64;
+        let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
+        let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
 
         // create a window that uses 80% of the available space max
         // if necessary, scale down image
         if reduced_monitor_width > image_width && reduced_monitor_height > image_height {
             // set window to exact size
-            root.set_default_size(self.image_dimensions.0, self.image_dimensions.1);
+            root.set_default_size(image_width as i32, image_height as i32);
         } else {
             // scale down and use windowed mode
             let aspect_ratio = image_width / image_height;
