@@ -56,6 +56,7 @@ pub struct Configuration {
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
     keybinds: Keybinds,
+    monitor_scale: f32,
 }
 
 pub struct Keybinds {
@@ -279,6 +280,9 @@ impl Configuration {
         if let Some(v) = general.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
         }
+        if let Some(v) = general.monitor_scale {
+            self.monitor_scale = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy {
@@ -378,6 +382,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
+        }
+        if let Some(v) = command_line.monitor_scale {
+            self.monitor_scale = v;
         }
 
         // --- deprecated options ---
@@ -486,6 +493,10 @@ impl Configuration {
     pub fn keybinds(&self) -> &Keybinds {
         &self.keybinds
     }
+
+    pub fn monitor_scale(&self) -> f32 {
+        self.monitor_scale
+    }
 }
 
 impl Default for Configuration {
@@ -514,6 +525,7 @@ impl Default for Configuration {
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: Keybinds::default(),
+            monitor_scale: 1.0,
         }
     }
 }
@@ -586,6 +598,7 @@ struct ConfigurationFileGeneral {
     disable_notifications: Option<bool>,
     no_window_decoration: Option<bool>,
     brush_smooth_history_size: Option<usize>,
+    monitor_scale: Option<f32>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,

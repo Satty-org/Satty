@@ -113,6 +113,10 @@ pub struct CommandLine {
     /// Preferably use the `actions_on_enter` option instead.
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,
+
+    /// Scale the default window size to fit different displays.
+    #[arg(long)]
+    pub monitor_scale: Option<f32>,
     // ---
 }
 
