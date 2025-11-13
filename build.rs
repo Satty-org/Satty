@@ -51,6 +51,8 @@ fn main() -> Result<(), io::Error> {
             "rectangle-landscape-regular",
             "paint-bucket-filled",
             "paint-bucket-regular",
+            "page-fit-regular",
+            "resize-large-regular",
         ],
     );
 

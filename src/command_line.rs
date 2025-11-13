@@ -113,6 +113,17 @@ pub struct CommandLine {
     /// Preferably use the `actions_on_enter` option instead.
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,
+
+    /// Experimental feature (NEXTRELEASE): The zoom factor to use for the image.
+    /// 1.0 means no zoom.
+    /// defaults to 1.1
+    #[arg(long)]
+    pub zoom_factor: Option<f32>,
+
+    /// Experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys.
+    /// defaults to 50.0
+    #[arg(long)]
+    pub pan_step_size: Option<f32>,
     // ---
 }
 

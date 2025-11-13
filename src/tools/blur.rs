@@ -8,7 +8,7 @@ use relm4::gtk::gdk::Key;
 use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
-    sketch_board::{MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
 };
 
@@ -167,6 +167,10 @@ impl Tool for BlurTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 // start new
                 self.blur = Some(Blur {
                     top_left: event.pos,
@@ -179,6 +183,10 @@ impl Tool for BlurTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(a) = &mut self.blur {
                     if event.pos == Vec2D::zero() {
                         self.blur = None;
@@ -198,6 +206,10 @@ impl Tool for BlurTool {
                 }
             }
             MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(a) = &mut self.blur {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;

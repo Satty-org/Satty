@@ -4,7 +4,7 @@ use relm4::gtk::gdk::{Key, ModifierType};
 
 use crate::{
     math::Vec2D,
-    sketch_board::{MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
 };
 
@@ -121,6 +121,10 @@ impl Tool for EllipseTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 // start new
                 self.ellipse = Some(Ellipse {
                     origin: event.pos,
@@ -134,6 +138,10 @@ impl Tool for EllipseTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(ellipse) = &mut self.ellipse {
                     ellipse.finishing = true;
                     if event.pos == Vec2D::zero() {
@@ -151,6 +159,10 @@ impl Tool for EllipseTool {
                 }
             }
             MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(ellipse) = &mut self.ellipse {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;

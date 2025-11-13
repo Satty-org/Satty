@@ -2,7 +2,7 @@ use std::f32::consts::PI;
 
 use crate::{
     math::{self, Vec2D},
-    sketch_board::{KeyEventMsg, MouseEventMsg, MouseEventType},
+    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType},
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
@@ -390,9 +390,24 @@ impl Tool for CropTool {
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
-            MouseEventType::BeginDrag => self.begin_drag(event.pos),
-            MouseEventType::EndDrag => self.end_drag(event.pos),
-            MouseEventType::UpdateDrag => self.update_drag(event.pos),
+            MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+                self.begin_drag(event.pos)
+            }
+            MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+                self.end_drag(event.pos)
+            }
+            MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+                self.update_drag(event.pos)
+            }
             _ => ToolUpdateResult::Unmodified,
         }
     }

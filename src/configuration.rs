@@ -56,6 +56,8 @@ pub struct Configuration {
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
     keybinds: Keybinds,
+    zoom_factor: f32,
+    pan_step_size: f32,
 }
 
 pub struct Keybinds {
@@ -279,6 +281,12 @@ impl Configuration {
         if let Some(v) = general.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
         }
+        if let Some(v) = general.zoom_factor {
+            self.zoom_factor = v;
+        }
+        if let Some(v) = general.pan_step_size {
+            self.pan_step_size = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy {
@@ -378,6 +386,12 @@ impl Configuration {
         }
         if let Some(v) = command_line.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
+        }
+        if let Some(v) = command_line.zoom_factor {
+            self.zoom_factor = v;
+        }
+        if let Some(v) = command_line.pan_step_size {
+            self.pan_step_size = v;
         }
 
         // --- deprecated options ---
@@ -486,6 +500,14 @@ impl Configuration {
     pub fn keybinds(&self) -> &Keybinds {
         &self.keybinds
     }
+
+    pub fn zoom_factor(&self) -> f32 {
+        self.zoom_factor
+    }
+
+    pub fn pan_step_size(&self) -> f32 {
+        self.pan_step_size
+    }
 }
 
 impl Default for Configuration {
@@ -514,6 +536,8 @@ impl Default for Configuration {
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: Keybinds::default(),
+            zoom_factor: 1.1,
+            pan_step_size: 50.,
         }
     }
 }
@@ -586,6 +610,8 @@ struct ConfigurationFileGeneral {
     disable_notifications: Option<bool>,
     no_window_decoration: Option<bool>,
     brush_smooth_history_size: Option<usize>,
+    zoom_factor: Option<f32>,
+    pan_step_size: Option<f32>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,
