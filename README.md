@@ -45,6 +45,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - `Ctrl+T`: Toggle toolbars
 - `Ctrl+Y`: Redo
 - `Ctrl+Z`: Undo
+- `Left`/`Right`/`Up`/`Down`: Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
@@ -119,6 +120,11 @@ right-click-copy = false
 no-window-decoration = true
 # experimental feature: adjust history size for brush input smooting (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
+# experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys.
+pan-step-size = 50.0
+# experimental feature (NEXTRELEASE): The zoom factor to use for the image.
+# 1.0 means no zooming.
+zoom-factor = 1.1
 
 # Tool selection keyboard shortcuts (since 0.20.0)
 [keybinds]
@@ -222,6 +228,10 @@ Options:
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
           Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, exit]
+      --zoom-factor <ZOOM_FACTOR>
+          Experimental feature (NEXTRELEASE): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
+      --pan-step-size <PAN_STEP_SIZE>
+          Experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys. defaults to 50.0
   -h, --help
           Print help
   -V, --version
