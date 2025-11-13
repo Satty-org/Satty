@@ -79,6 +79,10 @@ impl Tool for BrushTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
@@ -86,6 +90,10 @@ impl Tool for BrushTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
@@ -98,6 +106,10 @@ impl Tool for BrushTool {
                 ToolUpdateResult::Commit(result)
             }
             MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
@@ -116,6 +128,7 @@ impl Tool for BrushTool {
                 });
                 ToolUpdateResult::Unmodified
             }
+            _ => ToolUpdateResult::Unmodified,
         }
     }
 

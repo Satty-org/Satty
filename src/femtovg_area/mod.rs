@@ -5,7 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 use gdk_pixbuf::{glib::subclass::types::ObjectSubclassIsExt, Pixbuf};
 use gtk::glib;
 use relm4::{
-    gtk::{self, prelude::WidgetExt},
+    gtk::{self, prelude::WidgetExt, subclass::prelude::GLAreaImpl},
     Sender,
 };
 
@@ -93,5 +93,64 @@ impl FemtoVGArea {
     ) {
         self.imp()
             .init(sender, crop_tool, active_tool, background_image);
+    }
+
+    pub fn set_zoom_scale(&self, factor: f32) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_zoom_scale(factor);
+        //trigger resize to recalculate zoom
+        self.imp().resize(0, 0);
+    }
+
+    pub fn set_pointer_offset(&self, offset: Vec2D) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_pointer_offset(offset * self.scale_factor() as f32);
+    }
+
+    pub fn set_drag_offset(&self, offset: Vec2D) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_drag_offset(offset * self.scale_factor() as f32);
+        //trigger resize to recalculate offset
+        self.imp().resize(0, 0);
+    }
+
+    pub fn store_last_offset(&self) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .store_last_offset();
+    }
+
+    pub fn set_is_drag(&self, is_drag: bool) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_is_drag(is_drag);
+    }
+
+    pub fn reset_size(&self, factor: f32) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_zoom_scale(factor);
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .reset_drag_offset();
+        //trigger resize to reset
+        self.imp().resize(0, 0);
     }
 }

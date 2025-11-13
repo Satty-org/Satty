@@ -4,7 +4,7 @@ use relm4::gtk::gdk::{Key, ModifierType};
 
 use crate::{
     math::{Angle, Vec2D},
-    sketch_board::{MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
 };
 
@@ -40,6 +40,10 @@ impl Tool for ArrowTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 // start new
                 self.arrow = Some(Arrow {
                     start: event.pos,
@@ -50,6 +54,10 @@ impl Tool for ArrowTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(a) = &mut self.arrow {
                     if event.pos == Vec2D::zero() {
                         self.arrow = None;
@@ -71,6 +79,10 @@ impl Tool for ArrowTool {
                 }
             }
             MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(a) = &mut self.arrow {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;

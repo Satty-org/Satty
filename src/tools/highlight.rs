@@ -10,7 +10,7 @@ use crate::{
     command_line,
     configuration::APP_CONFIG,
     math::{self, Vec2D},
-    sketch_board::{MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
     tools::DrawableClone,
 };
@@ -169,6 +169,9 @@ impl Tool for HighlightTool {
         let primary_highlighter = APP_CONFIG.read().primary_highlighter();
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
                 // There exists two types of highlighting modes currently: freehand, block
                 // A user may set a primary highlighter mode, with the other being accessible
                 // by clicking CTRL when starting a highlight (doesn't need to be held).
@@ -204,6 +207,10 @@ impl Tool for HighlightTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::UpdateDrag | MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if self.highlighter.is_none() {
                     return ToolUpdateResult::Unmodified;
                 }

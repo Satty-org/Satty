@@ -82,6 +82,8 @@ pub enum MouseEventType {
     EndDrag,
     UpdateDrag,
     Click,
+    Scroll,
+    PointerPos,
     //Motion(Vec2D),
 }
 
@@ -122,6 +124,15 @@ impl SketchBoardInput {
     pub fn new_commit_event(event: TextEventMsg) -> SketchBoardInput {
         SketchBoardInput::CommitEvent(event)
     }
+
+    pub fn new_scroll_event(delta_y: f64) -> SketchBoardInput {
+        SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
+            type_: MouseEventType::Scroll,
+            button: MouseButton::Middle,
+            modifier: ModifierType::empty(),
+            pos: Vec2D::new(0.0, delta_y as f32),
+        }))
+    }
 }
 
 impl From<u32> for MouseButton {
@@ -153,7 +164,31 @@ impl InputEvent {
                     None
                 }
                 MouseEventType::EndDrag | MouseEventType::UpdateDrag => {
-                    me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
+                    if me.button == MouseButton::Middle {
+                        renderer.set_drag_offset(me.pos);
+                        renderer.set_is_drag(true);
+
+                        if me.type_ == MouseEventType::EndDrag {
+                            renderer.store_last_offset();
+                            renderer.set_is_drag(false);
+                        }
+                        renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
+                    } else {
+                        me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
+                    }
+                    None
+                }
+                MouseEventType::Scroll => {
+                    match me.pos.y {
+                        v if v < 0.0 => renderer.set_zoom_scale(1.1f32),
+                        v if v > 0.0 => renderer.set_zoom_scale(1f32 / 1.1f32),
+                        _ => {}
+                    }
+                    renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
+                    None
+                }
+                MouseEventType::PointerPos => {
+                    renderer.set_pointer_offset(me.pos);
                     None
                 }
             }
@@ -474,6 +509,20 @@ impl SketchBoard {
         }
     }
 
+    fn handle_resize(&mut self) -> ToolUpdateResult {
+        self.renderer.reset_size(0.);
+        self.renderer
+            .request_render(&APP_CONFIG.read().actions_on_right_click());
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_original_scale(&mut self) -> ToolUpdateResult {
+        self.renderer.reset_size(1.);
+        self.renderer
+            .request_render(&APP_CONFIG.read().actions_on_right_click());
+        ToolUpdateResult::Unmodified
+    }
+
     // Toolbars = Tools Toolbar + Style Toolbar
     fn handle_toggle_toolbars_display(
         &mut self,
@@ -558,6 +607,8 @@ impl SketchBoard {
                     .handle_event(ToolEvent::StyleChanged(self.style))
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
+            ToolbarEvent::Resize => self.handle_resize(),
+            ToolbarEvent::OriginalScale => self.handle_original_scale(),
         }
     }
 
@@ -669,6 +720,16 @@ impl Component for SketchBoard {
                             ));
                         }
                 },
+
+                add_controller = gtk::EventControllerScroll{
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
+                    connect_scroll[sender] => move |_, _, dy| {
+
+                        sender.input(SketchBoardInput::new_scroll_event(dy));
+                        glib::Propagation::Stop
+                    },
+                },
+
                 add_controller = gtk::GestureClick {
                     set_button: 0,
                     connect_pressed[sender] => move |controller, _, x, y| {
@@ -704,6 +765,17 @@ impl Component for SketchBoard {
                         }
                     },
                     set_im_context: Some(&model.im_context),
+                },
+
+                add_controller = gtk::EventControllerMotion {
+                    connect_motion[sender] => move |controller, x, y| {
+                        sender.input(SketchBoardInput::new_mouse_event(
+                            MouseEventType::PointerPos,
+                            0,
+                            controller.current_event_state(),
+                            Vec2D::new(x as f32, y as f32)
+                        ));
+                    }
                 }
             }
         },

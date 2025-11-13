@@ -4,7 +4,7 @@ use relm4::gtk::gdk::{Key, ModifierType};
 
 use crate::{
     math::Vec2D,
-    sketch_board::{MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
 };
 
@@ -62,6 +62,10 @@ impl Tool for LineTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 // start new
                 self.line = Some(Line {
                     start: event.pos,
@@ -72,6 +76,10 @@ impl Tool for LineTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(a) = &mut self.line {
                     if event.pos == Vec2D::zero() {
                         self.line = None;
@@ -93,6 +101,10 @@ impl Tool for LineTool {
                 }
             }
             MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(r) = &mut self.line {
                     if event.modifier.intersects(ModifierType::SHIFT_MASK) {
                         r.direction = Some(event.pos.snapped_vector_15deg());

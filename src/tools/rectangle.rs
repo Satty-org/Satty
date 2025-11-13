@@ -5,7 +5,7 @@ use relm4::gtk::gdk::{Key, ModifierType};
 use crate::{
     configuration::APP_CONFIG,
     math::Vec2D,
-    sketch_board::{MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
     style::Style,
 };
 
@@ -116,6 +116,9 @@ impl Tool for RectangleTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
                 // start new
                 self.rectangle = Some(Rectangle {
                     origin: event.pos,
@@ -129,6 +132,10 @@ impl Tool for RectangleTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(rectangle) = &mut self.rectangle {
                     rectangle.finishing = true;
                     if event.pos == Vec2D::zero() {
@@ -146,6 +153,10 @@ impl Tool for RectangleTool {
                 }
             }
             MouseEventType::UpdateDrag => {
+                if event.button == MouseButton::Middle {
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 if let Some(rectangle) = &mut self.rectangle {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;

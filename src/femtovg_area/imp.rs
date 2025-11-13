@@ -44,6 +44,13 @@ pub struct FemtoVgAreaMut {
     offset: Vec2D,
     drawables: Vec<Box<dyn Drawable>>,
     redo_stack: Vec<Box<dyn Drawable>>,
+    zoom_scale: f32,
+    last_scale: f32,
+    pointer_offset: Vec2D,
+    last_offset: Vec2D,
+    drag_offset: Vec2D,
+    is_drag: bool,
+    is_reset: bool,
 }
 
 #[glib::object_subclass]
@@ -80,9 +87,12 @@ impl GLAreaImpl for FemtoVGArea {
         let mut bc = self.canvas.borrow_mut();
         let canvas = bc.as_mut().unwrap(); // this unwrap is safe as long as we call "ensure_canvas" before
 
+        let w = canvas.width();
+        let h = canvas.height();
+
         canvas.set_size(
-            width as u32,
-            height as u32,
+            if width == 0 { w } else { width as u32 },
+            if height == 0 { h } else { height as u32 },
             self.obj().scale_factor() as f32,
         );
 
@@ -154,6 +164,13 @@ impl FemtoVGArea {
             offset: Vec2D::zero(),
             drawables: Vec::new(),
             redo_stack: Vec::new(),
+            zoom_scale: 0.0,
+            pointer_offset: Vec2D::zero(),
+            last_offset: Vec2D::zero(),
+            drag_offset: Vec2D::zero(),
+            last_scale: 0.0,
+            is_drag: false,
+            is_reset: false,
         });
         self.sender.borrow_mut().replace(sender);
     }
@@ -516,7 +533,6 @@ impl FemtoVgAreaMut {
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
     ) {
-        // calculate scale
         let image_width = self.background_image.width() as f32;
         let image_height = self.background_image.height() as f32;
         let aspect_ratio = image_width / image_height;
@@ -524,19 +540,61 @@ impl FemtoVgAreaMut {
         let canvas_width = canvas.width() as f32;
         let canvas_height = canvas.height() as f32;
 
-        self.scale_factor = if canvas_width / aspect_ratio <= canvas_height {
-            canvas_width / aspect_ratio / image_height
-        } else {
-            canvas_height * aspect_ratio / image_width
-        };
+        let prev_scale = self.scale_factor;
+        let mut center_offset = Vec2D::zero();
 
-        // calculate offset
-        self.offset = Vec2D::new(
-            (canvas.width() as f32 - self.background_image.width() as f32 * self.scale_factor)
-                / 2.0,
-            (canvas.height() as f32 - self.background_image.height() as f32 * self.scale_factor)
-                / 2.0,
-        );
+        // update scale_factor
+        if self.zoom_scale != 0.0 {
+            if self.zoom_scale != self.last_scale {
+                self.last_scale = self.zoom_scale;
+                self.scale_factor = self.zoom_scale;
+
+                if !self.is_reset {
+                    // calculate offset from pointer
+                    let pointer_offset = self.pointer_offset;
+                    let zoom_offset = Vec2D::new(
+                        (pointer_offset.x - self.offset.x) / prev_scale,
+                        (pointer_offset.y - self.offset.y) / prev_scale,
+                    );
+
+                    let calculated_offset = pointer_offset - zoom_offset * self.scale_factor;
+
+                    // update drag_offset
+                    center_offset = Vec2D::new(
+                        (canvas_width - image_width * self.scale_factor) / 2.0,
+                        (canvas_height - image_height * self.scale_factor) / 2.0,
+                    );
+
+                    self.drag_offset = calculated_offset - center_offset;
+                    self.store_last_offset();
+                }
+            } else {
+                self.scale_factor = self.zoom_scale;
+            }
+        } else {
+            self.scale_factor = if canvas_width / aspect_ratio <= canvas_height {
+                canvas_width / aspect_ratio / image_height
+            } else {
+                canvas_height * aspect_ratio / image_width
+            };
+        }
+
+        // final offset
+        if center_offset.is_zero() {
+            center_offset = Vec2D::new(
+                (canvas_width - image_width * self.scale_factor) / 2.0,
+                (canvas_height - image_height * self.scale_factor) / 2.0,
+            );
+        }
+
+        if self.is_reset {
+            //centered
+            self.is_reset = false;
+            self.offset = center_offset;
+        } else {
+            //dragged
+            self.offset = center_offset + self.drag_offset;
+        }
     }
 
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
@@ -550,5 +608,44 @@ impl FemtoVgAreaMut {
             input.x * dpi_scale_factor / self.scale_factor,
             input.y * dpi_scale_factor / self.scale_factor,
         )
+    }
+
+    pub fn set_zoom_scale(&mut self, factor: f32) {
+        if self.is_drag {
+            return;
+        }
+
+        if factor == 1. || factor == 0. {
+            self.zoom_scale = factor;
+        } else {
+            if self.zoom_scale == 0.0 {
+                self.zoom_scale = self.scale_factor;
+            }
+
+            self.zoom_scale *= factor;
+            self.zoom_scale = self.zoom_scale.max(0.);
+        }
+    }
+
+    pub fn set_pointer_offset(&mut self, offset: Vec2D) {
+        self.pointer_offset = offset;
+    }
+
+    pub fn set_drag_offset(&mut self, offset: Vec2D) {
+        self.drag_offset = self.last_offset + offset;
+    }
+
+    pub fn reset_drag_offset(&mut self) {
+        self.drag_offset = Vec2D::zero();
+        self.store_last_offset();
+        self.is_reset = true;
+    }
+
+    pub fn store_last_offset(&mut self) {
+        self.last_offset = self.drag_offset;
+    }
+
+    pub fn set_is_drag(&mut self, is_drag: bool) {
+        self.is_drag = is_drag;
     }
 }
