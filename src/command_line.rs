@@ -119,6 +119,11 @@ pub struct CommandLine {
     /// defaults to 1.1
     #[arg(long)]
     pub zoom_factor: Option<f32>,
+
+    /// The pan step size to use when panning with arrow keys.
+    /// defaults to 50.0
+    #[arg(long)]
+    pub pan_step_size: Option<f32>,
     // ---
 }
 

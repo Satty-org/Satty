@@ -813,6 +813,32 @@ impl Component for SketchBoard {
                     {
                         self.renderer.request_render(&[Action::SaveToClipboard]);
                         ToolUpdateResult::Unmodified
+                    } else if ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
+                        || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
+                        || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
+                        || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown)
+                    {
+                        let pan_step_size = APP_CONFIG.read().pan_step_size();
+                        match ke.key {
+                            Key::Left => self
+                                .renderer
+                                .set_drag_offset(Vec2D::new(-pan_step_size, 0.)),
+                            Key::Right => {
+                                self.renderer.set_drag_offset(Vec2D::new(pan_step_size, 0.))
+                            }
+                            Key::Up => self
+                                .renderer
+                                .set_drag_offset(Vec2D::new(0., -pan_step_size)),
+                            Key::Down => {
+                                self.renderer.set_drag_offset(Vec2D::new(0., pan_step_size))
+                            }
+                            _ => { /* unreachable */ }
+                        }
+
+                        self.renderer.store_last_offset();
+                        self.renderer
+                            .request_render(&APP_CONFIG.read().actions_on_right_click());
+                        ToolUpdateResult::Unmodified
                     } else if ke.modifier.is_empty()
                         && (ke.key == Key::Escape
                             || ke.key == Key::Return
