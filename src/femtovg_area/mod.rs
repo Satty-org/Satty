@@ -100,7 +100,7 @@ impl FemtoVGArea {
             .inner()
             .as_mut()
             .expect("Did you call init before using FemtoVgArea?")
-            .set_zoom_scale(factor);
+            .set_zoom_scale(factor, false);
         //trigger resize to recalculate zoom
         self.imp().resize(0, 0);
     }
@@ -144,7 +144,7 @@ impl FemtoVGArea {
             .inner()
             .as_mut()
             .expect("Did you call init before using FemtoVgArea?")
-            .set_zoom_scale(factor);
+            .set_zoom_scale(factor, true);
         self.imp()
             .inner()
             .as_mut()

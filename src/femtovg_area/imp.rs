@@ -610,12 +610,12 @@ impl FemtoVgAreaMut {
         )
     }
 
-    pub fn set_zoom_scale(&mut self, factor: f32) {
+    pub fn set_zoom_scale(&mut self, factor: f32, abs: bool) {
         if self.is_drag {
             return;
         }
 
-        if factor == 1. || factor == 0. {
+        if abs {
             self.zoom_scale = factor;
         } else {
             if self.zoom_scale == 0.0 {

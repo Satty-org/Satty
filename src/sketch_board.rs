@@ -179,9 +179,10 @@ impl InputEvent {
                     None
                 }
                 MouseEventType::Scroll => {
+                    let factor = APP_CONFIG.read().zoom_factor();
                     match me.pos.y {
-                        v if v < 0.0 => renderer.set_zoom_scale(1.1f32),
-                        v if v > 0.0 => renderer.set_zoom_scale(1f32 / 1.1f32),
+                        v if v < 0.0 => renderer.set_zoom_scale(factor),
+                        v if v > 0.0 => renderer.set_zoom_scale(1f32 / factor),
                         _ => {}
                     }
                     renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
@@ -721,15 +722,6 @@ impl Component for SketchBoard {
                         }
                 },
 
-                add_controller = gtk::EventControllerScroll{
-                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
-                    connect_scroll[sender] => move |_, _, dy| {
-
-                        sender.input(SketchBoardInput::new_scroll_event(dy));
-                        glib::Propagation::Stop
-                    },
-                },
-
                 add_controller = gtk::GestureClick {
                     set_button: 0,
                     connect_pressed[sender] => move |controller, _, x, y| {
@@ -739,6 +731,14 @@ impl Component for SketchBoard {
                             controller.current_event_state(),
                             Vec2D::new(x as f32, y as f32)));
                     }
+                },
+
+                add_controller = gtk::EventControllerScroll{
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
+                    connect_scroll[sender] => move |_, _, dy| {
+                        sender.input(SketchBoardInput::new_scroll_event(dy));
+                        glib::Propagation::Stop
+                    },
                 },
 
                 add_controller = gtk::EventControllerKey {
