@@ -537,7 +537,7 @@ impl Default for Configuration {
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: Keybinds::default(),
             zoom_factor: 1.1,
-            pan_step_size: 50.
+            pan_step_size: 50.,
         }
     }
 }
