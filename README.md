@@ -45,7 +45,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - `Ctrl+T`: Toggle toolbars
 - `Ctrl+Y`: Redo
 - `Ctrl+Z`: Undo
-- `Left`/`Right`/`Up`/`Down`: Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
+- `Ctrl`+(`Left`/`Right`/`Up`/`Down`): Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
