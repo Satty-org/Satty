@@ -813,10 +813,11 @@ impl Component for SketchBoard {
                     {
                         self.renderer.request_render(&[Action::SaveToClipboard]);
                         ToolUpdateResult::Unmodified
-                    } else if ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
+                    } else if (ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
                         || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
                         || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
-                        || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown)
+                        || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown))
+                        && ke.modifier == ModifierType::CONTROL_MASK
                     {
                         let pan_step_size = APP_CONFIG.read().pan_step_size();
                         match ke.key {
