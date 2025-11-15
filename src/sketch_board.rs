@@ -817,7 +817,7 @@ impl Component for SketchBoard {
                         || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
                         || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
                         || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown))
-                        && ke.modifier == ModifierType::CONTROL_MASK
+                        && ke.modifier == ModifierType::ALT_MASK
                     {
                         let pan_step_size = APP_CONFIG.read().pan_step_size();
                         match ke.key {
