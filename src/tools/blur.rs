@@ -3,12 +3,12 @@ use std::cell::RefCell;
 use anyhow::Result;
 use femtovg::{imgref::Img, Color, ImageFilter, ImageFlags, ImageId, Paint, Path};
 
-use relm4::gtk::gdk::Key;
+use relm4::{gtk::gdk::Key, Sender};
 
 use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
@@ -149,6 +149,7 @@ pub struct BlurTool {
     blur: Option<Blur>,
     style: Style,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 impl Tool for BlurTool {
@@ -244,5 +245,9 @@ impl Tool for BlurTool {
             Some(d) => Some(d),
             None => None,
         }
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }

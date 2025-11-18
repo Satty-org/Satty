@@ -5,17 +5,19 @@ use femtovg::{FontId, Path};
 use crate::{
     configuration::APP_CONFIG,
     math::Vec2D,
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use relm4::Sender;
 
 #[derive(Default)]
 pub struct BrushTool {
     drawable: Option<BrushDrawable>,
     style: Style,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +144,10 @@ impl Tool for BrushTool {
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
         self.style = style;
         ToolUpdateResult::Unmodified
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }
 

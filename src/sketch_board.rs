@@ -34,6 +34,7 @@ pub enum SketchBoardInput {
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
     CommitEvent(TextEventMsg),
+    Refresh,
 }
 
 #[derive(Debug, Clone)]
@@ -93,18 +94,21 @@ pub struct MouseEventMsg {
     pub button: MouseButton,
     pub modifier: ModifierType,
     pub pos: Vec2D,
+    pub n_pressed: i32,
 }
 
 impl SketchBoardInput {
     pub fn new_mouse_event(
         event_type: MouseEventType,
         button: u32,
+        n_pressed: i32,
         modifier: ModifierType,
         pos: Vec2D,
     ) -> SketchBoardInput {
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: event_type,
             button: button.into(),
+            n_pressed,
             modifier,
             pos,
         }))
@@ -129,6 +133,7 @@ impl SketchBoardInput {
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: MouseEventType::Scroll,
             button: MouseButton::Middle,
+            n_pressed: 0,
             modifier: ModifierType::empty(),
             pos: Vec2D::new(0.0, delta_y as f32),
         }))
@@ -535,7 +540,11 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
-    fn handle_toolbar_event(&mut self, toolbar_event: ToolbarEvent) -> ToolUpdateResult {
+    fn handle_toolbar_event(
+        &mut self,
+        toolbar_event: ToolbarEvent,
+        sender: ComponentSender<Self>,
+    ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
                 // deactivate old tool and save drawable, if any
@@ -561,6 +570,11 @@ impl SketchBoard {
                         im_context: self.im_context.clone(),
                         widget: widget_ref,
                     }));
+
+                // set sender for tool
+                self.active_tool
+                    .borrow_mut()
+                    .set_sender(sender.input_sender().clone());
 
                 // send style event
                 self.active_tool
@@ -701,6 +715,7 @@ impl Component for SketchBoard {
                             sender.input(SketchBoardInput::new_mouse_event(
                                 MouseEventType::BeginDrag,
                                 controller.current_button(),
+                                1,
                                 controller.current_event_state(),
                                 Vec2D::new(x as f32, y as f32)));
 
@@ -709,6 +724,7 @@ impl Component for SketchBoard {
                             sender.input(SketchBoardInput::new_mouse_event(
                                 MouseEventType::UpdateDrag,
                                 controller.current_button(),
+                                1,
                                 controller.current_event_state(),
                                 Vec2D::new(x as f32, y as f32)));
                         },
@@ -716,6 +732,7 @@ impl Component for SketchBoard {
                             sender.input(SketchBoardInput::new_mouse_event(
                                 MouseEventType::EndDrag,
                                 controller.current_button(),
+                                1,
                                 controller.current_event_state(),
                                 Vec2D::new(x as f32, y as f32)
                             ));
@@ -724,13 +741,23 @@ impl Component for SketchBoard {
 
                 add_controller = gtk::GestureClick {
                     set_button: 0,
-                    connect_pressed[sender] => move |controller, _, x, y| {
+                    connect_pressed[sender] => move |controller, n_pressed, x, y| {
                         sender.input(SketchBoardInput::new_mouse_event(
                             MouseEventType::Click,
                             controller.current_button(),
+                            n_pressed,
                             controller.current_event_state(),
                             Vec2D::new(x as f32, y as f32)));
-                    }
+                    },
+
+                },
+
+                add_controller = gtk::EventControllerScroll{
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
+                    connect_scroll[sender] => move |_, _, dy| {
+                        sender.input(SketchBoardInput::new_scroll_event(dy));
+                        glib::Propagation::Stop
+                    },
                 },
 
                 add_controller = gtk::EventControllerScroll{
@@ -771,6 +798,7 @@ impl Component for SketchBoard {
                     connect_motion[sender] => move |controller, x, y| {
                         sender.input(SketchBoardInput::new_mouse_event(
                             MouseEventType::PointerPos,
+                            0,
                             0,
                             controller.current_event_state(),
                             Vec2D::new(x as f32, y as f32)
@@ -873,7 +901,7 @@ impl Component for SketchBoard {
                 }
             }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
-                self.handle_toolbar_event(toolbar_event)
+                self.handle_toolbar_event(toolbar_event, sender)
             }
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action);
@@ -883,9 +911,10 @@ impl Component for SketchBoard {
                 self.handle_text_commit(txt, sender);
                 ToolUpdateResult::Unmodified
             }
+            SketchBoardInput::Refresh => ToolUpdateResult::Redraw,
         };
 
-        //println!("Event={:?} Result={:?}", msg, result);
+        // println!(" Result={:?}", result);
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 self.renderer.commit(drawable);

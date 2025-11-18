@@ -14,13 +14,16 @@ use gdk_pixbuf::{
 };
 
 use glib::variant::FromVariant;
-use relm4::gtk::{self, IMMulticontext};
+use relm4::{
+    gtk::{self, IMMulticontext},
+    Sender,
+};
 use serde_derive::Deserialize;
 
 use crate::{
     command_line,
     math::Vec2D,
-    sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, TextEventMsg},
+    sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, SketchBoardInput, TextEventMsg},
     style::Style,
 };
 
@@ -116,6 +119,8 @@ pub trait Tool {
     fn get_drawable(&self) -> Option<&dyn Drawable>;
 
     fn get_tool_type(&self) -> Tools;
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>);
 }
 
 #[derive(Clone, Debug)]

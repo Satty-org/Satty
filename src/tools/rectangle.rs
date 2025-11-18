@@ -1,11 +1,14 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::gtk::gdk::{Key, ModifierType};
+use relm4::{
+    gtk::gdk::{Key, ModifierType},
+    Sender,
+};
 
 use crate::{
     configuration::APP_CONFIG,
     math::Vec2D,
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
@@ -102,6 +105,7 @@ pub struct RectangleTool {
     rectangle: Option<Rectangle>,
     style: Style,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 impl Tool for RectangleTool {
@@ -194,5 +198,9 @@ impl Tool for RectangleTool {
 
     fn get_tool_type(&self) -> super::Tools {
         Tools::Rectangle
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }

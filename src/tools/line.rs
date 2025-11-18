@@ -1,10 +1,13 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::gtk::gdk::{Key, ModifierType};
+use relm4::{
+    gtk::gdk::{Key, ModifierType},
+    Sender,
+};
 
 use crate::{
     math::Vec2D,
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
@@ -15,6 +18,7 @@ pub struct LineTool {
     line: Option<Line>,
     style: Style,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -143,5 +147,9 @@ impl Tool for LineTool {
 
     fn get_tool_type(&self) -> super::Tools {
         Tools::Line
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }
