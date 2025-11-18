@@ -68,7 +68,18 @@ Default single-key shortcuts:
 - Highlight: Hold `Ctrl` to switch between block and freehand mode (default configurable, see below), hold Shift for a square (if the default mode is block) or a straight line (if the default mode is freehand)
 - Line: Hold `Shift` to make line snap to 15° steps
 - Rectangle: Hold `Alt` to center the rectangle around origin, hold `Shift` for a square
-- Text: Press `Shift+Enter` to insert line break, combine `Ctrl` with `Left` or `Right` for word jump or `Ctrl` with `Backspace` or `Delete` for word delete. Press `Enter` or switch to another tool to accept input, press `Escape` to discard entered text. `Home` and `End` go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). `Ctrl` with `Home`/`End` jumps to start/end of text buffer.
+- Text: 
+    * Press `Shift+Enter` to insert line break.
+    * Combine `Ctrl` with `Left` or `Right` for word jump or `Ctrl` with `Backspace` or `Delete` for word delete. 
+    * Press `Enter` or switch to another tool to accept input, press `Escape` to discard entered text. 
+    * `Home` and `End` go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). `Ctrl` with `Home`/`End` jumps to start/end of text buffer.
+    * `Up` or `Down` to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer).
+    * Combine `Shift` with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor, `Shift+Left` to select characters before cursor, `Ctrl+Shift+Left` to select words before cursor,and so on)
+    * Double-click to select word under cursor.Triple-click to select all text.
+    * `Ctrl+A` to select all text.
+    * `Ctrl+Shift+C` to copy selected text to clipboard.
+    * `Ctrl+X` to cut selected text to clipboard.
+    * `Ctrl+V` to paste text from clipboard.
 
 ### Configuration File
 
