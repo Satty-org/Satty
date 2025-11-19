@@ -156,6 +156,8 @@ pub enum ToolUpdateResult {
     Commit(Box<dyn Drawable>),
     Redraw,
     Unmodified,
+    StopPropagation,
+    RedrawAndStopPropagation,
 }
 
 pub use arrow::ArrowTool;

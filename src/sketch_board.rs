@@ -85,6 +85,7 @@ pub enum MouseEventType {
     Click,
     Scroll,
     PointerPos,
+    Release,
     //Motion(Vec2D),
 }
 
@@ -95,6 +96,7 @@ pub struct MouseEventMsg {
     pub modifier: ModifierType,
     pub pos: Vec2D,
     pub n_pressed: i32,
+    pub release: bool,
 }
 
 impl SketchBoardInput {
@@ -104,6 +106,7 @@ impl SketchBoardInput {
         n_pressed: i32,
         modifier: ModifierType,
         pos: Vec2D,
+        release: bool,
     ) -> SketchBoardInput {
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: event_type,
@@ -111,6 +114,7 @@ impl SketchBoardInput {
             n_pressed,
             modifier,
             pos,
+            release,
         }))
     }
     pub fn new_key_event(event: KeyEventMsg) -> SketchBoardInput {
@@ -136,6 +140,7 @@ impl SketchBoardInput {
             n_pressed: 0,
             modifier: ModifierType::empty(),
             pos: Vec2D::new(0.0, delta_y as f32),
+            release: false,
         }))
     }
 }
@@ -156,17 +161,38 @@ impl InputEvent {
         if let InputEvent::Mouse(me) = self {
             match me.type_ {
                 MouseEventType::Click => {
-                    if me.button == MouseButton::Secondary {
-                        renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
-                        None
-                    } else {
-                        me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
-                        None
-                    }
+                    me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
+                    None
+                }
+                MouseEventType::Release => {
+                    me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
+                    None
                 }
                 MouseEventType::BeginDrag => {
                     me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
                     None
+                }
+                MouseEventType::EndDrag | MouseEventType::UpdateDrag => {
+                    me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
+                    None
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    fn handle_mouse_event(&mut self, renderer: &FemtoVGArea) -> Option<ToolUpdateResult> {
+        if let InputEvent::Mouse(me) = self {
+            match me.type_ {
+                MouseEventType::Click => {
+                    if me.button == MouseButton::Secondary {
+                        renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
+                        None
+                    } else {
+                        None
+                    }
                 }
                 MouseEventType::EndDrag | MouseEventType::UpdateDrag => {
                     if me.button == MouseButton::Middle {
@@ -178,11 +204,10 @@ impl InputEvent {
                             renderer.set_is_drag(false);
                         }
                         renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
-                    } else {
-                        me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
                     }
                     None
                 }
+
                 MouseEventType::Scroll => {
                     let factor = APP_CONFIG.read().zoom_factor();
                     match me.pos.y {
@@ -197,6 +222,7 @@ impl InputEvent {
                     renderer.set_pointer_offset(me.pos);
                     None
                 }
+                _ => None,
             }
         } else {
             None
@@ -717,7 +743,9 @@ impl Component for SketchBoard {
                                 controller.current_button(),
                                 1,
                                 controller.current_event_state(),
-                                Vec2D::new(x as f32, y as f32)));
+                                Vec2D::new(x as f32, y as f32),
+                                false,
+                            ));
 
                         },
                         connect_drag_update[sender] => move |controller, x, y| {
@@ -726,7 +754,9 @@ impl Component for SketchBoard {
                                 controller.current_button(),
                                 1,
                                 controller.current_event_state(),
-                                Vec2D::new(x as f32, y as f32)));
+                                Vec2D::new(x as f32, y as f32),
+                                false,
+                            ));
                         },
                         connect_drag_end[sender] => move |controller, x, y| {
                             sender.input(SketchBoardInput::new_mouse_event(
@@ -734,7 +764,8 @@ impl Component for SketchBoard {
                                 controller.current_button(),
                                 1,
                                 controller.current_event_state(),
-                                Vec2D::new(x as f32, y as f32)
+                                Vec2D::new(x as f32, y as f32),
+                                false
                             ));
                         }
                 },
@@ -747,9 +778,20 @@ impl Component for SketchBoard {
                             controller.current_button(),
                             n_pressed,
                             controller.current_event_state(),
-                            Vec2D::new(x as f32, y as f32)));
+                            Vec2D::new(x as f32, y as f32),
+                            false,
+                        ));
                     },
-
+                    connect_released[sender] => move |controller, n_released, x, y| {
+                        sender.input(SketchBoardInput::new_mouse_event(
+                            MouseEventType::Release,
+                            controller.current_button(),
+                            n_released,
+                            controller.current_event_state(),
+                            Vec2D::new(x as f32, y as f32),
+                            true,
+                        ));
+                    }
                 },
 
                 add_controller = gtk::EventControllerScroll{
@@ -801,7 +843,8 @@ impl Component for SketchBoard {
                             0,
                             0,
                             controller.current_event_state(),
-                            Vec2D::new(x as f32, y as f32)
+                            Vec2D::new(x as f32, y as f32),
+                            false
                         ));
                     }
                 }
@@ -814,90 +857,117 @@ impl Component for SketchBoard {
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
                 if let InputEvent::Key(ke) = ie {
-                    if ke.is_one_of(Key::z, KeyMappingId::UsZ)
-                        && ke.modifier == ModifierType::CONTROL_MASK
-                    {
-                        self.handle_undo()
-                    } else if ke.is_one_of(Key::y, KeyMappingId::UsY)
-                        && ke.modifier == ModifierType::CONTROL_MASK
-                    {
-                        self.handle_redo()
-                    } else if ke.is_one_of(Key::t, KeyMappingId::UsT)
-                        && ke.modifier == ModifierType::CONTROL_MASK
-                    {
-                        self.handle_toggle_toolbars_display(sender)
-                    } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
-                        && ke.modifier == ModifierType::CONTROL_MASK
-                    {
-                        self.renderer.request_render(&[Action::SaveToFile]);
-                        ToolUpdateResult::Unmodified
-                    } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
-                        && ke.modifier == (ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
-                    {
-                        self.renderer.request_render(&[Action::SaveToFileAs]);
-                        ToolUpdateResult::Unmodified
-                    } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
-                        && ke.modifier == ModifierType::CONTROL_MASK
-                    {
-                        self.renderer.request_render(&[Action::SaveToClipboard]);
-                        ToolUpdateResult::Unmodified
-                    } else if (ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
-                        || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
-                        || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
-                        || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown))
-                        && ke.modifier == ModifierType::ALT_MASK
-                    {
-                        let pan_step_size = APP_CONFIG.read().pan_step_size();
-                        match ke.key {
-                            Key::Left => self
-                                .renderer
-                                .set_drag_offset(Vec2D::new(-pan_step_size, 0.)),
-                            Key::Right => {
-                                self.renderer.set_drag_offset(Vec2D::new(pan_step_size, 0.))
-                            }
-                            Key::Up => self
-                                .renderer
-                                .set_drag_offset(Vec2D::new(0., -pan_step_size)),
-                            Key::Down => {
-                                self.renderer.set_drag_offset(Vec2D::new(0., pan_step_size))
-                            }
-                            _ => { /* unreachable */ }
-                        }
+                    let active_tool_result = self
+                        .active_tool
+                        .borrow_mut()
+                        .handle_event(ToolEvent::Input(ie.clone()));
 
-                        self.renderer.store_last_offset();
-                        self.renderer
-                            .request_render(&APP_CONFIG.read().actions_on_right_click());
-                        ToolUpdateResult::Unmodified
-                    } else if ke.modifier.is_empty()
-                        && (ke.key == Key::Escape
-                            || ke.key == Key::Return
-                            || ke.key == Key::KP_Enter)
-                    {
-                        // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
-                        // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
-                        let result: ToolUpdateResult = self
-                            .active_tool
-                            .borrow_mut()
-                            .handle_event(ToolEvent::Input(ie));
-                        if let ToolUpdateResult::Unmodified = result {
-                            let actions = if ke.key == Key::Escape {
-                                APP_CONFIG.read().actions_on_escape()
+                    // eprintln!("active_tool_result={:?}", active_tool_result);
+
+                    match active_tool_result {
+                        ToolUpdateResult::StopPropagation
+                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
+                        _ => {
+                            if ke.is_one_of(Key::z, KeyMappingId::UsZ)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_undo()
+                            } else if ke.is_one_of(Key::y, KeyMappingId::UsY)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_redo()
+                            } else if ke.is_one_of(Key::t, KeyMappingId::UsT)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_toggle_toolbars_display(sender)
+                            } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.renderer.request_render(&[Action::SaveToFile]);
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
+                                && ke.modifier
+                                    == (ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
+                            {
+                                self.renderer.request_render(&[Action::SaveToFileAs]);
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.renderer.request_render(&[Action::SaveToClipboard]);
+                                ToolUpdateResult::Unmodified
+                            } else if (ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
+                                || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
+                                || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
+                                || ke.is_one_of(Key::downarrow, KeyMappingId::ArrowDown))
+                                && ke.modifier == ModifierType::ALT_MASK
+                            {
+                                let pan_step_size = APP_CONFIG.read().pan_step_size();
+                                match ke.key {
+                                    Key::Left => self
+                                        .renderer
+                                        .set_drag_offset(Vec2D::new(-pan_step_size, 0.)),
+                                    Key::Right => {
+                                        self.renderer.set_drag_offset(Vec2D::new(pan_step_size, 0.))
+                                    }
+                                    Key::Up => self
+                                        .renderer
+                                        .set_drag_offset(Vec2D::new(0., -pan_step_size)),
+                                    Key::Down => {
+                                        self.renderer.set_drag_offset(Vec2D::new(0., pan_step_size))
+                                    }
+                                    _ => { /* unreachable */ }
+                                }
+
+                                self.renderer.store_last_offset();
+                                self.renderer
+                                    .request_render(&APP_CONFIG.read().actions_on_right_click());
+                                ToolUpdateResult::Unmodified
+                            } else if ke.modifier.is_empty()
+                                && (ke.key == Key::Escape
+                                    || ke.key == Key::Return
+                                    || ke.key == Key::KP_Enter)
+                            {
+                                // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
+                                // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
+                                let result: ToolUpdateResult = self
+                                    .active_tool
+                                    .borrow_mut()
+                                    .handle_event(ToolEvent::Input(ie));
+                                if let ToolUpdateResult::Unmodified = result {
+                                    let actions = if ke.key == Key::Escape {
+                                        APP_CONFIG.read().actions_on_escape()
+                                    } else {
+                                        APP_CONFIG.read().actions_on_enter()
+                                    };
+                                    self.renderer.request_render(&actions);
+                                };
+                                result
                             } else {
-                                APP_CONFIG.read().actions_on_enter()
-                            };
-                            self.renderer.request_render(&actions);
-                        };
-                        result
-                    } else {
-                        self.active_tool
-                            .borrow_mut()
-                            .handle_event(ToolEvent::Input(ie))
+                                active_tool_result
+                            }
+                        }
                     }
                 } else {
                     ie.handle_event_mouse_input(&self.renderer);
-                    self.active_tool
+                    let active_tool_result = self
+                        .active_tool
                         .borrow_mut()
-                        .handle_event(ToolEvent::Input(ie))
+                        .handle_event(ToolEvent::Input(ie.clone()));
+
+                    // eprintln!("active_tool_result={:?}", active_tool_result);
+
+                    match active_tool_result {
+                        ToolUpdateResult::StopPropagation
+                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
+                        _ => {
+                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
+                                result
+                            } else {
+                                active_tool_result
+                            }
+                        }
+                    }
                 }
             }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
@@ -920,8 +990,10 @@ impl Component for SketchBoard {
                 self.renderer.commit(drawable);
                 self.refresh_screen();
             }
-            ToolUpdateResult::Unmodified => (),
-            ToolUpdateResult::Redraw => self.refresh_screen(),
+            ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
+            ToolUpdateResult::Redraw | ToolUpdateResult::RedrawAndStopPropagation => {
+                self.refresh_screen()
+            }
         };
     }
 

@@ -21,6 +21,7 @@ use crate::sketch_board::SketchBoardInput;
 use relm4::gtk::gdk::DisplayManager;
 use relm4::Sender;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct Text {
@@ -694,6 +695,7 @@ pub struct TextTool {
     im_context: Option<InputContext>,
     sender: Option<Sender<SketchBoardInput>>,
     drag_start_pos: Vec2D,
+    dragged: Rc<RefCell<bool>>,
 }
 
 impl Tool for TextTool {
@@ -778,6 +780,7 @@ impl Tool for TextTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        let mut stop_propagation = ToolUpdateResult::StopPropagation;
         if let Some(t) = &mut self.text {
             match event.key {
                 Key::Return => match event.modifier {
@@ -785,7 +788,7 @@ impl Tool for TextTool {
                         //delete selection
                         Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
                         t.text_buffer.insert_at_cursor("\n");
-                        return ToolUpdateResult::Redraw;
+                        return ToolUpdateResult::RedrawAndStopPropagation;
                     }
                     _ => {
                         t.preedit = None;
@@ -920,7 +923,7 @@ impl Tool for TextTool {
                     let display = DisplayManager::get().default_display();
                     if display.is_none() {
                         eprintln!("Cannot open default display for clipboard.");
-                        return ToolUpdateResult::Unmodified;
+                        return ToolUpdateResult::StopPropagation;
                     }
                     let clipboard = display.unwrap().clipboard();
                     let buffer = t.text_buffer.clone();
@@ -946,14 +949,9 @@ impl Tool for TextTool {
                             }
                         }
                     });
-
-                    return ToolUpdateResult::Unmodified;
                 }
                 Key::c | Key::C => {
-                    if event
-                        .modifier
-                        .contains(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
-                    {
+                    if event.modifier == ModifierType::CONTROL_MASK {
                         if let Some(text) = &self.text {
                             let buffer = text.text_buffer.clone();
                             if let Some((start, end)) = buffer.selection_bounds() {
@@ -962,7 +960,7 @@ impl Tool for TextTool {
                                 let display = DisplayManager::get().default_display();
                                 if display.is_none() {
                                     eprintln!("Cannot open default display for clipboard.");
-                                    return ToolUpdateResult::Unmodified;
+                                    return ToolUpdateResult::StopPropagation;
                                 }
 
                                 let clipboard = display.unwrap().clipboard();
@@ -981,7 +979,7 @@ impl Tool for TextTool {
                                 let display = DisplayManager::get().default_display();
                                 if display.is_none() {
                                     eprintln!("Cannot open default display for clipboard.");
-                                    return ToolUpdateResult::Unmodified;
+                                    return ToolUpdateResult::StopPropagation;
                                 }
 
                                 let clipboard = display.unwrap().clipboard();
@@ -992,7 +990,7 @@ impl Tool for TextTool {
                                     Action::Delete,
                                     ActionScope::None,
                                 );
-                                return ToolUpdateResult::Redraw;
+                                return ToolUpdateResult::RedrawAndStopPropagation;
                             }
                         }
                     }
@@ -1002,7 +1000,7 @@ impl Tool for TextTool {
                         let display = DisplayManager::get().default_display();
                         if display.is_none() {
                             eprintln!("Cannot open default display for clipboard.");
-                            return ToolUpdateResult::Unmodified;
+                            return ToolUpdateResult::StopPropagation;
                         }
                         let selection_clipboard = display.unwrap().primary_clipboard();
                         let buffer = t.text_buffer.clone();
@@ -1028,112 +1026,160 @@ impl Tool for TextTool {
                             }
                         });
                     }
-
-                    return ToolUpdateResult::Unmodified;
                 }
-                _ => {}
+                _ => {
+                    stop_propagation = ToolUpdateResult::Unmodified;
+                }
             }
         };
-        ToolUpdateResult::Unmodified
+        stop_propagation
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::Click => {
-                if event.button == MouseButton::Primary {
-                    let pos = event.pos;
-                    if let Some(t) = &mut self.text {
-                        let rect = t.rect.borrow();
-                        if rect.contains_point(pos.x as i32, pos.y as i32) {
-                            //calculate text cursor position
-                            let mut index = 0;
-                            let mut find_index = false;
+                match event.button {
+                    MouseButton::Primary => {
+                        let pos = event.pos;
+                        if let Some(t) = &mut self.text {
+                            let rect = t.rect.borrow();
+                            if rect.contains_point(pos.x as i32, pos.y as i32) {
+                                //calculate text cursor position
+                                let mut index = 0;
+                                let mut find_index = false;
 
-                            let glyphs = t.glyphs.borrow();
-                            for line in 0..glyphs.len() {
-                                let line_rect = glyphs.get(line).unwrap();
+                                let glyphs = t.glyphs.borrow();
+                                for line in 0..glyphs.len() {
+                                    let line_rect = glyphs.get(line).unwrap();
 
-                                for glyph in line_rect.iter() {
-                                    if glyph.contains_point(pos.x as i32, pos.y as i32) {
-                                        find_index = true;
-                                        if pos.x > glyph.x() as f32 + glyph.width() as f32 / 2.0 {
-                                            index += 1;
+                                    for glyph in line_rect.iter() {
+                                        if glyph.contains_point(pos.x as i32, pos.y as i32) {
+                                            find_index = true;
+                                            if pos.x > glyph.x() as f32 + glyph.width() as f32 / 2.0
+                                            {
+                                                index += 1;
+                                            }
+                                            break;
                                         }
+                                        index += 1;
+                                    }
+
+                                    if find_index {
                                         break;
                                     }
-                                    index += 1;
+
+                                    let first_ele = line_rect.iter().next().unwrap();
+                                    if pos.y <= (first_ele.y() + first_ele.height()) as f32
+                                        && line != glyphs.len() - 1
+                                    {
+                                        index -= 1;
+                                        break;
+                                    }
                                 }
 
-                                if find_index {
-                                    break;
+                                let buffer = &t.text_buffer;
+                                let mut cursor_iter = buffer.iter_at_mark(&buffer.get_insert());
+                                cursor_iter.set_offset(index);
+                                t.text_buffer.place_cursor(&cursor_iter);
+
+                                if event.n_pressed == 2 {
+                                    let mut start_itr = cursor_iter;
+                                    let mut end_itr = start_itr;
+                                    start_itr.backward_word_start();
+                                    end_itr.forward_word_end();
+                                    t.text_buffer.select_range(&start_itr, &end_itr);
+                                } else if event.n_pressed == 3 {
+                                    let mut start_itr = cursor_iter;
+                                    let mut end_itr = start_itr;
+                                    while !start_itr.is_start() {
+                                        start_itr.backward_line();
+                                    }
+                                    end_itr.forward_to_end();
+                                    t.text_buffer.select_range(&start_itr, &end_itr);
                                 }
 
-                                let first_ele = line_rect.iter().next().unwrap();
-                                if pos.y <= (first_ele.y() + first_ele.height()) as f32
-                                    && line != glyphs.len() - 1
-                                {
-                                    index -= 1;
-                                    break;
-                                }
+                                return ToolUpdateResult::RedrawAndStopPropagation;
                             }
-
-                            let buffer = &t.text_buffer;
-                            let mut cursor_iter = buffer.iter_at_mark(&buffer.get_insert());
-                            cursor_iter.set_offset(index);
-                            t.text_buffer.place_cursor(&cursor_iter);
-
-                            if event.n_pressed == 2 {
-                                let mut start_itr = cursor_iter;
-                                let mut end_itr = start_itr;
-                                start_itr.backward_word_start();
-                                end_itr.forward_word_end();
-                                t.text_buffer.select_range(&start_itr, &end_itr);
-                            } else if event.n_pressed == 3 {
-                                let mut start_itr = cursor_iter;
-                                let mut end_itr = start_itr;
-                                while !start_itr.is_start() {
-                                    start_itr.backward_line();
-                                }
-                                end_itr.forward_to_end();
-                                t.text_buffer.select_range(&start_itr, &end_itr);
-                            }
-
-                            return ToolUpdateResult::Redraw;
                         }
+
+                        // create commit message if necessary
+                        let return_value = match &mut self.text {
+                            Some(l) => {
+                                l.preedit = None;
+                                l.editing = false;
+                                l.im_context = None;
+                                l.text_buffer.select_range(
+                                    &l.text_buffer.start_iter(),
+                                    &l.text_buffer.start_iter(),
+                                );
+                                *l.draw_rect.borrow_mut() = false;
+                                ToolUpdateResult::Commit(l.clone_box())
+                            }
+                            None => ToolUpdateResult::Redraw,
+                        };
+
+                        // create a new Text
+                        self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
+
+                        self.set_input_enabled(true);
+
+                        return_value
                     }
-
-                    // create commit message if necessary
-                    let return_value = match &mut self.text {
-                        Some(l) => {
-                            l.preedit = None;
-                            l.editing = false;
-                            l.im_context = None;
-                            l.text_buffer.select_range(
-                                &l.text_buffer.start_iter(),
-                                &l.text_buffer.start_iter(),
-                            );
-                            *l.draw_rect.borrow_mut() = false;
-                            ToolUpdateResult::Commit(l.clone_box())
-                        }
-                        None => ToolUpdateResult::Redraw,
-                    };
-
-                    // create a new Text
-                    self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
-
-                    self.set_input_enabled(true);
-
-                    return_value
-                } else {
-                    // self.set_input_enabled(false);
-                    ToolUpdateResult::Unmodified
+                    _ => ToolUpdateResult::Unmodified,
                 }
             }
+            MouseEventType::Release => match event.button {
+                MouseButton::Middle => {
+                    if let Some(t) = &mut self.text {
+                        let display = DisplayManager::get().default_display();
+                        if display.is_none() {
+                            eprintln!("Cannot open default display for clipboard.");
+                            return ToolUpdateResult::StopPropagation;
+                        }
+                        let selection_clipboard = display.unwrap().primary_clipboard();
+                        let buffer = t.text_buffer.clone();
+
+                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+
+                        let sender = self.sender.clone();
+                        let dragged = self.dragged.clone();
+
+                        glib::MainContext::default().spawn_local(async move {
+                            match selection_clipboard.read_text_future().await {
+                                Ok(Some(text)) => {
+                                    if !*dragged.borrow() {
+                                        buffer.insert_at_cursor(&text);
+                                        if let Some(sender) = sender {
+                                            sender.emit(SketchBoardInput::Refresh);
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    eprintln!("selection_clipboard contains no text");
+                                }
+                                Err(err) => {
+                                    eprintln!("selection_clipboard read error: {}", err);
+                                }
+                            }
+                        });
+                    }
+
+                    ToolUpdateResult::StopPropagation
+                }
+                _ => ToolUpdateResult::Unmodified,
+            },
             MouseEventType::BeginDrag => {
                 self.drag_start_pos = event.pos;
+                if let Some(t) = &mut self.text {
+                    let rect = t.rect.borrow();
+                    if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
+                        return ToolUpdateResult::StopPropagation;
+                    }
+                }
                 ToolUpdateResult::Unmodified
             }
             MouseEventType::UpdateDrag => {
+                self.dragged = Rc::new(RefCell::new(true));
                 if event.button == MouseButton::Primary {
                     let global_pos = self.drag_start_pos + event.pos;
                     if let Some(t) = &mut self.text {
@@ -1175,8 +1221,19 @@ impl Tool for TextTool {
                             let start_cursor_itr = buffer.iter_at_mark(&buffer.get_insert());
                             buffer.select_range(&start_cursor_itr, &cursor_iter);
 
-                            return ToolUpdateResult::Redraw;
+                            return ToolUpdateResult::RedrawAndStopPropagation;
                         }
+                    }
+                    return ToolUpdateResult::StopPropagation;
+                }
+                ToolUpdateResult::Unmodified
+            }
+            MouseEventType::EndDrag => {
+                self.dragged = Rc::new(RefCell::new(false));
+                if let Some(t) = &mut self.text {
+                    let rect = t.rect.borrow();
+                    if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
+                        return ToolUpdateResult::StopPropagation;
                     }
                 }
                 ToolUpdateResult::Unmodified
@@ -1274,9 +1331,9 @@ impl TextTool {
 
                 if text_buffer.delete_interactive(&mut start_cursor_itr, &mut end_cursor_itr, true)
                 {
-                    ToolUpdateResult::Redraw
+                    ToolUpdateResult::RedrawAndStopPropagation
                 } else {
-                    ToolUpdateResult::Unmodified
+                    ToolUpdateResult::StopPropagation
                 }
             }
             Action::MoveCursor => {
@@ -1461,9 +1518,9 @@ impl TextTool {
                 let new_cursor_itr = text_buffer.iter_at_mark(&text_buffer.get_insert());
 
                 if new_cursor_itr != start_cursor_itr || has_selection {
-                    ToolUpdateResult::Redraw
+                    ToolUpdateResult::RedrawAndStopPropagation
                 } else {
-                    ToolUpdateResult::Unmodified
+                    ToolUpdateResult::StopPropagation
                 }
             }
             Action::Select => {
@@ -1617,7 +1674,7 @@ impl TextTool {
                 }
                 text_buffer.select_range(&start_cursor_itr_new, &end_cursor_itr);
 
-                ToolUpdateResult::Redraw
+                ToolUpdateResult::RedrawAndStopPropagation
             }
         }
     }
