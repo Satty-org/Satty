@@ -998,34 +998,36 @@ impl Tool for TextTool {
                     }
                 }
                 Key::Insert => {
-                    let display = DisplayManager::get().default_display();
-                    if display.is_none() {
-                        eprintln!("Cannot open default display for clipboard.");
-                        return ToolUpdateResult::Unmodified;
-                    }
-                    let selection_clipboard = display.unwrap().primary_clipboard();
-                    let buffer = t.text_buffer.clone();
+                    if event.modifier == ModifierType::SHIFT_MASK {
+                        let display = DisplayManager::get().default_display();
+                        if display.is_none() {
+                            eprintln!("Cannot open default display for clipboard.");
+                            return ToolUpdateResult::Unmodified;
+                        }
+                        let selection_clipboard = display.unwrap().primary_clipboard();
+                        let buffer = t.text_buffer.clone();
 
-                    Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
 
-                    let sender = self.sender.clone();
+                        let sender = self.sender.clone();
 
-                    glib::MainContext::default().spawn_local(async move {
-                        match selection_clipboard.read_text_future().await {
-                            Ok(Some(text)) => {
-                                buffer.insert_at_cursor(&text);
-                                if let Some(sender) = sender {
-                                    sender.emit(SketchBoardInput::Refresh);
+                        glib::MainContext::default().spawn_local(async move {
+                            match selection_clipboard.read_text_future().await {
+                                Ok(Some(text)) => {
+                                    buffer.insert_at_cursor(&text);
+                                    if let Some(sender) = sender {
+                                        sender.emit(SketchBoardInput::Refresh);
+                                    }
+                                }
+                                Ok(None) => {
+                                    eprintln!("selection_clipboard contains no text");
+                                }
+                                Err(err) => {
+                                    eprintln!("selection_clipboard read error: {}", err);
                                 }
                             }
-                            Ok(None) => {
-                                eprintln!("selection_clipboard contains no text");
-                            }
-                            Err(err) => {
-                                eprintln!("selection_clipboard read error: {}", err);
-                            }
-                        }
-                    });
+                        });
+                    }
 
                     return ToolUpdateResult::Unmodified;
                 }
