@@ -326,7 +326,7 @@ Made with [contrib.rocks](https://contrib.rocks).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=gabm/Satty&type=Date)](https://star-history.com/#gabm/Satty&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Satty-org/Satty&type=date&legend=top-left)](https://www.star-history.com/#Satty-org/Satty&type=date&legend=top-left)
 
 ## License
 
