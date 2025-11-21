@@ -46,7 +46,7 @@ If a PR changes Satty's behaviour and where appropriate, please adjust `README.m
 Command line parameters changes
 --
 
-Please include anticipated next version in the comment for command line arguments, especially when adding arguments or options.
+Please include anticipated next version in the comment for command line arguments, especially when adding arguments or options. You can use the placeholder `NEXTRELEASE` in `command_line.rs`, `configuration.rs` and `README.md`.
 
 GenAI usage
 --

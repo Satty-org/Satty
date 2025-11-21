@@ -21,7 +21,19 @@ export def main [version: string] {
     patch_cargo_toml $requested_version
 
     # update cargo lock
-    update_cargo_lock 
+    update_cargo_lock
+
+    # replace NEXTRELEASE with version
+    update_next_release src/command_line.rs $version
+    update_next_release src/configuration.rs $version
+    update_next_release README.md $version
+
+    # show diff so we can review the replacements
+    git_diff
+
+    if ((input "Proceed with commit? (Y/n) " --numchar 1 --default "Y") | str downcase) == "n" {
+        exit 1
+    }
 
     # commit 
     git_commit $requested_version_tag
@@ -36,7 +48,6 @@ export def main [version: string] {
     # the rest is being handled by the github release action
 }
 
-
 def echo_section_headline []: string -> nothing {
     print $"\n(ansi yellow)++ ($in)(ansi reset)"
 }
@@ -46,6 +57,10 @@ def assert_repo_is_clean [] {
         print "The git repository is not clean! Aborting..."
         exit 1
     } else {}
+}
+
+def git_diff [] {
+    git --no-pager diff
 }
 
 def git_tag [tag: string] {
@@ -65,12 +80,15 @@ def patch_cargo_toml [version: list<int>] {
     let sed_string = $"/package/,/version =/{s/version.*/version = \"($version | str join '.')\"/}"
     
     sed -i $sed_string Cargo.toml
-    git --no-pager diff
 }
 
 def update_cargo_lock [] {
     "Updating Cargo.lock" | echo_section_headline
     cargo generate-lockfile
+}
+
+def update_next_release [filename: string, version: string] {
+    sed -i -e $'s,NEXTRELEASE,($version),g' $filename
 }
 
 def git_commit [tag: string] {
