@@ -2,7 +2,7 @@ ifeq ($(PREFIX),)
     PREFIX := /usr/local
 endif
 
-SOURCEDIRS:=src src/tools src/ui
+SOURCEDIRS:=src $(wildcard src/*)
 SOURCEFILES:=$(foreach d,$(SOURCEDIRS),$(wildcard $(d)/*.rs))
 
 build: target/debug/satty
@@ -15,10 +15,10 @@ force-build:
 force-build-release:
 	cargo build --release
 
-target/debug/satty: $(SOURCEFILES)
+target/debug/satty: $(SOURCEFILES) Cargo.lock Cargo.toml
 	cargo build
 
-target/release/satty: $(SOURCEFILES)
+target/release/satty: $(SOURCEFILES) Cargo.lock Cargo.toml
 	cargo build --release
 
 clean:
