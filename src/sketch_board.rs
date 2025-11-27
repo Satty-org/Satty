@@ -840,6 +840,8 @@ impl Component for SketchBoard {
                         self.renderer
                             .request_render(&APP_CONFIG.read().actions_on_right_click());
                         ToolUpdateResult::Unmodified
+                    } else if ke.modifier.is_empty() && ke.key == Key::Delete {
+                        self.handle_reset()
                     } else if ke.modifier.is_empty()
                         && (ke.key == Key::Escape
                             || ke.key == Key::Return
