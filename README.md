@@ -37,38 +37,38 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 ### Shortcuts
 
-- `Enter`: as configured (see below), default: copy-to-clipboard
-- `Esc`: as configured (see below), default: exit
-- `Ctrl+C`: Save to clipboard
-- `Ctrl+S`: Save to specified output file
-- `Ctrl+Shift+S`: Save using file dialog <sup>0.20.0</sup>
-- `Ctrl+T`: Toggle toolbars
-- `Ctrl+Y`: Redo
-- `Ctrl+Z`: Undo
-- `Alt`+(`Left`/`Right`/`Up`/`Down`): Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
+- <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard
+- <kbd>Esc</kbd>: as configured (see below), default: exit
+- <kbd>Ctrl+C</kbd>: Save to clipboard
+- <kbd>Ctrl+S</kbd>: Save to specified output file
+- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
+- <kbd>Ctrl+T</kbd>: Toggle toolbars
+- <kbd>Ctrl+Y</kbd>: Redo
+- <kbd>Ctrl+Z</kbd>: Undo
+- <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
-- `p`: Pointer tool
-- `c`: Crop tool
-- `b`: Brush tool
-- `i`: Line tool
-- `z`: Arrow tool
-- `r`: Rectangle tool
-- `e`: Ellipse tool
-- `t`: Text tool
-- `m`: Numbered Marker tool
-- `u`: Blur tool
-- `g`: Highlight tool
+- <kbd>p</kbd>: Pointer tool
+- <kbd>c</kbd>: Crop tool
+- <kbd>b</kbd>: Brush tool
+- <kbd>i</kbd>: Line tool
+- <kbd>z</kbd>: Arrow tool
+- <kbd>r</kbd>: Rectangle tool
+- <kbd>e</kbd>: Ellipse tool
+- <kbd>t</kbd>: Text tool
+- <kbd>m</kbd>: Numbered Marker tool
+- <kbd>u</kbd>: Blur tool
+- <kbd>g</kbd>: Highlight tool
 
 ### Tool Modifiers and Keys
 
-- Arrow: Hold `Shift` to make arrow snap to 15° steps
-- Ellipse: Hold `Alt` to center the ellipse around origin, hold `Shift` for a circle
-- Highlight: Hold `Ctrl` to switch between block and freehand mode (default configurable, see below), hold Shift for a square (if the default mode is block) or a straight line (if the default mode is freehand)
-- Line: Hold `Shift` to make line snap to 15° steps
-- Rectangle: Hold `Alt` to center the rectangle around origin, hold `Shift` for a square
-- Text: Press `Shift+Enter` to insert line break, combine `Ctrl` with `Left` or `Right` for word jump or `Ctrl` with `Backspace` or `Delete` for word delete. Press `Enter` or switch to another tool to accept input, press `Escape` to discard entered text. `Home` and `End` go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). `Ctrl` with `Home`/`End` jumps to start/end of text buffer.
+- Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
+- Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
+- Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
+- Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
+- Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
+- Text: Press <kbd>Shift+Enter</kbd> to insert line break, combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete. Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text. <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
 
 ### Configuration File
 
@@ -246,13 +246,13 @@ Satty supports IME via GTK with and without preediting. Please note, at this poi
 
 You can bind a key to the following command:
 
-```
+```bash
 grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
 Hyprland users must escape the `#` with another `#`:
 
-```
+```bash
 grim -g "$(slurp -o -r -c '##ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
@@ -264,7 +264,7 @@ Please note we're using ppm in both examples. Compared to png, ppm is uncompress
 
 Satty does not provide a resize mechanism other than cropping. But you can pipe the result to other tools such as ImageMagick:
 
-```
+```bash
 grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | convert -resize 50% - out.png
 ```
 
