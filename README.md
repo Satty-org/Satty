@@ -246,13 +246,13 @@ Satty supports IME via GTK with and without preediting. Please note, at this poi
 
 You can bind a key to the following command:
 
-```bash
+```sh
 grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
 Hyprland users must escape the `#` with another `#`:
 
-```bash
+```sh
 grim -g "$(slurp -o -r -c '##ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
@@ -264,7 +264,7 @@ Please note we're using ppm in both examples. Compared to png, ppm is uncompress
 
 Satty does not provide a resize mechanism other than cropping. But you can pipe the result to other tools such as ImageMagick:
 
-```bash
+```sh
 grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | convert -resize 50% - out.png
 ```
 
