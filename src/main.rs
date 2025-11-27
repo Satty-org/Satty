@@ -64,6 +64,7 @@ enum AppInput {
     SetToolbarsDisplay(bool),
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
+    ColorSwitchShortcut(u64),
 }
 
 #[derive(Debug)]
@@ -219,6 +220,13 @@ impl Component for App {
                     .sender()
                     .emit(ToolsToolbarInput::SwitchSelectedTool(tool));
             }
+            AppInput::ColorSwitchShortcut(index) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::ColorButtonSelected(
+                        ui::toolbars::ColorButtons::Palette(index),
+                    ));
+            }
         }
     }
 
@@ -250,6 +258,9 @@ impl Component for App {
                     SketchBoardOutput::ToggleToolbarsDisplay => AppInput::ToggleToolbarsDisplay,
                     SketchBoardOutput::ToolSwitchShortcut(tool) => {
                         AppInput::ToolSwitchShortcut(tool)
+                    }
+                    SketchBoardOutput::ColorSwitchShortcut(index) => {
+                        AppInput::ColorSwitchShortcut(index)
                     }
                 });
 
