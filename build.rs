@@ -1,7 +1,4 @@
 #[allow(dead_code)]
-#[path = "src/command_line.rs"]
-mod command_line;
-
 use std::fs;
 use std::io;
 
@@ -9,6 +6,8 @@ use clap::CommandFactory;
 use clap_complete::{generate_to, Shell};
 use clap_complete_fig::Fig;
 use clap_complete_nushell::Nushell;
+
+use satty_cli::command_line;
 
 fn main() -> Result<(), io::Error> {
     let cmd = &mut command_line::CommandLine::command();

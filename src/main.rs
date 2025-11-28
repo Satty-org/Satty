@@ -21,7 +21,6 @@ use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
 
-mod command_line;
 mod configuration;
 mod femtovg_area;
 mod icons;
