@@ -39,7 +39,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard
 - <kbd>Esc</kbd>: as configured (see below), default: exit
-- <kbd>Delete</kbd> reset (clear)
+- <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard
 - <kbd>Ctrl+S</kbd>: Save to specified output file
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
