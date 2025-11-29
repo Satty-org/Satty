@@ -597,6 +597,7 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::ColorButtonSelected(button) => {
                 let color = self.map_button_to_color(button);
+                self.color_action.change_state(&button.to_variant());
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
