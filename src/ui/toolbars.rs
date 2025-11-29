@@ -348,6 +348,9 @@ impl SimpleComponent for ToolsToolbar {
             .keybinds()
             .shortcuts()
             .iter()
+            .inspect(|(hotkey, tool)| if hotkey.is_ascii_digit() {
+                eprintln!("Warning: hotkey `{}` for tool `{}` overrides built-in hotkey to select a color from the palette", hotkey, tool);
+            })
             .map(|(k, v)| (v, k))
             .collect();
 
