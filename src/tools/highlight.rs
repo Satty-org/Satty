@@ -3,14 +3,17 @@ use std::ops::{Add, Sub};
 use anyhow::Result;
 use femtovg::{Paint, Path};
 
-use relm4::gtk::gdk::{Key, ModifierType};
+use relm4::{
+    gtk::gdk::{Key, ModifierType},
+    Sender,
+};
 use serde_derive::Deserialize;
 
 use crate::{
     command_line,
     configuration::APP_CONFIG,
     math::{self, Vec2D},
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
     tools::DrawableClone,
 };
@@ -134,6 +137,7 @@ pub struct HighlightTool {
     highlighter: Option<HighlightKind>,
     style: Style,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 impl Drawable for HighlightKind {
@@ -334,5 +338,9 @@ impl Tool for HighlightTool {
             Some(d) => Some(d),
             None => None,
         }
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }

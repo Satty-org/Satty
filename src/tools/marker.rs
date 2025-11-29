@@ -4,16 +4,18 @@ use std::rc::Rc;
 
 use femtovg::{Color, Paint, Path};
 
-use crate::sketch_board::{MouseButton, MouseEventType};
+use crate::sketch_board::{MouseButton, MouseEventType, SketchBoardInput};
 use crate::style::Style;
 use crate::{math::Vec2D, sketch_board::MouseEventMsg};
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use relm4::Sender;
 
 pub struct MarkerTool {
     style: Style,
     next_number: Rc<RefCell<u16>>,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 #[derive(Clone, Debug)]
@@ -148,6 +150,10 @@ impl Tool for MarkerTool {
             _ => ToolUpdateResult::Unmodified,
         }
     }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
+    }
 }
 
 impl Default for MarkerTool {
@@ -156,6 +162,7 @@ impl Default for MarkerTool {
             style: Default::default(),
             next_number: Rc::new(RefCell::new(1)),
             input_enabled: true,
+            sender: None,
         }
     }
 }
