@@ -27,7 +27,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 
 # command line
-clap = { version = "4.5.51", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
 
 # configuration file
 xdg = "^3.0"
@@ -54,8 +54,8 @@ version = "0.10.0"
 
 
 [build-dependencies]
-clap = { version = "4.5.51", features = ["derive"] }
-clap_complete = "4.5.60"
+clap = { version = "4.5.53", features = ["derive"] }
+clap_complete = "4.5.61"
 clap_complete_nushell = "4.5.10"
 clap_complete_fig = "4.5.2"
 relm4-icons-build = "0.10"
