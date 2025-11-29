@@ -930,11 +930,7 @@ impl Component for SketchBoard {
                             {
                                 // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
                                 // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
-                                let result: ToolUpdateResult = self
-                                    .active_tool
-                                    .borrow_mut()
-                                    .handle_event(ToolEvent::Input(ie));
-                                if let ToolUpdateResult::Unmodified = result {
+                                if let ToolUpdateResult::Unmodified = active_tool_result {
                                     let actions = if ke.key == Key::Escape {
                                         APP_CONFIG.read().actions_on_escape()
                                     } else {
@@ -942,7 +938,7 @@ impl Component for SketchBoard {
                                     };
                                     self.renderer.request_render(&actions);
                                 };
-                                result
+                                active_tool_result
                             } else {
                                 active_tool_result
                             }

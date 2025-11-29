@@ -780,7 +780,7 @@ impl Tool for TextTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        let mut stop_propagation = ToolUpdateResult::StopPropagation;
+        let mut tool_update_result = ToolUpdateResult::StopPropagation;
         if let Some(t) = &mut self.text {
             match event.key {
                 Key::Return => match event.modifier {
@@ -788,7 +788,7 @@ impl Tool for TextTool {
                         //delete selection
                         Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
                         t.text_buffer.insert_at_cursor("\n");
-                        return ToolUpdateResult::RedrawAndStopPropagation;
+                        tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                     }
                     _ => {
                         t.preedit = None;
@@ -800,11 +800,11 @@ impl Tool for TextTool {
                         let result = t.clone_box();
                         self.text = None;
                         self.input_enabled = false;
-                        return ToolUpdateResult::Commit(result);
+                        tool_update_result = ToolUpdateResult::Commit(result);
                     }
                 },
                 Key::Escape => {
-                    return self.handle_deactivated();
+                    tool_update_result = self.handle_deactivated();
                 }
                 Key::BackSpace | Key::Delete => {
                     let ctrl_mask = match event.key {
@@ -820,9 +820,11 @@ impl Tool for TextTool {
                     };
 
                     if event.modifier == ModifierType::CONTROL_MASK {
-                        return Self::handle_text_buffer_action(t, Action::Delete, ctrl_mask);
+                        tool_update_result =
+                            Self::handle_text_buffer_action(t, Action::Delete, ctrl_mask);
                     } else {
-                        return Self::handle_text_buffer_action(t, Action::Delete, other_mask);
+                        tool_update_result =
+                            Self::handle_text_buffer_action(t, Action::Delete, other_mask);
                     }
                 }
                 Key::Left | Key::Right | Key::Up | Key::Down => {
@@ -852,28 +854,20 @@ impl Tool for TextTool {
 
                     match event.modifier {
                         ModifierType::CONTROL_MASK => {
-                            return Self::handle_text_buffer_action(
-                                t,
-                                Action::MoveCursor,
-                                ctrl_mask,
-                            );
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, ctrl_mask);
                         }
                         ModifierType::SHIFT_MASK => {
-                            return Self::handle_text_buffer_action(t, Action::Select, other_mask);
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::Select, other_mask);
                         }
                         m if m.contains(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
-                            return Self::handle_text_buffer_action(
-                                t,
-                                Action::Select,
-                                combine_mask,
-                            );
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::Select, combine_mask);
                         }
                         _ => {
-                            return Self::handle_text_buffer_action(
-                                t,
-                                Action::MoveCursor,
-                                other_mask,
-                            );
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, other_mask);
                         }
                     }
                 }
@@ -892,27 +886,22 @@ impl Tool for TextTool {
 
                     match event.modifier {
                         ModifierType::CONTROL_MASK => {
-                            return Self::handle_text_buffer_action(
-                                t,
-                                Action::MoveCursor,
-                                ctrl_mask,
-                            );
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, ctrl_mask);
                         }
                         ModifierType::SHIFT_MASK => {
-                            return Self::handle_text_buffer_action(t, Action::Select, other_mask);
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::Select, other_mask);
                         }
                         _ => {
-                            return Self::handle_text_buffer_action(
-                                t,
-                                Action::MoveCursor,
-                                other_mask,
-                            );
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, other_mask);
                         }
                     }
                 }
                 Key::a | Key::A => {
                     if event.modifier == ModifierType::CONTROL_MASK {
-                        return Self::handle_text_buffer_action(
+                        tool_update_result = Self::handle_text_buffer_action(
                             t,
                             Action::Select,
                             ActionScope::SelectAll,
@@ -990,7 +979,7 @@ impl Tool for TextTool {
                                     Action::Delete,
                                     ActionScope::None,
                                 );
-                                return ToolUpdateResult::RedrawAndStopPropagation;
+                                tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                             }
                         }
                     }
@@ -1028,11 +1017,13 @@ impl Tool for TextTool {
                     }
                 }
                 _ => {
-                    stop_propagation = ToolUpdateResult::Unmodified;
+                    tool_update_result = ToolUpdateResult::Unmodified;
                 }
             }
-        };
-        stop_propagation
+        } else {
+            tool_update_result = ToolUpdateResult::Unmodified;
+        }
+        tool_update_result
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
@@ -1248,8 +1239,12 @@ impl Tool for TextTool {
             t.preedit = None;
             t.editing = false;
             t.im_context = None;
+            t.text_buffer
+                .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+            *t.draw_rect.borrow_mut() = false;
             let result = t.clone_box();
             self.text = None;
+            self.input_enabled = false;
             ToolUpdateResult::Commit(result)
         } else {
             ToolUpdateResult::Unmodified
