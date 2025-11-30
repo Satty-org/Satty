@@ -41,6 +41,7 @@ pub enum SketchBoardInput {
 pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
+    ColorSwitchShortcut(u64),
 }
 
 #[derive(Debug, Clone)]
@@ -685,6 +686,21 @@ impl SketchBoard {
                     sender
                         .output_sender()
                         .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
+                } else if let Some(hotkey_digit) =
+                    txt.chars().next().and_then(|char| char.to_digit(10))
+                {
+                    let index_digit = if hotkey_digit == 0 {
+                        9
+                    } else {
+                        hotkey_digit - 1
+                    };
+                    if APP_CONFIG.read().color_palette().palette().len()
+                        >= (index_digit + 1) as usize
+                    {
+                        sender
+                            .output_sender()
+                            .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
+                    }
                 }
             }
             TextEventMsg::Preedit {

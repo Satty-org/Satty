@@ -48,6 +48,10 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
 
+#### Color Selection Shortcuts
+
+<kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette
+
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
