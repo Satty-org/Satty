@@ -1,8 +1,10 @@
-use anyhow::{anyhow, Error, Result};
+use anyhow::Result;
 use glow::HasContext;
 use std::{
     cell::{RefCell, RefMut},
+    collections::HashSet,
     num::NonZeroU32,
+    path::PathBuf,
     rc::Rc,
 };
 
@@ -25,6 +27,8 @@ use crate::{
     tools::{CropTool, Drawable, Tool},
     APP_CONFIG,
 };
+
+use super::set_font_stack;
 
 #[derive(Default)]
 pub struct FemtoVGArea {
@@ -182,39 +186,57 @@ impl FemtoVGArea {
             self.canvas.borrow_mut().replace(c);
         }
 
+        let mut canvas_ref = self.canvas.borrow_mut();
+        let canvas = canvas_ref.as_mut().unwrap();
+
+        let mut loaded_fonts = Vec::new();
+        let mut loaded_paths = HashSet::<PathBuf>::new();
+
         let app_config = APP_CONFIG.read();
-        let font = app_config
-            .font()
-            .family()
-            .map(|font| {
-                let font = Fontconfig::new()
-                    .ok_or_else(|| anyhow!("Error while initializing fontconfig"))?
-                    .find(font, app_config.font().style())
-                    .ok_or_else(|| anyhow!("Can not find font"))?;
-                let font_id = self
-                    .canvas
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap() // this unwrap is safe because it gets placed above
-                    .add_font(font.path)?;
-                Ok(font_id)
-            })
-            .transpose()
-            .unwrap_or_else(|e: Error| {
-                println!("Error while loading font. Using default font: {e}");
-                None
-            });
-        if let Some(font) = font {
-            self.font.borrow_mut().replace(font);
-        } else {
-            self.font.borrow_mut().replace(
-                self.canvas
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap() // this unwrap is safe because it gets placed above
-                    .add_font_mem(&resource!("src/assets/Roboto-Regular.ttf"))
-                    .expect("Cannot add font"),
-            );
+        let fontconfig = Fontconfig::new();
+
+        let configured_font = app_config.font().family().and_then(|family| {
+            fontconfig
+                .as_ref()
+                .and_then(|fc| fc.find(family, app_config.font().style()))
+        });
+
+        if let Some(font) = configured_font.as_ref() {
+            match canvas.add_font(font.path.clone()) {
+                Ok(id) => {
+                    loaded_paths.insert(font.path.clone());
+                    self.font.borrow_mut().replace(id);
+                    loaded_fonts.push(id);
+                }
+                Err(e) => {
+                    println!("Error while loading font. Using default font: {e}");
+                }
+            }
+        }
+
+        if loaded_fonts.is_empty() {
+            let fallback = canvas
+                .add_font_mem(&resource!("src/assets/Roboto-Regular.ttf"))
+                .expect("Cannot add font");
+            self.font.borrow_mut().replace(fallback);
+            loaded_fonts.push(fallback);
+        }
+
+        if let Some(fc) = fontconfig.as_ref() {
+            for family in app_config.font().fallback() {
+                if let Some(font) = fc.find(family, None) {
+                    if loaded_paths.insert(font.path.clone()) {
+                        if let Ok(id) = canvas.add_font(font.path.clone()) {
+                            loaded_fonts.push(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        set_font_stack(loaded_fonts.clone());
+        if let Some(first) = loaded_fonts.first() {
+            self.font.borrow_mut().replace(*first);
         }
     }
 
