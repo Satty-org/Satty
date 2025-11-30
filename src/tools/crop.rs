@@ -2,11 +2,11 @@ use std::f32::consts::PI;
 
 use crate::{
     math::{self, Vec2D},
-    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
-use relm4::gtk::gdk::Key;
+use relm4::{gtk::gdk::Key, Sender};
 
 use super::{Drawable, Tool, ToolUpdateResult, Tools};
 
@@ -22,6 +22,7 @@ pub struct CropTool {
     crop: Option<Crop>,
     action: Option<CropToolAction>,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 impl Crop {
@@ -433,5 +434,9 @@ impl Tool for CropTool {
         // to show up with the standard rendering mechanism. Instead it will always
         // be drawn separately by using `get_crop(&self)`
         None
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }

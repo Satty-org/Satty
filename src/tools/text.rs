@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{FontId, Paint, Path};
+use femtovg::{Color, FontId, Paint, Path};
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
     gdk::{Key, ModifierType, Rectangle},
@@ -17,6 +17,11 @@ use crate::{
 };
 
 use super::{Drawable, DrawableClone, InputContext, Tool, ToolUpdateResult, Tools};
+use crate::sketch_board::SketchBoardInput;
+use relm4::gtk::gdk::DisplayManager;
+use relm4::Sender;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct Text {
@@ -26,6 +31,11 @@ pub struct Text {
     style: Style,
     preedit: Option<Preedit>,
     im_context: Option<InputContext>,
+    rect: RefCell<Rectangle>,
+    glyphs: RefCell<Vec<Vec<Rectangle>>>,
+    line_ranges: RefCell<Vec<Range<usize>>>,
+    cursor_visible: RefCell<bool>,
+    draw_rect: RefCell<bool>,
 }
 
 struct DisplayContent<'a> {
@@ -64,6 +74,11 @@ impl Text {
             style,
             preedit: None,
             im_context,
+            rect: RefCell::new(Rectangle::new(0, 0, 0, 0)),
+            glyphs: RefCell::new(Vec::new()),
+            line_ranges: RefCell::new(Vec::new()),
+            cursor_visible: RefCell::new(true),
+            draw_rect: RefCell::new(true),
         }
     }
 
@@ -145,12 +160,11 @@ impl Drawable for Text {
 
         let transform = canvas.transform();
         let canva_scale = transform.average_scale();
-        let canvas_offset_x = transform[4];
-        let canvas_width = canvas.width() as f32;
 
-        let width = canvas_width / canva_scale - self.pos.x - canvas_offset_x;
+        let width = _bounds.1.x - self.pos.x;
 
         let lines = canvas.break_text_vec(width, text, &base_paint)?;
+        self.line_ranges.replace(lines.clone());
 
         let font_metrics = canvas.measure_font(&base_paint)?;
         let measured_cursor = canvas
@@ -212,7 +226,117 @@ impl Drawable for Text {
             }
         }
 
+        let mut cursor_visible = self.cursor_visible.borrow_mut();
+        //draw selection
+        if let Some((sel_start_iter, sel_end_iter)) = self.text_buffer.selection_bounds() {
+            let sel_start = sel_start_iter.offset() as usize;
+            let sel_end = sel_end_iter.offset() as usize;
+
+            for line in &line_layouts {
+                let start_index = text[..line.range.start].chars().count();
+                let end_index = text[..line.range.end].chars().count();
+
+                let overlap_start = sel_start.max(start_index);
+                let overlap_end = sel_end.min(end_index);
+                if overlap_start >= overlap_end {
+                    continue;
+                }
+
+                let segments = self.segments_for_line_span(
+                    canvas,
+                    &layout_context,
+                    line,
+                    overlap_start..overlap_end,
+                );
+                for (start_x, end_x) in segments {
+                    let mut path = Path::new();
+
+                    let offset_y = cursor_metrics.height * 0.1;
+                    let y = line.baseline + cursor_metrics.top_offset + offset_y;
+                    let h = cursor_metrics.height;
+                    let x = start_x;
+                    let w = end_x - start_x;
+
+                    path.rect(x, y, w, h);
+                    let mut paint = Paint::color(Color::rgbaf(0.3, 0.5, 1.0, 0.3)); // transparent blue
+                    paint.set_anti_alias(true);
+                    canvas.fill_path(&path, &paint);
+                }
+            }
+
+            *cursor_visible = false;
+        } else {
+            *cursor_visible = true;
+        }
+
+        //calculate rect and glyphs
         let mut draw_baseline = self.pos.y;
+        let mut rect = self.rect.borrow_mut();
+        let mut glyphs = self.glyphs.borrow_mut();
+
+        glyphs.clear();
+        {
+            let mut top = 0;
+            let mut left = 0;
+            let mut width = 0;
+            let mut height = 0;
+
+            for line in &line_layouts {
+                let mut line_glyphs = Vec::new();
+
+                let start = text[..line.range.start].chars().count();
+                let end = text[..line.range.end].chars().count();
+
+                for i in start..end {
+                    let segments =
+                        self.segments_for_line_span(canvas, &layout_context, line, i..i + 1);
+
+                    for (start_x, end_x) in segments {
+                        let offset_y = cursor_metrics.height * 0.1;
+                        let y = (line.baseline + cursor_metrics.top_offset + offset_y) as i32;
+                        let h = cursor_metrics.height as i32;
+                        let x = start_x as i32;
+                        let w = (end_x - start_x) as i32;
+                        line_glyphs.push(Rectangle::new(x, y, w, h));
+
+                        if top == 0 {
+                            top = y;
+                        }
+
+                        if left == 0 {
+                            left = x;
+                        }
+
+                        width = (end_x as i32 - left).max(width);
+                        height = y + h - top;
+                    }
+                }
+
+                glyphs.push(line_glyphs);
+
+                rect.set_height(height);
+                rect.set_width(width);
+                rect.set_x(left);
+                rect.set_y(top);
+            }
+        }
+
+        //draw rect
+        if *self.draw_rect.borrow() {
+            let mut rect_paint = Path::new();
+            rect_paint.move_to(self.pos.x, self.pos.y);
+            let y = rect.y() as f32;
+            let h = rect.height() as f32;
+            let x = rect.x() as f32;
+            let w = rect.width() as f32;
+
+            rect_paint.rect(x, y, w, h);
+            let mut paint = Paint::color(Color::rgbaf(1.0, 0.5, 0.3, 0.3)); // transparent orange
+            paint.set_anti_alias(true);
+            paint.set_line_width(2.0);
+            canvas.stroke_path(&rect_paint, &paint);
+        }
+
         for line_range in &lines {
             canvas.fill_text(
                 self.pos.x,
@@ -243,6 +367,7 @@ impl Drawable for Text {
                 &layout_context,
                 cursor_metrics,
                 display.cursor_byte_pos,
+                *cursor_visible,
             );
         }
 
@@ -418,22 +543,36 @@ impl Text {
             return Vec::new();
         }
 
+        let chars_without_newline: Vec<(usize, char)> = context.text.char_indices().collect();
+
+        let range_start_byte = chars_without_newline
+            .get(range.start)
+            .map(|(i, _)| *i)
+            .unwrap_or(context.text.len());
+
+        let range_end_byte = chars_without_newline
+            .get(range.end)
+            .map(|(i, _)| *i)
+            .unwrap_or(context.text.len());
+
         let line_start = line.range.start;
         let line_end = line.range.end;
-        let overlap_start = range.start.max(line_start).min(line_end);
-        let overlap_end = range.end.max(line_start).min(line_end);
+        let overlap_start = range_start_byte.max(line_start).min(line_end);
+        let overlap_end = range_end_byte.max(line_start).min(line_end);
+
         if overlap_start >= overlap_end {
             return Vec::new();
         }
 
         let line_text = &context.text[line.range.clone()];
-        let start_offset = overlap_start.saturating_sub(line_start);
-        let end_offset = overlap_end.saturating_sub(line_start);
 
-        let prefix = &line_text[..start_offset];
-        let selected = &line_text[start_offset..end_offset];
+        let start_byte = overlap_start.saturating_sub(line_start);
+        let end_byte = overlap_end.saturating_sub(line_start);
 
-        let start_x = self.pos.x + Self::text_width(canvas, context.paint, prefix);
+        let prefix = &line_text[..start_byte];
+        let selected = &line_text[start_byte..end_byte].replace("\n", "");
+
+        let start_x: f32 = self.pos.x + Self::text_width(canvas, context.paint, prefix);
         let width = Self::text_width(canvas, context.paint, selected);
 
         vec![(start_x, start_x + width.max(0.0))]
@@ -500,17 +639,21 @@ impl Text {
         context: &TextDrawingContext<'_>,
         cursor: CursorMetrics,
         cursor_byte_pos: usize,
+        cursor_visible: bool,
     ) {
         let (cursor_x, cursor_top) = self.caret_top_left(canvas, context, cursor_byte_pos, cursor);
         let caret_height = cursor.height;
 
         let mut caret_paint: Paint = self.style.into();
         caret_paint.set_font(&[font]);
-        let extra_height = caret_height * 0.05;
-        let mut path = Path::new();
-        path.move_to(cursor_x, cursor_top - extra_height);
-        path.line_to(cursor_x, cursor_top + caret_height + extra_height * 2.0);
-        canvas.fill_path(&path, &caret_paint);
+
+        if cursor_visible {
+            let extra_height = caret_height * 0.05;
+            let mut path = Path::new();
+            path.move_to(cursor_x, cursor_top - extra_height);
+            path.line_to(cursor_x, cursor_top + caret_height + extra_height * 2.0);
+            canvas.fill_path(&path, &caret_paint);
+        }
 
         if self.editing {
             if let Some(handle) = &self.im_context {
@@ -550,6 +693,9 @@ pub struct TextTool {
     style: Style,
     input_enabled: bool,
     im_context: Option<InputContext>,
+    sender: Option<Sender<SketchBoardInput>>,
+    drag_start_pos: Vec2D,
+    dragged: Rc<RefCell<bool>>,
 }
 
 impl Tool for TextTool {
@@ -593,6 +739,9 @@ impl Tool for TextTool {
         if let Some(t) = &mut self.text {
             match event {
                 TextEventMsg::Commit(text) => {
+                    //delete selection
+                    Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+                    //update input text
                     t.preedit = None;
                     t.text_buffer.insert_at_cursor(&text);
                     ToolUpdateResult::Redraw
@@ -631,136 +780,454 @@ impl Tool for TextTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        let mut tool_update_result = ToolUpdateResult::StopPropagation;
         if let Some(t) = &mut self.text {
-            if event.key == Key::Return {
-                if event.modifier == ModifierType::SHIFT_MASK {
-                    t.text_buffer.insert_at_cursor("\n");
-                    return ToolUpdateResult::Redraw;
-                } else {
-                    t.preedit = None;
-                    t.editing = false;
-                    t.im_context = None;
-                    let result = t.clone_box();
-                    self.text = None;
-                    self.input_enabled = false;
-                    return ToolUpdateResult::Commit(result);
+            match event.key {
+                Key::Return => match event.modifier {
+                    ModifierType::SHIFT_MASK => {
+                        //delete selection
+                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+                        t.text_buffer.insert_at_cursor("\n");
+                        tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                    }
+                    _ => {
+                        t.preedit = None;
+                        t.editing = false;
+                        t.im_context = None;
+                        t.text_buffer
+                            .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+                        *t.draw_rect.borrow_mut() = false;
+                        let result = t.clone_box();
+                        self.text = None;
+                        self.input_enabled = false;
+                        tool_update_result = ToolUpdateResult::Commit(result);
+                    }
+                },
+                Key::Escape => {
+                    tool_update_result = self.handle_deactivated();
                 }
-            } else if event.key == Key::Escape {
-                return self.handle_deactivated();
-            } else if event.key == Key::BackSpace {
-                if event.modifier == ModifierType::CONTROL_MASK {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::Delete,
-                        ActionScope::BackwardWord,
-                    );
-                } else {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::Delete,
-                        ActionScope::BackwardChar,
-                    );
+                Key::BackSpace | Key::Delete => {
+                    let ctrl_mask = match event.key {
+                        Key::BackSpace => ActionScope::BackwardWord,
+                        Key::Delete => ActionScope::ForwardWord,
+                        _ => ActionScope::None,
+                    };
+
+                    let other_mask = match event.key {
+                        Key::BackSpace => ActionScope::BackwardChar,
+                        Key::Delete => ActionScope::ForwardChar,
+                        _ => ActionScope::None,
+                    };
+
+                    if event.modifier == ModifierType::CONTROL_MASK {
+                        tool_update_result =
+                            Self::handle_text_buffer_action(t, Action::Delete, ctrl_mask);
+                    } else {
+                        tool_update_result =
+                            Self::handle_text_buffer_action(t, Action::Delete, other_mask);
+                    }
                 }
-            } else if event.key == Key::Delete {
-                if event.modifier == ModifierType::CONTROL_MASK {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::Delete,
-                        ActionScope::ForwardWord,
-                    );
-                } else {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::Delete,
-                        ActionScope::ForwardChar,
-                    );
+                Key::Left | Key::Right | Key::Up | Key::Down => {
+                    let ctrl_mask = match event.key {
+                        Key::Left => ActionScope::BackwardWord,
+                        Key::Right => ActionScope::ForwardWord,
+                        Key::Up => ActionScope::BackwardLineAndWord,
+                        Key::Down => ActionScope::ForwardLineAndWord,
+                        _ => ActionScope::None,
+                    };
+
+                    let other_mask = match event.key {
+                        Key::Left => ActionScope::BackwardChar,
+                        Key::Right => ActionScope::ForwardChar,
+                        Key::Up => ActionScope::BackwardLineAndWord,
+                        Key::Down => ActionScope::ForwardLineAndWord,
+                        _ => ActionScope::None,
+                    };
+
+                    let combine_mask = match event.key {
+                        Key::Left => ActionScope::BackwardWord,
+                        Key::Right => ActionScope::ForwardWord,
+                        Key::Up => ActionScope::BackwardLineAndWord,
+                        Key::Down => ActionScope::ForwardLineAndWord,
+                        _ => ActionScope::None,
+                    };
+
+                    match event.modifier {
+                        ModifierType::CONTROL_MASK => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, ctrl_mask);
+                        }
+                        ModifierType::SHIFT_MASK => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::Select, other_mask);
+                        }
+                        m if m.contains(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::Select, combine_mask);
+                        }
+                        _ => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, other_mask);
+                        }
+                    }
                 }
-            } else if event.key == Key::Left {
-                if event.modifier == ModifierType::CONTROL_MASK {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::BackwardWord,
-                    );
-                } else {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::BackwardChar,
-                    );
+                Key::Home | Key::End => {
+                    let ctrl_mask = match event.key {
+                        Key::Home => ActionScope::BufferStart,
+                        Key::End => ActionScope::BufferEnd,
+                        _ => ActionScope::None,
+                    };
+
+                    let other_mask = match event.key {
+                        Key::Home => ActionScope::BackwardLine,
+                        Key::End => ActionScope::ForwardLine,
+                        _ => ActionScope::None,
+                    };
+
+                    match event.modifier {
+                        ModifierType::CONTROL_MASK => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, ctrl_mask);
+                        }
+                        ModifierType::SHIFT_MASK => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::Select, other_mask);
+                        }
+                        _ => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveCursor, other_mask);
+                        }
+                    }
                 }
-            } else if event.key == Key::Right {
-                if event.modifier == ModifierType::CONTROL_MASK {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::ForwardWord,
-                    );
-                } else {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::ForwardChar,
-                    );
+                Key::a | Key::A => {
+                    if event.modifier == ModifierType::CONTROL_MASK {
+                        tool_update_result = Self::handle_text_buffer_action(
+                            t,
+                            Action::Select,
+                            ActionScope::SelectAll,
+                        );
+                    }
                 }
-            } else if event.key == Key::Home {
-                if event.modifier == ModifierType::CONTROL_MASK {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::BufferStart,
-                    );
-                } else {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::BackwardLine,
-                    );
+                Key::v | Key::V => {
+                    let display = DisplayManager::get().default_display();
+                    if display.is_none() {
+                        eprintln!("Cannot open default display for clipboard.");
+                        return ToolUpdateResult::StopPropagation;
+                    }
+                    let clipboard = display.unwrap().clipboard();
+                    let buffer = t.text_buffer.clone();
+
+                    Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+
+                    let sender = self.sender.clone();
+
+                    //async clipboard read
+                    glib::MainContext::default().spawn_local(async move {
+                        match clipboard.read_text_future().await {
+                            Ok(Some(text)) => {
+                                buffer.insert_at_cursor(&text);
+                                if let Some(sender) = sender {
+                                    sender.emit(SketchBoardInput::Refresh);
+                                }
+                            }
+                            Ok(None) => {
+                                eprintln!("Clipboard contains no text");
+                            }
+                            Err(err) => {
+                                eprintln!("Clipboard read error: {}", err);
+                            }
+                        }
+                    });
                 }
-            } else if event.key == Key::End {
-                if event.modifier == ModifierType::CONTROL_MASK {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::BufferEnd,
-                    );
-                } else {
-                    return Self::handle_text_buffer_action(
-                        &mut t.text_buffer,
-                        Action::MoveCursor,
-                        ActionScope::ForwardLine,
-                    );
+                Key::c | Key::C => {
+                    if event.modifier == ModifierType::CONTROL_MASK {
+                        if let Some(text) = &self.text {
+                            let buffer = text.text_buffer.clone();
+                            if let Some((start, end)) = buffer.selection_bounds() {
+                                let selected_text = buffer.text(&start, &end, false);
+
+                                let display = DisplayManager::get().default_display();
+                                if display.is_none() {
+                                    eprintln!("Cannot open default display for clipboard.");
+                                    return ToolUpdateResult::StopPropagation;
+                                }
+
+                                let clipboard = display.unwrap().clipboard();
+                                clipboard.set_text(&selected_text);
+                            }
+                        }
+                    }
+                }
+                Key::x | Key::X => {
+                    if event.modifier == ModifierType::CONTROL_MASK {
+                        if let Some(text) = &mut self.text {
+                            let buffer = text.text_buffer.clone();
+                            if let Some((start, end)) = buffer.selection_bounds() {
+                                let selected_text = buffer.text(&start, &end, false);
+
+                                let display = DisplayManager::get().default_display();
+                                if display.is_none() {
+                                    eprintln!("Cannot open default display for clipboard.");
+                                    return ToolUpdateResult::StopPropagation;
+                                }
+
+                                let clipboard = display.unwrap().clipboard();
+                                clipboard.set_text(&selected_text);
+
+                                Self::handle_text_buffer_action(
+                                    text,
+                                    Action::Delete,
+                                    ActionScope::None,
+                                );
+                                tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                            }
+                        }
+                    }
+                }
+                Key::Insert => {
+                    if event.modifier == ModifierType::SHIFT_MASK {
+                        let display = DisplayManager::get().default_display();
+                        if display.is_none() {
+                            eprintln!("Cannot open default display for clipboard.");
+                            return ToolUpdateResult::StopPropagation;
+                        }
+                        let selection_clipboard = display.unwrap().primary_clipboard();
+                        let buffer = t.text_buffer.clone();
+
+                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+
+                        let sender = self.sender.clone();
+
+                        glib::MainContext::default().spawn_local(async move {
+                            match selection_clipboard.read_text_future().await {
+                                Ok(Some(text)) => {
+                                    buffer.insert_at_cursor(&text);
+                                    if let Some(sender) = sender {
+                                        sender.emit(SketchBoardInput::Refresh);
+                                    }
+                                }
+                                Ok(None) => {
+                                    eprintln!("selection_clipboard contains no text");
+                                }
+                                Err(err) => {
+                                    eprintln!("selection_clipboard read error: {}", err);
+                                }
+                            }
+                        });
+                    }
+                }
+                _ => {
+                    tool_update_result = ToolUpdateResult::Unmodified;
                 }
             }
-        };
-        ToolUpdateResult::Unmodified
+        } else {
+            tool_update_result = ToolUpdateResult::Unmodified;
+        }
+        tool_update_result
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::Click => {
-                if event.button == MouseButton::Primary {
-                    // create commit message if necessary
-                    let return_value = match &mut self.text {
-                        Some(l) => {
-                            l.preedit = None;
-                            l.editing = false;
-                            l.im_context = None;
-                            ToolUpdateResult::Commit(l.clone_box())
+                match event.button {
+                    MouseButton::Primary => {
+                        let pos = event.pos;
+                        if let Some(t) = &mut self.text {
+                            let rect = t.rect.borrow();
+                            if rect.contains_point(pos.x as i32, pos.y as i32) {
+                                //calculate text cursor position
+                                let mut index = 0;
+                                let mut find_index = false;
+
+                                let glyphs = t.glyphs.borrow();
+                                for line in 0..glyphs.len() {
+                                    let line_rect = glyphs.get(line).unwrap();
+
+                                    for glyph in line_rect.iter() {
+                                        if glyph.contains_point(pos.x as i32, pos.y as i32) {
+                                            find_index = true;
+                                            if pos.x > glyph.x() as f32 + glyph.width() as f32 / 2.0
+                                            {
+                                                index += 1;
+                                            }
+                                            break;
+                                        }
+                                        index += 1;
+                                    }
+
+                                    if find_index {
+                                        break;
+                                    }
+
+                                    let first_ele = line_rect.iter().next().unwrap();
+                                    if pos.y <= (first_ele.y() + first_ele.height()) as f32
+                                        && line != glyphs.len() - 1
+                                    {
+                                        index -= 1;
+                                        break;
+                                    }
+                                }
+
+                                let buffer = &t.text_buffer;
+                                let mut cursor_iter = buffer.iter_at_mark(&buffer.get_insert());
+                                cursor_iter.set_offset(index);
+                                t.text_buffer.place_cursor(&cursor_iter);
+
+                                if event.n_pressed == 2 {
+                                    let mut start_itr = cursor_iter;
+                                    let mut end_itr = start_itr;
+                                    start_itr.backward_word_start();
+                                    end_itr.forward_word_end();
+                                    t.text_buffer.select_range(&start_itr, &end_itr);
+                                } else if event.n_pressed == 3 {
+                                    let mut start_itr = cursor_iter;
+                                    let mut end_itr = start_itr;
+                                    while !start_itr.is_start() {
+                                        start_itr.backward_line();
+                                    }
+                                    end_itr.forward_to_end();
+                                    t.text_buffer.select_range(&start_itr, &end_itr);
+                                }
+
+                                return ToolUpdateResult::RedrawAndStopPropagation;
+                            }
                         }
-                        None => ToolUpdateResult::Redraw,
-                    };
 
-                    // create a new Text
-                    self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
+                        // create commit message if necessary
+                        let return_value = match &mut self.text {
+                            Some(l) => {
+                                l.preedit = None;
+                                l.editing = false;
+                                l.im_context = None;
+                                l.text_buffer.select_range(
+                                    &l.text_buffer.start_iter(),
+                                    &l.text_buffer.start_iter(),
+                                );
+                                *l.draw_rect.borrow_mut() = false;
+                                ToolUpdateResult::Commit(l.clone_box())
+                            }
+                            None => ToolUpdateResult::Redraw,
+                        };
 
-                    self.set_input_enabled(true);
+                        // create a new Text
+                        self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
 
-                    return_value
-                } else {
-                    self.set_input_enabled(false);
-                    ToolUpdateResult::Unmodified
+                        self.set_input_enabled(true);
+
+                        return_value
+                    }
+                    _ => ToolUpdateResult::Unmodified,
                 }
+            }
+            MouseEventType::Release => match event.button {
+                MouseButton::Middle => {
+                    if let Some(t) = &mut self.text {
+                        let display = DisplayManager::get().default_display();
+                        if display.is_none() {
+                            eprintln!("Cannot open default display for clipboard.");
+                            return ToolUpdateResult::StopPropagation;
+                        }
+                        let selection_clipboard = display.unwrap().primary_clipboard();
+                        let buffer = t.text_buffer.clone();
+
+                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+
+                        let sender = self.sender.clone();
+                        let dragged = self.dragged.clone();
+
+                        glib::MainContext::default().spawn_local(async move {
+                            match selection_clipboard.read_text_future().await {
+                                Ok(Some(text)) => {
+                                    if !*dragged.borrow() {
+                                        buffer.insert_at_cursor(&text);
+                                        if let Some(sender) = sender {
+                                            sender.emit(SketchBoardInput::Refresh);
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    eprintln!("selection_clipboard contains no text");
+                                }
+                                Err(err) => {
+                                    eprintln!("selection_clipboard read error: {}", err);
+                                }
+                            }
+                        });
+                    }
+
+                    ToolUpdateResult::StopPropagation
+                }
+                _ => ToolUpdateResult::Unmodified,
+            },
+            MouseEventType::BeginDrag => {
+                self.drag_start_pos = event.pos;
+                if let Some(t) = &mut self.text {
+                    let rect = t.rect.borrow();
+                    if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
+                        return ToolUpdateResult::StopPropagation;
+                    }
+                }
+                ToolUpdateResult::Unmodified
+            }
+            MouseEventType::UpdateDrag => {
+                self.dragged = Rc::new(RefCell::new(true));
+                if event.button == MouseButton::Primary {
+                    let global_pos = self.drag_start_pos + event.pos;
+                    if let Some(t) = &mut self.text {
+                        let rect = t.rect.borrow();
+                        if rect.contains_point(global_pos.x as i32, global_pos.y as i32) {
+                            //calculate text cursor position
+                            let mut index = 0;
+                            let mut find_index = false;
+
+                            let glyphs = t.glyphs.borrow();
+                            for line in glyphs.iter() {
+                                for glyph in line.iter() {
+                                    if glyph
+                                        .contains_point(global_pos.x as i32, global_pos.y as i32)
+                                    {
+                                        find_index = true;
+                                        if global_pos.x
+                                            > glyph.x() as f32 + glyph.width() as f32 / 2.0
+                                        {
+                                            index += 1;
+                                        }
+                                        break;
+                                    }
+                                    index += 1;
+                                }
+
+                                let first_ele = line.iter().next().unwrap();
+                                if find_index
+                                    || global_pos.y <= (first_ele.y() + first_ele.height()) as f32
+                                {
+                                    break;
+                                }
+                            }
+
+                            let buffer = &t.text_buffer;
+                            let mut cursor_iter = buffer.iter_at_mark(&buffer.get_insert());
+                            cursor_iter.set_offset(index);
+
+                            let start_cursor_itr = buffer.iter_at_mark(&buffer.get_insert());
+                            buffer.select_range(&start_cursor_itr, &cursor_iter);
+
+                            return ToolUpdateResult::RedrawAndStopPropagation;
+                        }
+                    }
+                    return ToolUpdateResult::StopPropagation;
+                }
+                ToolUpdateResult::Unmodified
+            }
+            MouseEventType::EndDrag => {
+                self.dragged = Rc::new(RefCell::new(false));
+                if let Some(t) = &mut self.text {
+                    let rect = t.rect.borrow();
+                    if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
+                        return ToolUpdateResult::StopPropagation;
+                    }
+                }
+                ToolUpdateResult::Unmodified
             }
             _ => ToolUpdateResult::Unmodified,
         }
@@ -772,8 +1239,12 @@ impl Tool for TextTool {
             t.preedit = None;
             t.editing = false;
             t.im_context = None;
+            t.text_buffer
+                .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+            *t.draw_rect.borrow_mut() = false;
             let result = t.clone_box();
             self.text = None;
+            self.input_enabled = false;
             ToolUpdateResult::Commit(result)
         } else {
             ToolUpdateResult::Unmodified
@@ -801,6 +1272,10 @@ impl Tool for TextTool {
             ToolUpdateResult::Unmodified
         }
     }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
+    }
 }
 enum ActionScope {
     ForwardChar,
@@ -809,47 +1284,82 @@ enum ActionScope {
     BackwardLine,
     ForwardWord,
     BackwardWord,
+    ForwardLineAndWord,
+    BackwardLineAndWord,
+    SelectAll,
     BufferStart,
     BufferEnd,
+    None,
 }
 
 enum Action {
     Delete,
     MoveCursor,
+    Select,
 }
 
 impl TextTool {
     fn handle_text_buffer_action(
-        text_buffer: &mut TextBuffer,
+        text: &mut Text,
         action: Action,
         action_scope: ActionScope,
     ) -> ToolUpdateResult {
+        let text_buffer = &text.text_buffer;
         let mut start_cursor_itr = text_buffer.iter_at_mark(&text_buffer.get_insert());
 
         match action {
             Action::Delete => {
                 let mut end_cursor_itr = start_cursor_itr;
 
-                match action_scope {
-                    ActionScope::ForwardChar => end_cursor_itr.forward_char(),
-                    ActionScope::BackwardChar => end_cursor_itr.backward_char(),
-                    ActionScope::ForwardWord => end_cursor_itr.forward_word_end(),
-                    ActionScope::BackwardWord => end_cursor_itr.backward_word_start(),
-                    _ => false, // should normally be whether movement was possible, but it's not used anyway
-                };
+                if let Some((start, end)) = text_buffer.selection_bounds() {
+                    start_cursor_itr = start;
+                    end_cursor_itr = end;
+                } else {
+                    match action_scope {
+                        ActionScope::ForwardChar => end_cursor_itr.forward_char(),
+                        ActionScope::BackwardChar => end_cursor_itr.backward_char(),
+                        ActionScope::ForwardWord => end_cursor_itr.forward_word_end(),
+                        ActionScope::BackwardWord => end_cursor_itr.backward_word_start(),
+                        _ => false, // should normally be whether movement was possible, but it's not used anyway
+                    };
+                }
 
                 if text_buffer.delete_interactive(&mut start_cursor_itr, &mut end_cursor_itr, true)
                 {
-                    ToolUpdateResult::Redraw
+                    ToolUpdateResult::RedrawAndStopPropagation
                 } else {
-                    ToolUpdateResult::Unmodified
+                    ToolUpdateResult::StopPropagation
                 }
             }
             Action::MoveCursor => {
                 let mut cursor_itr = start_cursor_itr;
+                let mut start_iter = None;
+                let mut end_iter = None;
+
+                let mut has_selection = false;
+                if let Some((start, end)) = text_buffer.selection_bounds() {
+                    start_iter = Some(start);
+                    end_iter = Some(end);
+                    has_selection = true;
+                }
+
                 match action_scope {
-                    ActionScope::ForwardChar => cursor_itr.forward_char(),
-                    ActionScope::BackwardChar => cursor_itr.backward_char(),
+                    ActionScope::ForwardChar => {
+                        if has_selection {
+                            cursor_itr = end_iter.unwrap();
+                            false
+                        } else {
+                            cursor_itr.forward_char()
+                        }
+                    }
+                    ActionScope::BackwardChar => {
+                        if has_selection {
+                            cursor_itr = start_iter.unwrap();
+                            false
+                        } else {
+                            cursor_itr.backward_char()
+                        }
+                    }
                     ActionScope::ForwardLine => cursor_itr.forward_to_line_end(),
                     ActionScope::ForwardWord => cursor_itr.forward_word_end(),
                     ActionScope::BackwardWord => cursor_itr.backward_word_start(),
@@ -873,16 +1383,293 @@ impl TextTool {
                         }
                         false
                     }
+                    ActionScope::ForwardLineAndWord => {
+                        if has_selection {
+                            cursor_itr = end_iter.unwrap();
+                        } else {
+                            let content = &text.text_buffer.text(
+                                &text.text_buffer.start_iter(),
+                                &text.text_buffer.end_iter(),
+                                false,
+                            );
+                            let current_offset = cursor_itr.offset();
+
+                            let mut next_line = 0;
+                            let mut offset = 0;
+
+                            let ranges = text.line_ranges.borrow();
+
+                            for i in 0..ranges.len() {
+                                let line = ranges.get(i).unwrap();
+
+                                let start = content[..line.start].chars().count();
+                                let end = content[..line.end].chars().count();
+
+                                if current_offset >= start as i32 && current_offset <= end as i32 {
+                                    offset = if i == ranges.len() - 1 {
+                                        (end - start) as i32
+                                    } else {
+                                        let temp = current_offset - start as i32;
+                                        let next_start = content
+                                            [..ranges.get(i + 1).unwrap().start]
+                                            .chars()
+                                            .count();
+                                        let next_end = content[..ranges.get(i + 1).unwrap().end]
+                                            .chars()
+                                            .count();
+
+                                        let limit = (next_end - next_start) as i32;
+                                        if temp > limit {
+                                            limit
+                                        } else {
+                                            temp
+                                        }
+                                    };
+
+                                    next_line = if i == ranges.len() - 1 {
+                                        content[..ranges.get(i).unwrap().start].chars().count()
+                                            as i32
+                                    } else {
+                                        content[..ranges.get(i + 1).unwrap().start].chars().count()
+                                            as i32
+                                    };
+                                    break;
+                                }
+                            }
+
+                            let move_offset = next_line + offset;
+
+                            cursor_itr.set_offset(move_offset);
+                        }
+
+                        false
+                    }
+                    ActionScope::BackwardLineAndWord => {
+                        if has_selection {
+                            cursor_itr = start_iter.unwrap();
+                        } else {
+                            let content = &text.text_buffer.text(
+                                &text.text_buffer.start_iter(),
+                                &text.text_buffer.end_iter(),
+                                false,
+                            );
+                            let current_offset = cursor_itr.offset();
+
+                            let mut last_line = 0;
+                            let mut offset = 0;
+
+                            let ranges = text.line_ranges.borrow();
+
+                            for i in 0..ranges.len() {
+                                let line = ranges.get(i).unwrap();
+
+                                let start = content[..line.start].chars().count();
+                                let end = content[..line.end].chars().count();
+
+                                if current_offset >= start as i32 && current_offset <= end as i32 {
+                                    offset = if i == 0 {
+                                        0
+                                    } else {
+                                        let temp = current_offset - start as i32;
+                                        let last_start = content
+                                            [..ranges.get(i - 1).unwrap().start]
+                                            .chars()
+                                            .count();
+                                        let last_end = content[..ranges.get(i - 1).unwrap().end]
+                                            .chars()
+                                            .count();
+
+                                        let limit = (last_end - last_start) as i32;
+                                        if temp > limit {
+                                            limit
+                                        } else {
+                                            temp
+                                        }
+                                    };
+
+                                    last_line = if i == 0 {
+                                        content[..ranges.get(i).unwrap().start].chars().count()
+                                            as i32
+                                    } else {
+                                        content[..ranges.get(i - 1).unwrap().start].chars().count()
+                                            as i32
+                                    };
+                                    break;
+                                }
+                            }
+
+                            let move_offset = last_line + offset;
+
+                            cursor_itr.set_offset(move_offset);
+                        }
+                        false
+                    }
+                    _ => false, // should normally be whether movement was possible, but it's not used anyway
                 };
+
+                text_buffer.select_range(&text_buffer.start_iter(), &text_buffer.start_iter());
 
                 text_buffer.place_cursor(&cursor_itr);
                 let new_cursor_itr = text_buffer.iter_at_mark(&text_buffer.get_insert());
 
-                if new_cursor_itr != start_cursor_itr {
-                    ToolUpdateResult::Redraw
+                if new_cursor_itr != start_cursor_itr || has_selection {
+                    ToolUpdateResult::RedrawAndStopPropagation
                 } else {
-                    ToolUpdateResult::Unmodified
+                    ToolUpdateResult::StopPropagation
                 }
+            }
+            Action::Select => {
+                let mut start_cursor_itr_new = start_cursor_itr;
+                let mut end_cursor_itr = start_cursor_itr;
+
+                if let Some((start, end)) = text_buffer.selection_bounds() {
+                    let insert = text_buffer.get_insert();
+                    let insert_iter = text_buffer.iter_at_mark(&insert);
+
+                    if insert_iter == start {
+                        start_cursor_itr_new = start;
+                        end_cursor_itr = end;
+                    } else {
+                        start_cursor_itr_new = end;
+                        end_cursor_itr = start;
+                    }
+                }
+
+                match action_scope {
+                    ActionScope::ForwardChar => {
+                        end_cursor_itr.forward_char();
+                    }
+                    ActionScope::BackwardChar => {
+                        end_cursor_itr.backward_char();
+                    }
+                    ActionScope::ForwardLine => {
+                        end_cursor_itr.forward_to_line_end();
+                    }
+                    ActionScope::BackwardLine => {
+                        if end_cursor_itr.starts_line() {
+                            end_cursor_itr.backward_line();
+                        } else {
+                            while !end_cursor_itr.starts_line() {
+                                end_cursor_itr.backward_char();
+                            }
+                        }
+                    }
+                    ActionScope::ForwardLineAndWord => {
+                        let content = &text.text_buffer.text(
+                            &text.text_buffer.start_iter(),
+                            &text.text_buffer.end_iter(),
+                            false,
+                        );
+                        let current_offset = end_cursor_itr.offset();
+
+                        let mut next_line = 0;
+                        let mut offset = 0;
+
+                        let ranges = text.line_ranges.borrow();
+
+                        for i in 0..ranges.len() {
+                            let line = ranges.get(i).unwrap();
+                            let start = content[..line.start].chars().count();
+                            let end = content[..line.end].chars().count();
+
+                            if current_offset >= start as i32 && current_offset <= end as i32 {
+                                offset = if i == ranges.len() - 1 {
+                                    (end - start) as i32
+                                } else {
+                                    let temp = current_offset - start as i32;
+                                    // current_offset - start as i32
+                                    let next_start =
+                                        content[..ranges.get(i + 1).unwrap().start].chars().count();
+                                    let next_end =
+                                        content[..ranges.get(i + 1).unwrap().end].chars().count();
+
+                                    let limit = (next_end - next_start) as i32;
+                                    if temp > limit {
+                                        limit
+                                    } else {
+                                        temp
+                                    }
+                                };
+
+                                next_line = if i == ranges.len() - 1 {
+                                    content[..ranges.get(i).unwrap().start].chars().count() as i32
+                                } else {
+                                    content[..ranges.get(i + 1).unwrap().start].chars().count()
+                                        as i32
+                                };
+                                break;
+                            }
+                        }
+
+                        let move_offset = next_line + offset;
+
+                        end_cursor_itr.set_offset(move_offset);
+                    }
+                    ActionScope::BackwardLineAndWord => {
+                        let content = &text.text_buffer.text(
+                            &text.text_buffer.start_iter(),
+                            &text.text_buffer.end_iter(),
+                            false,
+                        );
+                        let current_offset = end_cursor_itr.offset();
+
+                        let mut last_line = 0;
+                        let mut offset = 0;
+
+                        let ranges = text.line_ranges.borrow();
+
+                        for i in 0..ranges.len() {
+                            let line = ranges.get(i).unwrap();
+                            let start = content[..line.start].chars().count();
+                            let end = content[..line.end].chars().count();
+
+                            if current_offset >= start as i32 && current_offset <= end as i32 {
+                                offset = if i == 0 {
+                                    0
+                                } else {
+                                    let temp = current_offset - start as i32;
+                                    let last_start =
+                                        content[..ranges.get(i - 1).unwrap().start].chars().count();
+                                    let last_end =
+                                        content[..ranges.get(i - 1).unwrap().end].chars().count();
+
+                                    let limit = (last_end - last_start) as i32;
+                                    if temp > limit {
+                                        limit
+                                    } else {
+                                        temp
+                                    }
+                                };
+
+                                last_line = if i == 0 {
+                                    content[..ranges.get(i).unwrap().start].chars().count() as i32
+                                } else {
+                                    content[..ranges.get(i - 1).unwrap().start].chars().count()
+                                        as i32
+                                };
+                                break;
+                            }
+                        }
+
+                        let move_offset = last_line + offset;
+
+                        end_cursor_itr.set_offset(move_offset);
+                    }
+                    ActionScope::ForwardWord => {
+                        end_cursor_itr.forward_word_end();
+                    }
+                    ActionScope::BackwardWord => {
+                        end_cursor_itr.backward_word_start();
+                    }
+                    ActionScope::SelectAll => {
+                        start_cursor_itr_new = text_buffer.start_iter();
+                        end_cursor_itr = text_buffer.end_iter();
+                    }
+                    _ => {}
+                }
+                text_buffer.select_range(&start_cursor_itr_new, &end_cursor_itr);
+
+                ToolUpdateResult::RedrawAndStopPropagation
             }
         }
     }

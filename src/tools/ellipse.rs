@@ -1,10 +1,13 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::gtk::gdk::{Key, ModifierType};
+use relm4::{
+    gtk::gdk::{Key, ModifierType},
+    Sender,
+};
 
 use crate::{
     math::Vec2D,
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
@@ -103,6 +106,7 @@ pub struct EllipseTool {
     ellipse: Option<Ellipse>,
     style: Style,
     input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
 }
 
 impl Tool for EllipseTool {
@@ -196,5 +200,9 @@ impl Tool for EllipseTool {
             Some(d) => Some(d),
             None => None,
         }
+    }
+
+    fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
+        self.sender = Some(sender);
     }
 }
