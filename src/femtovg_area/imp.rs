@@ -186,6 +186,10 @@ impl FemtoVGArea {
             self.canvas.borrow_mut().replace(c);
         }
 
+        if self.font.borrow().is_some() {
+            return;
+        }
+
         let mut canvas_ref = self.canvas.borrow_mut();
         let canvas = canvas_ref.as_mut().unwrap();
 
