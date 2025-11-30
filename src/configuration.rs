@@ -184,6 +184,7 @@ pub enum Action {
     SaveToClipboard,
     SaveToFile,
     SaveToFileAs,
+    CopyFilepathToClipboard,
     Exit,
 }
 
@@ -192,6 +193,7 @@ impl From<CommandLineAction> for Action {
         match action {
             CommandLineAction::SaveToClipboard => Self::SaveToClipboard,
             CommandLineAction::SaveToFile => Self::SaveToFile,
+            CommandLineAction::CopyFilepathToClipboard => Self::CopyFilepathToClipboard,
             CommandLineAction::Exit => Self::Exit,
         }
     }
