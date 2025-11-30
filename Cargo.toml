@@ -32,7 +32,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 # configuration file
 xdg = "^3.0"
 toml = "0.9.8"
-serde = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 hex_color = {version = "3", features = ["serde"]}
 chrono = "0.4.42"
@@ -59,3 +59,6 @@ clap_complete = "4.5.61"
 clap_complete_nushell = "4.5.10"
 clap_complete_fig = "4.5.2"
 relm4-icons-build = "0.10"
+# temporary fix, command_line is part of the "build" crate
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "1.0"
