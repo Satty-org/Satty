@@ -21,11 +21,12 @@ use relm4::{
 use serde_derive::Deserialize;
 
 use crate::{
-    command_line,
     math::Vec2D,
     sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, SketchBoardInput, TextEventMsg},
     style::Style,
 };
+
+use satty_cli::command_line;
 
 mod arrow;
 mod blur;

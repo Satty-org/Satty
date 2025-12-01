@@ -1,0 +1,12 @@
+[package]
+name = "satty_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap.workspace = true
