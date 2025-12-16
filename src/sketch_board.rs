@@ -38,6 +38,7 @@ pub enum SketchBoardInput {
     Refresh,
     Exit,
     ScaleFactorChanged,
+    Output(SketchBoardOutput),
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +46,8 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    CropDimensionsUpdate((i32, i32)),
+    CropToolActivated(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -675,6 +678,15 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
+                let crop_was_active = self.active_tool.borrow().get_tool_type() == Tools::Crop;
+                let crop_is_active = tool == Tools::Crop;
+
+                if crop_was_active != crop_is_active {
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::CropToolActivated(crop_is_active));
+                }
+
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
                 let mut deactivate_result =
@@ -755,6 +767,12 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
+            ToolbarEvent::CropDimensionsUpdated((w, h)) => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::CropDimensionsUpdate((w, h)));
+                ToolUpdateResult::Unmodified
+            }
         }
     }
 
@@ -1127,6 +1145,10 @@ impl Component for SketchBoard {
             SketchBoardInput::ScaleFactorChanged => {
                 self.renderer.resize(0, 0);
                 ToolUpdateResult::Redraw
+            }
+            SketchBoardInput::Output(output) => {
+                sender.output_sender().emit(output);
+                ToolUpdateResult::Unmodified
             }
         };
 

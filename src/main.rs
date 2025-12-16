@@ -71,6 +71,8 @@ enum AppInput {
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
     FullscreenChanged(bool),
+    CropDimensionsUpdate((i32, i32)),
+    CropToolActivated(bool),
 }
 
 #[derive(Debug)]
@@ -282,6 +284,21 @@ impl Component for App {
                     self.outer_box.append(style);
                 }
             }
+            AppInput::CropDimensionsUpdate((width, height)) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::CropDimensionsChanged((width, height)));
+            }
+            AppInput::CropToolActivated(active) => {
+                if !active {
+                    // Show full image dimensions when crop tool is deactivated
+                    self.style_toolbar
+                        .sender()
+                        .emit(StyleToolbarInput::CropDimensionsChanged(
+                            self.image_dimensions,
+                        ));
+                }
+            }
         }
     }
 
@@ -316,6 +333,12 @@ impl Component for App {
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
                     }
+                    SketchBoardOutput::CropDimensionsUpdate(dimensions) => {
+                        AppInput::CropDimensionsUpdate(dimensions)
+                    }
+                    SketchBoardOutput::CropToolActivated(active) => {
+                        AppInput::CropToolActivated(active)
+                    }
                 });
 
         // Toolbars
@@ -341,6 +364,12 @@ impl Component for App {
             outer_box,
             overlay,
         };
+
+        // Initialize style toolbar with full image dimensions
+        model
+            .style_toolbar
+            .sender()
+            .emit(StyleToolbarInput::CropDimensionsChanged(image_dimensions));
 
         let widgets = view_output!();
 
