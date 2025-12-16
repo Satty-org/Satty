@@ -2,7 +2,10 @@ use std::f32::consts::PI;
 
 use crate::{
     math::{self, Vec2D},
-    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
+    sketch_board::{
+        KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
+        SketchBoardOutput,
+    },
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
@@ -269,6 +272,19 @@ impl CropTool {
         crop.size = br - tl;
     }
 
+    fn emit_crop_dimensions_update(&self) {
+        if let (Some(crop), Some(sender)) = (&self.crop, &self.sender) {
+            let (_pos, size) = crop.get_rectangle();
+            let width = size.x.round() as i32;
+            let height = size.y.round() as i32;
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::CropDimensionsUpdate((width, height)),
+                ))
+                .ok();
+        }
+    }
+
     fn begin_drag(&mut self, pos: Vec2D) -> ToolUpdateResult {
         match &self.crop {
             None => {
@@ -319,10 +335,12 @@ impl CropTool {
         match action {
             CropToolAction::NewCrop => {
                 crop.size = direction;
+                self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::DragHandle(state) => {
                 Self::apply_drag_handle_transformation(crop, state, direction);
+                self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::Move(state) => {
@@ -347,16 +365,19 @@ impl CropTool {
             CropToolAction::NewCrop => {
                 crop.size = direction;
                 self.action = None;
+                self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::DragHandle(state) => {
                 Self::apply_drag_handle_transformation(crop, state, direction);
                 self.action = None;
+                self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::Move(state) => {
                 crop.pos = state.start + direction;
                 self.action = None;
+                self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
         }
