@@ -398,15 +398,20 @@ impl Tool for CropTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape {
-            if let Some(crop) = &self.crop {
-                if crop.active {
-                    // Crop is active, deactivate it
-                    return self.handle_deactivated();
-                }
+        if event.key == Key::Escape && self.crop.is_some() {
+            self.crop = None;
+            self.action = None;
+
+            if let Some(sender) = &self.sender {
+                sender
+                    .send(SketchBoardInput::Output(
+                        SketchBoardOutput::CropDimensionsUpdate((0, 0)),
+                    ))
+                    .ok();
             }
+
+            return ToolUpdateResult::Redraw;
         }
-        // No crop exists or crop is inactive - let event bubble to global handler
         ToolUpdateResult::Unmodified
     }
 

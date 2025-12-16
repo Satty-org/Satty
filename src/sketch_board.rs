@@ -663,10 +663,10 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
-            ToolbarEvent::CropDimensionsUpdated((w, h)) => {
+            ToolbarEvent::CropDimensionsUpdated((width, height)) => {
                 sender
                     .output_sender()
-                    .emit(SketchBoardOutput::CropDimensionsUpdate((w, h)));
+                    .emit(SketchBoardOutput::CropDimensionsUpdate((width, height)));
                 ToolUpdateResult::Unmodified
             }
         }

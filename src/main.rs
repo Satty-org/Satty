@@ -229,9 +229,14 @@ impl Component for App {
                     ));
             }
             AppInput::CropDimensionsUpdate((width, height)) => {
+                let dimensions = if (width, height) == (0, 0) {
+                    self.image_dimensions
+                } else {
+                    (width, height)
+                };
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::CropDimensionsChanged((width, height)));
+                    .emit(StyleToolbarInput::CropDimensionsChanged(dimensions));
             }
             AppInput::CropToolActivated(active) => {
                 if !active {
