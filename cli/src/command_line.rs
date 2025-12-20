@@ -12,13 +12,13 @@ pub struct CommandLine {
     #[arg(short, long, required_unless_present = "daemon")]
     pub filename: Option<String>,
 
-    /// Run as daemon, keeping GTK initialized between calls for faster startup
+    /// (NEXTRELEASE) Run as daemon, keeping GTK initialized between calls for faster startup.
     /// Start with: satty --daemon
     /// Then use: satty --show -f /path/to/image.png
     #[arg(long, conflicts_with = "show")]
     pub daemon: bool,
 
-    /// Send image to running daemon (falls back to normal start if no daemon)
+    /// (NEXTRELEASE) Send image to running daemon (falls back to normal start if no daemon).
     /// Requires a running daemon started with --daemon
     #[arg(long, conflicts_with = "daemon")]
     pub show: bool,

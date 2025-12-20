@@ -197,15 +197,11 @@ Options:
   -c, --config <CONFIG>
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
   -f, --filename <FILENAME>
-          Path to input image or '-' to read from stdin
-          Not required when using --daemon mode
+          Path to input image or '-' to read from stdin Not required when using --daemon mode
       --daemon
-          Run as daemon, keeping GTK initialized between calls for faster startup
-          Start with: satty --daemon
-          Then use: satty --show -f /path/to/image.png
+          (NEXTRELEASE) Run as daemon, keeping GTK initialized between calls for faster startup. Start with: satty --daemon Then use: satty --show -f /path/to/image.png
       --show
-          Send image to running daemon (falls back to normal start if no daemon)
-          Requires a running daemon started with --daemon
+          (NEXTRELEASE) Send image to running daemon (falls back to normal start if no daemon). Requires a running daemon started with --daemon
       --fullscreen
           Start Satty in fullscreen mode
   -o, --output-filename <OUTPUT_FILENAME>
