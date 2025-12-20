@@ -28,7 +28,10 @@ fn test_request_serialization_roundtrip() {
     assert_eq!(parsed.fullscreen, request.fullscreen);
     assert_eq!(parsed.early_exit, request.early_exit);
     assert_eq!(parsed.corner_roundness, request.corner_roundness);
-    assert_eq!(parsed.annotation_size_factor, request.annotation_size_factor);
+    assert_eq!(
+        parsed.annotation_size_factor,
+        request.annotation_size_factor
+    );
     assert_eq!(parsed.default_hide_toolbars, request.default_hide_toolbars);
     assert_eq!(parsed.no_window_decoration, request.no_window_decoration);
 }
@@ -125,8 +128,8 @@ fn test_special_characters_in_paths() {
         "/tmp/file\twith\ttabs.png",
         "/tmp/file'with'quotes.png",
         "/tmp/file\"with\"doublequotes.png",
-        "/tmp/файл.png", // Russian
-        "/tmp/文件.png",  // Chinese
+        "/tmp/файл.png",     // Russian
+        "/tmp/文件.png",     // Chinese
         "/tmp/ファイル.png", // Japanese
     ];
 

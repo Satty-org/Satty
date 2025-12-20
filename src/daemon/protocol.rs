@@ -274,9 +274,7 @@ mod tests {
     fn test_request_stdin_with_data() {
         use base64::Engine;
         let mut req = DaemonRequest::new("-");
-        req.stdin_data = Some(
-            base64::engine::general_purpose::STANDARD.encode(b"fake image data"),
-        );
+        req.stdin_data = Some(base64::engine::general_purpose::STANDARD.encode(b"fake image data"));
         assert!(req.validate().is_ok());
     }
 

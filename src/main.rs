@@ -258,18 +258,15 @@ impl Component for App {
         let image_dimensions = (image.width(), image.height());
 
         // SketchBoard - pass config for per-window settings
-        let sketch_board =
-            SketchBoard::builder()
-                .launch((image, config.clone()))
-                .forward(sender.input_sender(), |t| match t {
-                    SketchBoardOutput::ToggleToolbarsDisplay => AppInput::ToggleToolbarsDisplay,
-                    SketchBoardOutput::ToolSwitchShortcut(tool) => {
-                        AppInput::ToolSwitchShortcut(tool)
-                    }
-                    SketchBoardOutput::ColorSwitchShortcut(index) => {
-                        AppInput::ColorSwitchShortcut(index)
-                    }
-                });
+        let sketch_board = SketchBoard::builder()
+            .launch((image, config.clone()))
+            .forward(sender.input_sender(), |t| match t {
+                SketchBoardOutput::ToggleToolbarsDisplay => AppInput::ToggleToolbarsDisplay,
+                SketchBoardOutput::ToolSwitchShortcut(tool) => AppInput::ToolSwitchShortcut(tool),
+                SketchBoardOutput::ColorSwitchShortcut(index) => {
+                    AppInput::ColorSwitchShortcut(index)
+                }
+            });
 
         // Toolbars - pass config for per-window settings
         let tools_toolbar = ToolsToolbar::builder()
@@ -438,21 +435,19 @@ fn run_client() -> Result<()> {
 
     // Send request to daemon
     match client.send_request(&request) {
-        Ok(response) => {
-            match response.status {
-                ResponseStatus::Ok => {
-                    if let Some(window_id) = response.window_id {
-                        generate_profile_output!(format!("window {} opened via daemon", window_id));
-                    }
-                    Ok(())
+        Ok(response) => match response.status {
+            ResponseStatus::Ok => {
+                if let Some(window_id) = response.window_id {
+                    generate_profile_output!(format!("window {} opened via daemon", window_id));
                 }
-                ResponseStatus::Error => {
-                    let msg = response.message.unwrap_or_else(|| "Unknown error".into());
-                    eprintln!("Daemon error: {}", msg);
-                    Err(anyhow!("Daemon error: {}", msg))
-                }
+                Ok(())
             }
-        }
+            ResponseStatus::Error => {
+                let msg = response.message.unwrap_or_else(|| "Unknown error".into());
+                eprintln!("Daemon error: {}", msg);
+                Err(anyhow!("Daemon error: {}", msg))
+            }
+        },
         Err(e) => {
             eprintln!("Failed to communicate with daemon: {}", e);
             eprintln!("Falling back to normal startup");
@@ -464,8 +459,8 @@ fn run_client() -> Result<()> {
 /// Run in daemon mode: initialize GTK, listen for requests, create windows on demand
 fn run_daemon() -> Result<()> {
     use daemon::{get_socket_path, is_daemon_running, remove_stale_socket, DaemonServer};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
 
     // Check if daemon is already running
     if is_daemon_running() {
@@ -490,7 +485,10 @@ fn run_daemon() -> Result<()> {
     let app = gtk::Application::new(Some("com.gabm.satty.daemon"), ApplicationFlags::NON_UNIQUE);
 
     // Channel for passing requests from socket thread to main thread
-    let (tx, rx) = std::sync::mpsc::channel::<(daemon::DaemonRequest, std::sync::mpsc::Sender<daemon::DaemonResponse>)>();
+    let (tx, rx) = std::sync::mpsc::channel::<(
+        daemon::DaemonRequest,
+        std::sync::mpsc::Sender<daemon::DaemonResponse>,
+    )>();
     let rx = Arc::new(std::sync::Mutex::new(rx));
 
     // Window counter
@@ -637,7 +635,8 @@ fn run_daemon() -> Result<()> {
     glib::spawn_future_local(async move {
         use tokio::signal::unix::{signal, SignalKind};
 
-        let mut sigterm = signal(SignalKind::terminate()).expect("Failed to create SIGTERM handler");
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to create SIGTERM handler");
         let mut sigint = signal(SignalKind::interrupt()).expect("Failed to create SIGINT handler");
 
         tokio::select! {
@@ -667,15 +666,20 @@ fn load_image_from_request(request: &daemon::DaemonRequest) -> Result<Pixbuf> {
 
     if request.filename == "-" {
         // Load from base64 stdin data
-        let data = request.stdin_data.as_ref()
+        let data = request
+            .stdin_data
+            .as_ref()
             .ok_or_else(|| anyhow!("No stdin data provided"))?;
-        let decoded = base64::engine::general_purpose::STANDARD.decode(data)
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(data)
             .context("Failed to decode base64 image data")?;
 
         let pb_loader = PixbufLoader::new();
         pb_loader.write(&decoded)?;
         pb_loader.close()?;
-        pb_loader.pixbuf().ok_or_else(|| anyhow!("Conversion to Pixbuf failed"))
+        pb_loader
+            .pixbuf()
+            .ok_or_else(|| anyhow!("Conversion to Pixbuf failed"))
     } else {
         // Validate and load from file
         let validated_path = daemon::validate_image_path(&request.filename)

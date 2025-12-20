@@ -38,8 +38,7 @@ impl DaemonServer {
         let listener = UnixListener::bind(socket_path)?;
 
         // Set secure permissions on the socket
-        set_socket_permissions(socket_path)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        set_socket_permissions(socket_path).map_err(|e| std::io::Error::other(e.to_string()))?;
 
         Ok(Self {
             listener,
@@ -129,10 +128,7 @@ impl DaemonClient {
         }
 
         // Try to connect with a short timeout
-        match StdUnixStream::connect(&self.socket_path) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        StdUnixStream::connect(&self.socket_path).is_ok()
     }
 
     /// Send a request to the daemon and wait for response
@@ -164,14 +160,12 @@ impl DaemonClient {
         request: &DaemonRequest,
     ) -> Result<DaemonResponse, ProtocolError> {
         // Connect
-        let mut stream = tokio::time::timeout(
-            CONNECTION_TIMEOUT,
-            UnixStream::connect(&self.socket_path),
-        )
-        .await
-        .map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::TimedOut, "connection timeout")
-        })??;
+        let mut stream =
+            tokio::time::timeout(CONNECTION_TIMEOUT, UnixStream::connect(&self.socket_path))
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::TimedOut, "connection timeout")
+                })??;
 
         // Send request
         let data = request.to_bytes()?;
@@ -195,9 +189,7 @@ impl DaemonClient {
             Ok::<_, ProtocolError>(data)
         })
         .await
-        .map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::TimedOut, "read timeout")
-        })??;
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "read timeout"))??;
 
         DaemonResponse::from_bytes(&response_data)
     }

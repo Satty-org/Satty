@@ -92,12 +92,7 @@ pub fn validate_image_path(path: &str) -> Result<PathBuf, SecurityError> {
     Ok(canonical)
 }
 
-/// Validate socket file permissions
-///
-/// Ensures the socket file:
-/// - Has mode 0600 (owner read/write only)
-/// - Is owned by the current user
-/// Set secure permissions on a socket file
+/// Set secure permissions on a socket file (mode 0600)
 pub fn set_socket_permissions(socket_path: &Path) -> Result<(), SecurityError> {
     let permissions = fs::Permissions::from_mode(0o600);
     fs::set_permissions(socket_path, permissions)?;
