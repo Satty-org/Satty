@@ -15,7 +15,7 @@ async fn test_client_server_valid_request() {
     // Create a test image file path (we just test the protocol, not actual image loading)
     let image_path = dir.path().join("test.png");
     // Create a dummy file for the test
-    std::fs::write(&image_path, &[0u8; 100]).unwrap();
+    std::fs::write(&image_path, [0u8; 100]).unwrap();
 
     // Start server
     let server = DaemonServer::new(&socket_path).await.unwrap();
@@ -92,7 +92,7 @@ async fn test_multiple_sequential_requests() {
 
     // Send 3 sequential requests
     for i in 1..=3 {
-        let request = DaemonRequest::new(&format!("/tmp/test_{}.png", i));
+        let request = DaemonRequest::new(format!("/tmp/test_{}.png", i));
         let response = client.send_request_async(&request).await.unwrap();
         assert_eq!(response.status, ResponseStatus::Ok);
         assert_eq!(response.window_id, Some(i));
@@ -258,7 +258,7 @@ async fn test_concurrent_connections() {
         let path = server_path.clone();
         handles.push(tokio::spawn(async move {
             let client = DaemonClient::new(&path);
-            let request = DaemonRequest::new(&format!("/tmp/test_{}.png", i));
+            let request = DaemonRequest::new(format!("/tmp/test_{}.png", i));
             client.send_request_async(&request).await
         }));
     }
