@@ -18,6 +18,7 @@ use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
 use relm4::{gtk, Component, ComponentParts, ComponentSender, RelmWidgetExt};
 
 use crate::configuration::{Action, APP_CONFIG};
+use crate::daemon::RequestConfig;
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
@@ -232,6 +233,7 @@ impl InputEvent {
 }
 
 pub struct SketchBoard {
+    config: Rc<RequestConfig>,
     renderer: FemtoVGArea,
     active_tool: Rc<RefCell<dyn Tool>>,
     tools: ToolsManager,
@@ -314,7 +316,7 @@ impl SketchBoard {
                 _ => (),
             }
 
-            if APP_CONFIG.read().early_exit() || action == Action::Exit {
+            if self.config.early_exit || action == Action::Exit {
                 self.handle_exit();
                 return;
             }
@@ -322,11 +324,22 @@ impl SketchBoard {
     }
 
     fn handle_exit(&self) {
+        // daemon_mode is a process-level flag, read from global config
+        if APP_CONFIG.read().daemon_mode() {
+            // In daemon mode, just close this window, don't quit the entire app
+            if let Some(root) = self.renderer.root() {
+                if let Some(window) = root.downcast_ref::<gtk::Window>() {
+                    window.close();
+                    return;
+                }
+            }
+        }
+        // Fallback or normal mode: quit the application
         relm4::main_application().quit();
     }
 
     fn handle_save(&self, image: &Pixbuf) {
-        let mut output_filename = match APP_CONFIG.read().output_filename() {
+        let mut output_filename = match self.config.output_filename.as_ref() {
             None => {
                 println!("No Output filename specified!");
                 return;
@@ -491,7 +504,7 @@ impl SketchBoard {
     fn handle_copy_clipboard(&self, image: &Pixbuf) {
         let texture = Texture::for_pixbuf(image);
 
-        let result = if let Some(command) = APP_CONFIG.read().copy_command() {
+        let result = if let Some(ref command) = self.config.copy_command {
             self.save_to_external_process(&texture, command)
         } else {
             self.save_to_clipboard(&texture)
@@ -739,7 +752,7 @@ impl Component for SketchBoard {
     type CommandOutput = ();
     type Input = SketchBoardInput;
     type Output = SketchBoardOutput;
-    type Init = Pixbuf;
+    type Init = (Pixbuf, Rc<RequestConfig>);
 
     view! {
         gtk::Box {
@@ -950,9 +963,9 @@ impl Component for SketchBoard {
                                 // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
                                 if let ToolUpdateResult::Unmodified = active_tool_result {
                                     let actions = if ke.key == Key::Escape {
-                                        APP_CONFIG.read().actions_on_escape()
+                                        self.config.actions_on_escape.clone()
                                     } else {
-                                        APP_CONFIG.read().actions_on_enter()
+                                        self.config.actions_on_enter.clone()
                                     };
                                     self.renderer.request_render(&actions);
                                 };
@@ -1012,18 +1025,19 @@ impl Component for SketchBoard {
     }
 
     fn init(
-        image: Self::Init,
+        init: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let config = APP_CONFIG.read();
+        let (image, config) = init;
         let tools = ToolsManager::new();
 
         let im_context = gtk::IMMulticontext::new();
 
         let mut model = Self {
+            config: config.clone(),
             renderer: FemtoVGArea::default(),
-            active_tool: tools.get(&config.initial_tool()),
+            active_tool: tools.get(&config.initial_tool),
             style: Style::default(),
             tools,
             im_context,

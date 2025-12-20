@@ -34,7 +34,9 @@ enum ConfigurationFileError {
 }
 
 pub struct Configuration {
-    input_filename: String,
+    input_filename: Option<String>,
+    daemon_mode: bool,
+    show_mode: bool,
     output_filename: Option<String>,
     fullscreen: bool,
     early_exit: bool,
@@ -305,7 +307,11 @@ impl Configuration {
         // ---
     }
     fn merge(&mut self, file: Option<ConfigurationFile>, command_line: CommandLine) {
-        // input_filename is required and needs to be overwritten
+        // Set daemon/show mode flags
+        self.daemon_mode = command_line.daemon;
+        self.show_mode = command_line.show;
+
+        // input_filename - now optional (not required in daemon mode)
         self.input_filename = command_line.filename;
 
         // overwrite with all specified values from config file
@@ -435,7 +441,15 @@ impl Configuration {
     }
 
     pub fn input_filename(&self) -> &str {
-        self.input_filename.as_ref()
+        self.input_filename.as_deref().unwrap_or("")
+    }
+
+    pub fn daemon_mode(&self) -> bool {
+        self.daemon_mode
+    }
+
+    pub fn show_mode(&self) -> bool {
+        self.show_mode
     }
 
     pub fn annotation_size_factor(&self) -> f32 {
@@ -514,7 +528,9 @@ impl Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
-            input_filename: String::new(),
+            input_filename: None,
+            daemon_mode: false,
+            show_mode: false,
             output_filename: None,
             fullscreen: false,
             early_exit: false,

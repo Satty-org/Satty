@@ -1,7 +1,8 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use crate::{
     configuration::APP_CONFIG,
+    daemon::RequestConfig,
     style::{Color, Size},
     tools::Tools,
 };
@@ -20,6 +21,7 @@ use relm4::{
 
 pub struct ToolsToolbar {
     visible: bool,
+    output_filename_provided: bool,
     active_button: Option<ToggleButton>,
     tool_buttons: HashMap<Tools, ToggleButton>,
     tool_action: SimpleAction,
@@ -99,7 +101,7 @@ fn create_icon(color: Color) -> gtk::Image {
 
 #[relm4::component(pub)]
 impl SimpleComponent for ToolsToolbar {
-    type Init = ();
+    type Init = Rc<RequestConfig>;
     type Input = ToolsToolbarInput;
     type Output = ToolbarEvent;
 
@@ -273,7 +275,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_tooltip: "Save (Ctrl+S)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
 
-                set_visible: APP_CONFIG.read().output_filename().is_some()
+                set_visible: model.output_filename_provided
             },
             gtk::Button {
                 set_focusable: false,
@@ -304,13 +306,13 @@ impl SimpleComponent for ToolsToolbar {
     }
 
     fn init(
-        _: Self::Init,
+        config: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let sender_tmp: ComponentSender<ToolsToolbar> = sender.clone();
         let tool_action: RelmAction<ToolsAction> = RelmAction::new_stateful_with_target_value(
-            &APP_CONFIG.read().initial_tool(),
+            &config.initial_tool,
             move |_, state, value| {
                 *state = value;
                 // notify parent of change
@@ -321,7 +323,8 @@ impl SimpleComponent for ToolsToolbar {
         );
 
         let mut model = ToolsToolbar {
-            visible: !APP_CONFIG.read().default_hide_toolbars(),
+            visible: !config.default_hide_toolbars,
+            output_filename_provided: config.output_filename.is_some(),
             active_button: None,
             tool_buttons: HashMap::new(),
             tool_action: tool_action.clone().into(),
@@ -342,9 +345,9 @@ impl SimpleComponent for ToolsToolbar {
             (Tools::Highlight, widgets.highlight_button.clone()),
         ]);
 
-        // reverse shortcuts mapping
-        let config = APP_CONFIG.read();
-        let tool_to_key_map: HashMap<&Tools, &char> = config
+        // reverse shortcuts mapping (keybinds are global, not per-window)
+        let global_config = APP_CONFIG.read();
+        let tool_to_key_map: HashMap<&Tools, &char> = global_config
             .keybinds()
             .shortcuts()
             .iter()
@@ -367,8 +370,7 @@ impl SimpleComponent for ToolsToolbar {
         }
 
         // Set initial active button correctly
-        let initial_tool = APP_CONFIG.read().initial_tool();
-        if let Some(button) = model.tool_buttons.get(&initial_tool) {
+        if let Some(button) = model.tool_buttons.get(&config.initial_tool) {
             model.active_button = Some(button.clone());
         }
 
@@ -475,7 +477,7 @@ impl StyleToolbar {
 
 #[relm4::component(pub)]
 impl Component for StyleToolbar {
-    type Init = ();
+    type Init = Rc<RequestConfig>;
     type Input = StyleToolbarInput;
     type Output = ToolbarEvent;
     type CommandOutput = ();
@@ -629,12 +631,13 @@ impl Component for StyleToolbar {
     }
 
     fn init(
-        _: Self::Init,
+        config: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        for (i, &color) in APP_CONFIG
-            .read()
+        // Color palette is global (shared across windows)
+        let global_config = APP_CONFIG.read();
+        for (i, &color) in global_config
             .color_palette()
             .palette()
             .iter()
@@ -671,8 +674,7 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::SizeSelected(*state));
             });
 
-        let custom_color = APP_CONFIG
-            .read()
+        let custom_color = global_config
             .color_palette()
             .custom()
             .first()
@@ -680,17 +682,14 @@ impl Component for StyleToolbar {
             .unwrap_or(Color::red());
         let custom_color_pixbuf = create_icon_pixbuf(custom_color);
 
-        // create model
+        // create model - use per-window config for visibility and annotation size
         let model = StyleToolbar {
             custom_color,
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
-            visible: !APP_CONFIG.read().default_hide_toolbars(),
-            annotation_size: APP_CONFIG.read().annotation_size_factor(),
-            annotation_size_formatted: format!(
-                "{0:.2}",
-                APP_CONFIG.read().annotation_size_factor()
-            ),
+            visible: !config.default_hide_toolbars,
+            annotation_size: config.annotation_size_factor,
+            annotation_size_formatted: format!("{0:.2}", config.annotation_size_factor),
             annotation_dialog_controller: None,
         };
 
