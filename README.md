@@ -191,13 +191,21 @@ custom = [
 » satty --help
 Modern Screenshot Annotation.
 
-Usage: satty [OPTIONS] --filename <FILENAME>
+Usage: satty [OPTIONS]
 
 Options:
   -c, --config <CONFIG>
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
+          Not required when using --daemon mode
+      --daemon
+          Run as daemon, keeping GTK initialized between calls for faster startup
+          Start with: satty --daemon
+          Then use: satty --show -f /path/to/image.png
+      --show
+          Send image to running daemon (falls back to normal start if no daemon)
+          Requires a running daemon started with --daemon
       --fullscreen
           Start Satty in fullscreen mode
   -o, --output-filename <OUTPUT_FILENAME>
@@ -302,6 +310,63 @@ mode $printscreen_mode {
     bindsym Escape mode "default"
 }
 bindsym $mod+Shift+p mode $printscreen_mode
+```
+
+### Daemon Mode
+
+For faster startup, Satty can run in daemon mode. This keeps GTK4 initialized in the background, reducing window creation time from ~250ms to ~25ms.
+
+#### Starting the daemon
+
+```sh
+# Start daemon in background
+satty --daemon &
+
+# Or use the provided systemd service
+```
+
+#### Sending images to the daemon
+
+```sh
+# Basic usage
+satty --show -f /tmp/screenshot.png
+
+# With additional options
+satty --show -f /tmp/screenshot.png --fullscreen --output-filename ~/Pictures/annotated.png
+```
+
+#### Integration with screenshot tools
+
+```sh
+# With grim and slurp on wlroots compositors
+grim -g "$(slurp)" -t ppm - | satty --show -f -
+```
+
+#### Systemd user service
+
+Create `~/.config/systemd/user/satty.service`:
+
+```ini
+[Unit]
+Description=Satty Screenshot Annotation Daemon
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/satty --daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+Then enable and start:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable satty.service
+systemctl --user start satty.service
 ```
 
 ## Build from source
