@@ -777,8 +777,8 @@ impl Component for AnnotationSizeDialog {
 
                     set_tooltip: "Annotation Size Factor",
                     set_numeric: true,
-                    set_adjustment: &gtk::Adjustment::new(0.0, 0.0, 100.0, 0.01, 0.1, 0.0),
-                    set_climb_rate: 0.1,
+                    set_adjustment: &gtk::Adjustment::new(0.0, 0.0, 100.0, 1.0, 5.0, 0.0),
+                    set_climb_rate: 1.0,
                     set_digits: 2,
                     #[watch]
                     #[block_signal(value_changed)]
