@@ -379,7 +379,7 @@ fn run_satty() -> Result<()> {
     app.set_application_id(Some("com.gabm.satty"));
     // set flag to allow to run multiple instances
     app.set_flags(ApplicationFlags::NON_UNIQUE);
-    // create relm app and run
+    // create realm app and run
     let app = RelmApp::from_app(app).with_args(vec![]);
     relm4_icons::initialize_icons(
         icons::icon_names::GRESOURCE_BYTES,
