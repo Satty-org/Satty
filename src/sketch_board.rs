@@ -1123,7 +1123,7 @@ impl KeyEventMsg {
     /// And the key has more priority over keycode.
     fn is_one_of(&self, key: Key, code: KeyMappingId) -> bool {
         // INFO: on linux the keycode from gtk4 is evdev keycode, so need to match by him if need
-        // to use layout-independent shortcuts. And notice that there is substraction by 8, it's
+        // to use layout-independent shortcuts. And notice that there is subtraction by 8, it's
         // because of x11 compatibility in which the keycodes are in range [8,255]. So need shift
         // them to get correct evdev keycode.
         let keymap = KeyMap::from(code);

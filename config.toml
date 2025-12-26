@@ -42,7 +42,7 @@ action-on-enter = "save-to-clipboard"
 right-click-copy = false
 # request no window decoration. Please note that the compositor has the final say in this. At this point. requires xdg-decoration-unstable-v1.
 no-window-decoration = true
-# experimental feature: adjust history size for brush input smooting (0: disabled, default: 0, try e.g. 5 or 10)
+# experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
 
 # Tool selection keyboard shortcuts

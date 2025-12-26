@@ -163,7 +163,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "cursor-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Pointer,
             },
             #[name(crop_button)]
@@ -172,7 +172,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "crop-filled",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Crop,
             },
             #[name(brush_button)]
@@ -181,7 +181,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "pen-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Brush,
             },
             #[name(line_button)]
@@ -190,7 +190,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "minus-large",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Line,
             },
             #[name(arrow_button)]
@@ -199,7 +199,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "arrow-up-right-filled",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Arrow,
             },
             #[name(rectangle_button)]
@@ -208,7 +208,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "checkbox-unchecked-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Rectangle,
             },
             #[name(ellipse_button)]
@@ -217,7 +217,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "circle-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Ellipse,
             },
             #[name(text_button)]
@@ -226,7 +226,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "text-case-title-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Text,
             },
             #[name(marker_button)]
@@ -235,7 +235,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "number-circle-1-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Marker,
             },
             #[name(blur_button)]
@@ -244,7 +244,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "drop-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Blur,
             },
             #[name(highlight_button)]
@@ -253,7 +253,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "highlight-regular",
-                // tooltip set programatically
+                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Highlight,
             },
             gtk::Separator {},
