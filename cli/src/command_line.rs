@@ -8,8 +8,20 @@ pub struct CommandLine {
     pub config: Option<String>,
 
     /// Path to input image or '-' to read from stdin
-    #[arg(short, long)]
-    pub filename: String,
+    /// Not required when using --daemon mode
+    #[arg(short, long, required_unless_present = "daemon")]
+    pub filename: Option<String>,
+
+    /// (NEXTRELEASE) Run as daemon, keeping GTK initialized between calls for faster startup.
+    /// Start with: satty --daemon
+    /// Then use: satty --show -f /path/to/image.png
+    #[arg(long, conflicts_with = "show")]
+    pub daemon: bool,
+
+    /// (NEXTRELEASE) Send image to running daemon (falls back to normal start if no daemon).
+    /// Requires a running daemon started with --daemon
+    #[arg(long, conflicts_with = "daemon")]
+    pub show: bool,
 
     /// Start Satty in fullscreen mode
     #[arg(long)]
