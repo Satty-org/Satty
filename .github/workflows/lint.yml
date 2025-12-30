@@ -52,6 +52,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-deadlinks
+      - run: cargo doc -p tracing --no-deps
       - run: cargo deadlinks
       - run: cargo doc --all-features --no-deps
         env:
