@@ -58,3 +58,33 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: satty-${{ matrix.target }}.${{ matrix.archive }}
+
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git safe directory
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: org.satty.Satty.yml
+          bundle: satty-${{ github.ref_name }}.flatpak
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Release Flatpak
+        uses: softprops/action-gh-release@v1
+        with:
+          files: satty-${{ github.ref_name }}.flatpak

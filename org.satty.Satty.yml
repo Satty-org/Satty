@@ -1,0 +1,56 @@
+app-id: org.satty.Satty
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: satty
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/satty/cargo
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+    RUSTFLAGS: -C link-arg=-Wl,-z,now
+finish-args:
+  # Wayland support
+  - --socket=wayland
+  - --socket=x11
+  - --device=dri
+  # File access
+  - --filesystem=home
+  - --filesystem=xdg-config/satty:ro
+  - --filesystem=xdg-data/satty:rw
+  # Clipboard access
+  - --talk-name=org.freedesktop.portal.Clipboard
+  - --talk-name=org.freedesktop.portal.Secret
+  # Screenshot/desktop integration
+  - --talk-name=org.freedesktop.portal.Screenshot
+  - --talk-name=org.freedesktop.portal.Desktop
+  # Notifications
+  - --talk-name=org.freedesktop.Notifications
+  # Share MIME types
+  - --share=ipc
+  # Allow reading from stdin
+  - --share=network
+
+modules:
+  - name: satty
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked
+      - install -Dm755 target/release/satty /app/bin/satty
+      - install -Dm644 satty.desktop /app/share/applications/org.satty.Satty.desktop
+      - install -Dm644 assets/satty.svg /app/share/icons/hicolor/scalable/apps/org.satty.Satty.svg
+      - install -Dm644 LICENSE /app/share/licenses/org.satty.Satty/LICENSE
+      - install -Dm644 completions/satty.bash /app/share/bash-completion/completions/satty
+      - install -Dm644 completions/satty.fish /app/share/fish/vendor_completions.d/satty.fish
+      - install -Dm644 completions/satty.elv /app/share/elvish/lib/satty.elv
+      - install -Dm644 completions/satty.nu /app/share/nushell/completions/satty.nu
+      - sed -i 's|^Exec=satty|Exec=/app/bin/satty|' /app/share/applications/org.satty.Satty.desktop
+      - sed -i 's|^TryExec=satty|TryExec=/app/bin/satty|' /app/share/applications/org.satty.Satty.desktop
+      - sed -i 's|^Icon=satty|Icon=org.satty.Satty|' /app/share/applications/org.satty.Satty.desktop
+    sources:
+      - type: dir
+        path: .

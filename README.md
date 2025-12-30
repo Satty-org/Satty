@@ -319,6 +319,18 @@ PREFIX=/usr/local make install
 PREFIX=/usr/local make uninstall
 ```
 
+### Flatpak
+
+Satty is available as a Flatpak bundle. Pre-built bundles are automatically created for each release and can be downloaded from the [GitHub Releases](https://github.com/Satty-org/Satty/releases) page.
+
+#### Installing from Flatpak bundle
+
+```sh
+# Download the .flatpak file from the latest release
+# Then install it:
+flatpak install satty-<version>.flatpak
+```
+
 ## Dependencies
 
 Satty is based on GTK-4 and Adwaita.
