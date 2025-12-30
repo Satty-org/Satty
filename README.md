@@ -319,7 +319,7 @@ PREFIX=/usr/local make install
 PREFIX=/usr/local make uninstall
 ```
 
-### Flatpak
+### Flatpak <sup>NEXTRELEASE</sup>
 
 Satty is available as a Flatpak bundle. Pre-built bundles are automatically created for each release and can be downloaded from the [GitHub Releases](https://github.com/Satty-org/Satty/releases) page.
 
