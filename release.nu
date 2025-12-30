@@ -24,7 +24,7 @@ export def main [version: string] {
     update_cargo_lock
 
     # replace NEXTRELEASE with version
-    update_next_release src/command_line.rs $version
+    update_next_release cli/src/command_line.rs $version
     update_next_release src/configuration.rs $version
     update_next_release README.md $version
 
@@ -77,9 +77,9 @@ def git_push [] {
 
 def patch_cargo_toml [version: list<int>] {
     "Updating Cargo.toml" | echo_section_headline
-    let sed_string = $"/package/,/version =/{s/version.*/version = \"($version | str join '.')\"/}"
-    
-    sed -i $sed_string Cargo.toml
+    let version_str = $version | str join '.'
+    # Update workspace.package.version
+    sed -i $"/\\[workspace.package\\]/,/^version =/s/^version = .*/version = \"($version_str)\"/" Cargo.toml
 }
 
 def update_cargo_lock [] {
@@ -105,7 +105,7 @@ def version_to_string []: list<int> -> string {
 }
 
 def version_read_cargo_toml []: nothing -> list<int> {
-    open Cargo.toml | get package.version | version_parse
+    open Cargo.toml | get workspace.package.version | version_parse
 }
 
 def is_newer [
