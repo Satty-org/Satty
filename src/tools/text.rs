@@ -10,6 +10,7 @@ use std::{borrow::Cow, ops::Range};
 use relm4::gtk::prelude::*;
 
 use crate::{
+    configuration::APP_CONFIG,
     ime::preedit::{Preedit, UnderlineKind},
     math::Vec2D,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, TextEventMsg},
@@ -852,6 +853,14 @@ impl Tool for TextTool {
                         _ => ActionScope::None,
                     };
 
+                    let alt_mask = match event.key {
+                        Key::Left => ActionScope::Left,
+                        Key::Right => ActionScope::Right,
+                        Key::Up => ActionScope::Up,
+                        Key::Down => ActionScope::Down,
+                        _ => ActionScope::None,
+                    };
+
                     match event.modifier {
                         ModifierType::CONTROL_MASK => {
                             tool_update_result =
@@ -860,6 +869,14 @@ impl Tool for TextTool {
                         ModifierType::SHIFT_MASK => {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::Select, other_mask);
+                        }
+                        ModifierType::ALT_MASK => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::MoveOrigin, alt_mask);
+                        }
+                        m if m.contains(ModifierType::ALT_MASK | ModifierType::SHIFT_MASK) => {
+                            tool_update_result =
+                                Self::handle_text_buffer_action(t, Action::NudgeOrigin, alt_mask);
                         }
                         m if m.contains(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
                             tool_update_result =
@@ -1289,6 +1306,10 @@ enum ActionScope {
     SelectAll,
     BufferStart,
     BufferEnd,
+    Left,
+    Right,
+    Up,
+    Down,
     None,
 }
 
@@ -1296,6 +1317,8 @@ enum Action {
     Delete,
     MoveCursor,
     Select,
+    MoveOrigin,
+    NudgeOrigin, 
 }
 
 impl TextTool {
@@ -1670,6 +1693,27 @@ impl TextTool {
                 text_buffer.select_range(&start_cursor_itr_new, &end_cursor_itr);
 
                 ToolUpdateResult::RedrawAndStopPropagation
+            }
+            Action::MoveOrigin | Action::NudgeOrigin => {
+                let length = match action {
+                    Action::MoveOrigin => APP_CONFIG.read().text_move_length(),
+                    Action::NudgeOrigin => 1.0,
+                    _ => 0.0,
+                };
+                let offset =match action_scope {
+                    ActionScope::Left => Vec2D::new(-length, 0.0),
+                    ActionScope::Right => Vec2D::new(length, 0.0),
+                    ActionScope::Up => Vec2D::new(0.0, -length),
+                    ActionScope::Down => Vec2D::new(0.0, length),
+                    _ => Vec2D::new(0.0, 0.0),
+                };
+
+                if offset.is_zero() {
+                    ToolUpdateResult::StopPropagation
+                } else {
+                    text.pos += offset;
+                    ToolUpdateResult::RedrawAndStopPropagation
+                }
             }
         }
     }

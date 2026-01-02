@@ -59,6 +59,7 @@ pub struct Configuration {
     keybinds: Keybinds,
     zoom_factor: f32,
     pan_step_size: f32,
+    text_move_length: f32,
 }
 
 pub struct Keybinds {
@@ -288,6 +289,9 @@ impl Configuration {
         if let Some(v) = general.pan_step_size {
             self.pan_step_size = v;
         }
+        if let Some(v) = general.text_move_length {
+            self.text_move_length = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy {
@@ -393,6 +397,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.pan_step_size {
             self.pan_step_size = v;
+        }
+        if let Some(v) = command_line.text_move_length {
+            self.text_move_length = v;
         }
 
         // --- deprecated options ---
@@ -509,6 +516,10 @@ impl Configuration {
     pub fn pan_step_size(&self) -> f32 {
         self.pan_step_size
     }
+
+    pub fn text_move_length(&self) -> f32 {
+        self.text_move_length
+    }
 }
 
 impl Default for Configuration {
@@ -539,6 +550,7 @@ impl Default for Configuration {
             keybinds: Keybinds::default(),
             zoom_factor: 1.1,
             pan_step_size: 50.,
+            text_move_length: 50.0,
         }
     }
 }
@@ -613,6 +625,7 @@ struct ConfigurationFileGeneral {
     brush_smooth_history_size: Option<usize>,
     zoom_factor: Option<f32>,
     pan_step_size: Option<f32>,
+    text_move_length: Option<f32>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,
