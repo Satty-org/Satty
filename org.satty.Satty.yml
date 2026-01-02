@@ -42,6 +42,7 @@ modules:
       - cargo build --release --locked
       - install -Dm755 target/release/satty /app/bin/satty
       - install -Dm644 satty.desktop /app/share/applications/org.satty.Satty.desktop
+      - install -Dm644 org.satty.Satty.metainfo.xml /app/share/metainfo/org.satty.Satty.metainfo.xml
       - install -Dm644 assets/satty.svg /app/share/icons/hicolor/scalable/apps/org.satty.Satty.svg
       - install -Dm644 LICENSE /app/share/licenses/org.satty.Satty/LICENSE
       - install -Dm644 completions/satty.bash /app/share/bash-completion/completions/satty
