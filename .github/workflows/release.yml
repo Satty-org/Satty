@@ -82,6 +82,7 @@ jobs:
         with:
           manifest-path: org.satty.Satty.yml
           bundle: satty-${{ github.ref_name }}.flatpak
+          branch: ${{ github.ref_name }}
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Release Flatpak

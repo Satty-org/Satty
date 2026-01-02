@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.satty.Satty</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+  <name>Satty</name>
+  <summary>Modern Screenshot Annotation</summary>
+  <icon type="stock">org.satty.Satty</icon>
+  <description>
+    <p>
+      Satty is a modern screenshot annotation tool for Linux, designed for wlroots-based compositors.
+      It provides a simple, intuitive toolset for annotating screenshots with smooth hardware-accelerated rendering.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/Satty-org/Satty</url>
+  <url type="bugtracker">https://github.com/Satty-org/Satty/issues</url>
+  <developer_name>Matthias Gabriel</developer_name>
+</component>
