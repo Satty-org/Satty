@@ -124,6 +124,11 @@ pub struct CommandLine {
     /// defaults to 50.0
     #[arg(long)]
     pub pan_step_size: Option<f32>,
+
+    /// Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys.
+    /// defaults to 50.0
+    #[arg(long)]
+    pub text_move_length: Option<f32>,
     // ---
 }
 
