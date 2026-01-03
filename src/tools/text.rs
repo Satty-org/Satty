@@ -862,6 +862,9 @@ impl Tool for TextTool {
                     };
 
                     match event.modifier {
+                        ModifierType::ALT_MASK => {
+                            tool_update_result = ToolUpdateResult::Unmodified;
+                        }
                         ModifierType::CONTROL_MASK => {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::MoveCursor, ctrl_mask);
@@ -870,15 +873,15 @@ impl Tool for TextTool {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::Select, other_mask);
                         }
-                        m if m.contains(ModifierType::ALT_MASK | ModifierType::CONTROL_MASK) => {
+                        m if m == ModifierType::ALT_MASK | ModifierType::CONTROL_MASK => {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::MoveOrigin, ctrl_alt_mask);
                         }
-                        m if m.contains(ModifierType::ALT_MASK | ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
+                        m if m == ModifierType::ALT_MASK | ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK => {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::NudgeOrigin, ctrl_alt_mask);
                         }
-                        m if m.contains(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
+                        m if m == ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK => {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::Select, combine_mask);
                         }
