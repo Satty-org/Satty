@@ -93,8 +93,10 @@ Default single-key shortcuts:
 [general]
 # Start Satty in fullscreen mode
 fullscreen = true
-# Exit directly after copy/save action
+# Exit directly after copy/save action. NEXTRELEASE: Does not apply to save as
 early-exit = true
+# Exit directly after save as (NEXTRELEASE)
+early-exit-save-as = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
 # Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush]
@@ -206,7 +208,9 @@ Options:
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
       --early-exit
-          Exit directly after copy/save action
+          Exit directly after copy/save action. This does not apply to "save as"
+      --early-exit-save-as
+          Experimental (NEXTRELEASE): Exit directly after save as
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
@@ -252,7 +256,7 @@ Options:
       --pan-step-size <PAN_STEP_SIZE>
           Experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys. defaults to 50.0
       --text-move-length <TEXT_MOVE_LENGTH>
-          Experimental feature (NEXTRELEASE): The length to move the text when using arrow keys. defaults to 50.0
+          Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys. defaults to 50.0
   -h, --help
           Print help
   -V, --version
