@@ -141,7 +141,7 @@ impl App {
         css_provider.load_from_data(
             "
             .root {
-                min-width: 50rem;
+                min-width: 65rem;
                 min-height: 10rem;
             }
             .toolbar {color: #f9f9f9 ; background: #00000099;}
