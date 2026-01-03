@@ -204,7 +204,7 @@ impl InputEvent {
                             renderer.store_last_offset();
                             renderer.set_is_drag(false);
                         }
-                        renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
+                        renderer.request_render(&[]);
                     }
                     None
                 }
@@ -216,7 +216,7 @@ impl InputEvent {
                         v if v > 0.0 => renderer.set_zoom_scale(1f32 / factor),
                         _ => {}
                     }
-                    renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
+                    renderer.request_render(&[]);
                     None
                 }
                 MouseEventType::PointerPos => {
@@ -544,15 +544,13 @@ impl SketchBoard {
 
     fn handle_resize(&mut self) -> ToolUpdateResult {
         self.renderer.reset_size(0.);
-        self.renderer
-            .request_render(&APP_CONFIG.read().actions_on_right_click());
+        self.renderer.request_render(&[]);
         ToolUpdateResult::Unmodified
     }
 
     fn handle_original_scale(&mut self) -> ToolUpdateResult {
         self.renderer.reset_size(1.);
-        self.renderer
-            .request_render(&APP_CONFIG.read().actions_on_right_click());
+        self.renderer.request_render(&[]);
         ToolUpdateResult::Unmodified
     }
 
@@ -936,8 +934,7 @@ impl Component for SketchBoard {
                                 }
 
                                 self.renderer.store_last_offset();
-                                self.renderer
-                                    .request_render(&APP_CONFIG.read().actions_on_right_click());
+                                self.renderer.request_render(&[]);
                                 ToolUpdateResult::Unmodified
                             } else if ke.modifier.is_empty() && ke.key == Key::Delete {
                                 self.handle_reset()
