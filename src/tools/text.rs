@@ -853,7 +853,7 @@ impl Tool for TextTool {
                         _ => ActionScope::None,
                     };
 
-                    let alt_mask = match event.key {
+                    let ctrl_alt_mask = match event.key {
                         Key::Left => ActionScope::Left,
                         Key::Right => ActionScope::Right,
                         Key::Up => ActionScope::Up,
@@ -870,13 +870,13 @@ impl Tool for TextTool {
                             tool_update_result =
                                 Self::handle_text_buffer_action(t, Action::Select, other_mask);
                         }
-                        ModifierType::ALT_MASK => {
+                        m if m.contains(ModifierType::ALT_MASK | ModifierType::CONTROL_MASK) => {
                             tool_update_result =
-                                Self::handle_text_buffer_action(t, Action::MoveOrigin, alt_mask);
+                                Self::handle_text_buffer_action(t, Action::MoveOrigin, ctrl_alt_mask);
                         }
-                        m if m.contains(ModifierType::ALT_MASK | ModifierType::SHIFT_MASK) => {
+                        m if m.contains(ModifierType::ALT_MASK | ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
                             tool_update_result =
-                                Self::handle_text_buffer_action(t, Action::NudgeOrigin, alt_mask);
+                                Self::handle_text_buffer_action(t, Action::NudgeOrigin, ctrl_alt_mask);
                         }
                         m if m.contains(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK) => {
                             tool_update_result =

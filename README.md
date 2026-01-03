@@ -85,7 +85,7 @@ Default single-key shortcuts:
   - <kbd>Ctrl+Shift+C</kbd> to copy selected text to clipboard.
   - <kbd>Ctrl+X</kbd> to cut selected text to clipboard.
   - <kbd>Ctrl+V</kbd> to paste text from clipboard.
-  - <kbd>Alt</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Atl+Shift</kbd> with arrow keys to nudge the text.
+  - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text.
 
 ### Configuration File
 
@@ -142,6 +142,8 @@ pan-step-size = 50.0
 # experimental feature (NEXTRELEASE): The zoom factor to use for the image.
 # 1.0 means no zooming.
 zoom-factor = 1.1
+# experimental feature (NEXTRELEASE): The length to move the text when using arrow keys. defaults to 50.0
+text-move-length = 50.0 
 
 # Tool selection keyboard shortcuts (since 0.20.0)
 [keybinds]
