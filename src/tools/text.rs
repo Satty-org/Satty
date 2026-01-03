@@ -874,12 +874,22 @@ impl Tool for TextTool {
                                 Self::handle_text_buffer_action(t, Action::Select, other_mask);
                         }
                         m if m == ModifierType::ALT_MASK | ModifierType::CONTROL_MASK => {
-                            tool_update_result =
-                                Self::handle_text_buffer_action(t, Action::MoveOrigin, ctrl_alt_mask);
+                            tool_update_result = Self::handle_text_buffer_action(
+                                t,
+                                Action::MoveOrigin,
+                                ctrl_alt_mask,
+                            );
                         }
-                        m if m == ModifierType::ALT_MASK | ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK => {
-                            tool_update_result =
-                                Self::handle_text_buffer_action(t, Action::NudgeOrigin, ctrl_alt_mask);
+                        m if m
+                            == ModifierType::ALT_MASK
+                                | ModifierType::CONTROL_MASK
+                                | ModifierType::SHIFT_MASK =>
+                        {
+                            tool_update_result = Self::handle_text_buffer_action(
+                                t,
+                                Action::NudgeOrigin,
+                                ctrl_alt_mask,
+                            );
                         }
                         m if m == ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK => {
                             tool_update_result =
@@ -1321,7 +1331,7 @@ enum Action {
     MoveCursor,
     Select,
     MoveOrigin,
-    NudgeOrigin, 
+    NudgeOrigin,
 }
 
 impl TextTool {
@@ -1703,7 +1713,7 @@ impl TextTool {
                     Action::NudgeOrigin => 1.0,
                     _ => 0.0,
                 };
-                let offset =match action_scope {
+                let offset = match action_scope {
                     ActionScope::Left => Vec2D::new(-length, 0.0),
                     ActionScope::Right => Vec2D::new(length, 0.0),
                     ActionScope::Up => Vec2D::new(0.0, -length),
