@@ -35,6 +35,7 @@ pub enum SketchBoardInput {
     RenderResult(RenderedImage, Vec<Action>),
     CommitEvent(TextEventMsg),
     Refresh,
+    Exit,
 }
 
 #[derive(Debug, Clone)]
@@ -280,7 +281,12 @@ impl SketchBoard {
         rv
     }
 
-    fn handle_render_result(&self, image: RenderedImage, actions: Vec<Action>) {
+    fn handle_render_result(
+        &self,
+        image: RenderedImage,
+        actions: Vec<Action>,
+        sender: ComponentSender<Self>,
+    ) {
         let needs_pixbuf = actions.iter().any(|action| {
             matches!(
                 action,
@@ -306,10 +312,13 @@ impl SketchBoard {
                         self.handle_save(pix_buf);
                     }
                 }
+                /* note that SaveToFileAs has its own early exit option, so we return here.
+                 */
                 Action::SaveToFileAs => {
                     if let Some(ref pix_buf) = pix_buf {
-                        self.handle_save_as(pix_buf);
+                        self.handle_save_as(pix_buf, sender);
                     }
+                    return;
                 }
                 _ => (),
             }
@@ -402,7 +411,7 @@ impl SketchBoard {
         };
     }
 
-    fn handle_save_as(&self, image: &Pixbuf) {
+    fn handle_save_as(&self, image: &Pixbuf, sender: ComponentSender<Self>) {
         let data = match image.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
@@ -431,6 +440,7 @@ impl SketchBoard {
             ]);
 
             dialog.connect_response(move |dialog, response| {
+                let mut exit_app = false;
                 if response == gtk::ResponseType::Accept {
                     if let Some(file) = dialog.file() {
                         let output_filename = match file.path() {
@@ -443,14 +453,20 @@ impl SketchBoard {
                                 &format!("Error while saving file: {e}"),
                                 !APP_CONFIG.read().disable_notifications(),
                             ),
-                            Ok(_) => log_result(
-                                &format!("File saved to '{}'.", &output_filename),
-                                !APP_CONFIG.read().disable_notifications(),
-                            ),
+                            Ok(_) => {
+                                exit_app = APP_CONFIG.read().early_exit_save_as();
+                                log_result(
+                                    &format!("File saved to '{}'.", &output_filename),
+                                    !APP_CONFIG.read().disable_notifications(),
+                                )
+                            }
                         };
                     }
                 }
                 dialog.close();
+                if exit_app {
+                    sender.input(SketchBoardInput::Exit);
+                }
             });
 
             dialog.show();
@@ -985,7 +1001,7 @@ impl Component for SketchBoard {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
             SketchBoardInput::RenderResult(img, action) => {
-                self.handle_render_result(img, action);
+                self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::CommitEvent(txt) => {
@@ -993,6 +1009,10 @@ impl Component for SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::Refresh => ToolUpdateResult::Redraw,
+            SketchBoardInput::Exit => {
+                self.handle_exit();
+                ToolUpdateResult::Unmodified
+            }
         };
 
         // println!(" Result={:?}", result);

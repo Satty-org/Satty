@@ -21,9 +21,13 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub output_filename: Option<String>,
 
-    /// Exit directly after copy/save action
+    /// Exit directly after copy/save action. NEXTRELEASE: This does not apply to "save as".
     #[arg(long)]
     pub early_exit: bool,
+
+    /// Experimental (NEXTRELEASE): Exit directly after save as
+    #[arg(long)]
+    pub early_exit_save_as: bool,
 
     /// Draw corners of rectangles round if the value is greater than 0
     /// (Defaults to 12) (0 disables rounded corners)
