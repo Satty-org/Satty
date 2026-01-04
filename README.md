@@ -37,10 +37,10 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 ### Shortcuts
 
-- <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard
-- <kbd>Esc</kbd>: as configured (see below), default: exit
+- <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
+- <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
 - <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
-- <kbd>Ctrl+C</kbd>: Save to clipboard
+- <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+S</kbd>: Save to specified output file
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
@@ -48,7 +48,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
 
-#### Color Selection Shortcuts
+#### Color Selection Shortcuts <sup>NEXTRELEASE</sup>
 
 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette
 
@@ -78,14 +78,14 @@ Default single-key shortcuts:
   - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
   - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
   - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
-  - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer).
-  - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on)
-  - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text.
-  - <kbd>Ctrl+A</kbd> to select all text.
-  - <kbd>Ctrl+Shift+C</kbd> to copy selected text to clipboard.
-  - <kbd>Ctrl+X</kbd> to cut selected text to clipboard.
-  - <kbd>Ctrl+V</kbd> to paste text from clipboard.
-  - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text.
+  - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>NEXTRELEASE</sup>
+  - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>NEXTRELEASE</sup>
+  - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>NEXTRELEASE</sup>
+  - <kbd>Ctrl+A</kbd> to select all text. <sup>NEXTRELEASE</sup>
+  - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>NEXTRELEASE</sup>
+  - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>NEXTRELEASE</sup>
+  - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>NEXTRELEASE</sup>
+  - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>NEXTRELEASE</sup>
 
 ### Configuration File
 
