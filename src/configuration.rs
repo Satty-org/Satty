@@ -195,6 +195,7 @@ impl From<CommandLineAction> for Action {
         match action {
             CommandLineAction::SaveToClipboard => Self::SaveToClipboard,
             CommandLineAction::SaveToFile => Self::SaveToFile,
+            CommandLineAction::SaveToFileAs => Self::SaveToFileAs,
             CommandLineAction::Exit => Self::Exit,
         }
     }

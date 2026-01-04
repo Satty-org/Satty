@@ -33,6 +33,7 @@ pub enum SketchBoardInput {
     InputEvent(InputEvent),
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
+    RenderResultFollowup(Option<Pixbuf>, Vec<Action>),
     CommitEvent(TextEventMsg),
     Refresh,
     Exit,
@@ -281,6 +282,55 @@ impl SketchBoard {
         rv
     }
 
+    fn handle_render_result_with_pixbuf(
+        &self,
+        pix_buf: Option<Pixbuf>,
+        actions: Vec<Action>,
+        sender: ComponentSender<Self>,
+    ) {
+        let mut iter = actions.into_iter();
+        let mut early_exit = false;
+        while let Some(action) = iter.next() {
+            match action {
+                Action::SaveToClipboard => {
+                    if let Some(ref pix_buf) = pix_buf {
+                        self.handle_copy_clipboard(pix_buf);
+                        early_exit = APP_CONFIG.read().early_exit();
+                    }
+                }
+                Action::SaveToFile => {
+                    if let Some(ref pix_buf) = pix_buf {
+                        self.handle_save(pix_buf);
+                        early_exit = APP_CONFIG.read().early_exit();
+                    }
+                }
+                /* SaveToFileAs runs through a callback, so any further actions need to be triggered
+                from the callback rather than further iterating actions here */
+                Action::SaveToFileAs => {
+                    if let Some(pix_buf) = pix_buf {
+                        let followup_actions: Vec<Action> = iter.collect();
+                        let is_modal =
+                            APP_CONFIG.read().early_exit_save_as() || !followup_actions.is_empty();
+                        self.handle_save_as(is_modal, pix_buf, sender, followup_actions);
+                    }
+                    return;
+                }
+                _ => (),
+            }
+
+            if early_exit {
+                log_result("Early exit, ignoring further actions.", false);
+                self.handle_exit();
+                return;
+            }
+            if action == Action::Exit {
+                log_result("Exit action, ignoring further actions.", false);
+                self.handle_exit();
+                return;
+            }
+        }
+    }
+
     fn handle_render_result(
         &self,
         image: RenderedImage,
@@ -300,34 +350,7 @@ impl SketchBoard {
             None
         };
 
-        for action in actions {
-            match action {
-                Action::SaveToClipboard => {
-                    if let Some(ref pix_buf) = pix_buf {
-                        self.handle_copy_clipboard(pix_buf);
-                    }
-                }
-                Action::SaveToFile => {
-                    if let Some(ref pix_buf) = pix_buf {
-                        self.handle_save(pix_buf);
-                    }
-                }
-                /* note that SaveToFileAs has its own early exit option, so we return here.
-                 */
-                Action::SaveToFileAs => {
-                    if let Some(ref pix_buf) = pix_buf {
-                        self.handle_save_as(pix_buf, sender);
-                    }
-                    return;
-                }
-                _ => (),
-            }
-
-            if APP_CONFIG.read().early_exit() || action == Action::Exit {
-                self.handle_exit();
-                return;
-            }
-        }
+        self.handle_render_result_with_pixbuf(pix_buf, actions, sender);
     }
 
     fn handle_exit(&self) {
@@ -411,8 +434,14 @@ impl SketchBoard {
         };
     }
 
-    fn handle_save_as(&self, image: &Pixbuf, sender: ComponentSender<Self>) {
-        let data = match image.save_to_bufferv("png", &Vec::new()) {
+    fn handle_save_as(
+        &self,
+        is_modal: bool,
+        pixbuf: Pixbuf,
+        sender: ComponentSender<Self>,
+        followup_actions: Vec<Action>,
+    ) {
+        let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
                 println!("Error serializing image: {e}");
@@ -424,7 +453,7 @@ impl SketchBoard {
 
         relm4::spawn_local(async move {
             let builder = gtk::FileChooserDialog::builder()
-                .modal(false)
+                .modal(is_modal)
                 .title("Save Image As")
                 .action(gtk::FileChooserAction::Save);
 
@@ -465,7 +494,15 @@ impl SketchBoard {
                 }
                 dialog.close();
                 if exit_app {
+                    log_result("early exit after save as, ignoring further actions.", false);
                     sender.input(SketchBoardInput::Exit);
+                } else if !followup_actions.is_empty() {
+                    let followup_actions_clone = followup_actions.clone();
+                    let pixbuf_clone = Some(pixbuf.clone());
+                    sender.input(SketchBoardInput::RenderResultFollowup(
+                        pixbuf_clone,
+                        followup_actions_clone,
+                    ));
                 }
             });
 
@@ -1002,6 +1039,10 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action, sender);
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::RenderResultFollowup(pix_buf, action) => {
+                self.handle_render_result_with_pixbuf(pix_buf, action, sender);
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::CommitEvent(txt) => {
