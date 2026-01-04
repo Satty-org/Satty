@@ -165,6 +165,20 @@ highlight = "g"
 [font]
 family = "Roboto"
 style = "Regular"
+# specify fallback fonts (NEXTRELEASE)
+# Please note, there is no default setting for these and the fonts listed below
+# are not shipped with Satty but need to be available on the system.
+fallback = [
+    "Noto Sans CJK JP",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK TC",
+    "Noto Sans CJK KR",
+    "Noto Serif CJK JP",
+    "Noto Serif JP",
+    "IPAGothic",
+    "IPAexGothic",
+    "Source Han Sans"
+]
 
 # Custom colours for the colour palette
 [color-palette]
