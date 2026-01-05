@@ -93,9 +93,11 @@ Default single-key shortcuts:
 [general]
 # Start Satty in fullscreen mode
 fullscreen = true
-# Exit directly after copy/save action. NEXTRELEASE: Does not apply to save as
+# Exit directly after save action. NEXTRELEASE: Does no longer apply to copy or save as
 early-exit = true
-# Exit directly after save as (NEXTRELEASE)
+# Exit directly after copy action. (Experimental, NEXTRELEASE)
+early-exit-copy = true
+# Exit directly after save as (Experimental, NEXTRELEASE)
 early-exit-save-as = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
@@ -222,7 +224,9 @@ Options:
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
       --early-exit
-          Exit directly after copy/save action. This does not apply to "save as"
+          Exit directly after save action. NEXTRELEASE: This does not apply to "save as" and "copy"
+      --early-exit-copy
+          Experimental (NEXTRELEASE): Exit directly after copy action
       --early-exit-save-as
           Experimental (NEXTRELEASE): Exit directly after save as
       --corner-roundness <CORNER_ROUNDNESS>
@@ -236,11 +240,11 @@ Options:
       --save-after-copy
           After copying the screenshot, save it to a file as well Preferably use the `action_on_copy` option instead
       --actions-on-enter <ACTIONS_ON_ENTER>
-          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, exit]
+          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, exit]
       --actions-on-escape <ACTIONS_ON_ESCAPE>
-          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, exit]
+          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, exit]
       --actions-on-right-click <ACTIONS_ON_RIGHT_CLICK>
-          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, exit]
+          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, exit]
   -d, --default-hide-toolbars
           Hide toolbars by default
       --focus-toggles-toolbars
@@ -264,7 +268,7 @@ Options:
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, exit]
+          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, exit]
       --zoom-factor <ZOOM_FACTOR>
           Experimental feature (NEXTRELEASE): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
       --pan-step-size <PAN_STEP_SIZE>

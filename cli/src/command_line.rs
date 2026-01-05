@@ -21,9 +21,13 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub output_filename: Option<String>,
 
-    /// Exit directly after copy/save action. NEXTRELEASE: This does not apply to "save as".
+    /// Exit directly after save action. NEXTRELEASE: This does not apply to "save as" and "copy"
     #[arg(long)]
     pub early_exit: bool,
+
+    /// Experimental (NEXTRELEASE): Exit directly after copy action.
+    #[arg(long)]
+    pub early_exit_copy: bool,
 
     /// Experimental (NEXTRELEASE): Exit directly after save as
     #[arg(long)]
