@@ -42,6 +42,7 @@ pub struct Configuration {
     resize: Option<Resize>,
     floating_hack: bool,
     early_exit: bool,
+    early_exit_copy: bool,
     early_exit_save_as: bool,
     corner_roundness: f32,
     initial_tool: Tools,
@@ -280,6 +281,9 @@ impl Configuration {
         if let Some(v) = general.early_exit {
             self.early_exit = v;
         }
+        if let Some(v) = general.early_exit_copy {
+            self.early_exit_copy = v;
+        }
         if let Some(v) = general.early_exit_save_as {
             self.early_exit_save_as = v;
         }
@@ -392,6 +396,9 @@ impl Configuration {
         if command_line.early_exit {
             self.early_exit = command_line.early_exit;
         }
+        if command_line.early_exit_copy {
+            self.early_exit_copy = command_line.early_exit_copy;
+        }
         if command_line.early_exit_save_as {
             self.early_exit_save_as = command_line.early_exit_save_as;
         }
@@ -482,6 +489,10 @@ impl Configuration {
 
     pub fn early_exit(&self) -> bool {
         self.early_exit
+    }
+
+    pub fn early_exit_copy(&self) -> bool {
+        self.early_exit_copy
     }
 
     pub fn early_exit_save_as(&self) -> bool {
@@ -609,6 +620,7 @@ impl Default for Configuration {
             resize: None,
             floating_hack: false,
             early_exit: false,
+            early_exit_copy: false,
             early_exit_save_as: false,
             corner_roundness: 12.0,
             initial_tool: Tools::Pointer,
@@ -693,6 +705,7 @@ struct ConfigurationFileGeneral {
     resize: Option<Resize>,
     floating_hack: Option<bool>,
     early_exit: Option<bool>,
+    early_exit_copy: Option<bool>,
     early_exit_save_as: Option<bool>,
     corner_roundness: Option<f32>,
     initial_tool: Option<Tools>,
