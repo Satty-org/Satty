@@ -10,3 +10,4 @@ repository.workspace = true
 
 [dependencies]
 clap.workspace = true
+serde.workspace = true
