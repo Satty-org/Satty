@@ -12,6 +12,18 @@ Issue first, then PR
 
 The issue should state what is missing from or broken in Satty. All the discussion around whether a feature is in scope, or a behaviour is a bug can take place there. A related PR is then just about correctness of a fix or feature implementation. This ensures that a specific feature or fix is actually wanted.
 
+Commits in a PR
+--
+
+- We don't squash the commits in a PR. If you feel that some commits are temporary in nature, please squash them yourself, otherwise they will show up in commit history after we merge the PR.
+- If github indicates conflicts, please rebase your branch instead of merging upstream changes. We know that having to rebase sucks, so we're doing our best to point out where conflicts may arise even in advance, but sometimes conflicts are inevitable. We're happy to assist with rebasing, just say the word.
+- Please make sure that all commits in a non-draft PR compile, this helps `git bisect`.
+
+Milestones
+--
+
+We use these to indicate which issues and/or PRs we'd ideally like to include with the next release. This doesn't mean any pressure, or that there's any deadline.
+
 3rd party crates
 --
 
