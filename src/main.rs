@@ -82,12 +82,15 @@ impl App {
     }
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
-        let scale = APP_CONFIG.read().monitor_scale();
+        let scale = APP_CONFIG.read().input_scale();
 
         let monitor_size = match Self::get_monitor_size(root) {
             Some(s) => s,
             None => {
-                root.set_default_size((self.image_dimensions.0 as f32 / scale) as i32, (self.image_dimensions.1 as f32 / scale) as i32);
+                root.set_default_size(
+                    (self.image_dimensions.0 as f32 / scale) as i32,
+                    (self.image_dimensions.1 as f32 / scale) as i32,
+                );
                 return;
             }
         };
