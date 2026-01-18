@@ -33,7 +33,7 @@ pub enum SketchBoardInput {
     InputEvent(InputEvent),
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
-    RenderResultFollowup(Option<Pixbuf>, Vec<Action>),
+    RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
     CommitEvent(TextEventMsg),
     Refresh,
     Exit,
@@ -293,11 +293,8 @@ impl SketchBoard {
         let mut early_exit = false;
         while let Some(action) = iter.next() {
             match action {
-                //TODO
                 Action::CopyFilepathToClipboard => {
-                    if let Some(ref pix_buf) = pix_buf {
-                        self.handle_copy_filepath(pix_buf);
-                    }
+                    self.handle_copy_filepath();
                 }
                 Action::SaveToClipboard => {
                     if let Some(ref pix_buf) = pix_buf {
@@ -481,6 +478,7 @@ impl SketchBoard {
 
             dialog.connect_response(move |dialog, response| {
                 let mut exit_app = false;
+                let mut filename: Option<String> = None;
                 if response == gtk::ResponseType::Accept {
                     if let Some(file) = dialog.file() {
                         let output_filename = match file.path() {
@@ -495,6 +493,7 @@ impl SketchBoard {
                             ),
                             Ok(_) => {
                                 exit_app = APP_CONFIG.read().early_exit_save_as();
+                                filename = Some(output_filename.clone());
                                 log_result(
                                     &format!("File saved to '{}'.", &output_filename),
                                     !APP_CONFIG.read().disable_notifications(),
@@ -507,12 +506,13 @@ impl SketchBoard {
                 if exit_app {
                     log_result("early exit after save as, ignoring further actions.", false);
                     sender.input(SketchBoardInput::Exit);
-                } else if !followup_actions.is_empty() {
+                } else if filename.is_some() || !followup_actions.is_empty() {
                     let followup_actions_clone = followup_actions.clone();
                     let pixbuf_clone = Some(pixbuf.clone());
                     sender.input(SketchBoardInput::RenderResultFollowup(
                         pixbuf_clone,
                         followup_actions_clone,
+                        filename,
                     ));
                 }
             });
@@ -521,7 +521,7 @@ impl SketchBoard {
         });
     }
 
-    fn save_to_clipboard(&self, texture: &impl IsA<Texture>) -> anyhow::Result<()> {
+    fn save_texture_to_clipboard(&self, texture: &impl IsA<Texture>) -> anyhow::Result<()> {
         let display = DisplayManager::get()
             .default_display()
             .ok_or(anyhow!("Cannot open default display for clipboard."))?;
@@ -530,11 +530,7 @@ impl SketchBoard {
         Ok(())
     }
 
-    fn save_to_external_process(
-        &self,
-        texture: &impl IsA<Texture>,
-        command: &str,
-    ) -> anyhow::Result<()> {
+    fn save_bytes_to_external_process(&self, bytes: &[u8], command: &str) -> anyhow::Result<()> {
         let mut child = Command::new("sh")
             .arg("-c")
             .arg(command)
@@ -543,7 +539,7 @@ impl SketchBoard {
             .spawn()?;
 
         let child_stdin = child.stdin.as_mut().unwrap();
-        child_stdin.write_all(texture.save_to_png_bytes().as_ref())?;
+        child_stdin.write_all(bytes)?;
 
         if !child.wait()?.success() {
             return Err(anyhow!("Writing to process '{command}' failed."));
@@ -552,13 +548,21 @@ impl SketchBoard {
         Ok(())
     }
 
+    fn save_texture_to_external_process(
+        &self,
+        texture: &impl IsA<Texture>,
+        command: &str,
+    ) -> anyhow::Result<()> {
+        self.save_bytes_to_external_process(texture.save_to_png_bytes().as_ref(), command)
+    }
+
     fn handle_copy_clipboard(&self, image: &Pixbuf) {
         let texture = Texture::for_pixbuf(image);
 
         let result = if let Some(command) = APP_CONFIG.read().copy_command() {
-            self.save_to_external_process(&texture, command)
+            self.save_texture_to_external_process(&texture, command)
         } else {
-            self.save_to_clipboard(&texture)
+            self.save_texture_to_clipboard(&texture)
         };
 
         match result {
@@ -586,45 +590,13 @@ impl SketchBoard {
     }
 
     fn copy_text_to_external_process(&self, text: &str, command: &str) -> anyhow::Result<()> {
-        let mut child = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()?;
-
-        let child_stdin = child.stdin.as_mut().unwrap();
-        child_stdin.write_all(text.as_bytes())?;
-
-        if !child.wait()?.success() {
-            return Err(anyhow!("Writing to process '{command}' failed."));
-        }
-
-        Ok(())
+        self.save_bytes_to_external_process(text.as_bytes(), command)
     }
 
-    fn handle_copy_filepath(&self, image: &Pixbuf) {
-        // Check if we have a saved filepath
-        let filepath = self.last_saved_filepath.borrow().clone();
-
-        // If no filepath exists, save the file first
-        let filepath = match filepath {
+    fn handle_copy_filepath(&self) {
+        let filepath = match self.last_saved_filepath.borrow().clone() {
             Some(path) => path,
-            None => {
-                // Save the file first
-                self.handle_save(image);
-                // Get the filepath that was just saved
-                match self.last_saved_filepath.borrow().clone() {
-                    Some(path) => path,
-                    None => {
-                        log_result(
-                            "Could not save file, cannot copy filepath.",
-                            !APP_CONFIG.read().disable_notifications(),
-                        );
-                        return;
-                    }
-                }
-            }
+            None => return,
         };
 
         // Copy the filepath to clipboard
@@ -1128,7 +1100,10 @@ impl Component for SketchBoard {
                 self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
             }
-            SketchBoardInput::RenderResultFollowup(pix_buf, action) => {
+            SketchBoardInput::RenderResultFollowup(pix_buf, action, filename) => {
+                if filename.is_some() {
+                    *self.last_saved_filepath.borrow_mut() = filename;
+                }
                 self.handle_render_result_with_pixbuf(pix_buf, action, sender);
                 ToolUpdateResult::Unmodified
             }
