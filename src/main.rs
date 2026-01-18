@@ -89,6 +89,9 @@ impl App {
         let resize = APP_CONFIG.read().resize();
         let floating_hack = APP_CONFIG.read().floating_hack();
 
+        let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
+        let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
+
         eprintln!(
             "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
             fullscreen, resize, floating_hack
@@ -102,44 +105,41 @@ impl App {
             }
         }
 
-        if resize == Some(Resize::Smart) {
-            let monitor_size = match Self::get_monitor_size(root) {
-                Some(s) => s,
-                None => {
-                    root.set_default_size((self.image_dimensions.0 as f32 / scale) as i32, (self.image_dimensions.1 as f32 / scale) as i32);
-                    return;
+        let monitor_size_opt = Self::get_monitor_size(root);
+        match resize {
+            Some(Resize::Smart) if monitor_size_opt.is_some() => {
+                let monitor_size = monitor_size_opt.unwrap();
+                let reduced_monitor_width = monitor_size.width() as f64 * 0.8;
+                let reduced_monitor_height = monitor_size.height() as f64 * 0.8;
+
+                // create a window that uses 80% of the available space max
+                // if necessary, scale down image
+                if reduced_monitor_width > image_width && reduced_monitor_height > image_height {
+                    // set window to exact size
+                    root.set_default_size(image_width as i32, image_height as i32);
+                } else {
+                    // scale down and use windowed mode
+                    let aspect_ratio = image_width / image_height;
+
+                    // resize
+                    let mut new_width = reduced_monitor_width;
+                    let mut new_height = new_width / aspect_ratio;
+
+                    // if new_height is still bigger than monitor height, then scale on monitor height
+                    if new_height > reduced_monitor_height {
+                        new_height = reduced_monitor_height;
+                        new_width = new_height * aspect_ratio;
+                    }
+
+                    root.set_default_size(new_width as i32, new_height as i32);
                 }
-            };
-
-            let reduced_monitor_width = monitor_size.width() as f64 * 0.8;
-            let reduced_monitor_height = monitor_size.height() as f64 * 0.8;
-
-            let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
-            let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
-
-            // create a window that uses 80% of the available space max
-            // if necessary, scale down image
-            if reduced_monitor_width > image_width && reduced_monitor_height > image_height {
-                // set window to exact size
-                root.set_default_size(image_width as i32, image_height as i32);
-            } else {
-                // scale down and use windowed mode
-                let aspect_ratio = image_width / image_height;
-
-                // resize
-                let mut new_width = reduced_monitor_width;
-                let mut new_height = new_width / aspect_ratio;
-
-                // if new_height is still bigger than monitor height, then scale on monitor height
-                if new_height > reduced_monitor_height {
-                    new_height = reduced_monitor_height;
-                    new_width = new_height * aspect_ratio;
-                }
-
-                root.set_default_size(new_width as i32, new_height as i32);
             }
-        } else if let Some(Resize::Size { width, height }) = resize {
-            root.set_default_size(width, height);
+            Some(Resize::Size { width, height }) => {
+                root.set_default_size(width, height);
+            }
+            _ => {
+                root.set_default_size(image_width as i32, image_height as i32);
+            }
         }
 
         if floating_hack {

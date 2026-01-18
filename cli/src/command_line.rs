@@ -139,7 +139,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub text_move_length: Option<f32>,
 
-    /// Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays.
+    /// Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays. Note that this is ignored with explicit resize.
     #[arg(long)]
     pub input_scale: Option<f32>,
 

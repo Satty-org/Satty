@@ -158,6 +158,7 @@ zoom-factor = 1.1
 text-move-length = 50.0 
 # experimental feature (NEXTRELEASE): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
 # This may be more useful to set via the command line.
+# Note, this is ignored with explicit resize.
 input-scale = 2.0
 
 # Tool selection keyboard shortcuts (since 0.20.0)
@@ -285,7 +286,7 @@ Options:
       --text-move-length <TEXT_MOVE_LENGTH>
           Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys. defaults to 50.0
       --input-scale <INPUT_SCALE>
-          Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays
+          Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
