@@ -147,6 +147,9 @@ pan-step-size = 50.0
 zoom-factor = 1.1
 # experimental feature (NEXTRELEASE): The length to move the text when using arrow keys. defaults to 50.0
 text-move-length = 50.0 
+# experimental feature (NEXTRELEASE): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
+# This may be more useful to set via the command line.
+input-scale = 2.0
 
 # Tool selection keyboard shortcuts (since 0.20.0)
 [keybinds]
@@ -262,16 +265,18 @@ Options:
           Disable the window decoration (title bar, borders, etc.) Please note that the compositor has the final say in this. Requires xdg-decoration-unstable-v1
       --brush-smooth-history-size <BRUSH_SMOOTH_HISTORY_SIZE>
           Experimental feature: How many points to use for the brush smoothing algorithm. 0 disables smoothing. The default value is 0 (disabled)
-      --right-click-copy
-          Right click to copy. Preferably use the `action_on_right_click` option instead
-      --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
       --zoom-factor <ZOOM_FACTOR>
           Experimental feature (NEXTRELEASE): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
       --pan-step-size <PAN_STEP_SIZE>
           Experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys. defaults to 50.0
       --text-move-length <TEXT_MOVE_LENGTH>
           Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys. defaults to 50.0
+      --input-scale <INPUT_SCALE>
+          Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays
+      --right-click-copy
+          Right click to copy. Preferably use the `action_on_right_click` option instead
+      --action-on-enter <ACTION_ON_ENTER>
+          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
   -h, --help
           Print help
   -V, --version

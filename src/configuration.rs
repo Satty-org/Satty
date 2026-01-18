@@ -61,6 +61,7 @@ pub struct Configuration {
     zoom_factor: f32,
     pan_step_size: f32,
     text_move_length: f32,
+    input_scale: f32,
 }
 
 pub struct Keybinds {
@@ -309,6 +310,9 @@ impl Configuration {
         if let Some(v) = general.text_move_length {
             self.text_move_length = v;
         }
+        if let Some(v) = general.input_scale {
+            self.input_scale = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy {
@@ -420,6 +424,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.text_move_length {
             self.text_move_length = v;
+        }
+        if let Some(v) = command_line.input_scale {
+            self.input_scale = v;
         }
 
         // --- deprecated options ---
@@ -544,6 +551,9 @@ impl Configuration {
     pub fn text_move_length(&self) -> f32 {
         self.text_move_length
     }
+    pub fn input_scale(&self) -> f32 {
+        self.input_scale
+    }
 }
 
 impl Default for Configuration {
@@ -576,6 +586,7 @@ impl Default for Configuration {
             zoom_factor: 1.1,
             pan_step_size: 50.,
             text_move_length: 50.0,
+            input_scale: 1.0,
         }
     }
 }
@@ -653,6 +664,7 @@ struct ConfigurationFileGeneral {
     zoom_factor: Option<f32>,
     pan_step_size: Option<f32>,
     text_move_length: Option<f32>,
+    input_scale: Option<f32>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,
