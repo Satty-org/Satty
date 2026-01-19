@@ -38,7 +38,7 @@ hex_color = {version = "3", features = ["serde"]}
 chrono = "0.4.42"
 
 # opengl rendering backend
-femtovg = "0.19"
+femtovg = "0.20"
 libloading = "0.9"
 epoxy = "0.1.0"
 glow = "0.16.0"
