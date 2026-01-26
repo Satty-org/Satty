@@ -1,12 +1,12 @@
+use configuration::{Configuration, APP_CONFIG};
+use gdk_pixbuf::gio::{Application, ApplicationFlags};
+use gdk_pixbuf::{Pixbuf, PixbufLoader};
+use gtk::prelude::*;
 use std::io::Read;
+use std::ops::Deref;
 use std::sync::LazyLock;
 use std::{fs, ptr};
 use std::{io, time::Duration};
-
-use configuration::{Configuration, APP_CONFIG};
-use gdk_pixbuf::gio::ApplicationFlags;
-use gdk_pixbuf::{Pixbuf, PixbufLoader};
-use gtk::prelude::*;
 
 use relm4::gtk::gdk::Rectangle;
 
@@ -211,6 +211,10 @@ impl Component for App {
             set_decorated: !APP_CONFIG.read().no_window_decoration(),
             set_default_size: (500, 500),
             add_css_class: "root",
+            set_title: match APP_CONFIG.read().title() {
+                Some(s) => Some(s.as_ref()),
+                None => None
+            },
 
             connect_show[sender] => move |_| {
                 generate_profile_output!("gui show event");
@@ -283,7 +287,6 @@ impl Component for App {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         Self::apply_style();
-
         let image_dimensions = (image.width(), image.height());
 
         // SketchBoard
@@ -423,7 +426,16 @@ fn run_satty() -> Result<()> {
     generate_profile_output!("image loaded, starting gui");
     // start GUI
     let app = relm4::main_application();
-    app.set_application_id(Some("com.gabm.satty"));
+    let app_id = match config.app_id() {
+        Some(app_id) if Application::id_is_valid(app_id) => Some(app_id.deref()),
+        o => {
+            if let Some(app_id) = o {
+                eprintln!("Invalid app id: {}, using fallback", app_id);
+            }
+            Some("com.gabm.satty")
+        }
+    };
+    app.set_application_id(app_id);
     // set flag to allow to run multiple instances
     app.set_flags(ApplicationFlags::NON_UNIQUE);
     // create relm app and run
