@@ -297,6 +297,19 @@ Options:
           Print version
 ```
 
+### CSS
+
+Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
+
+```css
+.toolbar {
+    color: #000000;
+    background-color: #ddddddaa;
+}
+```
+
+You can discover styleable elements by using the GTK inspector with env variable `GTK_DEBUG=interactive`.
+
 ### IME <sup>0.20.0</sup>
 
 Satty supports IME via GTK with and without preediting. Please note, at this point Satty has no proper fallback font handling so the font used needs to contain the entered glyphs.
