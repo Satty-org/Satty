@@ -165,4 +165,8 @@ impl FemtoVGArea {
         //trigger resize to reset
         self.imp().resize(0, 0);
     }
+
+    pub fn resize(&self, width: i32, height: i32) {
+        self.imp().resize(width, height);
+    }
 }
