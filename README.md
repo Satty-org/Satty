@@ -25,6 +25,10 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 | Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
 | Alpine Linux | `apk add satty` | Available in [Alpine Community](https://pkgs.alpinelinux.org/packages?name=satty&branch=edge&repo=&arch=&maintainer=) |
 
+### Cargo
+
+You can install satty via `cargo install satty` and `cargo binstall satty`, the latter requires [cargo-binstall](https://crates.io/crates/cargo-binstall). In that case, no manpage, LICENSE file, .Desktop file are available. But you can use the `--man` and `--license` arguments to display either.
+
 ### Prebuilt Sources
 
 You can download a prebuilt binary for x86-64 on the [Satty Releases](https://github.com/gabm/satty/releases) page.
@@ -227,6 +231,10 @@ Modern Screenshot Annotation.
 Usage: satty [OPTIONS] --filename <FILENAME>
 
 Options:
+      --man
+          Show manpage. Pipe to man -l -
+      --license
+          Show license
   -c, --config <CONFIG>
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
   -f, --filename <FILENAME>
