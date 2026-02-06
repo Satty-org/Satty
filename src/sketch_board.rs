@@ -37,6 +37,7 @@ pub enum SketchBoardInput {
     CommitEvent(TextEventMsg),
     Refresh,
     Exit,
+    ScaleFactorChanged,
 }
 
 #[derive(Debug, Clone)]
@@ -1115,6 +1116,10 @@ impl Component for SketchBoard {
             SketchBoardInput::Exit => {
                 self.handle_exit();
                 ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::ScaleFactorChanged => {
+                self.renderer.resize(0, 0);
+                ToolUpdateResult::Redraw
             }
         };
 

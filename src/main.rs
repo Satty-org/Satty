@@ -66,6 +66,7 @@ enum AppInput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    ScaleFactorChanged,
 }
 
 #[derive(Debug)]
@@ -257,6 +258,11 @@ impl Component for App {
                         ui::toolbars::ColorButtons::Palette(index),
                     ));
             }
+            AppInput::ScaleFactorChanged => {
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::ScaleFactorChanged);
+            }
         }
     }
 
@@ -316,16 +322,26 @@ impl Component for App {
         if APP_CONFIG.read().focus_toggles_toolbars() {
             let motion_controller = gtk::EventControllerMotion::builder().build();
             let sender_clone = sender.clone();
+            let sender_clone2 = sender.clone();
 
             motion_controller.connect_enter(move |_, _, _| {
-                sender.input(AppInput::SetToolbarsDisplay(true));
+                sender_clone.input(AppInput::SetToolbarsDisplay(true));
             });
             motion_controller.connect_leave(move |_| {
-                sender_clone.input(AppInput::SetToolbarsDisplay(false));
+                sender_clone2.input(AppInput::SetToolbarsDisplay(false));
             });
 
             root.add_controller(motion_controller);
         }
+
+        root.connect_map(move |r| {
+            let sender_clone3 = sender.clone();
+            if let Some(surface) = r.surface() {
+                surface.connect_notify_local(Some("scale-factor"), move |_, _| {
+                    sender_clone3.input(AppInput::ScaleFactorChanged);
+                });
+            }
+        });
 
         generate_profile_output!("app init end");
 
