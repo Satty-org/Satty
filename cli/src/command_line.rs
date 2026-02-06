@@ -143,6 +143,14 @@ pub struct CommandLine {
     #[arg(long)]
     pub input_scale: Option<f32>,
 
+    /// Experimental feature (NEXTRELEASE): Set window title
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it.
+    #[arg(long)]
+    pub app_id: Option<String>,
+
     // --- deprecated options ---
     /// Right click to copy.
     /// Preferably use the `action_on_right_click` option instead.
