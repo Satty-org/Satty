@@ -103,9 +103,11 @@ fullscreen = true
 resize = { mode = "size", width=2000, height=800 }
 # try to have the window float (0.20.1). This may depend on the compositor.
 floating-hack = true
-# Exit directly after copy/save action. 0.20.1: Does not apply to save as
+# Exit directly after copy/save action. 0.20.1: Does not apply to save as, NEXTRELEASE: Does not apply to copy
 early-exit = true
-# Exit directly after save as (0.20.1)
+# Exit directly after copy action. (Experimental, NEXTRELEASE)
+early-exit-copy = true
+# Exit directly after save as (Experimental, 0.20.1)
 early-exit-save-as = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
@@ -240,7 +242,9 @@ Options:
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
       --early-exit
-          Exit directly after copy/save action. 0.20.1: This does not apply to "save as"
+          Exit directly after save action. 0.20.1: This does not apply to "save as", NEXTRELEASE: does not apply to "copy"
+      --early-exit-copy
+          Experimental (NEXTRELEASE): Exit directly after copy action
       --early-exit-save-as
           Experimental (0.20.1): Exit directly after save as
       --corner-roundness <CORNER_ROUNDNESS>
