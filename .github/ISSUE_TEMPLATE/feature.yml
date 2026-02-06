@@ -1,0 +1,16 @@
+# .github/ISSUE_TEMPLATE/feature-request.yml
+name: ✨ Feature Request
+description: Suggest a new idea or enhancement.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to share your idea!  
+        💡 If you already have thoughts on how it might be implemented, feel free to include them.  
+        🙌 If you could see yourself contributing, even better — but no pressure.  
+        🔎 Please check if a similar open or closed issue already exists.
+  - type: textarea
+    id: idea
+    attributes:
+      label: Description
