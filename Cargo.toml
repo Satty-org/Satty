@@ -14,7 +14,11 @@ include = [
   "LICENSE*",
   "README.md",
   "assets/",
+  "build.rs"
 ]
+
+[features]
+ci-release = []
 
 [dependencies]
 satty_cli.workspace = true
@@ -75,5 +79,5 @@ license = "MPL-2.0"
 
 [workspace.dependencies]
 clap = { version = "4.5.60", features = ["derive"] }
-satty_cli = { path = "cli" }
+satty_cli = { path = "cli", version = "0.20.1" }
 serde = { version = "1.0", features = ["derive"] }
