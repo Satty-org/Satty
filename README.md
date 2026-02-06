@@ -94,6 +94,15 @@ Default single-key shortcuts:
 [general]
 # Start Satty in fullscreen mode
 fullscreen = true
+#fullscreen = false
+# since NEXTRELEASE, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
+#fullscreen = "all"
+#fullscreen = "current-screen"
+# resize initially (NEXTRELEASE)
+#resize = { mode="smart" }
+resize = { mode = "size", width=2000, height=800 }
+# try to have the window float (NEXTRELEASE). This may depend on the compositor.
+floating-hack = true
 # Exit directly after copy/save action. NEXTRELEASE: Does not apply to save as
 early-exit = true
 # Exit directly after save as (NEXTRELEASE)
@@ -149,6 +158,7 @@ zoom-factor = 1.1
 text-move-length = 50.0 
 # experimental feature (NEXTRELEASE): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
 # This may be more useful to set via the command line.
+# Note, this is ignored with explicit resize.
 input-scale = 2.0
 
 # Tool selection keyboard shortcuts (since 0.20.0)
@@ -221,8 +231,12 @@ Options:
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
-      --fullscreen
-          Start Satty in fullscreen mode
+      --fullscreen [<FULLSCREEN>]
+          Start Satty in fullscreen mode. Since NEXTRELEASE, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
+      --resize [<MODE|WIDTHxHEIGHT>]
+          Resize to coordinates or use smart mode (NEXTRELEASE). --resize without parameter is equivalent to --resize smart [possible values: smart, WxH.]
+      --floating-hack
+          Try to enforce floating (NEXTRELEASE). Mileage may vary depending on compositor
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
       --early-exit
@@ -272,7 +286,7 @@ Options:
       --text-move-length <TEXT_MOVE_LENGTH>
           Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys. defaults to 50.0
       --input-scale <INPUT_SCALE>
-          Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays
+          Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
