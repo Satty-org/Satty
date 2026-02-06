@@ -39,7 +39,7 @@ modules:
   - name: satty
     buildsystem: simple
     build-commands:
-      - cargo build --release --locked
+      - cargo build --release --locked --features ci-release
       - install -Dm755 target/release/satty /app/bin/satty
       - install -Dm644 satty.desktop /app/share/applications/org.satty.Satty.desktop
       - install -Dm644 org.satty.Satty.metainfo.xml /app/share/metainfo/org.satty.Satty.metainfo.xml
