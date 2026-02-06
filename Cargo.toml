@@ -65,7 +65,7 @@ relm4-icons-build = "0.10"
 members = [ "cli" ]
 
 [workspace.package]
-version = "0.20.0"
+version = "0.20.1"
 edition = "2021"
 authors = ["Matthias Gabriel <gabm+aur@mailbox.org>"]
 description = "Modern Screenshot Annotation."

@@ -13,19 +13,19 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub filename: String,
 
-    /// Start Satty in fullscreen mode. Since NEXTRELEASE, takes optional parameter.
+    /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
     /// Mileage may vary depending on compositor.
     #[arg(long, num_args = 0..=1, default_missing_value = "current-screen", value_enum)]
     pub fullscreen: Option<Fullscreen>,
 
-    /// Resize to coordinates or use smart mode (NEXTRELEASE).
+    /// Resize to coordinates or use smart mode (0.20.1).
     /// --resize without parameter is equivalent to --resize smart
     /// [possible values: smart, WxH.]
     #[arg(long, num_args=0..=1, value_name="MODE|WIDTHxHEIGHT", default_missing_value = "smart", value_parser = Resize::from_str)]
     pub resize: Option<Resize>,
 
-    /// Try to enforce floating (NEXTRELEASE).
+    /// Try to enforce floating (0.20.1).
     /// Mileage may vary depending on compositor.
     #[arg(long)]
     pub floating_hack: bool,
@@ -36,11 +36,11 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub output_filename: Option<String>,
 
-    /// Exit directly after copy/save action. NEXTRELEASE: This does not apply to "save as".
+    /// Exit directly after copy/save action. 0.20.1: This does not apply to "save as".
     #[arg(long)]
     pub early_exit: bool,
 
-    /// Experimental (NEXTRELEASE): Exit directly after save as
+    /// Experimental (0.20.1): Exit directly after save as
     #[arg(long)]
     pub early_exit_save_as: bool,
 
@@ -123,23 +123,23 @@ pub struct CommandLine {
     #[arg(long)]
     pub brush_smooth_history_size: Option<usize>,
 
-    /// Experimental feature (NEXTRELEASE): The zoom factor to use for the image.
+    /// Experimental feature (0.20.1): The zoom factor to use for the image.
     /// 1.0 means no zoom.
     /// defaults to 1.1
     #[arg(long)]
     pub zoom_factor: Option<f32>,
 
-    /// Experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys.
+    /// Experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
     /// defaults to 50.0
     #[arg(long)]
     pub pan_step_size: Option<f32>,
 
-    /// Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys.
+    /// Experimental feature (0.20.1): The length to move the text when using the arrow keys.
     /// defaults to 50.0
     #[arg(long)]
     pub text_move_length: Option<f32>,
 
-    /// Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays. Note that this is ignored with explicit resize.
+    /// Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that this is ignored with explicit resize.
     #[arg(long)]
     pub input_scale: Option<f32>,
 

@@ -39,17 +39,17 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
 - <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
-- <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
+- <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.20.1</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+S</kbd>: Save to specified output file
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
-- <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
 - <kbd>Ctrl+Y</kbd>: Redo
 - <kbd>Ctrl+Z</kbd>: Undo
-- <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>NEXTRELEASE</sup>
+- <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
-#### Color Selection Shortcuts <sup>NEXTRELEASE</sup>
+#### Color Selection Shortcuts <sup>0.20.1</sup>
 
 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette
 
@@ -79,14 +79,14 @@ Default single-key shortcuts:
   - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
   - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
   - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
-  - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>NEXTRELEASE</sup>
-  - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>NEXTRELEASE</sup>
-  - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>NEXTRELEASE</sup>
-  - <kbd>Ctrl+A</kbd> to select all text. <sup>NEXTRELEASE</sup>
-  - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>NEXTRELEASE</sup>
-  - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>NEXTRELEASE</sup>
-  - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>NEXTRELEASE</sup>
-  - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>NEXTRELEASE</sup>
+  - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
+  - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
+  - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
+  - <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
+  - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
+  - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
+  - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
+  - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 
 ### Configuration File
 
@@ -95,17 +95,17 @@ Default single-key shortcuts:
 # Start Satty in fullscreen mode
 fullscreen = true
 #fullscreen = false
-# since NEXTRELEASE, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
+# since 0.20.1, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
 #fullscreen = "all"
 #fullscreen = "current-screen"
-# resize initially (NEXTRELEASE)
+# resize initially (0.20.1)
 #resize = { mode="smart" }
 resize = { mode = "size", width=2000, height=800 }
-# try to have the window float (NEXTRELEASE). This may depend on the compositor.
+# try to have the window float (0.20.1). This may depend on the compositor.
 floating-hack = true
-# Exit directly after copy/save action. NEXTRELEASE: Does not apply to save as
+# Exit directly after copy/save action. 0.20.1: Does not apply to save as
 early-exit = true
-# Exit directly after save as (NEXTRELEASE)
+# Exit directly after save as (0.20.1)
 early-exit-save-as = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
@@ -149,14 +149,14 @@ right-click-copy = false
 no-window-decoration = true
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
-# experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys.
+# experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
 pan-step-size = 50.0
-# experimental feature (NEXTRELEASE): The zoom factor to use for the image.
+# experimental feature (0.20.1): The zoom factor to use for the image.
 # 1.0 means no zooming.
 zoom-factor = 1.1
-# experimental feature (NEXTRELEASE): The length to move the text when using arrow keys. defaults to 50.0
+# experimental feature (0.20.1): The length to move the text when using arrow keys. defaults to 50.0
 text-move-length = 50.0 
-# experimental feature (NEXTRELEASE): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
+# experimental feature (0.20.1): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
 # This may be more useful to set via the command line.
 # Note, this is ignored with explicit resize.
 input-scale = 2.0
@@ -179,7 +179,7 @@ highlight = "g"
 [font]
 family = "Roboto"
 style = "Regular"
-# specify fallback fonts (NEXTRELEASE)
+# specify fallback fonts (0.20.1)
 # Please note, there is no default setting for these and the fonts listed below
 # are not shipped with Satty but need to be available on the system.
 fallback = [
@@ -232,17 +232,17 @@ Options:
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
       --fullscreen [<FULLSCREEN>]
-          Start Satty in fullscreen mode. Since NEXTRELEASE, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
+          Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
       --resize [<MODE|WIDTHxHEIGHT>]
-          Resize to coordinates or use smart mode (NEXTRELEASE). --resize without parameter is equivalent to --resize smart [possible values: smart, WxH.]
+          Resize to coordinates or use smart mode (0.20.1). --resize without parameter is equivalent to --resize smart [possible values: smart, WxH.]
       --floating-hack
-          Try to enforce floating (NEXTRELEASE). Mileage may vary depending on compositor
+          Try to enforce floating (0.20.1). Mileage may vary depending on compositor
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
       --early-exit
-          Exit directly after copy/save action. NEXTRELEASE: This does not apply to "save as"
+          Exit directly after copy/save action. 0.20.1: This does not apply to "save as"
       --early-exit-save-as
-          Experimental (NEXTRELEASE): Exit directly after save as
+          Experimental (0.20.1): Exit directly after save as
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
@@ -280,13 +280,13 @@ Options:
       --brush-smooth-history-size <BRUSH_SMOOTH_HISTORY_SIZE>
           Experimental feature: How many points to use for the brush smoothing algorithm. 0 disables smoothing. The default value is 0 (disabled)
       --zoom-factor <ZOOM_FACTOR>
-          Experimental feature (NEXTRELEASE): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
+          Experimental feature (0.20.1): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
       --pan-step-size <PAN_STEP_SIZE>
-          Experimental feature (NEXTRELEASE): The pan step size to use when panning with arrow keys. defaults to 50.0
+          Experimental feature (0.20.1): The pan step size to use when panning with arrow keys. defaults to 50.0
       --text-move-length <TEXT_MOVE_LENGTH>
-          Experimental feature (NEXTRELEASE): The length to move the text when using the arrow keys. defaults to 50.0
+          Experimental feature (0.20.1): The length to move the text when using the arrow keys. defaults to 50.0
       --input-scale <INPUT_SCALE>
-          Experimental feature (NEXTRELEASE): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
+          Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
@@ -362,7 +362,7 @@ PREFIX=/usr/local make install
 PREFIX=/usr/local make uninstall
 ```
 
-### Flatpak <sup>NEXTRELEASE</sup>
+### Flatpak <sup>0.20.1</sup>
 
 Satty is available as a Flatpak bundle. Pre-built bundles are automatically created for each release and can be downloaded from the [GitHub Releases](https://github.com/Satty-org/Satty/releases) page.
 
