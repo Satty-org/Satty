@@ -48,6 +48,7 @@ pub struct Configuration {
     copy_command: Option<String>,
     annotation_size_factor: f32,
     save_after_copy: bool,
+    auto_copy: bool,
     actions_on_enter: Vec<Action>,
     actions_on_escape: Vec<Action>,
     actions_on_right_click: Vec<Action>,
@@ -301,6 +302,9 @@ impl Configuration {
         if let Some(v) = general.save_after_copy {
             self.save_after_copy = v;
         }
+        if let Some(v) = general.auto_copy {
+            self.auto_copy = v;
+        }
         if let Some(v) = general.actions_on_enter {
             self.actions_on_enter = v;
         }
@@ -422,6 +426,9 @@ impl Configuration {
         if command_line.save_after_copy {
             self.save_after_copy = command_line.save_after_copy;
         }
+        if command_line.auto_copy {
+            self.auto_copy = command_line.auto_copy;
+        }
         if let Some(v) = command_line.actions_on_enter {
             self.actions_on_enter = v.iter().cloned().map(Into::into).collect();
         }
@@ -528,6 +535,10 @@ impl Configuration {
         self.save_after_copy
     }
 
+    pub fn auto_copy(&self) -> bool {
+        self.auto_copy
+    }
+
     pub fn actions_on_enter(&self) -> Vec<Action> {
         self.actions_on_enter.clone()
     }
@@ -615,6 +626,7 @@ impl Default for Configuration {
             copy_command: None,
             annotation_size_factor: 1.0,
             save_after_copy: false,
+            auto_copy: false,
             actions_on_enter: vec![],
             actions_on_escape: vec![Action::Exit],
             actions_on_right_click: vec![],
@@ -699,6 +711,7 @@ struct ConfigurationFileGeneral {
     copy_command: Option<String>,
     annotation_size_factor: Option<f32>,
     save_after_copy: Option<bool>,
+    auto_copy: Option<bool>,
     output_filename: Option<String>,
     actions_on_enter: Option<Vec<Action>>,
     actions_on_escape: Option<Vec<Action>>,
