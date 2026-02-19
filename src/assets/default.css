@@ -2,9 +2,14 @@
     min-width: 65rem;
     min-height: 10rem;
 }
+
+.outer_box {
+    background-color: @headerbar_bg_color;
+}
+
 .toolbar {
     color: @headerbar_fg_color;
-    background: @headerbar_bg_color;
+    background-color: @headerbar_bg_color;
 }
 .toast {
     color: #f9f9f9;
@@ -12,5 +17,11 @@
     border-radius: 6px;
     margin-top: 50px;
 }
-.toolbar-bottom { border-radius: 6px 6px 0px 0px; }
-.toolbar-top { border-radius: 0px 0px 6px 6px; }
+
+.outer_box .toolbar-bottom,
+.outer_box .toolbar-top {
+    border-radius: 0px 0px 0px 0px;
+}
+
+.overlay .toolbar-bottom { border-radius: 6px 6px 0px 0px; }
+.overlay .toolbar-top { border-radius: 0px 0px 6px 6px; }
