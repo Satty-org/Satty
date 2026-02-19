@@ -302,6 +302,7 @@ Options:
 Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
 
 ```css
+.outer_box,
 .toolbar {
     color: #000000;
     background-color: #ddddddaa;
