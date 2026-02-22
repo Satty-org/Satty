@@ -45,6 +45,7 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    ToolEditingChanged(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +238,7 @@ impl InputEvent {
 pub struct SketchBoard {
     renderer: FemtoVGArea,
     active_tool: Rc<RefCell<dyn Tool>>,
+    tool_edit_mode: bool,
     tools: ToolsManager,
     style: Style,
     im_context: gtk::IMMulticontext,
@@ -974,6 +976,7 @@ impl Component for SketchBoard {
 
     fn update(&mut self, msg: SketchBoardInput, sender: ComponentSender<Self>, _root: &Self::Root) {
         // handle resize ourselves, pass everything else to tool
+        let sender_clone = sender.clone();
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
                 if let InputEvent::Key(ke) = ie {
@@ -1138,6 +1141,14 @@ impl Component for SketchBoard {
             }
         };
 
+        let editing = self.active_tool.borrow().active();
+        if editing != self.tool_edit_mode {
+            self.tool_edit_mode = editing;
+            sender_clone
+                .output_sender()
+                .emit(SketchBoardOutput::ToolEditingChanged(editing));
+        }
+
         // println!(" Result={:?}", result);
         match result {
             ToolUpdateResult::Commit(drawable) => {
@@ -1164,6 +1175,7 @@ impl Component for SketchBoard {
         let mut model = Self {
             renderer: FemtoVGArea::default(),
             active_tool: tools.get(&config.initial_tool()),
+            tool_edit_mode: false,
             style: Style::default(),
             tools,
             im_context,

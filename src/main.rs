@@ -67,6 +67,7 @@ enum AppInput {
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
+    ToolEditingChanged(bool),
 }
 
 #[derive(Debug)]
@@ -256,6 +257,11 @@ impl Component for App {
                     .sender()
                     .emit(SketchBoardInput::ScaleFactorChanged);
             }
+            AppInput::ToolEditingChanged(editing) => {
+                self.tools_toolbar
+                    .sender()
+                    .emit(ToolsToolbarInput::SetToolEditing(editing));
+            }
         }
     }
 
@@ -290,6 +296,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
+                    }
+                    SketchBoardOutput::ToolEditingChanged(editing) => {
+                        AppInput::ToolEditingChanged(editing)
                     }
                 });
 
