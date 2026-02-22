@@ -406,6 +406,14 @@ impl CropTool {
 }
 
 impl Tool for CropTool {
+    fn active(&self) -> bool {
+        if let Some(c) = &self.crop {
+            c.active
+        } else {
+            false
+        }
+    }
+
     fn input_enabled(&self) -> bool {
         self.input_enabled
     }

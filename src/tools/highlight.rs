@@ -164,6 +164,10 @@ impl Tool for HighlightTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.highlighter.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Highlight
     }
@@ -296,9 +300,19 @@ impl Tool for HighlightTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.highlighter.is_some() {
-            self.highlighter = None;
-            return ToolUpdateResult::Redraw;
+        if self.highlighter.is_some() {
+            match event.key {
+                Key::Escape => {
+                    self.highlighter = None;
+                    return ToolUpdateResult::Redraw;
+                }
+                Key::Return => {
+                    let result = self.highlighter.as_ref().unwrap().clone_box();
+                    self.highlighter = None;
+                    return ToolUpdateResult::Commit(result);
+                }
+                _ => {}
+            }
         }
         ToolUpdateResult::Unmodified
     }
