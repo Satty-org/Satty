@@ -66,6 +66,10 @@ pub struct CommandLine {
     #[arg(long)]
     pub save_after_copy: bool,
 
+    /// Automatically copy to clipboard after every annotation change
+    #[arg(long)]
+    pub auto_copy: bool,
+
     /// Actions to perform when pressing Enter
     #[arg(long, value_delimiter = ',')]
     pub actions_on_enter: Option<Vec<Action>>,
