@@ -36,7 +36,9 @@ enum ConfigurationFileError {
 }
 
 pub struct Configuration {
-    input_filename: String,
+    man: bool,
+    license: bool,
+    input_filename: Option<String>,
     output_filename: Option<String>,
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
@@ -389,6 +391,12 @@ impl Configuration {
         if command_line.floating_hack {
             self.floating_hack = command_line.floating_hack;
         }
+        if command_line.man {
+            self.man = command_line.man;
+        }
+        if command_line.license {
+            self.license = command_line.license;
+        }
         if command_line.early_exit {
             self.early_exit = command_line.early_exit;
         }
@@ -480,6 +488,14 @@ impl Configuration {
         // ---
     }
 
+    pub fn man(&self) -> bool {
+        self.man
+    }
+
+    pub fn license(&self) -> bool {
+        self.license
+    }
+
     pub fn early_exit(&self) -> bool {
         self.early_exit
     }
@@ -517,7 +533,10 @@ impl Configuration {
     }
 
     pub fn input_filename(&self) -> &str {
-        self.input_filename.as_ref()
+        match self.input_filename {
+            Some(ref v) => v,
+            None => "",
+        }
     }
 
     pub fn annotation_size_factor(&self) -> f32 {
@@ -603,7 +622,9 @@ impl Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
-            input_filename: String::new(),
+            man: false,
+            license: false,
+            input_filename: Some(String::new()),
             output_filename: None,
             fullscreen: None,
             resize: None,

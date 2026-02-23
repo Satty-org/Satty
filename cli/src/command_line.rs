@@ -3,15 +3,23 @@ use serde::Deserialize;
 use std::str::FromStr;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, name="satty")]
 pub struct CommandLine {
+    /// Show manpage. Pipe to man -l -.
+    #[arg(long, exclusive = true)]
+    pub man: bool,
+
+    /// Show license.
+    #[arg(long, exclusive = true)]
+    pub license: bool,
+
     /// Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
     #[arg(short, long)]
     pub config: Option<String>,
 
     /// Path to input image or '-' to read from stdin
-    #[arg(short, long)]
-    pub filename: String,
+    #[arg(short, long, required = true)]
+    pub filename: Option<String>,
 
     /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
