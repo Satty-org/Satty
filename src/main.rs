@@ -16,7 +16,6 @@ use relm4::{
 };
 
 use anyhow::{anyhow, Context, Result};
-
 use satty_cli::command_line::{Fullscreen, Resize};
 
 use sketch_board::SketchBoardOutput;
@@ -57,6 +56,8 @@ struct App {
     sketch_board: Controller<SketchBoard>,
     tools_toolbar: Controller<ToolsToolbar>,
     style_toolbar: Controller<StyleToolbar>,
+    outer_box: gtk::Box,
+    overlay: gtk::Overlay,
 }
 
 #[derive(Debug)]
@@ -67,6 +68,7 @@ enum AppInput {
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
+    FullscreenChanged(bool),
 }
 
 #[derive(Debug)]
@@ -170,29 +172,22 @@ impl App {
 
     fn apply_style() {
         let css_provider = CssProvider::new();
-        css_provider.load_from_data(
-            "
-            .root {
-                min-width: 65rem;
-                min-height: 10rem;
-            }
-            .toolbar {color: #f9f9f9 ; background: #00000099;}
-            .toast {
-                color: #f9f9f9;
-                background: #00000099;
-                border-radius: 6px;
-                margin-top: 50px;
-            }
-            .toolbar-bottom {border-radius: 6px 6px 0px 0px;}
-            .toolbar-top {border-radius: 0px 0px 6px 6px;}
-            ",
-        );
-        if let Some(overrides) = read_css_overrides() {
-            css_provider.load_from_data(&overrides);
-        }
+        css_provider.load_from_data(include_str!("assets/default.css"));
+
+        let css_provider_override = if let Some(overrides) = read_css_overrides() {
+            let css_provider2 = CssProvider::new();
+            css_provider2.load_from_data(&overrides);
+            Some(css_provider2)
+        } else {
+            None
+        };
+
         match DisplayManager::get().default_display() {
             Some(display) => {
-                gtk::style_context_add_provider_for_display(&display, &css_provider, 1)
+                gtk::style_context_add_provider_for_display(&display, &css_provider, 1);
+                if let Some(css_provider2) = css_provider_override {
+                    gtk::style_context_add_provider_for_display(&display, &css_provider2, 1)
+                }
             }
             None => println!("Cannot apply style"),
         }
@@ -212,18 +207,22 @@ impl Component for App {
             set_default_size: (500, 500),
             add_css_class: "root",
 
+            #[local_ref]
+            outer_box_clone -> gtk::Box {
+                add_css_class: "outer_box",
+                append = model.tools_toolbar.widget(),
+                #[local_ref]
+                overlay_clone -> gtk::Overlay {
+                    add_css_class: "overlay",
+                    model.sketch_board.widget(),
+                },
+                append = model.style_toolbar.widget(),
+            },
+
             connect_show[sender] => move |_| {
                 generate_profile_output!("gui show event");
                 sender.input(AppInput::Realized);
             },
-
-            gtk::Overlay {
-                add_overlay = model.tools_toolbar.widget(),
-
-                add_overlay = model.style_toolbar.widget(),
-
-                model.sketch_board.widget(),
-            }
         }
     }
 
@@ -262,6 +261,21 @@ impl Component for App {
                 self.sketch_board
                     .sender()
                     .emit(SketchBoardInput::ScaleFactorChanged);
+            }
+            AppInput::FullscreenChanged(fullscreen) => {
+                let tools = self.tools_toolbar.widget();
+                let style = self.style_toolbar.widget();
+                if fullscreen {
+                    self.outer_box.remove(tools);
+                    self.outer_box.remove(style);
+                    self.overlay.add_overlay(tools);
+                    self.overlay.add_overlay(style);
+                } else {
+                    self.overlay.remove_overlay(tools);
+                    self.overlay.remove_overlay(style);
+                    self.outer_box.prepend(tools);
+                    self.outer_box.append(style);
+                }
             }
         }
     }
@@ -309,37 +323,55 @@ impl Component for App {
             .launch(())
             .forward(sketch_board.sender(), SketchBoardInput::ToolbarEvent);
 
+        let outer_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let outer_box_clone = outer_box.clone();
+        let overlay = gtk::Overlay::new();
+        let overlay_clone = overlay.clone();
+
         // Model
         let model = App {
             sketch_board,
             tools_toolbar,
             style_toolbar,
             image_dimensions,
+            outer_box,
+            overlay,
         };
 
         let widgets = view_output!();
 
         if APP_CONFIG.read().focus_toggles_toolbars() {
             let motion_controller = gtk::EventControllerMotion::builder().build();
-            let sender_clone = sender.clone();
-            let sender_clone2 = sender.clone();
 
+            let sender_clone = sender.clone();
             motion_controller.connect_enter(move |_, _, _| {
                 sender_clone.input(AppInput::SetToolbarsDisplay(true));
             });
+
+            let sender_clone = sender.clone();
             motion_controller.connect_leave(move |_| {
-                sender_clone2.input(AppInput::SetToolbarsDisplay(false));
+                sender_clone.input(AppInput::SetToolbarsDisplay(false));
             });
 
             root.add_controller(motion_controller);
         }
 
+        let sender_clone = sender.clone();
         root.connect_map(move |r| {
-            let sender_clone3 = sender.clone();
+            let sender_clone = sender_clone.clone();
             if let Some(surface) = r.surface() {
                 surface.connect_notify_local(Some("scale-factor"), move |_, _| {
-                    sender_clone3.input(AppInput::ScaleFactorChanged);
+                    sender_clone.input(AppInput::ScaleFactorChanged);
                 });
+            }
+        });
+
+        let sender_clone = sender.clone();
+        root.connect_notify(Some("fullscreened"), move |window, _| {
+            if window.is_fullscreen() {
+                sender_clone.input(AppInput::FullscreenChanged(true));
+            } else {
+                sender_clone.input(AppInput::FullscreenChanged(false));
             }
         });
 
