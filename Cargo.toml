@@ -74,6 +74,6 @@ repository = "https://github.com/gabm/satty"
 license = "MPL-2.0"
 
 [workspace.dependencies]
-clap = { version = "4.5.58", features = ["derive"] }
+clap = { version = "4.5.60", features = ["derive"] }
 satty_cli = { path = "cli" }
 serde = { version = "1.0", features = ["derive"] }
