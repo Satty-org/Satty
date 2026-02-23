@@ -641,7 +641,7 @@ dependencies = [
  "futures-task",
  "futures-util",
  "gio-sys",
- "glib-macros",
+ "glib-macros 0.21.5",
  "glib-sys",
  "gobject-sys",
  "libc",
@@ -654,6 +654,19 @@ name = "glib-macros"
 version = "0.21.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf59b675301228a696fe01c3073974643365080a76cc3ed5bc2cbc466ad87f17"
+dependencies = [
+ "heck",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "glib-macros"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b48a968528354e04603ae96205f00cf7e77347ffde0fc943a2159948d7d6d80"
 dependencies = [
  "heck",
  "proc-macro-crate",
@@ -1365,7 +1378,7 @@ dependencies = [
  "fontconfig",
  "gdk-pixbuf",
  "glib",
- "glib-macros",
+ "glib-macros 0.22.0",
  "glow",
  "hex_color",
  "keycode",
