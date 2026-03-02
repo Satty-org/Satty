@@ -961,7 +961,7 @@ impl Tool for TextTool {
                     let sender = self.sender.clone();
 
                     //async clipboard read
-                    glib::MainContext::default().spawn_local(async move {
+                    relm4::gtk::glib::MainContext::default().spawn_local(async move {
                         match clipboard.read_text_future().await {
                             Ok(Some(text)) => {
                                 buffer.insert_at_cursor(&text);
@@ -1037,7 +1037,7 @@ impl Tool for TextTool {
 
                         let sender = self.sender.clone();
 
-                        glib::MainContext::default().spawn_local(async move {
+                        relm4::gtk::glib::MainContext::default().spawn_local(async move {
                             match selection_clipboard.read_text_future().await {
                                 Ok(Some(text)) => {
                                     buffer.insert_at_cursor(&text);
@@ -1174,7 +1174,7 @@ impl Tool for TextTool {
                         let sender = self.sender.clone();
                         let dragged = self.dragged.clone();
 
-                        glib::MainContext::default().spawn_local(async move {
+                        relm4::gtk::glib::MainContext::default().spawn_local(async move {
                             match selection_clipboard.read_text_future().await {
                                 Ok(Some(text)) => {
                                     if !*dragged.borrow() {

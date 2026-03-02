@@ -2,9 +2,9 @@ use anyhow::anyhow;
 
 use femtovg::imgref::Img;
 use femtovg::rgb::{ComponentBytes, RGBA};
-use gdk_pixbuf::glib::Bytes;
-use gdk_pixbuf::Pixbuf;
 use keycode::{KeyMap, KeyMappingId};
+use relm4::gtk::gdk_pixbuf::glib::Bytes;
+use relm4::gtk::gdk_pixbuf::Pixbuf;
 use std::cell::RefCell;
 use std::io::Write;
 use std::panic;
@@ -253,7 +253,7 @@ impl SketchBoard {
 
         Pixbuf::from_bytes(
             &Bytes::from(buf.as_bytes()),
-            gdk_pixbuf::Colorspace::Rgb,
+            relm4::gtk::gdk_pixbuf::Colorspace::Rgb,
             true,
             8,
             w as i32,
@@ -918,7 +918,7 @@ impl Component for SketchBoard {
                     set_flags: gtk::EventControllerScrollFlags::VERTICAL,
                     connect_scroll[sender] => move |_, _, dy| {
                         sender.input(SketchBoardInput::new_scroll_event(dy));
-                        glib::Propagation::Stop
+                        relm4::gtk::glib::Propagation::Stop
                     },
                 },
 
@@ -926,7 +926,7 @@ impl Component for SketchBoard {
                     set_flags: gtk::EventControllerScrollFlags::VERTICAL,
                     connect_scroll[sender] => move |_, _, dy| {
                         sender.input(SketchBoardInput::new_scroll_event(dy));
-                        glib::Propagation::Stop
+                        relm4::gtk::glib::Propagation::Stop
                     },
                 },
 
@@ -940,7 +940,7 @@ impl Component for SketchBoard {
                         } else {
                             sender.input(SketchBoardInput::new_key_event(KeyEventMsg::new(key, code, modifier)));
                         }
-                        glib::Propagation::Stop
+                        relm4::gtk::glib::Propagation::Stop
                     },
 
                     connect_key_released[sender] => move |controller, key, code, modifier | {

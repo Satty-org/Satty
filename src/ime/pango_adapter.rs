@@ -1,12 +1,12 @@
-use glib::translate::FromGlib;
-use pango::{AttrColor, AttrInt, AttrList, AttrType, Underline};
+use relm4::gtk::glib::translate::FromGlib;
+use relm4::gtk::pango::{AttrColor, AttrInt, AttrList, AttrType, Color as PangoColor, Underline};
 
 use crate::style::Color;
 
 use super::preedit::{PreeditSpan, UnderlineKind};
 
 #[allow(clippy::cast_possible_truncation)]
-fn to_style_color(color: pango::Color, alpha: Option<u16>) -> Color {
+fn to_style_color(color: PangoColor, alpha: Option<u16>) -> Color {
     let to_u8 = |value: u16| -> u8 { (value / 257) as u8 };
     let alpha = alpha.unwrap_or(u16::MAX);
     Color::new(
@@ -64,9 +64,9 @@ pub fn spans_from_pango_attrs(text: &str, attrs: Option<AttrList>) -> Vec<Preedi
                 ..Default::default()
             };
 
-            let mut fg_color: Option<pango::Color> = None;
-            let mut bg_color: Option<pango::Color> = None;
-            let mut underline_color: Option<pango::Color> = None;
+            let mut fg_color: Option<PangoColor> = None;
+            let mut bg_color: Option<PangoColor> = None;
+            let mut underline_color: Option<PangoColor> = None;
             let mut underline_kind = UnderlineKind::None;
             let mut fg_alpha: Option<u16> = None;
             let mut bg_alpha: Option<u16> = None;
