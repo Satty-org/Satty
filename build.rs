@@ -1,6 +1,7 @@
 #[allow(dead_code)]
 use std::fs;
 use std::io;
+use std::path::PathBuf;
 
 use clap::CommandFactory;
 use clap_complete::{generate_to, Shell};
@@ -10,17 +11,23 @@ use clap_complete_nushell::Nushell;
 use satty_cli::command_line;
 
 fn main() -> Result<(), io::Error> {
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").ok_or(std::io::ErrorKind::NotFound)?);
     let cmd = &mut command_line::CommandLine::command();
     let bin = "satty";
-    let out = "completions";
+    let completions = if cfg!(feature = "ci-release") {
+        PathBuf::from("completions")
+    } else {
+        // make cargo publish happy about OUT_DIR ;)
+        out_dir.join(PathBuf::from("completions"))
+    };
 
-    fs::create_dir_all(out)?;
-    generate_to(Shell::Bash, cmd, bin, out)?;
-    generate_to(Shell::Fish, cmd, bin, out)?;
-    generate_to(Shell::Zsh, cmd, bin, out)?;
-    generate_to(Shell::Elvish, cmd, bin, out)?;
-    generate_to(Nushell, cmd, bin, out)?;
-    generate_to(Fig, cmd, bin, out)?;
+    fs::create_dir_all(completions.as_path())?;
+    generate_to(Shell::Bash, cmd, bin, &completions)?;
+    generate_to(Shell::Fish, cmd, bin, &completions)?;
+    generate_to(Shell::Zsh, cmd, bin, &completions)?;
+    generate_to(Shell::Elvish, cmd, bin, &completions)?;
+    generate_to(Nushell, cmd, bin, &completions)?;
+    generate_to(Fig, cmd, bin, &completions)?;
 
     relm4_icons_build::bundle_icons(
         "icon_names.rs",
