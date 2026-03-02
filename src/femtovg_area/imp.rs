@@ -15,8 +15,8 @@ use femtovg::{
     Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat, Transform2D,
 };
 use fontconfig::Fontconfig;
-use gdk_pixbuf::Pixbuf;
 use gtk::{glib, prelude::*, subclass::prelude::*};
+use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::{gtk, Sender};
 use resource::resource;
 

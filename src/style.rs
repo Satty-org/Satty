@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 
 use femtovg::Paint;
-use gdk_pixbuf::{
+use hex_color::HexColor;
+use relm4::gtk::gdk::RGBA;
+use relm4::gtk::gdk_pixbuf::{
     glib::{Variant, VariantTy},
     prelude::{StaticVariantType, ToVariant},
 };
-use glib::variant::FromVariant;
-use hex_color::HexColor;
-use relm4::gtk::gdk::RGBA;
+use relm4::gtk::glib::variant::FromVariant;
 
 use crate::configuration::APP_CONFIG;
 
