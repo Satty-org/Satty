@@ -35,7 +35,7 @@ toml = "1.0.3"
 serde.workspace = true
 serde_derive = "1.0"
 hex_color = {version = "3", features = ["serde"]}
-chrono = "0.4.42"
+chrono = "0.4.44"
 
 # opengl rendering backend
 femtovg = "0.20"
