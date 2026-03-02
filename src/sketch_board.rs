@@ -1023,6 +1023,21 @@ impl Component for SketchBoard {
                                 self.renderer
                                     .request_render(&[Action::CopyFilepathToClipboard]);
                                 ToolUpdateResult::Unmodified
+                            } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
+                                || ke.is_one_of(Key::i, KeyMappingId::UsI))
+                                && ke.modifier
+                                    == (ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
+                            {
+                                /* GTK does not appear to offer any tracking for this, so
+                                we'd have to track the state ourselves. But since the user may
+                                just choose to close the inspector window, doing so adds little
+                                benefit.
+
+                                Just enable it everytime, and let the user close the window if they
+                                so wish.
+                                 */
+                                gtk::Window::set_interactive_debugging(true);
+                                ToolUpdateResult::Unmodified
                             } else if (ke.is_one_of(Key::leftarrow, KeyMappingId::ArrowLeft)
                                 || ke.is_one_of(Key::rightarrow, KeyMappingId::ArrowRight)
                                 || ke.is_one_of(Key::uparrow, KeyMappingId::ArrowUp)
