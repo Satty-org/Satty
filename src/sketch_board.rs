@@ -300,7 +300,9 @@ impl SketchBoard {
                 Action::SaveToClipboard => {
                     if let Some(ref pix_buf) = pix_buf {
                         self.handle_copy_clipboard(pix_buf);
-                        early_exit = APP_CONFIG.read().early_exit();
+                        if !APP_CONFIG.read().auto_copy() {
+                            early_exit = APP_CONFIG.read().early_exit();
+                        }
                     }
                 }
                 Action::SaveToFile => {
@@ -687,6 +689,9 @@ impl SketchBoard {
 
                 if let ToolUpdateResult::Commit(d) = deactivate_result {
                     self.renderer.commit(d);
+                    if APP_CONFIG.read().auto_copy() {
+                        self.renderer.request_render(&[Action::SaveToClipboard]);
+                    }
                     // we handle commit directly and "downgrade" to a simple redraw result
                     deactivate_result = ToolUpdateResult::Redraw;
                 }
@@ -1127,6 +1132,9 @@ impl Component for SketchBoard {
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 self.renderer.commit(drawable);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
                 self.refresh_screen();
             }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
