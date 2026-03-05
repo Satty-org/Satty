@@ -41,6 +41,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
 - <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.20.1</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
+- <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
 - <kbd>Ctrl+S</kbd>: Save to specified output file
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
@@ -296,6 +297,19 @@ Options:
   -V, --version
           Print version
 ```
+
+### CSS
+
+Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
+
+```css
+.toolbar {
+    color: #000000;
+    background-color: #ddddddaa;
+}
+```
+
+You can discover styleable elements by using the GTK inspector with env variable `GTK_DEBUG=interactive`.
 
 ### IME <sup>0.20.0</sup>
 
