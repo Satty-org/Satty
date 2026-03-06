@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use std::{fs, ptr};
 use std::{io, time::Duration};
 
-use configuration::{Configuration, APP_CONFIG};
+use configuration::{APP_CONFIG, Configuration};
 use gdk_pixbuf::gio::ApplicationFlags;
 use gdk_pixbuf::{Pixbuf, PixbufLoader};
 use gtk::prelude::*;
@@ -11,11 +11,11 @@ use gtk::prelude::*;
 use relm4::gtk::gdk::Rectangle;
 
 use relm4::{
-    gtk::{self, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel, CssProvider, Window},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp,
+    gtk::{self, CssProvider, Window, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use satty_cli::command_line::{Fullscreen, Resize};
 
@@ -98,12 +98,11 @@ impl App {
             fullscreen, resize, floating_hack
         );
 
-        if fullscreen == Some(Fullscreen::All) {
-            if let Some(surface) = root.surface() {
-                if let Ok(toplevel) = surface.downcast::<Toplevel>() {
-                    toplevel.set_fullscreen_mode(FullscreenMode::AllMonitors);
-                }
-            }
+        if fullscreen == Some(Fullscreen::All)
+            && let Some(surface) = root.surface()
+            && let Ok(toplevel) = surface.downcast::<Toplevel>()
+        {
+            toplevel.set_fullscreen_mode(FullscreenMode::AllMonitors);
         }
 
         let monitor_size_opt = Self::get_monitor_size(root);

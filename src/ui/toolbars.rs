@@ -7,14 +7,14 @@ use crate::{
 };
 
 use gdk_pixbuf::{
+    Pixbuf,
     gio::SimpleAction,
     glib::{Variant, VariantTy},
-    Pixbuf,
 };
 use gtk::ToggleButton;
 use relm4::{
     actions::{ActionablePlus, RelmAction, RelmActionGroup},
-    gtk::{gdk::RGBA, prelude::*, Align, ColorChooserDialog, ResponseType, Window},
+    gtk::{Align, ColorChooserDialog, ResponseType, Window, gdk::RGBA, prelude::*},
     prelude::*,
 };
 
