@@ -461,21 +461,18 @@ impl SketchBoard {
         let root = self.renderer.toplevel_window();
 
         relm4::spawn_local(async move {
-            let builder = gtk::FileChooserDialog::builder()
+            let builder = gtk::FileChooserNative::builder()
                 .modal(is_modal)
                 .title("Save Image As")
-                .action(gtk::FileChooserAction::Save);
+                .action(gtk::FileChooserAction::Save)
+                .accept_label("Save")
+                .cancel_label("Cancel");
 
             let dialog = match root {
                 Some(w) => builder.transient_for(&w),
                 None => builder,
             }
             .build();
-
-            dialog.add_buttons(&[
-                ("Cancel", gtk::ResponseType::Cancel),
-                ("Save", gtk::ResponseType::Accept),
-            ]);
 
             dialog.connect_response(move |dialog, response| {
                 let mut exit_app = false;
@@ -503,7 +500,6 @@ impl SketchBoard {
                         };
                     }
                 }
-                dialog.close();
                 if exit_app {
                     log_result("early exit after save as, ignoring further actions.", false);
                     sender.input(SketchBoardInput::Exit);
