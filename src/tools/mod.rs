@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
-use femtovg::{renderer::OpenGl, Canvas, FontId};
+use femtovg::{Canvas, FontId, renderer::OpenGl};
 use gdk_pixbuf::{
     glib::{Variant, VariantTy},
     prelude::{StaticVariantType, ToVariant},
@@ -15,8 +15,8 @@ use gdk_pixbuf::{
 
 use glib::variant::FromVariant;
 use relm4::{
-    gtk::{self, IMMulticontext},
     Sender,
+    gtk::{self, IMMulticontext},
 };
 use serde_derive::Deserialize;
 
@@ -147,7 +147,7 @@ where
 
 pub trait Drawable: DrawableClone + Debug {
     fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
-        -> Result<()>;
+    -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
 }

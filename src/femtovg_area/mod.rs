@@ -3,11 +3,11 @@ mod imp;
 use std::{cell::RefCell, rc::Rc, sync::OnceLock};
 
 use femtovg::FontId;
-use gdk_pixbuf::{glib::subclass::types::ObjectSubclassIsExt, Pixbuf};
+use gdk_pixbuf::{Pixbuf, glib::subclass::types::ObjectSubclassIsExt};
 use gtk::glib;
 use relm4::{
-    gtk::{self, prelude::WidgetExt, subclass::prelude::GLAreaImpl},
     Sender,
+    gtk::{self, prelude::WidgetExt, subclass::prelude::GLAreaImpl},
 };
 
 use crate::{
