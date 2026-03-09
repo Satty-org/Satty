@@ -103,6 +103,8 @@ fullscreen = true
 resize = { mode = "size", width=2000, height=800 }
 # try to have the window float (0.20.1). This may depend on the compositor.
 floating-hack = true
+# Change to true to automatically copy to clipboard after every annotation change
+auto-copy = false
 # Exit directly after copy/save action. 0.20.1: Does not apply to save as
 early-exit = true
 # Exit directly after save as (0.20.1)
@@ -253,6 +255,8 @@ Options:
           Increase or decrease the size of the annotations
       --save-after-copy
           After copying the screenshot, save it to a file as well Preferably use the `action_on_copy` option instead
+      --auto-copy
+          Automatically copy to clipboard after every annotation change
       --actions-on-enter <ACTIONS_ON_ENTER>
           Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
       --actions-on-escape <ACTIONS_ON_ESCAPE>
