@@ -300,7 +300,7 @@ impl SketchBoard {
                 Action::SaveToClipboard => {
                     if let Some(ref pix_buf) = pix_buf {
                         self.handle_copy_clipboard(pix_buf);
-                        early_exit = APP_CONFIG.read().early_exit();
+                        early_exit = APP_CONFIG.read().early_exit_copy();
                     }
                 }
                 Action::SaveToFile => {
