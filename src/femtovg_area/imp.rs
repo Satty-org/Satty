@@ -30,6 +30,8 @@ use crate::{
 
 use super::set_font_stack;
 
+const TRANSPARENCY_SQUARE_SIZE: usize = 64;
+
 #[derive(Default)]
 pub struct FemtoVGArea {
     canvas: RefCell<Option<femtovg::Canvas<femtovg::renderer::OpenGl>>>,
@@ -42,6 +44,7 @@ pub struct FemtoVGArea {
 pub struct FemtoVgAreaMut {
     background_image: Pixbuf,
     background_image_id: Option<femtovg::ImageId>,
+    transparent_background_id: Option<femtovg::ImageId>,
     active_tool: Rc<RefCell<dyn Tool>>,
     crop_tool: Rc<RefCell<CropTool>>,
     scale_factor: f32,
@@ -162,6 +165,7 @@ impl FemtoVGArea {
         self.inner().replace(FemtoVgAreaMut {
             background_image,
             background_image_id: None,
+            transparent_background_id: None,
             active_tool,
             crop_tool,
             scale_factor: 1.0,
@@ -368,8 +372,13 @@ impl FemtoVgAreaMut {
         canvas.reset_transform();
         canvas.set_transform(&transform);
 
-        // render
-        self.render(canvas, font, false)?;
+        self.render(
+            canvas,
+            font,
+            false,
+            femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+            false,
+        )?;
 
         // return screenshot
         let result = canvas.screenshot();
@@ -396,7 +405,8 @@ impl FemtoVgAreaMut {
         canvas.reset_transform();
         canvas.set_transform(&transform);
 
-        self.render(canvas, font, true)?;
+        //TODO: make background color configurable
+        self.render(canvas, font, true, femtovg::Color::black(), true)?;
 
         Ok(())
     }
@@ -406,18 +416,15 @@ impl FemtoVgAreaMut {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
         render_crop: bool,
+        outside_bg_color: femtovg::Color,
+        onscreen: bool,
     ) -> Result<()> {
         // clear canvas
-        canvas.clear_rect(
-            0,
-            0,
-            canvas.width(),
-            canvas.height(),
-            femtovg::Color::black(),
-        );
+
+        canvas.clear_rect(0, 0, canvas.width(), canvas.height(), outside_bg_color);
 
         // render background
-        self.render_background_image(canvas)?;
+        self.render_background_image(canvas, onscreen)?;
 
         let bounds = (
             Vec2D::zero(),
@@ -450,6 +457,7 @@ impl FemtoVgAreaMut {
     fn render_background_image(
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        onscreen: bool,
     ) -> Result<()> {
         let background_image_id = match self.background_image_id {
             Some(id) => id,
@@ -460,26 +468,45 @@ impl FemtoVgAreaMut {
             }
         };
 
+        let transparency_bg_id = match self.transparent_background_id {
+            Some(id) if onscreen => Some(id),
+            None => {
+                if let Some(id) = Self::create_transparency_bg(canvas) {
+                    self.transparent_background_id.replace(id);
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
         // render the image
         let mut path = Path::new();
-        path.rect(
-            0.0,
-            0.0,
-            self.background_image.width() as f32,
-            self.background_image.height() as f32,
-        );
+
+        let w = self.background_image.width() as f32;
+        let h = self.background_image.height() as f32;
+
+        path.rect(0.0, 0.0, w, h);
+
+        if let Some(id) = transparency_bg_id {
+            canvas.fill_path(
+                &path,
+                &Paint::image(
+                    id,
+                    0f32,
+                    0f32,
+                    TRANSPARENCY_SQUARE_SIZE as f32,
+                    TRANSPARENCY_SQUARE_SIZE as f32,
+                    0f32,
+                    1f32,
+                ),
+            );
+        }
 
         canvas.fill_path(
             &path,
-            &Paint::image(
-                background_image_id,
-                0f32,
-                0f32,
-                self.background_image.width() as f32,
-                self.background_image.height() as f32,
-                0f32,
-                1f32,
-            ),
+            &Paint::image(background_image_id, 0f32, 0f32, w, h, 0f32, 1f32),
         );
 
         Ok(())
@@ -553,6 +580,33 @@ impl FemtoVgAreaMut {
         }
 
         Ok(background_image_id)
+    }
+
+    fn create_transparency_bg(
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+    ) -> Option<femtovg::ImageId> {
+        let tile: usize = TRANSPARENCY_SQUARE_SIZE * 2;
+        let mut pixels = vec![RGBA8::new(204, 204, 204, 255); tile * tile];
+
+        for y in 0..tile {
+            for x in 0..tile {
+                if (x / TRANSPARENCY_SQUARE_SIZE + y / TRANSPARENCY_SQUARE_SIZE) % 2 == 1 {
+                    pixels[y * tile + x] = RGBA8::new(153, 153, 153, 255);
+                }
+            }
+        }
+        let img = Img::new(pixels, tile, tile);
+
+        match canvas.create_image(
+            ImageSource::Rgba(img.as_ref()),
+            ImageFlags::REPEAT_X | ImageFlags::REPEAT_Y,
+        ) {
+            Ok(id) => Some(id),
+            Err(_) => {
+                eprintln!("Could not create transparency background image");
+                None
+            }
+        }
     }
 
     pub fn update_transformation(
