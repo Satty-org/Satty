@@ -28,7 +28,7 @@ install: target/release/satty
 	install -s -Dm755 target/release/satty -t ${PREFIX}/bin/
 	install -Dm644 satty.desktop ${PREFIX}/share/applications/satty.desktop
 	install -Dm644 assets/satty.svg ${PREFIX}/share/icons/hicolor/scalable/apps/satty.svg
-
+	install -Dm644 satty.1 ${PREFIX}/share/man/man1
 	install -Dm644 LICENSE ${PREFIX}/share/licenses/satty/LICENSE
 
 uninstall:
@@ -44,6 +44,7 @@ uninstall:
 	rm ${PREFIX}/share/licenses/satty/LICENSE
 	rmdir -p ${PREFIX}/share/licenses/satty || true
 
+	rm ${PREFIX}/share/man/man1/satty.1
 	
 package: clean build-release
 	$(eval TMP := $(shell mktemp -d))
