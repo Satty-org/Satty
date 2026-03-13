@@ -6,12 +6,12 @@ use crate::{
     tools::Tools,
 };
 
-use gdk_pixbuf::{
+use gtk::ToggleButton;
+use relm4::gtk::gdk_pixbuf::{
     gio::SimpleAction,
     glib::{Variant, VariantTy},
     Pixbuf,
 };
-use gtk::ToggleButton;
 use relm4::{
     actions::{ActionablePlus, RelmAction, RelmActionGroup},
     gtk::{gdk::RGBA, prelude::*, Align, ColorChooserDialog, ResponseType, Window},
@@ -89,7 +89,7 @@ pub enum AnnotationSizeDialogOutput {
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
-    let pixbuf = gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, false, 8, 40, 40).unwrap();
+    let pixbuf = Pixbuf::new(relm4::gtk::gdk_pixbuf::Colorspace::Rgb, false, 8, 40, 40).unwrap();
     pixbuf.fill(color.to_rgba_u32());
     pixbuf
 }
@@ -850,13 +850,13 @@ impl Component for AnnotationSizeDialog {
             match keyval {
                 Key::Return => {
                     sender.input(AnnotationSizeDialogInput::Submit);
-                    glib::Propagation::Stop
+                    relm4::gtk::glib::Propagation::Stop
                 }
                 Key::Escape => {
                     sender.input(AnnotationSizeDialogInput::Cancel);
-                    glib::Propagation::Stop
+                    relm4::gtk::glib::Propagation::Stop
                 }
-                _ => glib::Propagation::Proceed,
+                _ => relm4::gtk::glib::Propagation::Proceed,
             }
         });
         root.add_controller(key_controller);

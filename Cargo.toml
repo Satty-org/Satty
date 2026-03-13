@@ -20,7 +20,6 @@ include = [
 satty_cli.workspace = true
 relm4 = { version = "0.10.1", features = ["macros", "libadwaita", "gnome_42"] }
 tokio = { version = "1.48.0", features = ["time"] }
-gdk-pixbuf = "0.21.2"
 
 # error handling
 anyhow = "1.0"
@@ -42,12 +41,9 @@ femtovg = "0.20"
 libloading = "0.9"
 epoxy = "0.1.0"
 glow = "0.16.0"
-glib-macros = "0.21.4"
-glib = "0.21.4"
 resource = "0.6.1"  # font emedding
 fontconfig = "0.10.0"  # font loading
 keycode = "1.0.0"
-pango = "0.21.3"
 
 [dependencies.relm4-icons]
 version = "0.10.0"

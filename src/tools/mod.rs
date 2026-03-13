@@ -8,12 +8,12 @@ use std::{
 
 use anyhow::Result;
 use femtovg::{renderer::OpenGl, Canvas, FontId};
-use gdk_pixbuf::{
+use relm4::gtk::gdk_pixbuf::{
     glib::{Variant, VariantTy},
     prelude::{StaticVariantType, ToVariant},
 };
 
-use glib::variant::FromVariant;
+use relm4::gtk::glib::variant::FromVariant;
 use relm4::{
     gtk::{self, IMMulticontext},
     Sender,

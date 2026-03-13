@@ -1,4 +1,4 @@
-use gdk_pixbuf::gio::FileIcon;
+use relm4::gtk::gio::FileIcon;
 use relm4::gtk::gio::{prelude::ApplicationExt, Notification};
 
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection};
