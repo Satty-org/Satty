@@ -117,6 +117,10 @@ impl Tool for RectangleTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.rectangle.is_some()
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
@@ -176,9 +180,20 @@ impl Tool for RectangleTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.rectangle.is_some() {
-            self.rectangle = None;
-            ToolUpdateResult::Redraw
+        if let Some(rectangle) = &mut self.rectangle {
+            match event.key {
+                Key::Escape => {
+                    self.rectangle = None;
+                    ToolUpdateResult::Redraw
+                }
+                Key::Return if rectangle.size.is_some() => {
+                    rectangle.finishing = true;
+                    let result = rectangle.clone_box();
+                    self.rectangle = None;
+                    ToolUpdateResult::Commit(result)
+                }
+                _ => ToolUpdateResult::Unmodified,
+            }
         } else {
             ToolUpdateResult::Unmodified
         }

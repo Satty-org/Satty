@@ -67,6 +67,7 @@ enum AppInput {
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
+    ToolEditingChanged(bool),
 }
 
 #[derive(Debug)]
@@ -170,29 +171,22 @@ impl App {
 
     fn apply_style() {
         let css_provider = CssProvider::new();
-        css_provider.load_from_data(
-            "
-            .root {
-                min-width: 65rem;
-                min-height: 10rem;
-            }
-            .toolbar {color: #f9f9f9 ; background: #00000099;}
-            .toast {
-                color: #f9f9f9;
-                background: #00000099;
-                border-radius: 6px;
-                margin-top: 50px;
-            }
-            .toolbar-bottom {border-radius: 6px 6px 0px 0px;}
-            .toolbar-top {border-radius: 0px 0px 6px 6px;}
-            ",
-        );
-        if let Some(overrides) = read_css_overrides() {
-            css_provider.load_from_data(&overrides);
-        }
+        css_provider.load_from_data(include_str!("assets/default.css"));
+
+        let css_provider_override = if let Some(overrides) = read_css_overrides() {
+            let css_provider2 = CssProvider::new();
+            css_provider2.load_from_data(&overrides);
+            Some(css_provider2)
+        } else {
+            None
+        };
+
         match DisplayManager::get().default_display() {
             Some(display) => {
-                gtk::style_context_add_provider_for_display(&display, &css_provider, 1)
+                gtk::style_context_add_provider_for_display(&display, &css_provider, 1);
+                if let Some(css_provider2) = css_provider_override {
+                    gtk::style_context_add_provider_for_display(&display, &css_provider2, 1)
+                }
             }
             None => println!("Cannot apply style"),
         }
@@ -263,6 +257,11 @@ impl Component for App {
                     .sender()
                     .emit(SketchBoardInput::ScaleFactorChanged);
             }
+            AppInput::ToolEditingChanged(editing) => {
+                self.tools_toolbar
+                    .sender()
+                    .emit(ToolsToolbarInput::SetToolEditing(editing));
+            }
         }
     }
 
@@ -297,6 +296,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
+                    }
+                    SketchBoardOutput::ToolEditingChanged(editing) => {
+                        AppInput::ToolEditingChanged(editing)
                     }
                 });
 
