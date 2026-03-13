@@ -22,10 +22,10 @@ The issue should state what is missing from or broken in Satty. All the discussi
 Commits and PRs
 --
 
-- We don't squash the commits in a PR. If you feel that some commits are temporary in nature, please squash them yourself, otherwise they will show up in commit history after we merge the PR.
+- We may squash commits in a PR for easier reverting and to avoid commits that are scattered along the change log.
 - If github indicates conflicts, please rebase your branch instead of merging upstream changes. We know that having to rebase sucks, so we're doing our best to point out where conflicts may arise even in advance, but sometimes conflicts are inevitable. We're happy to assist with rebasing, just say the word.
-- Please make sure that all commits in a non-draft PR compile, this helps `git bisect`.
-- The first commit in a PR and the PR itself should use a conventional commit message. 
+- Please make sure that all commits in a non-draft PR compile.
+- The PR should use a conventional commit message. 
 - PRs should not break existing config or disrupt existing user workflows. But if there are potential surprises, please add a "!" for attention, e.g. "fix!", "feat!", and provide a small section that may be included in the release notes.
 
 Milestones
@@ -69,12 +69,15 @@ Command line parameters changes
 
 Please include anticipated next version in the comment for command line arguments, especially when adding arguments or options. You can use the placeholder `NEXTRELEASE` in `command_line.rs`, `configuration.rs` and `README.md`.
 
-GenAI usage
+LLM/Generative AI usage
 --
 
-GenAI usage is tempting and can save time, but it's not without pitfalls. At this point in time, full vibe coding mode can and often does lead to bad quality code which we are not going to merge.
-
-When using GenAI in the context of Satty PRs, please make sure that
-- any generated code can actually be licensed under Satty's license, i.e. doesn't violate existing intellectual property
-- any generated code actually does what it claims it does
-- you have a technical understanding of how the generated code works and you (not the GenAI) can explain it in detail
+LLM usage is tempting and can save time, but it's not without pitfalls. Quality of results may depend on the model as well as the prompt, and even then it can go wrong. When using LLM help in the context of
+- Satty PRs
+  - please disclose LLM usage, this can be important for downstream packages as well as for reviewers so they know what to look for
+  - you vouch for the submitted code, i.e.
+    - it does what the PR text says it does
+    - it can be licensed under Satty's license and doesn't violate existing intellectual property
+    - you have a technical understanding of it
+- Satty bug reports
+  - please make sure the bug actually exists
