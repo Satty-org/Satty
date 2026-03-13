@@ -9,8 +9,8 @@ use clap::Parser;
 use hex_color::HexColor;
 use relm4::SharedState;
 
-use serde::de::Deserializer;
 use serde::Deserialize;
+use serde::de::Deserializer;
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
@@ -84,11 +84,11 @@ impl Keybinds {
 
     /// Update a single keybind, only if it is valid
     fn update_keybind(&mut self, key: Option<String>, tool: Tools) {
-        if let Some(key_str) = key {
-            if let Some(validated_key) = Self::validate_keybind(&key_str, tool) {
-                self.shortcuts.retain(|_, v| *v != tool);
-                self.shortcuts.insert(validated_key, tool);
-            }
+        if let Some(key_str) = key
+            && let Some(validated_key) = Self::validate_keybind(&key_str, tool)
+        {
+            self.shortcuts.retain(|_, v| *v != tool);
+            self.shortcuts.insert(validated_key, tool);
         }
     }
 
@@ -98,7 +98,10 @@ impl Keybinds {
         match (chars.next(), chars.next()) {
             (Some(c), None) => Some(c),
             _ => {
-                eprintln!("Warning: Invalid keybind: '{} = {}'. Keybinds must be single characters. Using default keybind instead.", tool,key);
+                eprintln!(
+                    "Warning: Invalid keybind: '{} = {}'. Keybinds must be single characters. Using default keybind instead.",
+                    tool, key
+                );
                 None
             }
         }
@@ -349,14 +352,14 @@ impl Configuration {
         }
 
         // --- deprecated options ---
-        if let Some(v) = general.right_click_copy {
-            if v && !self
+        if let Some(v) = general.right_click_copy
+            && v
+            && !self
                 .actions_on_right_click
                 .contains(&Action::SaveToClipboard)
-            {
-                self.actions_on_right_click
-                    .insert(0, Action::SaveToClipboard);
-            }
+        {
+            self.actions_on_right_click
+                .insert(0, Action::SaveToClipboard);
         }
         if let Some(v) = general.action_on_enter {
             self.actions_on_enter.insert(0, v);

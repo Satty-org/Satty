@@ -1,5 +1,5 @@
 use gdk_pixbuf::gio::FileIcon;
-use relm4::gtk::gio::{prelude::ApplicationExt, Notification};
+use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
 
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection};
 
@@ -17,8 +17,8 @@ fn show_notification(msg: &str) {
 
     // lookup sattys icon
     let theme = IconTheme::default();
-    if theme.has_icon("satty") {
-        if let Some(icon_file) = theme
+    if theme.has_icon("satty")
+        && let Some(icon_file) = theme
             .lookup_icon(
                 "satty",
                 &[],
@@ -28,9 +28,8 @@ fn show_notification(msg: &str) {
                 IconLookupFlags::empty(),
             )
             .file()
-        {
-            notification.set_icon(&FileIcon::new(&icon_file));
-        }
+    {
+        notification.set_icon(&FileIcon::new(&icon_file));
     }
 
     // send notification
