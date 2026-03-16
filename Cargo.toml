@@ -55,8 +55,8 @@ version = "0.10.0"
 
 [build-dependencies]
 clap.workspace = true
-clap_complete = "4.5.66"
-clap_complete_nushell = "4.5.10"
+clap_complete = "4.6.0"
+clap_complete_nushell = "4.6.0"
 satty_cli.workspace = true
 clap_complete_fig = "4.5.2"
 relm4-icons-build = "0.10"
