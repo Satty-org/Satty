@@ -2,6 +2,7 @@
 use std::borrow::BorrowMut;
 use std::fs;
 use std::io;
+use std::path::PathBuf;
 
 use clap::CommandFactory;
 use clap_complete::{generate_to, Shell};
@@ -17,15 +18,20 @@ fn main() -> Result<(), io::Error> {
     let mut cmd = command_line::CommandLine::command();
     let cmd2 = cmd.borrow_mut();
     let bin = "satty";
-    let out = "completions";
+    let completions = if cfg!(feature = "ci-release") {
+        PathBuf::from("completions")
+    } else {
+        // make cargo publish happy about OUT_DIR ;)
+        out_dir.join(PathBuf::from("completions"))
+    };
 
-    fs::create_dir_all(out)?;
-    generate_to(Shell::Bash, cmd2, bin, out)?;
-    generate_to(Shell::Fish, cmd2, bin, out)?;
-    generate_to(Shell::Zsh, cmd2, bin, out)?;
-    generate_to(Shell::Elvish, cmd2, bin, out)?;
-    generate_to(Nushell, cmd2, bin, out)?;
-    generate_to(Fig, cmd2, bin, out)?;
+    fs::create_dir_all(completions.as_path())?;
+    generate_to(Shell::Bash, cmd2, bin, &completions)?;
+    generate_to(Shell::Fish, cmd2, bin, &completions)?;
+    generate_to(Shell::Zsh, cmd2, bin, &completions)?;
+    generate_to(Shell::Elvish, cmd2, bin, &completions)?;
+    generate_to(Nushell, cmd2, bin, &completions)?;
+    generate_to(Fig, cmd2, bin, &completions)?;
 
     let man = Man::new(cmd);
     let mut buffer: Vec<u8> = Default::default();
