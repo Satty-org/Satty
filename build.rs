@@ -36,6 +36,11 @@ fn main() -> Result<(), io::Error> {
     let man = Man::new(cmd);
     let mut buffer: Vec<u8> = Default::default();
     man.title(bin).render(&mut buffer)?;
+    if cfg!(feature = "ci-release") {
+        let man_dir = PathBuf::from("man");
+        fs::create_dir_all(man_dir.as_path())?;
+        std::fs::write(man_dir.join(format!("{}.1", bin)), buffer.clone())?;
+    }
     std::fs::write(out_dir.join(format!("{}.1", bin)), buffer)?;
 
     relm4_icons_build::bundle_icons(
