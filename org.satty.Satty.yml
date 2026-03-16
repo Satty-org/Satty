@@ -49,6 +49,7 @@ modules:
       - install -Dm644 completions/satty.fish /app/share/fish/vendor_completions.d/satty.fish
       - install -Dm644 completions/satty.elv /app/share/elvish/lib/satty.elv
       - install -Dm644 completions/satty.nu /app/share/nushell/completions/satty.nu
+      - install -Dm644 man/satty.1 /app/share/man/satty.1
       - sed -i 's|^Exec=satty|Exec=/app/bin/satty|' /app/share/applications/org.satty.Satty.desktop
       - sed -i 's|^TryExec=satty|TryExec=/app/bin/satty|' /app/share/applications/org.satty.Satty.desktop
       - sed -i 's|^Icon=satty|Icon=org.satty.Satty|' /app/share/applications/org.satty.Satty.desktop

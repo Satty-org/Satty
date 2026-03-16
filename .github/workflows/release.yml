@@ -50,6 +50,7 @@ jobs:
           mkdir $RELEASE_NAME
           cp target/${{ matrix.target }}/release/satty -t $RELEASE_NAME
           cp -r completions -t $RELEASE_NAME
+          cp -r man -t $RELEASE_NAME
           cp -r README.md assets LICENSE satty.desktop -t $RELEASE_NAME
           tar -zcvf $RELEASE_NAME.${{ matrix.archive }} -C $RELEASE_NAME .
 
