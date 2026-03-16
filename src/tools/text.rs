@@ -2,8 +2,8 @@ use anyhow::Result;
 use femtovg::{Color, FontId, Paint, Path};
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
-    gdk::{Key, ModifierType, Rectangle},
     TextBuffer,
+    gdk::{Key, ModifierType, Rectangle},
 };
 use std::{borrow::Cow, ops::Range};
 
@@ -20,8 +20,8 @@ use crate::{
 
 use super::{Drawable, DrawableClone, InputContext, Tool, ToolUpdateResult, Tools};
 use crate::sketch_board::SketchBoardInput;
-use relm4::gtk::gdk::DisplayManager;
 use relm4::Sender;
+use relm4::gtk::gdk::DisplayManager;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -224,16 +224,16 @@ impl Drawable for Text {
             lines: &line_layouts,
         };
 
-        if self.editing {
-            if let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range) {
-                self.draw_preedit_background(
-                    canvas,
-                    &layout_context,
-                    preedit,
-                    preedit_range,
-                    cursor_metrics,
-                );
-            }
+        if self.editing
+            && let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range)
+        {
+            self.draw_preedit_background(
+                canvas,
+                &layout_context,
+                preedit,
+                preedit_range,
+                cursor_metrics,
+            );
         }
 
         let mut cursor_visible = self.cursor_visible.borrow_mut();
@@ -357,17 +357,17 @@ impl Drawable for Text {
             draw_baseline += line_height;
         }
 
-        if self.editing {
-            if let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range) {
-                self.draw_preedit_overlays(
-                    canvas,
-                    font,
-                    &layout_context,
-                    preedit,
-                    preedit_range,
-                    cursor_metrics,
-                )?;
-            }
+        if self.editing
+            && let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range)
+        {
+            self.draw_preedit_overlays(
+                canvas,
+                font,
+                &layout_context,
+                preedit,
+                preedit_range,
+                cursor_metrics,
+            )?;
         }
 
         if self.editing {
@@ -665,20 +665,19 @@ impl Text {
             canvas.fill_path(&path, &caret_paint);
         }
 
-        if self.editing {
-            if let Some(handle) = &self.im_context {
-                let transform = canvas.transform();
-                let widget_scale = handle.widget.scale_factor().max(1) as f32;
-                let (x1, y1) = transform.transform_point(cursor_x, cursor_top);
-                let (x2, y2) = transform.transform_point(cursor_x + 1.0, cursor_top + caret_height);
-                let logical_x = (x1 / widget_scale).floor() as i32;
-                let logical_y = (y1 / widget_scale).floor() as i32;
-                let logical_width = ((x2 - x1).abs() / widget_scale).ceil().max(1.0) as i32;
-                let logical_height = ((y2 - y1).abs() / widget_scale).ceil().max(1.0) as i32;
-                let rect =
-                    Rectangle::new(logical_x, logical_y, logical_width, logical_height.max(1));
-                handle.im_context.set_cursor_location(&rect);
-            }
+        if self.editing
+            && let Some(handle) = &self.im_context
+        {
+            let transform = canvas.transform();
+            let widget_scale = handle.widget.scale_factor().max(1) as f32;
+            let (x1, y1) = transform.transform_point(cursor_x, cursor_top);
+            let (x2, y2) = transform.transform_point(cursor_x + 1.0, cursor_top + caret_height);
+            let logical_x = (x1 / widget_scale).floor() as i32;
+            let logical_y = (y1 / widget_scale).floor() as i32;
+            let logical_width = ((x2 - x1).abs() / widget_scale).ceil().max(1.0) as i32;
+            let logical_height = ((y2 - y1).abs() / widget_scale).ceil().max(1.0) as i32;
+            let rect = Rectangle::new(logical_x, logical_y, logical_width, logical_height.max(1));
+            handle.im_context.set_cursor_location(&rect);
         }
     }
 
@@ -979,47 +978,47 @@ impl Tool for TextTool {
                     });
                 }
                 Key::c | Key::C => {
-                    if event.modifier == ModifierType::CONTROL_MASK {
-                        if let Some(text) = &self.text {
-                            let buffer = text.text_buffer.clone();
-                            if let Some((start, end)) = buffer.selection_bounds() {
-                                let selected_text = buffer.text(&start, &end, false);
+                    if event.modifier == ModifierType::CONTROL_MASK
+                        && let Some(text) = &self.text
+                    {
+                        let buffer = text.text_buffer.clone();
+                        if let Some((start, end)) = buffer.selection_bounds() {
+                            let selected_text = buffer.text(&start, &end, false);
 
-                                let display = DisplayManager::get().default_display();
-                                if display.is_none() {
-                                    eprintln!("Cannot open default display for clipboard.");
-                                    return ToolUpdateResult::StopPropagation;
-                                }
-
-                                let clipboard = display.unwrap().clipboard();
-                                clipboard.set_text(&selected_text);
+                            let display = DisplayManager::get().default_display();
+                            if display.is_none() {
+                                eprintln!("Cannot open default display for clipboard.");
+                                return ToolUpdateResult::StopPropagation;
                             }
+
+                            let clipboard = display.unwrap().clipboard();
+                            clipboard.set_text(&selected_text);
                         }
                     }
                 }
                 Key::x | Key::X => {
-                    if event.modifier == ModifierType::CONTROL_MASK {
-                        if let Some(text) = &mut self.text {
-                            let buffer = text.text_buffer.clone();
-                            if let Some((start, end)) = buffer.selection_bounds() {
-                                let selected_text = buffer.text(&start, &end, false);
+                    if event.modifier == ModifierType::CONTROL_MASK
+                        && let Some(text) = &mut self.text
+                    {
+                        let buffer = text.text_buffer.clone();
+                        if let Some((start, end)) = buffer.selection_bounds() {
+                            let selected_text = buffer.text(&start, &end, false);
 
-                                let display = DisplayManager::get().default_display();
-                                if display.is_none() {
-                                    eprintln!("Cannot open default display for clipboard.");
-                                    return ToolUpdateResult::StopPropagation;
-                                }
-
-                                let clipboard = display.unwrap().clipboard();
-                                clipboard.set_text(&selected_text);
-
-                                Self::handle_text_buffer_action(
-                                    text,
-                                    Action::Delete,
-                                    ActionScope::None,
-                                );
-                                tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                            let display = DisplayManager::get().default_display();
+                            if display.is_none() {
+                                eprintln!("Cannot open default display for clipboard.");
+                                return ToolUpdateResult::StopPropagation;
                             }
+
+                            let clipboard = display.unwrap().clipboard();
+                            clipboard.set_text(&selected_text);
+
+                            Self::handle_text_buffer_action(
+                                text,
+                                Action::Delete,
+                                ActionScope::None,
+                            );
+                            tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                         }
                     }
                 }
@@ -1464,11 +1463,7 @@ impl TextTool {
                                             .count();
 
                                         let limit = (next_end - next_start) as i32;
-                                        if temp > limit {
-                                            limit
-                                        } else {
-                                            temp
-                                        }
+                                        if temp > limit { limit } else { temp }
                                     };
 
                                     next_line = if i == ranges.len() - 1 {
@@ -1525,11 +1520,7 @@ impl TextTool {
                                             .count();
 
                                         let limit = (last_end - last_start) as i32;
-                                        if temp > limit {
-                                            limit
-                                        } else {
-                                            temp
-                                        }
+                                        if temp > limit { limit } else { temp }
                                     };
 
                                     last_line = if i == 0 {
@@ -1629,11 +1620,7 @@ impl TextTool {
                                         content[..ranges.get(i + 1).unwrap().end].chars().count();
 
                                     let limit = (next_end - next_start) as i32;
-                                    if temp > limit {
-                                        limit
-                                    } else {
-                                        temp
-                                    }
+                                    if temp > limit { limit } else { temp }
                                 };
 
                                 next_line = if i == ranges.len() - 1 {
@@ -1679,11 +1666,7 @@ impl TextTool {
                                         content[..ranges.get(i - 1).unwrap().end].chars().count();
 
                                     let limit = (last_end - last_start) as i32;
-                                    if temp > limit {
-                                        limit
-                                    } else {
-                                        temp
-                                    }
+                                    if temp > limit { limit } else { temp }
                                 };
 
                                 last_line = if i == 0 {

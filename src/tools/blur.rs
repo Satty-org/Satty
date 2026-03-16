@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use femtovg::{imgref::Img, Color, ImageFilter, ImageFlags, ImageId, Paint, Path};
+use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
 
-use relm4::{gtk::gdk::Key, Sender};
+use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     configuration::APP_CONFIG,

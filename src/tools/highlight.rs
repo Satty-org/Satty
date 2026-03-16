@@ -4,8 +4,8 @@ use anyhow::Result;
 use femtovg::{Paint, Path};
 
 use relm4::{
-    gtk::gdk::{Key, ModifierType},
     Sender,
+    gtk::gdk::{Key, ModifierType},
 };
 use serde_derive::Deserialize;
 
@@ -310,22 +310,22 @@ impl Tool for HighlightTool {
         // Adds an extra point when shift is released in the freehand mode, this
         // allows for users to make sharper turns. Release shift a second time
         // to remove the added point (only if the cursor has not moved).
-        if event.key == Key::Shift_L || event.key == Key::Shift_R {
-            if let Some(HighlightKind::Freehand(highlighter)) = &mut self.highlighter {
-                let points = &mut highlighter.data.points;
-                let last = points
-                    .last()
-                    .expect("line highlight must have at least one point");
-                if points.len() >= 2 {
-                    if *last == points[points.len() - 2] {
-                        points.pop();
-                    } else {
-                        points.push(*last);
-                    }
-                    return ToolUpdateResult::Redraw;
-                };
+        if (event.key == Key::Shift_L || event.key == Key::Shift_R)
+            && let Some(HighlightKind::Freehand(highlighter)) = &mut self.highlighter
+        {
+            let points = &mut highlighter.data.points;
+            let last = points
+                .last()
+                .expect("line highlight must have at least one point");
+            if points.len() >= 2 {
+                if *last == points[points.len() - 2] {
+                    points.pop();
+                } else {
+                    points.push(*last);
+                }
+                return ToolUpdateResult::Redraw;
             };
-        }
+        };
         ToolUpdateResult::Unmodified
     }
 

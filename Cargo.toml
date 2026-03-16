@@ -67,11 +67,11 @@ members = [ "cli" ]
 
 [workspace.package]
 version = "0.20.1"
-edition = "2021"
+edition = "2024"
 authors = ["Matthias Gabriel <gabm+aur@mailbox.org>"]
 description = "Modern Screenshot Annotation."
-homepage = "https://github.com/gabm/satty"
-repository = "https://github.com/gabm/satty"
+homepage = "https://github.com/Satty-org/Satty"
+repository = "https://github.com/Satty-org/Satty"
 license = "MPL-2.0"
 
 [workspace.dependencies]

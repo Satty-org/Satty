@@ -1,8 +1,8 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
 use relm4::{
-    gtk::gdk::{Key, ModifierType},
     Sender,
+    gtk::gdk::{Key, ModifierType},
 };
 
 use crate::{
