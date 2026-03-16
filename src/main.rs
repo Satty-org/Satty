@@ -1,13 +1,14 @@
 use configuration::{Configuration, APP_CONFIG};
-use gdk_pixbuf::gio::{Application, ApplicationFlags};
-use gdk_pixbuf::{Pixbuf, PixbufLoader};
-use gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
 use std::process::exit;
 use std::sync::LazyLock;
 use std::{fs, ptr};
 use std::{io, time::Duration};
+
+use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
+use relm4::gtk::gio::{Application, ApplicationFlags};
+use relm4::gtk::prelude::*;
 
 use relm4::gtk::gdk::Rectangle;
 
@@ -381,7 +382,7 @@ impl Component for App {
 
         generate_profile_output!("app init end");
 
-        glib::idle_add_local_once(move || {
+        relm4::gtk::glib::idle_add_local_once(move || {
             generate_profile_output!("main loop idle");
         });
 
