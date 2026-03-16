@@ -4,6 +4,7 @@ use gdk_pixbuf::{Pixbuf, PixbufLoader};
 use gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
+use std::process::exit;
 use std::sync::LazyLock;
 use std::{fs, ptr};
 use std::{io, time::Duration};
@@ -446,6 +447,14 @@ fn main() -> Result<()> {
     // populate the APP_CONFIG from commandline and
     // config file. this might exit, if an error occurred.
     Configuration::load();
+    if APP_CONFIG.read().man() {
+        print!(include_str!(concat!(env!("OUT_DIR"), "/satty.1")));
+        exit(0);
+    }
+    if APP_CONFIG.read().license() {
+        print!(include_str!("../LICENSE"));
+        exit(0);
+    }
     if APP_CONFIG.read().profile_startup() {
         eprintln!(
             "startup timestamp was {}",
