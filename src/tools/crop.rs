@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
-use relm4::{gtk::gdk::Key, Sender};
+use relm4::{Sender, gtk::gdk::Key};
 
 use super::{Drawable, Tool, ToolUpdateResult, Tools};
 
@@ -377,13 +377,12 @@ impl Tool for CropTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape {
-            if let Some(crop) = &self.crop {
-                if crop.active {
-                    // Crop is active, deactivate it
-                    return self.handle_deactivated();
-                }
-            }
+        if event.key == Key::Escape
+            && let Some(crop) = &self.crop
+            && crop.active
+        {
+            // Crop is active, deactivate it
+            return self.handle_deactivated();
         }
         // No crop exists or crop is inactive - let event bubble to global handler
         ToolUpdateResult::Unmodified

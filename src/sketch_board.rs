@@ -3,8 +3,8 @@ use anyhow::anyhow;
 use femtovg::imgref::Img;
 use femtovg::rgb::{ComponentBytes, RGBA};
 use keycode::{KeyMap, KeyMappingId};
-use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use relm4::gtk::gdk_pixbuf::Pixbuf;
+use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::RefCell;
 use std::io::Write;
 use std::panic;
@@ -15,9 +15,9 @@ use std::{fs, io};
 use gtk::prelude::*;
 
 use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
-use relm4::{gtk, Component, ComponentParts, ComponentSender, RelmWidgetExt};
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
-use crate::configuration::{Action, APP_CONFIG};
+use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
@@ -263,13 +263,12 @@ impl SketchBoard {
     }
 
     fn deactivate_active_tool(&mut self) -> bool {
-        if self.active_tool.borrow().active() {
-            if let ToolUpdateResult::Commit(result) =
+        if self.active_tool.borrow().active()
+            && let ToolUpdateResult::Commit(result) =
                 self.active_tool.borrow_mut().handle_deactivated()
-            {
-                self.renderer.commit(result);
-                return true;
-            }
+        {
+            self.renderer.commit(result);
+            return true;
         }
         false
     }
@@ -479,28 +478,28 @@ impl SketchBoard {
             dialog.connect_response(move |dialog, response| {
                 let mut exit_app = false;
                 let mut filename: Option<String> = None;
-                if response == gtk::ResponseType::Accept {
-                    if let Some(file) = dialog.file() {
-                        let output_filename = match file.path() {
-                            Some(path) => path.to_string_lossy().into_owned(),
-                            None => return,
-                        };
+                if response == gtk::ResponseType::Accept
+                    && let Some(file) = dialog.file()
+                {
+                    let output_filename = match file.path() {
+                        Some(path) => path.to_string_lossy().into_owned(),
+                        None => return,
+                    };
 
-                        match fs::write(&output_filename, &data) {
-                            Err(e) => log_result(
-                                &format!("Error while saving file: {e}"),
+                    match fs::write(&output_filename, &data) {
+                        Err(e) => log_result(
+                            &format!("Error while saving file: {e}"),
+                            !APP_CONFIG.read().disable_notifications(),
+                        ),
+                        Ok(_) => {
+                            exit_app = APP_CONFIG.read().early_exit_save_as();
+                            filename = Some(output_filename.clone());
+                            log_result(
+                                &format!("File saved to '{}'.", &output_filename),
                                 !APP_CONFIG.read().disable_notifications(),
-                            ),
-                            Ok(_) => {
-                                exit_app = APP_CONFIG.read().early_exit_save_as();
-                                filename = Some(output_filename.clone());
-                                log_result(
-                                    &format!("File saved to '{}'.", &output_filename),
-                                    !APP_CONFIG.read().disable_notifications(),
-                                )
-                            }
-                        };
-                    }
+                            )
+                        }
+                    };
                 }
                 if exit_app {
                     log_result("early exit after save as, ignoring further actions.", false);
@@ -1179,10 +1178,10 @@ impl Component for SketchBoard {
         model.im_context.set_client_widget(Some(&model.renderer));
         model.im_context.set_use_preedit(true);
 
-        if let Ok(module) = std::env::var("GTK_IM_MODULE") {
-            if module.eq_ignore_ascii_case("fcitx") || module.eq_ignore_ascii_case("fcitx5") {
-                model.im_context.set_context_id(Some("fcitx"));
-            }
+        if let Ok(module) = std::env::var("GTK_IM_MODULE")
+            && (module.eq_ignore_ascii_case("fcitx") || module.eq_ignore_ascii_case("fcitx5"))
+        {
+            model.im_context.set_context_id(Some("fcitx"));
         }
 
         {

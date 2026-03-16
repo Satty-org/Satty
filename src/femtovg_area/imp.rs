@@ -9,23 +9,23 @@ use std::{
 };
 
 use femtovg::{
+    Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat, Transform2D,
     imgref::{Img, ImgVec},
     renderer,
     rgb::{RGB, RGBA, RGBA8},
-    Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat, Transform2D,
 };
 use fontconfig::Fontconfig;
 use gtk::{glib, prelude::*, subclass::prelude::*};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
-use relm4::{gtk, Sender};
+use relm4::{Sender, gtk};
 use resource::resource;
 
 use crate::{
+    APP_CONFIG,
     configuration::Action,
-    math::{rect_ensure_in_bounds, rect_round, Vec2D},
+    math::{Vec2D, rect_ensure_in_bounds, rect_round},
     sketch_board::SketchBoardInput,
     tools::{CropTool, Drawable, Tool},
-    APP_CONFIG,
 };
 
 use super::set_font_stack;
@@ -232,12 +232,11 @@ impl FemtoVGArea {
 
         if let Some(fc) = fontconfig.as_ref() {
             for family in app_config.font().fallback() {
-                if let Some(font) = fc.find(family, None) {
-                    if loaded_paths.insert(font.path.clone()) {
-                        if let Ok(id) = canvas.add_font(font.path.clone()) {
-                            loaded_fonts.push(id);
-                        }
-                    }
+                if let Some(font) = fc.find(family, None)
+                    && loaded_paths.insert(font.path.clone())
+                    && let Ok(id) = canvas.add_font(font.path.clone())
+                {
+                    loaded_fonts.push(id);
                 }
             }
         }
@@ -444,10 +443,8 @@ impl FemtoVgAreaMut {
         }
 
         // render crop tool
-        if render_crop {
-            if let Some(c) = self.crop_tool.borrow().get_crop() {
-                c.draw(canvas, font, bounds)?;
-            }
+        if render_crop && let Some(c) = self.crop_tool.borrow().get_crop() {
+            c.draw(canvas, font, bounds)?;
         }
 
         canvas.flush();
