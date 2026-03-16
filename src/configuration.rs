@@ -19,7 +19,9 @@ use crate::{
     tools::{Highlighters, Tools},
 };
 
-use satty_cli::command_line::{Action as CommandLineAction, CommandLine, Fullscreen, Resize};
+use satty_cli::command_line::{
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, Resize,
+};
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
 
@@ -43,8 +45,7 @@ pub struct Configuration {
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
     floating_hack: bool,
-    early_exit: bool,
-    early_exit_save_as: bool,
+    early_exit: EarlyExit,
     corner_roundness: f32,
     initial_tool: Tools,
     copy_command: Option<String>,
@@ -224,6 +225,71 @@ where
     }
 }
 
+// backwards compatibility, allow early-exit = true in config
+#[derive(Deserialize)]
+#[serde(untagged)]
+#[serde(rename_all = "kebab-case")]
+enum EarlyExitCompat {
+    Bool(bool),
+    Triggers(Vec<EarlyExitTriggers>),
+}
+
+fn de_early_exit<'de, D>(d: D) -> Result<Option<Vec<EarlyExitTriggers>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match EarlyExitCompat::deserialize(d)? {
+        EarlyExitCompat::Bool(true) => Ok(Some(vec![EarlyExitTriggers::All])),
+        EarlyExitCompat::Bool(false) => Ok(None),
+        EarlyExitCompat::Triggers(m) => Ok(Some(m)),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct EarlyExit {
+    copy: bool,
+    save: bool,
+    save_as: bool,
+}
+
+impl EarlyExit {
+    pub fn copy(&self) -> bool {
+        self.copy
+    }
+    pub fn save(&self) -> bool {
+        self.save
+    }
+    pub fn save_as(&self) -> bool {
+        self.save_as
+    }
+}
+
+impl From<Vec<EarlyExitTriggers>> for EarlyExit {
+    fn from(val: Vec<EarlyExitTriggers>) -> Self {
+        let mut ee = EarlyExit::default();
+        for e in val {
+            match e {
+                EarlyExitTriggers::All => {
+                    ee.copy = true;
+                    ee.save = true;
+                    ee.save_as = true;
+                }
+                EarlyExitTriggers::Copy => {
+                    ee.copy = true;
+                }
+                EarlyExitTriggers::Save => {
+                    ee.save = true;
+                }
+                EarlyExitTriggers::SaveAs => {
+                    ee.save_as = true;
+                }
+            }
+        }
+        ee
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
@@ -286,10 +352,7 @@ impl Configuration {
             self.floating_hack = v;
         }
         if let Some(v) = general.early_exit {
-            self.early_exit = v;
-        }
-        if let Some(v) = general.early_exit_save_as {
-            self.early_exit_save_as = v;
+            self.early_exit = v.into();
         }
         if let Some(v) = general.corner_roundness {
             self.corner_roundness = v;
@@ -412,11 +475,8 @@ impl Configuration {
         if command_line.license {
             self.license = command_line.license;
         }
-        if command_line.early_exit {
-            self.early_exit = command_line.early_exit;
-        }
-        if command_line.early_exit_save_as {
-            self.early_exit_save_as = command_line.early_exit_save_as;
+        if let Some(v) = command_line.early_exit {
+            self.early_exit = v.into();
         }
         if let Some(v) = command_line.corner_roundness {
             self.corner_roundness = v;
@@ -520,12 +580,16 @@ impl Configuration {
         self.license
     }
 
-    pub fn early_exit(&self) -> bool {
-        self.early_exit
+    pub fn early_exit_copy(&self) -> bool {
+        self.early_exit.copy()
+    }
+
+    pub fn early_exit_save(&self) -> bool {
+        self.early_exit.save()
     }
 
     pub fn early_exit_save_as(&self) -> bool {
-        self.early_exit_save_as
+        self.early_exit.save_as()
     }
 
     pub fn corner_roundness(&self) -> f32 {
@@ -666,8 +730,7 @@ impl Default for Configuration {
             fullscreen: None,
             resize: None,
             floating_hack: false,
-            early_exit: false,
-            early_exit_save_as: false,
+            early_exit: EarlyExit::default(),
             corner_roundness: 12.0,
             initial_tool: Tools::Pointer,
             copy_command: None,
@@ -753,8 +816,8 @@ struct ConfigurationFileGeneral {
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
     floating_hack: Option<bool>,
-    early_exit: Option<bool>,
-    early_exit_save_as: Option<bool>,
+    #[serde(deserialize_with = "de_early_exit", default)]
+    early_exit: Option<Vec<EarlyExitTriggers>>,
     corner_roundness: Option<f32>,
     initial_tool: Option<Tools>,
     copy_command: Option<String>,
