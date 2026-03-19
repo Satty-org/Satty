@@ -63,6 +63,10 @@ impl Tool for LineTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.line.is_some()
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
@@ -125,9 +129,19 @@ impl Tool for LineTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.line.is_some() {
-            self.line = None;
-            ToolUpdateResult::Redraw
+        if let Some(line) = &self.line {
+            match event.key {
+                Key::Escape => {
+                    self.line = None;
+                    ToolUpdateResult::Redraw
+                }
+                Key::Return if line.direction.is_some() => {
+                    let result = line.clone_box();
+                    self.line = None;
+                    ToolUpdateResult::Commit(result)
+                }
+                _ => ToolUpdateResult::Unmodified,
+            }
         } else {
             ToolUpdateResult::Unmodified
         }

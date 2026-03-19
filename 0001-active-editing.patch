@@ -1,0 +1,165 @@
+diff --git a/src/tools/arrow.rs b/src/tools/arrow.rs
+index 9545e8f..c85807c 100644
+--- a/src/tools/arrow.rs
++++ b/src/tools/arrow.rs
+@@ -107,9 +111,19 @@ impl Tool for ArrowTool {
+     }
+ 
+     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+-        if event.key == Key::Escape && self.arrow.is_some() {
+-            self.arrow = None;
+-            ToolUpdateResult::Redraw
++        if let Some(arrow) = &self.arrow {
++            match event.key {
++                Key::Escape => {
++                    self.arrow = None;
++                    ToolUpdateResult::Redraw
++                }
++                Key::Return if arrow.end.is_some() => {
++                    let result = arrow.clone_box();
++                    self.arrow = None;
++                    ToolUpdateResult::Commit(result)
++                }
++                _ => ToolUpdateResult::Unmodified,
++            }
+         } else {
+             ToolUpdateResult::Unmodified
+         }
+diff --git a/src/tools/blur.rs b/src/tools/blur.rs
+index d7e8d44..3742a98 100644
+--- a/src/tools/blur.rs
++++ b/src/tools/blur.rs
+@@ -227,9 +231,20 @@ impl Tool for BlurTool {
+     }
+ 
+     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+-        if event.key == Key::Escape && self.blur.is_some() {
+-            self.blur = None;
+-            ToolUpdateResult::Redraw
++        if let Some(blur) = &mut self.blur {
++            match event.key {
++                Key::Escape => {
++                    self.blur = None;
++                    ToolUpdateResult::Redraw
++                }
++                Key::Return if blur.size.is_some() => {
++                    blur.editing = false;
++                    let result = blur.clone_box();
++                    self.blur = None;
++                    ToolUpdateResult::Commit(result)
++                }
++                _ => ToolUpdateResult::Unmodified,
++            }
+         } else {
+             ToolUpdateResult::Unmodified
+         }
+diff --git a/src/tools/ellipse.rs b/src/tools/ellipse.rs
+index ea4baa1..288588e 100644
+--- a/src/tools/ellipse.rs
++++ b/src/tools/ellipse.rs
+@@ -182,9 +186,20 @@ impl Tool for EllipseTool {
+     }
+ 
+     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+-        if event.key == Key::Escape && self.ellipse.is_some() {
+-            self.ellipse = None;
+-            ToolUpdateResult::Redraw
++        if let Some(ellipse) = &mut self.ellipse {
++            match event.key {
++                Key::Escape => {
++                    self.ellipse = None;
++                    ToolUpdateResult::Redraw
++                }
++                Key::Return if ellipse.radii.is_some() => {
++                    ellipse.finishing = true;
++                    let result = ellipse.clone_box();
++                    self.ellipse = None;
++                    ToolUpdateResult::Commit(result)
++                }
++                _ => ToolUpdateResult::Unmodified,
++            }
+         } else {
+             ToolUpdateResult::Unmodified
+         }
+diff --git a/src/tools/highlight.rs b/src/tools/highlight.rs
+index e7e64b1..44c9883 100644
+--- a/src/tools/highlight.rs
++++ b/src/tools/highlight.rs
+@@ -296,9 +300,19 @@ impl Tool for HighlightTool {
+     }
+ 
+     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+-        if event.key == Key::Escape && self.highlighter.is_some() {
+-            self.highlighter = None;
+-            return ToolUpdateResult::Redraw;
++        if self.highlighter.is_some() {
++            match event.key {
++                Key::Escape => {
++                    self.highlighter = None;
++                    return ToolUpdateResult::Redraw;
++                }
++                Key::Return => {
++                    let result = self.highlighter.as_ref().unwrap().clone_box();
++                    self.highlighter = None;
++                    return ToolUpdateResult::Commit(result);
++                }
++                _ => {}
++            }
+         }
+         ToolUpdateResult::Unmodified
+     }
+diff --git a/src/tools/line.rs b/src/tools/line.rs
+index 4b7e2c9..2636fdb 100644
+--- a/src/tools/line.rs
++++ b/src/tools/line.rs
+@@ -125,9 +129,19 @@ impl Tool for LineTool {
+     }
+ 
+     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+-        if event.key == Key::Escape && self.line.is_some() {
+-            self.line = None;
+-            ToolUpdateResult::Redraw
++        if let Some(line) = &self.line {
++            match event.key {
++                Key::Escape => {
++                    self.line = None;
++                    ToolUpdateResult::Redraw
++                }
++                Key::Return if line.direction.is_some() => {
++                    let result = line.clone_box();
++                    self.line = None;
++                    ToolUpdateResult::Commit(result)
++                }
++                _ => ToolUpdateResult::Unmodified,
++            }
+         } else {
+             ToolUpdateResult::Unmodified
+         }
+diff --git a/src/tools/rectangle.rs b/src/tools/rectangle.rs
+index 78615bd..159e9c2 100644
+--- a/src/tools/rectangle.rs
++++ b/src/tools/rectangle.rs
+@@ -176,9 +180,20 @@ impl Tool for RectangleTool {
+     }
+ 
+     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+-        if event.key == Key::Escape && self.rectangle.is_some() {
+-            self.rectangle = None;
+-            ToolUpdateResult::Redraw
++        if let Some(rectangle) = &mut self.rectangle {
++            match event.key {
++                Key::Escape => {
++                    self.rectangle = None;
++                    ToolUpdateResult::Redraw
++                }
++                Key::Return if rectangle.size.is_some() => {
++                    rectangle.finishing = true;
++                    let result = rectangle.clone_box();
++                    self.rectangle = None;
++                    ToolUpdateResult::Commit(result)
++                }
++                _ => ToolUpdateResult::Unmodified,
++            }
+         } else {
+             ToolUpdateResult::Unmodified
+         }

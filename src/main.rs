@@ -71,6 +71,7 @@ enum AppInput {
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
     FullscreenChanged(bool),
+    ToolEditingChanged(bool),
 }
 
 #[derive(Debug)]
@@ -282,6 +283,11 @@ impl Component for App {
                     self.outer_box.append(style);
                 }
             }
+            AppInput::ToolEditingChanged(editing) => {
+                self.tools_toolbar
+                    .sender()
+                    .emit(ToolsToolbarInput::SetToolEditing(editing));
+            }
         }
     }
 
@@ -315,6 +321,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
+                    }
+                    SketchBoardOutput::ToolEditingChanged(editing) => {
+                        AppInput::ToolEditingChanged(editing)
                     }
                 });
 
