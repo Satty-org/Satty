@@ -41,10 +41,10 @@ hex_color = {version = "3", features = ["serde"]}
 chrono = "0.4.44"
 
 # opengl rendering backend
-femtovg = "0.20"
+femtovg = "0.21"
 libloading = "0.9"
 epoxy = "0.1.0"
-glow = "0.16.0"
+glow = "0.17.0"
 resource = "0.6.1"  # font emedding
 fontconfig = "0.10.0"  # font loading
 keycode = "1.0.0"
