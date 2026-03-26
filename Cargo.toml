@@ -34,7 +34,7 @@ clap.workspace = true
 
 # configuration file
 xdg = "^3.0"
-toml = "1.0.7"
+toml = "1.1.0"
 serde.workspace = true
 serde_derive = "1.0"
 hex_color = {version = "3", features = ["serde"]}
