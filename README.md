@@ -93,10 +93,12 @@ Default single-key shortcuts:
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
+- <kbd>x</kbd>: Pixelate tool
 - <kbd>g</kbd>: Highlight tool
 
 ### Tool Modifiers and Keys
 
+<<<<<<< HEAD
 Crop:
 - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>.
 - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
@@ -131,6 +133,9 @@ Highlight:
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
+Pixelate:
+- Hold <kbd>Alt</kbd> to use pixelation that takes data from outside the selection as a source. <sup>NEXTRELEASE</sup>
+
 ### Configuration File
 
 ```toml
@@ -157,7 +162,7 @@ early-exit = ["all"]
 # early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush]
+# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, pixelate, brush]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -226,6 +231,8 @@ ellipse = "e"
 text = "t"
 marker = "m"
 blur = "u"
+# NEXTRELEASE
+pixelate = "x"
 highlight = "g"
 
 # Font to use for text annotations
@@ -302,7 +309,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
+          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, highlight, brush]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
@@ -480,3 +487,8 @@ Made with [contrib.rocks](https://contrib.rocks).
 The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
+
+## Credits
+
+- Pixelate "independent mode" was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
+
