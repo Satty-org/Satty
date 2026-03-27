@@ -124,6 +124,7 @@ impl Keybinds {
         self.update_keybind(file_keybinds.text, Tools::Text);
         self.update_keybind(file_keybinds.marker, Tools::Marker);
         self.update_keybind(file_keybinds.blur, Tools::Blur);
+        self.update_keybind(file_keybinds.pixelate, Tools::Pixelate);
         self.update_keybind(file_keybinds.highlight, Tools::Highlight);
     }
 }
@@ -141,6 +142,7 @@ impl Default for Keybinds {
         shortcuts.insert('t', Tools::Text);
         shortcuts.insert('m', Tools::Marker);
         shortcuts.insert('u', Tools::Blur);
+        shortcuts.insert('x', Tools::Pixelate);
         shortcuts.insert('g', Tools::Highlight);
 
         Self { shortcuts }
@@ -735,6 +737,7 @@ struct KeybindsFile {
     text: Option<String>,
     marker: Option<String>,
     blur: Option<String>,
+    pixelate: Option<String>,
     highlight: Option<String>,
 }
 
