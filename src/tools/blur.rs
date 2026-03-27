@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
+use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img, rgb::Rgba};
 
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::{Sender, gtk::gdk::{Key, ModifierType}};
 
 use crate::{
     configuration::APP_CONFIG,
@@ -14,12 +14,19 @@ use crate::{
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum BlurMode {
+    Blur,
+    Pixelate,
+}
+
 #[derive(Clone, Debug)]
 pub struct Blur {
     top_left: Vec2D,
     size: Option<Vec2D>,
     style: Style,
     editing: bool,
+    mode: BlurMode,
     cached_image: RefCell<Option<ImageId>>,
 }
 
@@ -61,6 +68,89 @@ impl Blur {
         //canvas.delete_image(src_image_id);
 
         Ok(dst_image_id)
+    }
+
+    fn pixelate(
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        pos: Vec2D,
+        size: Vec2D,
+        intensity: f32,
+    ) -> Result<ImageId> {
+        let img = canvas.screenshot()?;
+
+        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
+        let transformed_size = size * canvas.transform().average_scale();
+
+        let (buf, width, height) = img
+            .sub_image(
+                transformed_pos.0 as usize,
+                transformed_pos.1 as usize,
+                (transformed_size.x as usize).max(1),
+                (transformed_size.y as usize).max(1),
+            )
+            .to_contiguous_buf();
+
+        let factor = 0.5 / (intensity + 1.0);
+        let small_w = (width as f32 * factor).max(1.0) as usize;
+        let small_h = (height as f32 * factor).max(1.0) as usize;
+
+        let mut small_buf: Vec<Rgba<u8>> = vec
+![Rgba::new(0, 0, 0, 0); small_w * small_h]
+;
+
+        for y in 0..small_h {
+            for x in 0..small_w {
+                let mut r = 0u32;
+                let mut g = 0u32;
+                let mut b = 0u32;
+                let mut count = 0u32;
+
+                let sy_start = (y as f32 * height as f32 / small_h as f32) as usize;
+                let sy_end = ((y + 1) as f32 * height as f32 / small_h as f32) as usize;
+                let sx_start = (x as f32 * width as f32 / small_w as f32) as usize;
+                let sx_end = ((x + 1) as f32 * width as f32 / small_w as f32) as usize;
+
+                for sy in sy_start..sy_end {
+                    for sx in sx_start..sx_end {
+                        let idx = sy * width + sx;
+                        let pixel = buf[idx];
+                        r += pixel.r as u32;
+                        g += pixel.g as u32;
+                        b += pixel.b as u32;
+                        count += 1;
+                    }
+                }
+
+                let idx = y * small_w + x;
+                small_buf[idx] = Rgba::new(
+                    (r / count.max(1)) as u8,
+                    (g / count.max(1)) as u8,
+                    (b / count.max(1)) as u8,
+                    255
+                );
+            }
+        }
+
+        let mut final_buf: Vec<Rgba<u8>> = vec
+![Rgba::new(0, 0, 0, 0); width * height]
+;
+
+        for y in 0..height {
+            let py = (y as f32 * small_h as f32 / height as f32) as usize;
+            for x in 0..width {
+                let px = (x as f32 * small_w as f32 / width as f32) as usize;
+
+                let src_idx = py * small_w + px;
+                let dst_idx = y * width + x;
+
+                final_buf[dst_idx] = small_buf[src_idx];
+            }
+        }
+
+        let final_img = Img::new(final_buf, width, height);
+        let image_id = canvas.create_image(final_img.as_ref(), ImageFlags::NEAREST)?;
+
+        Ok(image_id)
     }
 }
 
@@ -107,14 +197,17 @@ impl Drawable for Blur {
 
             // create new cached image
             if self.cached_image.borrow().is_none() {
-                self.cached_image.borrow_mut().replace(Self::blur(
-                    canvas,
-                    pos,
-                    size,
-                    self.style
-                        .size
-                        .to_blur_factor(self.style.annotation_size_factor),
-                )?);
+                let intensity = self
+                    .style
+                    .size
+                    .to_blur_factor(self.style.annotation_size_factor);
+
+                let new_image = match self.mode {
+                    BlurMode::Blur => Self::blur(canvas, pos, size, intensity)?,
+                    BlurMode::Pixelate => Self::pixelate(canvas, pos, size, intensity)?,
+                };
+
+                self.cached_image.borrow_mut().replace(new_image);
             }
 
             let mut path = Path::new();
@@ -172,12 +265,19 @@ impl Tool for BlurTool {
                     return ToolUpdateResult::Unmodified;
                 }
 
+                let mode = if event.modifier.contains(ModifierType::ALT_MASK) {
+                    BlurMode::Pixelate
+                } else {
+                    BlurMode::Blur
+                };
+
                 // start new
                 self.blur = Some(Blur {
                     top_left: event.pos,
                     size: None,
                     style: self.style,
                     editing: true,
+                    mode,
                     cached_image: RefCell::new(None),
                 });
 
