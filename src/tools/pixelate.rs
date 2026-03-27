@@ -111,18 +111,21 @@ impl Pixelate {
                 let weight_e: f32 = x as f32 / (width as f32);
 
                 let new_pixel = RGBA8 {
-                    r: (pix_north.r as f32 * weight_n
+                    r: ((pix_north.r as f32 * weight_n
                         + pix_south.r as f32 * weight_s
                         + pix_west.r as f32 * weight_w
-                        + pix_east.r as f32 * weight_e) as u8,
-                    g: (pix_north.g as f32 * weight_n
+                        + pix_east.r as f32 * weight_e)
+                        / 2.0) as u8,
+                    g: ((pix_north.g as f32 * weight_n
                         + pix_south.g as f32 * weight_s
                         + pix_west.g as f32 * weight_w
-                        + pix_east.g as f32 * weight_e) as u8,
-                    b: (pix_north.b as f32 * weight_n
+                        + pix_east.g as f32 * weight_e)
+                        / 2.0) as u8,
+                    b: ((pix_north.b as f32 * weight_n
                         + pix_south.b as f32 * weight_s
                         + pix_west.b as f32 * weight_w
-                        + pix_east.b as f32 * weight_e) as u8,
+                        + pix_east.b as f32 * weight_e)
+                        / 2.0) as u8,
                     a: 255,
                 };
 
