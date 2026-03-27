@@ -28,10 +28,10 @@ pub struct Pixelate {
 
 impl Pixelate {
     fn pixelate(
+        &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         pos: Vec2D,
         size: Vec2D,
-        independent_mode: bool,
     ) -> Result<Option<ImageId>> {
         let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
         let transformed_size = size * canvas.transform().average_scale();
@@ -46,8 +46,8 @@ impl Pixelate {
         }
 
         let img = canvas.screenshot()?;
-        let buf = if independent_mode {
-            Self::pixelate_independent(canvas, pos_x, pos_y, width, height)?
+        let buf = if self.independent_mode {
+            Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
         } else {
             let (buf, _, _) = img
                 .sub_image(pos_x, pos_y, width, height)
@@ -65,14 +65,14 @@ impl Pixelate {
         }
     }
 
-    fn pixelate_independent(
+    fn fill_area_from_fringes(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         pos_x: usize,
         pos_y: usize,
         width: usize,
         height: usize,
     ) -> Result<Option<Cow<'_, [RGBA8]>>> {
-        //TODO: no fringe, no luck!
+        //TODO: missing fringe, no luck!
         if pos_x < 1
             || pos_y < 1
             || canvas.width() as usize <= pos_x + width
@@ -229,7 +229,7 @@ impl Drawable for Pixelate {
 
             // create new cached image
             if self.cached_image.borrow().is_none()
-                && let Some(x) = Self::pixelate(canvas, pos, size, self.independent_mode)?
+                && let Some(x) = self.pixelate(canvas, pos, size)?
             {
                 self.cached_image.borrow_mut().replace(x);
             }
