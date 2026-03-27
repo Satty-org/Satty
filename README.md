@@ -70,6 +70,7 @@ Default single-key shortcuts:
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
+- <kbd>x</kbd>: Pixelate tool
 - <kbd>g</kbd>: Highlight tool
 
 ### Tool Modifiers and Keys
@@ -79,6 +80,7 @@ Default single-key shortcuts:
 - Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
 - Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
 - Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
+- Pixelate: Hold <kbd>Alt</kbd> to use pixelation that takes data from outside the selection as a source. <sup>NEXTRELEASE</sup>
 - Text:
   - Press <kbd>Shift+Enter</kbd> to insert line break.
   - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
@@ -116,7 +118,7 @@ early-exit = true
 early-exit-save-as = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush]
+# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, pixelate, brush]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -185,6 +187,8 @@ ellipse = "e"
 text = "t"
 marker = "m"
 blur = "u"
+# NEXTRELEASE
+pixelate = "x"
 highlight = "g"
 
 # Font to use for text annotations
@@ -262,7 +266,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
+          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, highlight, brush]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
@@ -308,7 +312,7 @@ Options:
       --title <TITLE>
           Experimental feature (NEXTRELEASE): Set window title
       --app-id <APP_ID>
-          Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this applies gtk format expectations
+          Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
@@ -440,3 +444,8 @@ Made with [contrib.rocks](https://contrib.rocks).
 The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
+
+## Credits
+
+- Pixelate "independent mode" was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
+
