@@ -114,10 +114,12 @@ resize = { mode = "size", width=2000, height=800 }
 floating-hack = true
 # Change to true to automatically copy to clipboard after every annotation change
 auto-copy = false
-# Exit directly after copy/save action. 0.20.1: Does not apply to save as
-early-exit = true
-# Exit directly after save as (0.20.1)
-early-exit-save-as = true
+# Exit directly after copy/save action. NEXTRELEASE: change to list of triggers
+# Note that exit-early-save-as was removed with NEXTRELEASE.
+early-exit = ["all"]
+# is equivalent to both
+# early-exit = ["copy", "save", "save-as"]
+# early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
 # Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush]
@@ -259,10 +261,8 @@ Options:
           Try to enforce floating (0.20.1). Mileage may vary depending on compositor
   -o, --output-filename <OUTPUT_FILENAME>
           Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
-      --early-exit
-          Exit directly after copy/save action. 0.20.1: This does not apply to "save as"
-      --early-exit-save-as
-          Experimental (0.20.1): Exit directly after save as
+      --early-exit [<EARLY_EXIT>...]
+          Exit directly after save action. NEXTRELEASE: changed to accommodate different triggers [possible values: all, copy, save, save-as]
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
@@ -312,7 +312,7 @@ Options:
       --title <TITLE>
           Experimental feature (NEXTRELEASE): Set window title
       --app-id <APP_ID>
-          Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this applies gtk format expectations
+          Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
