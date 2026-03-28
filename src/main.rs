@@ -71,6 +71,7 @@ enum AppInput {
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
     FullscreenChanged(bool),
+    DimensionsUpdate(Option<(i32, i32)>),
 }
 
 #[derive(Debug)]
@@ -282,6 +283,12 @@ impl Component for App {
                     self.outer_box.append(style);
                 }
             }
+            AppInput::DimensionsUpdate(dimensions) => {
+                let d = dimensions.unwrap_or(self.image_dimensions);
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::DimensionsChanged(d));
+            }
         }
     }
 
@@ -316,6 +323,9 @@ impl Component for App {
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
                     }
+                    SketchBoardOutput::DimensionsUpdate(dimensions) => {
+                        AppInput::DimensionsUpdate(dimensions)
+                    }
                 });
 
         // Toolbars
@@ -341,6 +351,12 @@ impl Component for App {
             outer_box,
             overlay,
         };
+
+        // Initialize style toolbar with full image dimensions
+        model
+            .style_toolbar
+            .sender()
+            .emit(StyleToolbarInput::DimensionsChanged(image_dimensions));
 
         let widgets = view_output!();
 

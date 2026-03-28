@@ -38,6 +38,7 @@ pub enum SketchBoardInput {
     Refresh,
     Exit,
     ScaleFactorChanged,
+    Output(SketchBoardOutput),
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +46,7 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    DimensionsUpdate(Option<(i32, i32)>),
 }
 
 #[derive(Debug, Clone)]
@@ -755,6 +757,12 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
+            /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::DimensionsUpdate(Some(dimensions)));
+                ToolUpdateResult::Unmodified
+            }*/
         }
     }
 
@@ -1127,6 +1135,10 @@ impl Component for SketchBoard {
             SketchBoardInput::ScaleFactorChanged => {
                 self.renderer.resize(0, 0);
                 ToolUpdateResult::Redraw
+            }
+            SketchBoardInput::Output(output) => {
+                sender.output_sender().emit(output);
+                ToolUpdateResult::Unmodified
             }
         };
 

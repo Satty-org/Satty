@@ -92,6 +92,10 @@ Default single-key shortcuts:
   - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
   - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
   - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
+- Crop:
+   - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>NEXTRELEASE</sup>
+   - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>NEXTRELEASE</sup>
+   - Left click crop area when tool is active but not editing to resume editing<sup>NEXTRELEASE</sup>
 
 ### Configuration File
 
