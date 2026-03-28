@@ -401,7 +401,7 @@ impl CropTool {
                 ))
                 .ok();
         }
-        ToolUpdateResult::Redraw
+        ToolUpdateResult::RedrawAndStopPropagation
     }
 }
 
