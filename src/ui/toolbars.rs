@@ -33,7 +33,7 @@ pub struct StyleToolbar {
     annotation_size: f32,
     annotation_size_formatted: String,
     annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
-    crop_dimensions: String,
+    output_dimensions: String,
 }
 
 pub struct AnnotationSizeDialog {
@@ -55,7 +55,6 @@ pub enum ToolbarEvent {
     SaveFileAs,
     Resize,
     OriginalScale,
-    CropDimensionsUpdated((i32, i32)),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -74,7 +73,7 @@ pub enum StyleToolbarInput {
     ToggleVisibility,
     ShowAnnotationDialog,
     AnnotationDialogFinished(Option<f32>),
-    CropDimensionsChanged((i32, i32)),
+    DimensionsChanged((i32, i32)),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -562,10 +561,11 @@ impl Component for StyleToolbar {
                 set_focusable: false,
                 set_hexpand: false,
                 set_margin_start: 10,
+                set_width_chars: 11,
 
                 #[watch]
-                set_text: &model.crop_dimensions,
-                set_tooltip: "Crop dimensions (width x height)",
+                set_text: &model.output_dimensions,
+                set_tooltip: "Output dimensions (width x height)",
             },
             gtk::Separator {},
             gtk::Button {
@@ -638,8 +638,8 @@ impl Component for StyleToolbar {
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
             }
-            StyleToolbarInput::CropDimensionsChanged((width, height)) => {
-                self.crop_dimensions = format!("{}x{}", width, height);
+            StyleToolbarInput::DimensionsChanged((width, height)) => {
+                self.output_dimensions = format!("{}x{}", width, height);
             }
         }
     }
@@ -708,7 +708,7 @@ impl Component for StyleToolbar {
                 APP_CONFIG.read().annotation_size_factor()
             ),
             annotation_dialog_controller: None,
-            crop_dimensions: String::new(),
+            output_dimensions: String::new(),
         };
 
         // create widgets

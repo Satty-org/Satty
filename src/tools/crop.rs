@@ -279,7 +279,7 @@ impl CropTool {
             let height = size.y.round() as i32;
             sender
                 .send(SketchBoardInput::Output(
-                    SketchBoardOutput::CropDimensionsUpdate((width, height)),
+                    SketchBoardOutput::DimensionsUpdate(Some((width, height))),
                 ))
                 .ok();
         }
@@ -405,7 +405,7 @@ impl Tool for CropTool {
             if let Some(sender) = &self.sender {
                 sender
                     .send(SketchBoardInput::Output(
-                        SketchBoardOutput::CropDimensionsUpdate((0, 0)),
+                        SketchBoardOutput::DimensionsUpdate(None),
                     ))
                     .ok();
             }
