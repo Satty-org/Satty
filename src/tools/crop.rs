@@ -286,6 +286,7 @@ impl CropTool {
     }
 
     fn begin_drag(&mut self, pos: Vec2D) -> ToolUpdateResult {
+        let mut activate = false;
         match &self.crop {
             None => {
                 // No crop exists, create a new one
@@ -293,6 +294,9 @@ impl CropTool {
                 self.action = Some(CropToolAction::NewCrop);
             }
             Some(c) => {
+                if !c.active {
+                    activate = true;
+                }
                 if let Some(handle) = c.test_handle_hit(pos, CropTool::HANDLE_MARGIN_IN_2) {
                     // Crop exists and we are near a handle, drag it
                     self.action = Some(CropToolAction::DragHandle(DragHandleState {
@@ -317,6 +321,9 @@ impl CropTool {
                     self.action = Some(CropToolAction::NewCrop);
                 }
             }
+        }
+        if activate && let Some(c) = &mut self.crop {
+            c.active = true;
         }
         ToolUpdateResult::Redraw
     }
@@ -382,6 +389,20 @@ impl CropTool {
             }
         }
     }
+
+    fn handle_deactivate_and_reset(&mut self) -> ToolUpdateResult {
+        self.crop = None;
+        self.action = None;
+
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::DimensionsUpdate(None),
+                ))
+                .ok();
+        }
+        ToolUpdateResult::Redraw
+    }
 }
 
 impl Tool for CropTool {
@@ -398,41 +419,45 @@ impl Tool for CropTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.crop.is_some() {
-            self.crop = None;
-            self.action = None;
-
-            if let Some(sender) = &self.sender {
-                sender
-                    .send(SketchBoardInput::Output(
-                        SketchBoardOutput::DimensionsUpdate(None),
-                    ))
-                    .ok();
+        match event.key {
+            //FIXME: use if let guards as soon as they're stabilized (1.95)
+            Key::Escape if self.crop.is_some() => {
+                if self.crop.as_mut().unwrap().active {
+                    self.handle_deactivate_and_reset()
+                } else {
+                    ToolUpdateResult::Unmodified
+                }
             }
-
-            return ToolUpdateResult::Redraw;
+            //FIXME: use if let guards as soon as they're stabilized (1.95)
+            Key::Return if self.crop.is_some() => {
+                if self.crop.as_mut().unwrap().active {
+                    self.handle_deactivated()
+                } else {
+                    ToolUpdateResult::Unmodified
+                }
+            }
+            _ => ToolUpdateResult::Unmodified,
         }
-        ToolUpdateResult::Unmodified
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
-            MouseEventType::BeginDrag => {
-                if event.button == MouseButton::Middle {
-                    return ToolUpdateResult::Unmodified;
+            MouseEventType::Click if event.button == MouseButton::Secondary => {
+                if let Some(crop) = &self.crop
+                    && crop.active
+                {
+                    self.handle_deactivate_and_reset()
+                } else {
+                    ToolUpdateResult::Unmodified
                 }
+            }
+            MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
                 self.begin_drag(event.pos)
             }
-            MouseEventType::EndDrag => {
-                if event.button == MouseButton::Middle {
-                    return ToolUpdateResult::Unmodified;
-                }
+            MouseEventType::EndDrag if event.button == MouseButton::Primary => {
                 self.end_drag(event.pos)
             }
-            MouseEventType::UpdateDrag => {
-                if event.button == MouseButton::Middle {
-                    return ToolUpdateResult::Unmodified;
-                }
+            MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
                 self.update_drag(event.pos)
             }
             _ => ToolUpdateResult::Unmodified,
