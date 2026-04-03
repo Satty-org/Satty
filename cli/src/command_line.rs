@@ -74,7 +74,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub save_after_copy: bool,
 
-    /// Automatically copy to clipboard after every annotation change
+    /// Automatically copy to clipboard after every annotation change (NEXTRELEASE)
     #[arg(long)]
     pub auto_copy: bool,
 
