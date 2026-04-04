@@ -118,6 +118,10 @@ impl Tool for EllipseTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.ellipse.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Ellipse
     }
@@ -182,9 +186,20 @@ impl Tool for EllipseTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.ellipse.is_some() {
-            self.ellipse = None;
-            ToolUpdateResult::Redraw
+        if let Some(ellipse) = &mut self.ellipse {
+            match event.key {
+                Key::Escape => {
+                    self.ellipse = None;
+                    ToolUpdateResult::Redraw
+                }
+                Key::Return if ellipse.radii.is_some() => {
+                    ellipse.finishing = true;
+                    let result = ellipse.clone_box();
+                    self.ellipse = None;
+                    ToolUpdateResult::Commit(result)
+                }
+                _ => ToolUpdateResult::Unmodified,
+            }
         } else {
             ToolUpdateResult::Unmodified
         }
