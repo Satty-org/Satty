@@ -169,7 +169,7 @@ zoom-factor = 1.1
 text-move-length = 50.0 
 # experimental feature (0.20.1): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
 # This may be more useful to set via the command line.
-# Note, this is ignored with explicit resize.
+# Note, before NEXTRELEASE this is ignored with explicit resize.
 input-scale = 2.0
 # experimental feature (NEXTRELEASE): set window title
 title = "Satty"
@@ -308,7 +308,7 @@ Options:
       --text-move-length <TEXT_MOVE_LENGTH>
           Experimental feature (0.20.1): The length to move the text when using the arrow keys. defaults to 50.0
       --input-scale <INPUT_SCALE>
-          Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
+          Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that before NEXTRELEASE this is ignored with explicit resize
       --title <TITLE>
           Experimental feature (NEXTRELEASE): Set window title
       --app-id <APP_ID>
