@@ -73,6 +73,7 @@ fn main() -> Result<(), io::Error> {
             "paint-bucket-regular",
             "page-fit-regular",
             "resize-large-regular",
+            "tetris-app-regular",
         ],
     );
 
