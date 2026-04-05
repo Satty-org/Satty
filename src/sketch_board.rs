@@ -461,7 +461,7 @@ impl SketchBoard {
     fn handle_save(&self, image: &Pixbuf) {
         let output_filename = match APP_CONFIG.read().output_filename() {
             None => {
-                println!("No Output filename specified!");
+                eprintln!("No Output filename specified!");
                 return;
             }
             Some(o) => o.clone(),
@@ -483,7 +483,7 @@ impl SketchBoard {
         let data = match image.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
-                println!("Error serializing image: {e}");
+                eprintln!("Error serializing image: {e}");
                 return;
             }
         };
@@ -533,7 +533,7 @@ impl SketchBoard {
         let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
-                println!("Error serializing image: {e}");
+                eprintln!("Error serializing image: {e}");
                 return;
             }
         };
@@ -655,7 +655,7 @@ impl SketchBoard {
         };
 
         match result {
-            Err(e) => println!("Error saving {e}"),
+            Err(e) => eprintln!("Error saving {e}"),
             Ok(()) => {
                 log_result(
                     "Copied to clipboard.",
@@ -1231,7 +1231,6 @@ impl Component for SketchBoard {
             }
         };
 
-        // println!(" Result={:?}", result);
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 self.renderer.commit(drawable);

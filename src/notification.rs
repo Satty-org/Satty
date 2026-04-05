@@ -4,7 +4,7 @@ use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection};
 
 pub fn log_result(msg: &str, notify: bool) {
-    println!("{msg}");
+    eprintln!("{msg}");
     if notify {
         show_notification(msg);
     }

@@ -191,7 +191,7 @@ impl App {
                     gtk::style_context_add_provider_for_display(&display, &css_provider2, 1)
                 }
             }
-            None => println!("Cannot apply style"),
+            None => eprintln!("Cannot apply style"),
         }
     }
 }
