@@ -72,6 +72,7 @@ enum AppInput {
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
+    ToolEditingChanged(bool),
 }
 
 #[derive(Debug)]
@@ -289,6 +290,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::DimensionsChanged(d));
             }
+            AppInput::ToolEditingChanged(editing) => {
+                self.tools_toolbar
+                    .sender()
+                    .emit(ToolsToolbarInput::SetToolEditing(editing));
+            }
         }
     }
 
@@ -325,6 +331,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
+                    }
+                    SketchBoardOutput::ToolEditingChanged(editing) => {
+                        AppInput::ToolEditingChanged(editing)
                     }
                 });
 

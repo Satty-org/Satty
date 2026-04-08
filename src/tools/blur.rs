@@ -161,6 +161,10 @@ impl Tool for BlurTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.blur.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Blur
     }
@@ -227,9 +231,20 @@ impl Tool for BlurTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.blur.is_some() {
-            self.blur = None;
-            ToolUpdateResult::Redraw
+        if let Some(blur) = &mut self.blur {
+            match event.key {
+                Key::Escape => {
+                    self.blur = None;
+                    ToolUpdateResult::Redraw
+                }
+                Key::Return if blur.size.is_some() => {
+                    blur.editing = false;
+                    let result = blur.clone_box();
+                    self.blur = None;
+                    ToolUpdateResult::Commit(result)
+                }
+                _ => ToolUpdateResult::Unmodified,
+            }
         } else {
             ToolUpdateResult::Unmodified
         }
