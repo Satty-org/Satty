@@ -193,12 +193,9 @@ impl InputEvent {
         if let InputEvent::Mouse(me) = self {
             match me.type_ {
                 MouseEventType::Click => {
-                    if me.button == MouseButton::Secondary {
-                        renderer.request_render(&APP_CONFIG.read().actions_on_right_click());
-                        None
-                    } else {
-                        None
-                    }
+                    // Right-click and double-click are handled in update() where
+                    // we have access to handle_undo() and full SketchBoard state.
+                    None
                 }
                 MouseEventType::EndDrag | MouseEventType::UpdateDrag => {
                     if me.button == MouseButton::Middle {
@@ -283,6 +280,25 @@ impl SketchBoard {
         };
         self.renderer.request_render(actions);
         rv
+    }
+
+    fn process_actions(&mut self, actions: &[Action]) -> ToolUpdateResult {
+        let mut render_actions = Vec::new();
+        for action in actions {
+            match action {
+                Action::Undo => {
+                    if !matches!(self.handle_undo(), ToolUpdateResult::Unmodified) {
+                        return ToolUpdateResult::Redraw;
+                    }
+                }
+                other => render_actions.push(*other),
+            }
+        }
+        if render_actions.is_empty() {
+            ToolUpdateResult::Unmodified
+        } else {
+            self.handle_action(&render_actions)
+        }
     }
 
     fn handle_render_result_with_pixbuf(
@@ -1100,7 +1116,29 @@ impl Component for SketchBoard {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
                         _ => {
-                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
+                            if let InputEvent::Mouse(ref me) = ie {
+                                if me.type_ == MouseEventType::Click
+                                    && me.button == MouseButton::Secondary
+                                {
+                                    self.process_actions(
+                                        &APP_CONFIG.read().actions_on_right_click(),
+                                    )
+                                } else if me.type_ == MouseEventType::Click
+                                    && me.button == MouseButton::Primary
+                                    && me.n_pressed >= 2
+                                {
+                                    let actions = APP_CONFIG.read().actions_on_double_click();
+                                    if actions.is_empty() {
+                                        self.process_actions(&APP_CONFIG.read().actions_on_enter())
+                                    } else {
+                                        self.process_actions(&actions)
+                                    }
+                                } else if let Some(result) = ie.handle_mouse_event(&self.renderer) {
+                                    result
+                                } else {
+                                    active_tool_result
+                                }
+                            } else if let Some(result) = ie.handle_mouse_event(&self.renderer) {
                                 result
                             } else {
                                 active_tool_result
