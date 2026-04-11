@@ -54,6 +54,7 @@ pub struct Configuration {
     actions_on_enter: Vec<Action>,
     actions_on_escape: Vec<Action>,
     actions_on_right_click: Vec<Action>,
+    actions_on_double_click: Vec<Action>,
     color_palette: ColorPalette,
     default_hide_toolbars: bool,
     focus_toggles_toolbars: bool,
@@ -232,6 +233,7 @@ pub enum Action {
     SaveToFileAs,
     CopyFilepathToClipboard,
     Exit,
+    Undo,
 }
 
 impl From<CommandLineAction> for Action {
@@ -242,6 +244,7 @@ impl From<CommandLineAction> for Action {
             CommandLineAction::SaveToFileAs => Self::SaveToFileAs,
             CommandLineAction::CopyFilepathToClipboard => Self::CopyFilepathToClipboard,
             CommandLineAction::Exit => Self::Exit,
+            CommandLineAction::Undo => Self::Undo,
         }
     }
 }
@@ -320,6 +323,9 @@ impl Configuration {
         }
         if let Some(v) = general.actions_on_right_click {
             self.actions_on_right_click = v;
+        }
+        if let Some(v) = general.actions_on_double_click {
+            self.actions_on_double_click = v;
         }
         if let Some(v) = general.default_hide_toolbars {
             self.default_hide_toolbars = v;
@@ -457,6 +463,9 @@ impl Configuration {
         if let Some(v) = command_line.actions_on_right_click {
             self.actions_on_right_click = v.iter().cloned().map(Into::into).collect();
         }
+        if let Some(v) = command_line.actions_on_double_click {
+            self.actions_on_double_click = v.iter().cloned().map(Into::into).collect();
+        }
         if let Some(v) = command_line.font_family {
             self.font.family = Some(v);
         }
@@ -587,6 +596,10 @@ impl Configuration {
         self.actions_on_right_click.clone()
     }
 
+    pub fn actions_on_double_click(&self) -> Vec<Action> {
+        self.actions_on_double_click.clone()
+    }
+
     pub fn color_palette(&self) -> &ColorPalette {
         &self.color_palette
     }
@@ -677,6 +690,7 @@ impl Default for Configuration {
             actions_on_enter: vec![],
             actions_on_escape: vec![Action::Exit],
             actions_on_right_click: vec![],
+            actions_on_double_click: vec![],
             color_palette: ColorPalette::default(),
             default_hide_toolbars: false,
             focus_toggles_toolbars: false,
@@ -765,6 +779,7 @@ struct ConfigurationFileGeneral {
     actions_on_enter: Option<Vec<Action>>,
     actions_on_escape: Option<Vec<Action>>,
     actions_on_right_click: Option<Vec<Action>>,
+    actions_on_double_click: Option<Vec<Action>>,
     default_hide_toolbars: Option<bool>,
     focus_toggles_toolbars: Option<bool>,
     default_fill_shapes: Option<bool>,

@@ -276,11 +276,13 @@ Options:
       --auto-copy
           Automatically copy to clipboard after every annotation change (NEXTRELEASE)
       --actions-on-enter <ACTIONS_ON_ENTER>
-          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo]
       --actions-on-escape <ACTIONS_ON_ESCAPE>
-          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo]
       --actions-on-right-click <ACTIONS_ON_RIGHT_CLICK>
-          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo]
+      --actions-on-double-click <ACTIONS_ON_DOUBLE_CLICK>
+          Actions to perform on double-click (NEXTRELEASE) [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo]
   -d, --default-hide-toolbars
           Hide toolbars by default
       --focus-toggles-toolbars
@@ -316,7 +318,7 @@ Options:
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo]
   -h, --help
           Print help
   -V, --version
