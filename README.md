@@ -150,6 +150,9 @@ actions-on-enter = ["save-to-clipboard"]
 # Actions to trigger on Escape key (order is important)
 # [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-escape = ["exit"]
+# experimental: Actions to trigger on double-click (order is important)
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
+actions-on-double-click = []
 # Action to perform when the Enter key is pressed [possible values: save-to-clipboard, save-to-file]
 # Deprecated: use actions-on-enter instead
 action-on-enter = "save-to-clipboard"
@@ -281,6 +284,8 @@ Options:
           Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
       --actions-on-right-click <ACTIONS_ON_RIGHT_CLICK>
           Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
+      --actions-on-double-click <ACTIONS_ON_DOUBLE_CLICK>
+          Experimental (NEXTRELEASE): Actions to perform on double-click [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
   -d, --default-hide-toolbars
           Hide toolbars by default
       --focus-toggles-toolbars
