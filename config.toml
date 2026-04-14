@@ -26,13 +26,13 @@ primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false
 # Actions to trigger on right click (order is important)
-# [possible values: save-to-clipboard, save-to-file, exit]
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-right-click = []
 # Actions to trigger on Enter key (order is important)
-# [possible values: save-to-clipboard, save-to-file, exit]
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-enter = ["save-to-clipboard"]
 # Actions to trigger on Escape key (order is important)
-# [possible values: save-to-clipboard, save-to-file, exit]
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-escape = ["exit"]
 # Action to perform when the Enter key is pressed [possible values: save-to-clipboard, save-to-file]
 # Deprecated: use actions-on-enter instead

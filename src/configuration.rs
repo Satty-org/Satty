@@ -232,6 +232,8 @@ pub enum Action {
     SaveToFileAs,
     CopyFilepathToClipboard,
     Exit,
+    Undo,
+    UndoOrExit,
 }
 
 impl From<CommandLineAction> for Action {
@@ -242,6 +244,8 @@ impl From<CommandLineAction> for Action {
             CommandLineAction::SaveToFileAs => Self::SaveToFileAs,
             CommandLineAction::CopyFilepathToClipboard => Self::CopyFilepathToClipboard,
             CommandLineAction::Exit => Self::Exit,
+            CommandLineAction::Undo => Self::Undo,
+            CommandLineAction::UndoOrExit => Self::UndoOrExit,
         }
     }
 }
