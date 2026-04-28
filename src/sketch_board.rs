@@ -855,6 +855,7 @@ impl Component for SketchBoard {
 
     view! {
         gtk::Box {
+            add_css_class: "inner_box",
             #[local_ref]
             area -> FemtoVGArea {
                 set_vexpand: true,

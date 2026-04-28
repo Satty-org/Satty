@@ -186,9 +186,17 @@ impl App {
 
         match DisplayManager::get().default_display() {
             Some(display) => {
-                gtk::style_context_add_provider_for_display(&display, &css_provider, 1);
+                gtk::style_context_add_provider_for_display(
+                    &display,
+                    &css_provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
                 if let Some(css_provider2) = css_provider_override {
-                    gtk::style_context_add_provider_for_display(&display, &css_provider2, 1)
+                    gtk::style_context_add_provider_for_display(
+                        &display,
+                        &css_provider2,
+                        gtk::STYLE_PROVIDER_PRIORITY_USER,
+                    );
                 }
             }
             None => println!("Cannot apply style"),
