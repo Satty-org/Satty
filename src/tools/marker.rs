@@ -3,8 +3,9 @@ use std::f64::consts::PI;
 use std::rc::Rc;
 
 use femtovg::{Color, Paint, Path};
+use relm4::gtk::gdk::{Key, ModifierType};
 
-use crate::sketch_board::{MouseButton, MouseEventType, SketchBoardInput};
+use crate::sketch_board::{KeyEventMsg, MouseButton, MouseEventType, SketchBoardInput};
 use crate::style::Style;
 use crate::{math::Vec2D, sketch_board::MouseEventMsg};
 
@@ -12,6 +13,8 @@ use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;
 
 pub struct MarkerTool {
+    marker: Option<Marker>,
+    origin: Vec2D,
     style: Style,
     next_number: Rc<RefCell<u16>>,
     input_enabled: bool,
@@ -22,6 +25,7 @@ pub struct MarkerTool {
 pub struct Marker {
     pos: Vec2D,
     number: u16,
+    extra_ring: bool,
     style: Style,
     tool_next_number: Rc<RefCell<u16>>,
 }
@@ -56,7 +60,8 @@ impl Drawable for Marker {
         paint.set_text_align(femtovg::Align::Center);
         paint.set_text_baseline(femtovg::Baseline::Middle);
 
-        let text_metrics = canvas.measure_text(self.pos.x, self.pos.y, &text, &paint)?;
+        let pos = self.pos;
+        let text_metrics = canvas.measure_text(pos.x, pos.y, &text, &paint)?;
 
         let circle_radius = (text_metrics.width() * text_metrics.width()
             + text_metrics.height() * text_metrics.height())
@@ -64,19 +69,9 @@ impl Drawable for Marker {
 
         let mut inner_circle_path = Path::new();
         inner_circle_path.arc(
-            self.pos.x,
-            self.pos.y,
-            circle_radius * 0.8,
-            0.0,
-            2.0 * PI as f32,
-            femtovg::Solidity::Solid,
-        );
-
-        let mut outer_circle_path = Path::new();
-        outer_circle_path.arc(
-            self.pos.x,
-            self.pos.y,
-            circle_radius,
+            pos.x,
+            pos.y,
+            circle_radius * 0.6,
             0.0,
             2.0 * PI as f32,
             femtovg::Solidity::Solid,
@@ -90,9 +85,24 @@ impl Drawable for Marker {
         );
 
         canvas.save();
+
         canvas.fill_path(&inner_circle_path, &circle_paint);
-        canvas.stroke_path(&outer_circle_path, &circle_paint);
-        canvas.fill_text(self.pos.x, self.pos.y, &text, &paint)?;
+
+        if self.extra_ring {
+            let mut outer_ring_path = Path::new();
+            outer_ring_path.arc(
+                pos.x,
+                pos.y,
+                circle_radius * 0.8,
+                0.0,
+                2.0 * PI as f32,
+                femtovg::Solidity::Solid,
+            );
+
+            canvas.stroke_path(&outer_ring_path, &circle_paint);
+        }
+
+        canvas.fill_text(pos.x, pos.y, &text, &paint)?;
         canvas.restore();
         Ok(())
     }
@@ -106,6 +116,18 @@ impl Drawable for Marker {
     }
 }
 
+impl MarkerTool {
+    fn handle_alt_key_event(&mut self, event: KeyEventMsg, pressed: bool) -> ToolUpdateResult {
+        if let Some(marker) = &mut self.marker
+            && (event.key == Key::Alt_L || event.key == Key::Alt_R)
+        {
+            marker.extra_ring = pressed;
+            return ToolUpdateResult::RedrawAndStopPropagation;
+        }
+        ToolUpdateResult::Unmodified
+    }
+}
+
 impl Tool for MarkerTool {
     fn input_enabled(&self) -> bool {
         self.input_enabled
@@ -115,12 +137,19 @@ impl Tool for MarkerTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.marker.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Marker
     }
 
     fn get_drawable(&self) -> Option<&dyn Drawable> {
-        None
+        match &self.marker {
+            Some(marker) => Some(marker),
+            None => None,
+        }
     }
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
@@ -129,26 +158,49 @@ impl Tool for MarkerTool {
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
+        if event.button != MouseButton::Primary {
+            return ToolUpdateResult::Unmodified;
+        }
         match event.type_ {
             MouseEventType::Click => {
-                if event.button == MouseButton::Primary {
-                    let marker = Marker {
-                        pos: event.pos,
-                        number: *self.next_number.borrow(),
-                        style: self.style,
-                        tool_next_number: self.next_number.clone(),
-                    };
-
-                    // increment for next
-                    *self.next_number.borrow_mut() += 1;
-
-                    ToolUpdateResult::Commit(marker.clone_box())
+                self.origin = event.pos;
+                self.marker = Some(Marker {
+                    pos: event.pos,
+                    number: *self.next_number.borrow(),
+                    style: self.style,
+                    tool_next_number: self.next_number.clone(),
+                    extra_ring: event.modifier.contains(ModifierType::ALT_MASK),
+                });
+                ToolUpdateResult::Redraw
+            }
+            MouseEventType::UpdateDrag => {
+                if let Some(marker) = &mut self.marker {
+                    marker.pos = self.origin + event.pos;
+                    ToolUpdateResult::Redraw
+                } else {
+                    ToolUpdateResult::Unmodified
+                }
+            }
+            MouseEventType::Release => {
+                *self.next_number.borrow_mut() += 1;
+                if let Some(marker) = &mut self.marker.take() {
+                    let result = ToolUpdateResult::Commit(marker.clone_box());
+                    self.marker = None;
+                    result
                 } else {
                     ToolUpdateResult::Unmodified
                 }
             }
             _ => ToolUpdateResult::Unmodified,
         }
+    }
+
+    fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        self.handle_alt_key_event(event, true)
+    }
+
+    fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        self.handle_alt_key_event(event, false)
     }
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
@@ -159,6 +211,8 @@ impl Tool for MarkerTool {
 impl Default for MarkerTool {
     fn default() -> Self {
         Self {
+            marker: None,
+            origin: Vec2D::zero(),
             style: Default::default(),
             next_number: Rc::new(RefCell::new(1)),
             input_enabled: true,
