@@ -153,6 +153,32 @@ impl Text {
 }
 
 impl Drawable for Text {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let rect = self.rect.borrow();
+        if rect.width() == 0 && rect.height() == 0 {
+            // Not yet drawn; use pos as a small point region
+            return Some((self.pos, self.pos + Vec2D::new(10.0, 10.0)));
+        }
+        Some((
+            Vec2D::new(rect.x() as f32, rect.y() as f32),
+            Vec2D::new(
+                (rect.x() + rect.width()) as f32,
+                (rect.y() + rect.height()) as f32,
+            ),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+        let old = *self.rect.borrow();
+        *self.rect.borrow_mut() = Rectangle::new(
+            old.x() + delta.x as i32,
+            old.y() + delta.y as i32,
+            old.width(),
+            old.height(),
+        );
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

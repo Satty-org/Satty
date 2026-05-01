@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::f64::consts::PI;
 use std::rc::Rc;
 
@@ -23,10 +23,24 @@ pub struct Marker {
     pos: Vec2D,
     number: u16,
     style: Style,
+    /// Exact circle radius cached from the last draw call. Starts as a font-size placeholder.
+    radius: Cell<f32>,
     tool_next_number: Rc<RefCell<u16>>,
 }
 
 impl Drawable for Marker {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let r = self.radius.get();
+        Some((
+            Vec2D::new(self.pos.x - r, self.pos.y - r),
+            Vec2D::new(self.pos.x + r, self.pos.y + r),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -89,6 +103,9 @@ impl Drawable for Marker {
                 * 2.0,
         );
 
+        self.radius
+            .set(circle_radius + self.style.annotation_size_factor);
+
         canvas.save();
         canvas.fill_path(&inner_circle_path, &circle_paint);
         canvas.stroke_path(&outer_circle_path, &circle_paint);
@@ -132,10 +149,16 @@ impl Tool for MarkerTool {
         match event.type_ {
             MouseEventType::Click => {
                 if event.button == MouseButton::Primary {
+                    let font_size = self
+                        .style
+                        .size
+                        .to_text_size(self.style.annotation_size_factor)
+                        as f32;
                     let marker = Marker {
                         pos: event.pos,
                         number: *self.next_number.borrow(),
                         style: self.style,
+                        radius: Cell::new(font_size),
                         tool_next_number: self.next_number.clone(),
                     };
 

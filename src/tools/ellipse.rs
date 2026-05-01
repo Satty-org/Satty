@@ -24,6 +24,28 @@ pub struct Ellipse {
 }
 
 impl Drawable for Ellipse {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let radii = self.radii?;
+        Some((
+            Vec2D::new(self.middle.x - radii.x.abs(), self.middle.y - radii.y.abs()),
+            Vec2D::new(self.middle.x + radii.x.abs(), self.middle.y + radii.y.abs()),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.middle += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let center = Vec2D::new((tl.x + br.x) / 2.0, (tl.y + br.y) / 2.0);
+        self.middle = center;
+        self.origin = center;
+        self.radii = Some(Vec2D::new((br.x - tl.x) / 2.0, (br.y - tl.y) / 2.0));
+        self.centered = true;
+        self.finishing = true;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

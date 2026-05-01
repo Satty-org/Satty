@@ -150,11 +150,24 @@ pub trait Drawable: DrawableClone + Debug {
     -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
+    /// Returns the bounding box (top-left, bottom-right) in image coordinates, if supported.
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        None
+    }
+    /// Translates the drawable by the given delta (in image coordinates).
+    fn translate(&mut self, delta: Vec2D) {
+        let _ = delta;
+    }
+    /// Resizes the drawable to fit the new bounding box defined by top-left and bottom-right.
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let _ = (tl, br);
+    }
 }
 
 #[derive(Debug)]
 pub enum ToolUpdateResult {
     Commit(Box<dyn Drawable>),
+    ReplaceDrawable(usize, Box<dyn Drawable>),
     Redraw,
     Unmodified,
     StopPropagation,
@@ -167,10 +180,11 @@ pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;
+pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
 pub use text::TextTool;
 
-use self::{brush::BrushTool, marker::MarkerTool, pointer::PointerTool};
+use self::{brush::BrushTool, marker::MarkerTool};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -228,16 +242,13 @@ impl Display for Tools {
 pub struct ToolsManager {
     tools: HashMap<Tools, Rc<RefCell<dyn Tool>>>,
     crop_tool: Rc<RefCell<CropTool>>,
+    pointer_tool: Rc<RefCell<PointerTool>>,
 }
 
 impl ToolsManager {
     pub fn new() -> Self {
         let mut tools: HashMap<Tools, Rc<RefCell<dyn Tool>>> = HashMap::new();
         //tools.insert(Tools::Crop, Rc::new(RefCell::new(CropTool::default())));
-        tools.insert(
-            Tools::Pointer,
-            Rc::new(RefCell::new(PointerTool::default())),
-        );
         tools.insert(Tools::Line, Rc::new(RefCell::new(LineTool::default())));
         tools.insert(Tools::Arrow, Rc::new(RefCell::new(ArrowTool::default())));
         tools.insert(
@@ -258,17 +269,23 @@ impl ToolsManager {
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
 
         let crop_tool = Rc::new(RefCell::new(CropTool::default()));
-        Self { tools, crop_tool }
+        let pointer_tool = Rc::new(RefCell::new(PointerTool::default()));
+        Self {
+            tools,
+            crop_tool,
+            pointer_tool,
+        }
     }
 
     pub fn get(&self, tool: &Tools) -> Rc<RefCell<dyn Tool>> {
         match tool {
             Tools::Crop => self.crop_tool.clone(),
+            Tools::Pointer => self.pointer_tool.clone(),
             _ => self
                 .tools
                 .get(tool)
                 .unwrap_or_else(|| {
-                    panic!("Did you add the requested too {tool:#?} to the tools HashMap?")
+                    panic!("Did you add the requested to {tool:#?} to the tools HashMap?")
                 })
                 .clone(),
         }
@@ -276,6 +293,10 @@ impl ToolsManager {
 
     pub fn get_crop_tool(&self) -> Rc<RefCell<CropTool>> {
         self.crop_tool.clone()
+    }
+
+    pub fn get_pointer_tool(&self) -> Rc<RefCell<PointerTool>> {
+        self.pointer_tool.clone()
     }
 }
 

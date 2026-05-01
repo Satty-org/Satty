@@ -25,6 +25,33 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some((
+            Vec2D::new(
+                self.top_left.x.min(self.top_left.x + size.x),
+                self.top_left.y.min(self.top_left.y + size.y),
+            ),
+            Vec2D::new(
+                self.top_left.x.max(self.top_left.x + size.x),
+                self.top_left.y.max(self.top_left.y + size.y),
+            ),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        self.origin = tl;
+        self.centered = false;
+        self.finishing = true;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

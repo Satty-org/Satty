@@ -65,6 +65,24 @@ impl Blur {
 }
 
 impl Drawable for Blur {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        let (tl, size) = crate::math::rect_ensure_positive_size(self.top_left, size);
+        Some((tl, tl + size))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        // invalidate cached blur image since position changed
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        *self.cached_image.borrow_mut() = None;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

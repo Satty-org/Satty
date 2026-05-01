@@ -133,6 +133,42 @@ impl Tool for ArrowTool {
 }
 
 impl Drawable for Arrow {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let end = self.end?;
+        Some((
+            Vec2D::new(self.start.x.min(end.x), self.start.y.min(end.y)),
+            Vec2D::new(self.start.x.max(end.x), self.start.y.max(end.y)),
+        ))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.start += delta;
+        if let Some(e) = &mut self.end {
+            *e += delta;
+        }
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        // Preserve the arrow direction by remembering which corner each endpoint was in.
+        // bounds() always returns (min, max), so we detect which corners start/end occupy
+        // and map them into the new bounds accordingly.
+        if let Some(end) = self.end {
+            let start_is_left = self.start.x <= end.x;
+            let start_is_top = self.start.y <= end.y;
+            self.start = Vec2D::new(
+                if start_is_left { tl.x } else { br.x },
+                if start_is_top { tl.y } else { br.y },
+            );
+            self.end = Some(Vec2D::new(
+                if start_is_left { br.x } else { tl.x },
+                if start_is_top { br.y } else { tl.y },
+            ));
+        } else {
+            self.start = tl;
+            self.end = Some(br);
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
