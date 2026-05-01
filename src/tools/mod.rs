@@ -166,6 +166,11 @@ pub trait Drawable: DrawableClone + Debug {
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let _ = (tl, br);
     }
+    /// Returns position, text content and style if this drawable is an editable text, for
+    /// re-opening it in the text tool. Returns None for all other drawable types.
+    fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -247,6 +252,7 @@ pub struct ToolsManager {
     tools: HashMap<Tools, Rc<RefCell<dyn Tool>>>,
     crop_tool: Rc<RefCell<CropTool>>,
     pointer_tool: Rc<RefCell<PointerTool>>,
+    text_tool: Rc<RefCell<TextTool>>,
 }
 
 impl ToolsManager {
@@ -263,7 +269,8 @@ impl ToolsManager {
             Tools::Ellipse,
             Rc::new(RefCell::new(EllipseTool::default())),
         );
-        tools.insert(Tools::Text, Rc::new(RefCell::new(TextTool::default())));
+        let text_tool = Rc::new(RefCell::new(TextTool::default()));
+        tools.insert(Tools::Text, text_tool.clone());
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
             Tools::Highlight,
@@ -276,6 +283,7 @@ impl ToolsManager {
         let pointer_tool = Rc::new(RefCell::new(PointerTool::default()));
         Self {
             tools,
+            text_tool,
             crop_tool,
             pointer_tool,
         }
@@ -301,6 +309,10 @@ impl ToolsManager {
 
     pub fn get_pointer_tool(&self) -> Rc<RefCell<PointerTool>> {
         self.pointer_tool.clone()
+    }
+
+    pub fn get_text_tool(&self) -> Rc<RefCell<TextTool>> {
+        self.text_tool.clone()
     }
 }
 

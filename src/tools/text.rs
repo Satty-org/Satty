@@ -179,6 +179,15 @@ impl Drawable for Text {
         );
     }
 
+    fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
+        let content = self.text_buffer.text(
+            &self.text_buffer.start_iter(),
+            &self.text_buffer.end_iter(),
+            false,
+        );
+        Some((self.pos, content.to_string(), self.style))
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -736,6 +745,7 @@ pub struct TextTool {
     sender: Option<Sender<SketchBoardInput>>,
     drag_start_pos: Vec2D,
     dragged: Rc<RefCell<bool>>,
+    editing_existing: bool,
 }
 
 impl Tool for TextTool {
@@ -1171,6 +1181,8 @@ impl Tool for TextTool {
                             }
                         }
 
+                        let editing_existing = self.editing_existing;
+
                         // create commit message if necessary
                         let return_value = match &mut self.text {
                             Some(l) => {
@@ -1192,10 +1204,17 @@ impl Tool for TextTool {
                             None => ToolUpdateResult::Redraw,
                         };
 
-                        // create a new Text
-                        self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
-
-                        self.set_input_enabled(true);
+                        if editing_existing {
+                            // Pointer-initiated edit: finish editing and let SketchBoard switch tool.
+                            self.text = None;
+                            self.set_input_enabled(false);
+                            self.editing_existing = false;
+                        } else {
+                            // Native text-tool behavior: commit current text and start a new one.
+                            self.text =
+                                Some(Text::new(event.pos, self.style, self.im_context.clone()));
+                            self.set_input_enabled(true);
+                        }
 
                         return_value
                     }
@@ -1318,6 +1337,7 @@ impl Tool for TextTool {
 
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
         self.input_enabled = false;
+        self.editing_existing = false;
         if let Some(t) = &mut self.text {
             let content = t.get_text();
             if content.is_empty() {
@@ -1757,5 +1777,18 @@ impl TextTool {
                 }
             }
         }
+    }
+
+    /// Pre-populate the tool with an existing text drawable so the user can edit it.
+    /// Call this before switching to the Text tool.
+    pub fn load_for_editing(&mut self, pos: Vec2D, content: &str, style: Style) {
+        let t = Text::new(pos, style, self.im_context.clone());
+        t.text_buffer.insert_at_cursor(content);
+        // Move cursor to end
+        t.text_buffer.place_cursor(&t.text_buffer.end_iter());
+        self.text = Some(t);
+        self.style = style;
+        self.set_input_enabled(true);
+        self.editing_existing = true;
     }
 }

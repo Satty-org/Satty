@@ -24,7 +24,7 @@ use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
 use crate::notification::log_result;
 use crate::style::Style;
-use crate::tools::{PointerTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
+use crate::tools::{PointerTool, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
 
@@ -247,6 +247,8 @@ pub struct SketchBoard {
     active_tool: Rc<RefCell<dyn Tool>>,
     tools: ToolsManager,
     pointer_tool: Rc<RefCell<PointerTool>>,
+    text_tool: Rc<RefCell<TextTool>>,
+    return_to_pointer_after_text_commit: bool,
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
@@ -825,6 +827,33 @@ impl SketchBoard {
         Some(ToolUpdateResult::Redraw)
     }
 
+    /// Called when the pointer tool receives a double-click (n_pressed == 2).
+    /// If the hit drawable is a Text, removes it from the canvas and re-opens it in the text tool.
+    fn handle_pointer_tool_double_click(
+        &mut self,
+        pos: Vec2D,
+        sender: &ComponentSender<Self>,
+    ) -> Option<ToolUpdateResult> {
+        let idx = self.renderer.hit_test(pos)?;
+        let drawable = self.renderer.get_drawable_clone(idx)?;
+        let (text_pos, content, style) = drawable.edit_info()?;
+
+        // Remove the committed drawable and clear selection
+        self.pointer_tool.borrow_mut().deselect();
+        self.renderer.set_hidden_drawable_index(None);
+        self.renderer.remove_drawable(idx);
+
+        // Pre-populate the text tool and switch to it
+        self.text_tool
+            .borrow_mut()
+            .load_for_editing(text_pos, &content, style);
+        self.return_to_pointer_after_text_commit = true;
+        Some(self.handle_toolbar_event(
+            crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
+            sender.clone(),
+        ))
+    }
+
     fn handle_toolbar_event(
         &mut self,
         toolbar_event: ToolbarEvent,
@@ -832,6 +861,10 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
+                if tool != Tools::Text {
+                    self.return_to_pointer_after_text_commit = false;
+                }
+
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
                 let mut deactivate_result =
@@ -1138,6 +1171,8 @@ impl Component for SketchBoard {
     }
 
     fn update(&mut self, msg: SketchBoardInput, sender: ComponentSender<Self>, _root: &Self::Root) {
+        let sender_for_post_commit = sender.clone();
+
         // handle resize ourselves, pass everything else to tool
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
@@ -1274,11 +1309,15 @@ impl Component for SketchBoard {
                 } else {
                     ie.handle_event_mouse_input(&self.renderer);
 
-                    // For the pointer tool, intercept BeginDrag to perform hit-testing
-                    // before the event is dispatched to the tool itself.
+                    // For the pointer tool, intercept double-click (re-edit text) and
+                    // BeginDrag (hit-test for move/resize) before dispatching to the tool.
                     let pointer_begin_drag_result = if self.active_tool_type() == Tools::Pointer {
                         if let InputEvent::Mouse(ref me) = ie {
-                            self.handle_pointer_tool_begin_drag(me)
+                            if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
+                                self.handle_pointer_tool_double_click(me.pos, &sender)
+                            } else {
+                                self.handle_pointer_tool_begin_drag(me)
+                            }
                         } else {
                             None
                         }
@@ -1361,6 +1400,17 @@ impl Component for SketchBoard {
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
+
+                if self.return_to_pointer_after_text_commit
+                    && self.active_tool_type() == Tools::Text
+                {
+                    self.return_to_pointer_after_text_commit = false;
+                    let _ = self.handle_toolbar_event(
+                        ToolbarEvent::ToolSelected(Tools::Pointer),
+                        sender_for_post_commit,
+                    );
+                }
+
                 self.refresh_screen();
             }
             ToolUpdateResult::ReplaceDrawable(index, drawable) => {
@@ -1392,11 +1442,15 @@ impl Component for SketchBoard {
 
         let pointer_tool = tools.get_pointer_tool();
 
+        let text_tool = tools.get_text_tool();
+
         let mut model = Self {
             renderer: FemtoVGArea::default(),
             active_tool: tools.get(&config.initial_tool()),
             style: Style::default(),
             pointer_tool,
+            text_tool,
+            return_to_pointer_after_text_commit: false,
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
