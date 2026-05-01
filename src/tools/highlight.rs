@@ -14,7 +14,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::DrawableClone,
+    tools::{DrawableClone, hit_test_rectangle},
 };
 
 use satty_cli::command_line;
@@ -161,6 +161,131 @@ pub struct HighlightTool {
 }
 
 impl Drawable for HighlightKind {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        match self {
+            HighlightKind::Block(h) => {
+                let size = h.data.size?;
+                Some(math::ensure_bounding_box(
+                    h.data.top_left,
+                    h.data.top_left + size,
+                ))
+            }
+            HighlightKind::Freehand(h) => {
+                let mut min_x = f32::MAX;
+                let mut min_y = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut max_y = f32::MIN;
+                let first = h.data.points.first()?;
+                for (i, p) in h.data.points.iter().enumerate() {
+                    // First point is absolute, subsequent points are stored as offsets.
+                    let abs = if i == 0 { *p } else { *first + *p };
+                    min_x = min_x.min(abs.x);
+                    min_y = min_y.min(abs.y);
+                    max_x = max_x.max(abs.x);
+                    max_y = max_y.max(abs.y);
+                }
+                let stroke_width = h
+                    .style
+                    .size
+                    .to_highlight_width(h.style.annotation_size_factor);
+                Some((
+                    Vec2D::new(min_x, min_y) - stroke_width,
+                    Vec2D::new(max_x, max_y) + stroke_width,
+                ))
+            }
+        }
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let (tl, br) = match self.bounds() {
+            Some(bounds) => bounds,
+            None => return false,
+        };
+        hit_test_rectangle(pos, tl, Some(br - tl), tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        match self {
+            HighlightKind::Block(h) => {
+                h.data.top_left += delta;
+            }
+            HighlightKind::Freehand(h) => {
+                if let Some(first) = h.data.points.first_mut() {
+                    *first += delta;
+                }
+            }
+        }
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        match self {
+            HighlightKind::Block(h) => {
+                h.data.top_left = tl;
+                h.data.size = Some(br - tl);
+            }
+            HighlightKind::Freehand(h) => {
+                // Resize freehand by scaling all points from current bounds to new bounds.
+                if h.data.points.is_empty() {
+                    return;
+                }
+
+                let first_abs = h.data.points[0];
+                let mut min_x = f32::MAX;
+                let mut min_y = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut max_y = f32::MIN;
+                for (i, point) in h.data.points.iter().enumerate() {
+                    let abs = if i == 0 { *point } else { first_abs + *point };
+                    min_x = min_x.min(abs.x);
+                    min_y = min_y.min(abs.y);
+                    max_x = max_x.max(abs.x);
+                    max_y = max_y.max(abs.y);
+                }
+
+                let current_tl = Vec2D::new(min_x, min_y);
+                let current_br = Vec2D::new(max_x, max_y);
+
+                let current_size = current_br - current_tl;
+                let new_size = br - tl;
+
+                let scale_x = if current_size.x.abs() > f32::EPSILON {
+                    new_size.x / current_size.x
+                } else {
+                    1.0
+                };
+                let scale_y = if current_size.y.abs() > f32::EPSILON {
+                    new_size.y / current_size.y
+                } else {
+                    1.0
+                };
+
+                let mut transformed_abs_points = Vec::with_capacity(h.data.points.len());
+
+                for (i, point) in h.data.points.iter().enumerate() {
+                    let abs = if i == 0 { *point } else { first_abs + *point };
+                    let relative = abs - current_tl;
+                    transformed_abs_points.push(Vec2D::new(
+                        tl.x + relative.x * scale_x,
+                        tl.y + relative.y * scale_y,
+                    ));
+                }
+
+                let new_first_abs = transformed_abs_points[0];
+                h.data.points[0] = new_first_abs;
+                for (target, abs) in h
+                    .data
+                    .points
+                    .iter_mut()
+                    .skip(1)
+                    .zip(transformed_abs_points.iter().skip(1))
+                {
+                    *target = *abs - new_first_abs;
+                }
+            }
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

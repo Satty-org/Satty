@@ -4,9 +4,10 @@ use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     configuration::APP_CONFIG,
-    math::Vec2D,
+    math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_rectangle,
 };
 
 use super::{
@@ -25,6 +26,32 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, self.style.fill)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        self.origin = tl;
+        self.centered = false;
+        self.finishing = true;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -118,7 +145,6 @@ impl Tool for RectangleTool {
                     rectangle.finishing = true;
                     if event.pos == Vec2D::zero() {
                         self.rectangle = None;
-
                         ToolUpdateResult::Redraw
                     } else {
                         rectangle.calculate_shape(&event);

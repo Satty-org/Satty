@@ -13,6 +13,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_rectangle,
 };
 
 use super::{
@@ -80,6 +81,31 @@ impl Blur {
 }
 
 impl Drawable for Blur {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        // invalidate cached blur image since position changed
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        *self.cached_image.borrow_mut() = None;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

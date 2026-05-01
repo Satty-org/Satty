@@ -4,9 +4,10 @@ use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 
 use crate::{
     configuration::APP_CONFIG,
-    math::Vec2D,
+    math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_rectangle,
 };
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
@@ -37,6 +38,73 @@ impl BrushDrawable {
 }
 
 impl Drawable for BrushDrawable {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let start = self.start_point?;
+        let mut tl = start;
+        let mut br = start;
+        for p in self.points.iter().skip(1) {
+            let abs = start + *p;
+            tl = tl.min(abs);
+            br = br.max(abs);
+        }
+        Some((tl, br))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let (tl, br) = match self.bounds() {
+            Some(bounds) => bounds,
+            None => return false,
+        };
+        hit_test_rectangle(pos, tl, Some(br - tl), tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        if let Some(ref mut sp) = self.start_point {
+            *sp += delta;
+        }
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        // Get current bounds
+        if let Some((current_tl, current_br)) = self.bounds() {
+            let current_size = current_br - current_tl;
+            let new_size = br - tl;
+
+            // Calculate scale factors
+            let scale_x = if current_size.x.abs() > 0.001 {
+                new_size.x / current_size.x
+            } else {
+                1.0
+            };
+            let scale_y = if current_size.y.abs() > 0.001 {
+                new_size.y / current_size.y
+            } else {
+                1.0
+            };
+
+            // Scale all points relative to their current start point
+            if let Some(start) = self.start_point {
+                for p in &mut self.points {
+                    // Convert to absolute coordinates
+                    let abs_p = Vec2D {
+                        x: start.x + p.x,
+                        y: start.y + p.y,
+                    };
+                    // Translate to origin (relative to old top-left)
+                    let rel_p = abs_p - current_tl;
+                    // Scale and update point
+                    *p = Vec2D {
+                        x: rel_p.x * scale_x,
+                        y: rel_p.y * scale_y,
+                    };
+                }
+                // Update start point to new top-left
+                self.start_point = Some(tl);
+            }
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

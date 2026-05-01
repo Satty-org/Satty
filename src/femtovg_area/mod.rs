@@ -177,4 +177,60 @@ impl FemtoVGArea {
     pub fn resize(&self, width: i32, height: i32) {
         self.imp().resize(width, height);
     }
+
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .hit_test(pos)
+    }
+
+    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .get_drawable_bounds(index)
+    }
+
+    pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .get_drawable_clone(index)
+    }
+
+    pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .replace_drawable(index, drawable);
+    }
+
+    pub fn move_drawable_to_end(&mut self, index: usize) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_to_end(index)
+    }
+
+    pub fn remove_drawable(&mut self, index: usize) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .remove_drawable(index);
+    }
+
+    pub fn set_hidden_drawable_index(&mut self, index: Option<usize>) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_hidden_drawable_index(index);
+    }
 }

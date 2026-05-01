@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::f64::consts::PI;
 use std::rc::Rc;
 
@@ -27,6 +27,8 @@ pub struct Marker {
     number: u16,
     extra_ring: bool,
     style: Style,
+    // for bounding box cache circle radius from the last draw
+    radius: Cell<f32>,
     tool_next_number: Rc<RefCell<u16>>,
 }
 
@@ -39,6 +41,22 @@ impl Marker {
 }
 
 impl Drawable for Marker {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 2.0 } else { 0.0 };
+        let r = Vec2D::new(r, r);
+        Some((self.pos - r, self.pos + r))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 2.0 } else { 0.0 };
+        let d = (pos - self.pos) / (r + tolerance);
+        d * d <= 1.0
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -86,6 +104,9 @@ impl Drawable for Marker {
         );
 
         let circle_paint = Paint::color(marker_color).with_line_width(line_width);
+
+        self.radius
+            .set(circle_radius + self.style.annotation_size_factor);
 
         canvas.save();
 
@@ -165,6 +186,12 @@ impl Tool for MarkerTool {
         if event.button != MouseButton::Primary {
             return ToolUpdateResult::Unmodified;
         }
+        let font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+        let extra_ring = event.modifier.contains(ModifierType::ALT_MASK);
+
         match event.type_ {
             MouseEventType::Click => {
                 self.origin = event.pos;
@@ -172,8 +199,9 @@ impl Tool for MarkerTool {
                     pos: event.pos,
                     number: *self.next_number.borrow(),
                     style: self.style,
+                    radius: Cell::new(font_size),
                     tool_next_number: self.next_number.clone(),
-                    extra_ring: event.modifier.contains(ModifierType::ALT_MASK),
+                    extra_ring,
                 });
                 ToolUpdateResult::Redraw
             }
@@ -186,10 +214,11 @@ impl Tool for MarkerTool {
                 }
             }
             MouseEventType::Release => {
-                *self.next_number.borrow_mut() += 1;
                 if let Some(marker) = &mut self.marker.take() {
                     let result = ToolUpdateResult::Commit(marker.clone_box());
                     self.marker = None;
+                    // increment for next
+                    *self.next_number.borrow_mut() += 1;
                     result
                 } else {
                     ToolUpdateResult::Unmodified

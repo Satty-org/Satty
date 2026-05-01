@@ -6,7 +6,7 @@ use relm4::{
 };
 
 use crate::{
-    math::Vec2D,
+    math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
@@ -29,6 +29,46 @@ pub struct Line {
 }
 
 impl Drawable for Line {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let dir = self.direction?;
+        let end = self.start + dir;
+        Some(math::ensure_bounding_box(self.start, end))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let Some(dir) = self.direction else {
+            return false;
+        };
+        let end = self.start + dir;
+        pos.distance_to_segment(self.start, end) <= tolerance
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.start += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        if let Some(direction) = self.direction {
+            let end = self.start + direction;
+            let start_is_left = self.start.x <= end.x;
+            let start_is_top = self.start.y <= end.y;
+            let new_start = Vec2D::new(
+                if start_is_left { tl.x } else { br.x },
+                if start_is_top { tl.y } else { br.y },
+            );
+            let new_end = Vec2D::new(
+                if start_is_left { br.x } else { tl.x },
+                if start_is_top { br.y } else { tl.y },
+            );
+
+            self.start = new_start;
+            self.direction = Some(new_end - new_start);
+        } else {
+            self.start = tl;
+            self.direction = Some(br - tl);
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
