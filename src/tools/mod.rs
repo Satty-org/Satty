@@ -115,6 +115,10 @@ pub trait Tool {
         ToolUpdateResult::Unmodified
     }
 
+    fn handle_reset(&mut self) {
+        // override if your tool needs to reset a internal state, e.g. the next marker number for the marker tool
+    }
+
     fn set_im_context(&mut self, _context: Option<InputContext>) {}
 
     fn get_drawable(&self) -> Option<&dyn Drawable>;
