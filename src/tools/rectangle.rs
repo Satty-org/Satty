@@ -52,6 +52,14 @@ impl Drawable for Rectangle {
         self.finishing = true;
     }
 
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -79,9 +87,8 @@ impl Drawable for Rectangle {
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
-        } else {
-            canvas.stroke_path(&path, &self.style.into());
         }
+        canvas.stroke_path(&path, &self.style.into());
         canvas.restore();
 
         Ok(())

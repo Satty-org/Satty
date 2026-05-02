@@ -286,6 +286,20 @@ impl Drawable for HighlightKind {
         }
     }
 
+    fn get_style(&self) -> Option<&Style> {
+        match self {
+            HighlightKind::Block(highlighter) => Some(&highlighter.style),
+            HighlightKind::Freehand(highlighter) => Some(&highlighter.style),
+        }
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        match self {
+            HighlightKind::Block(highlighter) => Some(&mut highlighter.style),
+            HighlightKind::Freehand(highlighter) => Some(&mut highlighter.style),
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

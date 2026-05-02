@@ -81,11 +81,12 @@ enum AppInput {
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
     SetColor(Color),
-    SetFill(bool),
-    SetRoundCaps(bool),
     SetSize(Size),
+    SetAnnotationSizeFactor(f32),
     FocusAnnotationSizeFactorShortcut,
     ScaleFactorChanged,
+    SetFill(bool),
+    SetRoundCaps(bool),
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
     ToolEditingChanged(bool),
@@ -313,6 +314,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetSize(size));
             }
+            AppInput::SetAnnotationSizeFactor(factor) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetAnnotationSizeFactor(factor));
+            }
             AppInput::FocusAnnotationSizeFactorShortcut => {
                 self.style_toolbar
                     .sender()
@@ -394,6 +400,9 @@ impl Component for App {
                     SketchBoardOutput::SetSize(size) => AppInput::SetSize(size),
                     SketchBoardOutput::FocusAnnotationSizeFactorShortcut => {
                         AppInput::FocusAnnotationSizeFactorShortcut
+                    }
+                    SketchBoardOutput::SetAnnotationSizeFactor(factor) => {
+                        AppInput::SetAnnotationSizeFactor(factor)
                     }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)

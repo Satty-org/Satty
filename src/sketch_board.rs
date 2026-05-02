@@ -39,6 +39,7 @@ pub enum SketchBoardInput {
     PinchScale(f32),
     PinchEnd,
     NudgeSelection(Vec2D),
+    RefreshSelectionBounds(usize),
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -56,6 +57,7 @@ pub enum SketchBoardOutput {
     ColorSwitchShortcut(u64),
     SetColor(Color),
     SetSize(Size),
+    SetAnnotationSizeFactor(f32),
     FocusAnnotationSizeFactorShortcut,
     SetFill(bool),
     SetRoundCaps(bool),
@@ -292,6 +294,65 @@ pub struct SketchBoard {
 }
 
 impl SketchBoard {
+    fn sync_toolbar_style_from_drawable(
+        &mut self,
+        drawable: &dyn crate::tools::Drawable,
+        sender: &ComponentSender<Self>,
+    ) {
+        let Some(style) = drawable.get_style() else {
+            return;
+        };
+
+        let old_style = self.style;
+
+        if old_style.color != style.color {
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetColor(style.color));
+        }
+        if old_style.size != style.size {
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetSize(style.size));
+        }
+        if old_style.annotation_size_factor != style.annotation_size_factor {
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetAnnotationSizeFactor(
+                    style.annotation_size_factor,
+                ));
+        }
+        if old_style.fill != style.fill {
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetFill(style.fill));
+        }
+        if old_style.round_caps != style.round_caps {
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SetRoundCaps(style.round_caps));
+        }
+        self.style = *style;
+    }
+
+    fn set_drawable_style_from_toolbar_style(&mut self) -> ToolUpdateResult {
+        if self.active_tool_type() == Tools::Pointer {
+            let selected_index = self.pointer_tool.borrow().selected_index();
+            if let Some(index) = selected_index
+                && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                && let Some(style) = drawable.get_style_mut()
+            {
+                *style = self.style;
+                self.renderer.replace_drawable(index, drawable);
+                self.update_pointer_tool_selection(index, true);
+            }
+        }
+        self.active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(self.style));
+        ToolUpdateResult::Redraw
+    }
+
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
     }
@@ -824,7 +885,7 @@ impl SketchBoard {
                     .handle_event(ToolEvent::Input(InputEvent::Mouse(*me)))
             } else {
                 let result = if me.type_ == MouseEventType::BeginDrag {
-                    self.handle_pointer_tool_begin_drag(me)
+                    self.handle_pointer_tool_begin_drag(me, sender)
                         .unwrap_or(ToolUpdateResult::Unmodified)
                 } else if !matches!(
                     me.type_,
@@ -878,6 +939,7 @@ impl SketchBoard {
     fn handle_pointer_tool_begin_drag(
         &mut self,
         me: &crate::sketch_board::MouseEventMsg,
+        sender: &ComponentSender<Self>,
     ) -> Option<ToolUpdateResult> {
         // Check resize handle first (only when something is already selected)
         let handle_hit = self.pointer_tool.borrow().hit_test_handles(me.pos);
@@ -889,6 +951,7 @@ impl SketchBoard {
                     self.renderer.get_drawable_bounds(idx),
                 )
             {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
                 self.renderer.set_hidden_drawable_index(Some(idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -906,7 +969,6 @@ impl SketchBoard {
             && drawable.hit_test(me.pos, 5.0)
             && let Some((tl, br)) = self.renderer.get_drawable_bounds(selected_idx)
         {
-            // self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
             self.renderer.set_hidden_drawable_index(Some(selected_idx));
             self.pointer_tool
                 .borrow_mut()
@@ -944,6 +1006,7 @@ impl SketchBoard {
                 self.renderer.get_drawable_clone(sel_idx),
                 self.renderer.get_drawable_bounds(sel_idx),
             ) {
+                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
                 self.renderer.set_hidden_drawable_index(Some(sel_idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -1051,18 +1114,11 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetSize(self.style.size));
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
@@ -1071,34 +1127,19 @@ impl SketchBoard {
             ToolbarEvent::ClearAll => self.handle_clear_all(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetFill(self.style.fill));
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::ToggleRoundCaps => {
                 self.style.round_caps = !self.style.round_caps;
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::AnnotationSizeFactorChanged(value) => {
                 self.style.annotation_size_factor = value;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SetFill(fill_enabled) => {
                 self.style.fill = fill_enabled;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style));
-                ToolUpdateResult::Redraw
+                self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
@@ -1282,6 +1323,36 @@ impl SketchBoard {
                 active_tool_result
             }
         }
+    }
+
+    fn update_pointer_tool_selection(&mut self, index: usize, refresh: bool) -> ToolUpdateResult {
+        let Some(drawable) = self.renderer.get_drawable_clone(index) else {
+            return ToolUpdateResult::Unmodified;
+        };
+
+        // Text/Marker bounds can depend on the latest draw pass. Schedule a post-render refresh
+        // so the pointer selection can snap to the final geometry.
+        if refresh && drawable.bounds_only_valid_after_redraw() {
+            self.renderer.schedule_refresh_selection_after_render(index);
+            return ToolUpdateResult::Unmodified;
+        }
+
+        let Some(bounds) = self.renderer.get_drawable_bounds(index) else {
+            return ToolUpdateResult::Unmodified;
+        };
+
+        let needs_update = {
+            let pointer_tool = self.pointer_tool.borrow();
+            pointer_tool.selected_index() != Some(index)
+                || pointer_tool.selected_bounds() != Some(bounds)
+        };
+
+        if !needs_update {
+            return ToolUpdateResult::Unmodified;
+        }
+
+        self.pointer_tool.borrow_mut().set_selection(index, bounds);
+        ToolUpdateResult::Redraw
     }
 }
 
@@ -1531,11 +1602,7 @@ impl Component for SketchBoard {
                     if let Some(mut drawable) = self.renderer.get_drawable_clone(index) {
                         drawable.translate(delta);
                         self.renderer.replace_drawable(index, drawable);
-                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
-                            self.pointer_tool
-                                .borrow_mut()
-                                .set_selection(index, new_bounds);
-                        }
+                        self.update_pointer_tool_selection(index, false);
                         ToolUpdateResult::Redraw
                     } else {
                         ToolUpdateResult::Unmodified
@@ -1543,6 +1610,9 @@ impl Component for SketchBoard {
                 } else {
                     ToolUpdateResult::Unmodified
                 }
+            }
+            SketchBoardInput::RefreshSelectionBounds(index) => {
+                self.update_pointer_tool_selection(index, false)
             }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
@@ -1634,12 +1704,7 @@ impl Component for SketchBoard {
             }
             ToolUpdateResult::ReplaceDrawable(index, drawable) => {
                 self.renderer.replace_drawable(index, drawable);
-                // Update the selection overlay bounds to reflect the new position/size.
-                if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
-                    self.pointer_tool
-                        .borrow_mut()
-                        .set_selection(index, new_bounds);
-                }
+                self.update_pointer_tool_selection(index, true);
                 self.refresh_screen();
             }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),

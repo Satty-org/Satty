@@ -69,6 +69,14 @@ impl Drawable for Line {
         }
     }
 
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

@@ -72,6 +72,11 @@ impl FemtoVGArea {
     pub fn request_render(&self, actions: &[Action]) {
         self.imp().request_render(actions);
     }
+
+    pub fn schedule_refresh_selection_after_render(&self, index: usize) {
+        self.imp().schedule_refresh_selection_after_render(index);
+    }
+
     pub fn clear_all(&mut self) -> bool {
         self.imp()
             .inner()

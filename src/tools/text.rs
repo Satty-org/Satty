@@ -225,6 +225,10 @@ impl Text {
 }
 
 impl Drawable for Text {
+    fn bounds_only_valid_after_redraw(&self) -> bool {
+        true
+    }
+
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         let rect = self.rect.borrow();
         if rect.width() == 0 && rect.height() == 0 {
@@ -266,6 +270,14 @@ impl Drawable for Text {
             false,
         );
         Some((self.pos, content.to_string(), self.style))
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
     }
 
     fn draw(

@@ -173,6 +173,9 @@ pub trait Drawable: DrawableClone + Debug {
     fn is_crop(&self) -> bool {
         false
     }
+    fn bounds_only_valid_after_redraw(&self) -> bool {
+        false
+    }
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         None
     }
@@ -189,6 +192,14 @@ pub trait Drawable: DrawableClone + Debug {
     // Returns position, text content and style if this drawable is an editable text, for
     // re-opening it in the text tool. Returns None for all other drawable types.
     fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
+        None
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        None
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
         None
     }
 }

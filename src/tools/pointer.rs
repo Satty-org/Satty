@@ -287,6 +287,10 @@ impl PointerTool {
         self.selected_index
     }
 
+    pub fn selected_bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        self.selected_bounds
+    }
+
     // Returns the handle under `pos` given the current selection bounds.
     pub fn hit_test_handles(&self, pos: Vec2D) -> Option<ResizeHandle> {
         let overlay = self.selection_overlay.as_ref()?;

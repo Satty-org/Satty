@@ -38,6 +38,7 @@ pub struct FemtoVGArea {
     font: RefCell<Option<FontId>>,
     inner: RefCell<Option<FemtoVgAreaMut>>,
     request_render: RefCell<Option<Vec<Action>>>,
+    post_render_refresh_selection: RefCell<Option<usize>>,
     sender: RefCell<Option<Sender<SketchBoardInput>>>,
 }
 
@@ -156,6 +157,14 @@ impl GLAreaImpl for FemtoVGArea {
             .render_framebuffer(canvas, font)
         {
             eprintln!("Error rendering to framebuffer: {e}");
+        }
+
+        if let Some(index) = self.post_render_refresh_selection.borrow_mut().take() {
+            self.sender
+                .borrow()
+                .as_ref()
+                .expect("Did you call init before using FemtoVgArea?")
+                .emit(SketchBoardInput::RefreshSelectionBounds(index));
         }
         glib::Propagation::Stop
     }
@@ -320,6 +329,14 @@ impl FemtoVGArea {
         self.request_render.borrow_mut().replace(actions.into());
         self.obj().queue_render();
     }
+
+    pub fn schedule_refresh_selection_after_render(&self, index: usize) {
+        self.post_render_refresh_selection
+            .borrow_mut()
+            .replace(index);
+        self.obj().queue_render();
+    }
+
     pub fn set_parent_sender(&self, sender: Sender<SketchBoardInput>) {
         self.sender.borrow_mut().replace(sender);
     }

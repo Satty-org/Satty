@@ -41,6 +41,10 @@ impl Marker {
 }
 
 impl Drawable for Marker {
+    fn bounds_only_valid_after_redraw(&self) -> bool {
+        true
+    }
+
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 2.0 } else { 0.0 };
         let r = Vec2D::new(r, r);
@@ -55,6 +59,14 @@ impl Drawable for Marker {
 
     fn translate(&mut self, delta: Vec2D) {
         self.pos += delta;
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
