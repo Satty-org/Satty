@@ -65,6 +65,7 @@ pub struct Configuration {
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
     keybinds: Keybinds,
+    initial_zoom: Option<f32>,
     zoom_factor: f32,
     pan_step_size: f32,
     text_move_length: f32,
@@ -341,6 +342,9 @@ impl Configuration {
         }
         if let Some(v) = general.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
+        }
+        if let Some(v) = general.initial_zoom {
+            self.initial_zoom = Some(v);
         }
         if let Some(v) = general.zoom_factor {
             self.zoom_factor = v;
@@ -643,6 +647,10 @@ impl Configuration {
         self.text_move_length
     }
 
+    pub fn initial_zoom(&self) -> Option<f32> {
+        self.initial_zoom
+    }
+
     pub fn input_scale(&self) -> f32 {
         self.input_scale
     }
@@ -688,6 +696,7 @@ impl Default for Configuration {
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: Keybinds::default(),
+            initial_zoom: None,
             zoom_factor: 1.1,
             pan_step_size: 50.,
             text_move_length: 50.0,
@@ -772,6 +781,7 @@ struct ConfigurationFileGeneral {
     disable_notifications: Option<bool>,
     no_window_decoration: Option<bool>,
     brush_smooth_history_size: Option<usize>,
+    initial_zoom: Option<f32>,
     zoom_factor: Option<f32>,
     pan_step_size: Option<f32>,
     text_move_length: Option<f32>,

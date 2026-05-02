@@ -162,6 +162,7 @@ impl FemtoVGArea {
         active_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
+        let initial_zoom = APP_CONFIG.read().initial_zoom();
         self.inner().replace(FemtoVgAreaMut {
             background_image,
             background_image_id: None,
@@ -172,13 +173,13 @@ impl FemtoVGArea {
             offset: Vec2D::zero(),
             drawables: Vec::new(),
             redo_stack: Vec::new(),
-            zoom_scale: 0.0,
+            zoom_scale: initial_zoom.unwrap_or(0.0),
             pointer_offset: Vec2D::zero(),
             last_offset: Vec2D::zero(),
             drag_offset: Vec2D::zero(),
             last_scale: 0.0,
             is_drag: false,
-            is_reset: false,
+            is_reset: initial_zoom.is_some(),
         });
         self.sender.borrow_mut().replace(sender);
     }

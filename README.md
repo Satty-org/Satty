@@ -161,6 +161,9 @@ right-click-copy = false
 no-window-decoration = true
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
+# experimental feature (NEXTRELEASE): Initial zoom level at startup.
+# Leave unset to auto-fit. Set to 1.0 for original 1:1 scale.
+initial-zoom = 1.0
 # experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
 pan-step-size = 50.0
 # experimental feature (0.20.1): The zoom factor to use for the image.
