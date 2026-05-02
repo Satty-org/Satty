@@ -138,7 +138,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "recycling-bin",
-                set_tooltip: "Reset",
+                set_tooltip: "Reset (Shift+Delete)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
             },
             gtk::Separator {},

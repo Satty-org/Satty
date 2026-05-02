@@ -1153,7 +1153,12 @@ impl Component for SketchBoard {
                                 self.renderer.store_last_offset();
                                 self.renderer.request_render(&[]);
                                 ToolUpdateResult::Unmodified
-                            } else if ke.modifier.is_empty() && ke.key == Key::Delete {
+                            } else if ke.key == Key::Delete
+                                && ke.modifier.contains(ModifierType::SHIFT_MASK)
+                                && !ke
+                                    .modifier
+                                    .intersects(ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
+                            {
                                 self.handle_reset()
                             } else if ke.modifier.is_empty()
                                 && (ke.key == Key::Escape
