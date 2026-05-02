@@ -757,9 +757,15 @@ impl SketchBoard {
 
     fn handle_clear_all(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
-        if self.deactivate_active_tool() | self.renderer.clear_all() {
-            self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+        let did_reset = self.deactivate_active_tool() | self.renderer.clear_all();
+
+        self.renderer.set_hidden_drawable_index(None);
+        self.pointer_tool.borrow_mut().deselect();
+
+        // Reset marker numbering after drawable undo hooks ran.
+        self.tools.get(&Tools::Marker).borrow_mut().handle_reset();
+
+        if did_reset {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified

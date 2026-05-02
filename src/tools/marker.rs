@@ -214,6 +214,10 @@ impl Tool for MarkerTool {
         ToolUpdateResult::Unmodified
     }
 
+    fn handle_reset(&mut self) {
+        *self.next_number.borrow_mut() = 1;
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         if event.button != MouseButton::Primary {
             return ToolUpdateResult::Unmodified;
