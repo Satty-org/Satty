@@ -64,6 +64,10 @@ impl Drawable for Line {
         }
     }
 
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

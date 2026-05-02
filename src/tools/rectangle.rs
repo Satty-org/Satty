@@ -52,6 +52,18 @@ impl Drawable for Rectangle {
         self.finishing = true;
     }
 
+    fn set_color(&mut self, color: crate::style::Color) {
+        self.style.color = color;
+    }
+
+    fn get_fill(&self) -> bool {
+        self.style.fill
+    }
+
+    fn set_fill(&mut self, fill: bool) {
+        self.style.fill = fill;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

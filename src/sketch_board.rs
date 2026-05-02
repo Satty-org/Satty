@@ -798,6 +798,7 @@ impl SketchBoard {
                     self.renderer.get_drawable_bounds(idx),
                 )
             {
+                self.style.fill = drawable.get_fill();
                 self.renderer.set_hidden_drawable_index(Some(idx));
                 self.pointer_tool
                     .borrow_mut()
@@ -814,6 +815,7 @@ impl SketchBoard {
                 self.renderer.get_drawable_bounds(new_idx),
             )
         {
+            self.style.fill = drawable.get_fill();
             self.renderer.set_hidden_drawable_index(Some(new_idx));
             self.pointer_tool
                 .borrow_mut()
@@ -918,9 +920,28 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_color(color);
+                        self.renderer.replace_drawable(index, drawable);
+                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                            self.pointer_tool
+                                .borrow_mut()
+                                .set_selection(index, new_bounds);
+                        }
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
@@ -938,9 +959,28 @@ impl SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::FillToggled(self.style.fill));
-                self.active_tool
+                let mut result = self
+                    .active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                if self.active_tool_type() == Tools::Pointer {
+                    let selected_index = self.pointer_tool.borrow().selected_index();
+                    if let Some(index) = selected_index
+                        && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
+                    {
+                        drawable.set_fill(!drawable.get_fill());
+                        self.renderer.replace_drawable(index, drawable);
+                        if let Some(new_bounds) = self.renderer.get_drawable_bounds(index) {
+                            self.pointer_tool
+                                .borrow_mut()
+                                .set_selection(index, new_bounds);
+                        }
+                        result = ToolUpdateResult::Redraw;
+                    }
+                }
+
+                result
             }
             ToolbarEvent::AnnotationSizeChanged(value) => {
                 self.style.annotation_size_factor = value;
