@@ -42,7 +42,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 ### Shortcuts
 
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
-- <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
+- <kbd>Esc</kbd> or <kbd>Ctrl-Q</kbd> <sup>NEXTRELEASE</sup>: as configured (see below), default: exit (may be masked by active tool)
 - <kbd>Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.20.1</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened

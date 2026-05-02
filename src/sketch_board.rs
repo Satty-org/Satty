@@ -1155,15 +1155,14 @@ impl Component for SketchBoard {
                                 ToolUpdateResult::Unmodified
                             } else if ke.modifier.is_empty() && ke.key == Key::Delete {
                                 self.handle_reset()
-                            } else if ke.modifier.is_empty()
-                                && (ke.key == Key::Escape
-                                    || ke.key == Key::Return
-                                    || ke.key == Key::KP_Enter)
+                            } else if (matches!(ke.key, Key::Escape | Key::Return | Key::KP_Enter)
+                                && ke.modifier.is_empty())
+                                || (ke.key == Key::q && ke.modifier == ModifierType::CONTROL_MASK)
                             {
                                 // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
                                 // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
                                 if let ToolUpdateResult::Unmodified = active_tool_result {
-                                    let actions = if ke.key == Key::Escape {
+                                    let actions = if matches!(ke.key, Key::Escape | Key::q) {
                                         APP_CONFIG.read().actions_on_escape()
                                     } else {
                                         APP_CONFIG.read().actions_on_enter()
