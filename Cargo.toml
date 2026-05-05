@@ -23,7 +23,7 @@ ci-release = []
 [dependencies]
 satty_cli.workspace = true
 relm4 = { version = "0.10.1", features = ["macros", "libadwaita", "gnome_42"] }
-tokio = { version = "1.52.1", features = ["time"] }
+tokio = { version = "1.52.2", features = ["time"] }
 
 # error handling
 anyhow = "1.0"
@@ -46,7 +46,7 @@ libloading = "0.9"
 epoxy = "0.1.0"
 glow = "0.17.0"
 resource = "0.6.1"  # font emedding
-fontconfig = "0.10.0"  # font loading
+fontconfig = "0.10.1"  # font loading
 keycode = "1.0.0"
 
 [dependencies.relm4-icons]
