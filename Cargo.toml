@@ -59,7 +59,7 @@ clap_complete = "4.6.3"
 clap_complete_nushell = "4.6.0"
 satty_cli.workspace = true
 clap_complete_fig = "4.5.2"
-relm4-icons-build = "0.10"
+relm4-icons-build = "0.11"
 clap_mangen = "0.3.0"
 
 [workspace]
