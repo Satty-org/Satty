@@ -812,9 +812,9 @@ dependencies = [
 
 [[package]]
 name = "gvdb"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9d94c8a63f94bbc35cf63e105791c5992bd60d4516d41fe5bf3db8d10b30b43"
+checksum = "bc3adcee31520d9e6948d21ed883171c4af26c6bc96ac171769b5aba2fa6d486"
 dependencies = [
  "flate2",
  "quick-xml",
@@ -1178,9 +1178,9 @@ checksum = "b5a041e753da8b807c9255f28de81879c78c876392ff2469cde94799b2896b9d"
 
 [[package]]
 name = "quick-xml"
-version = "0.38.4"
+version = "0.39.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
+checksum = "721da970c312655cde9b4ffe0547f20a8494866a4af5ff51f18b7c633d0c870b"
 dependencies = [
  "memchr",
  "serde",
@@ -1260,13 +1260,13 @@ dependencies = [
 
 [[package]]
 name = "relm4-icons-build"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69a9fe1e2a08b930b56b5927c8605ce26f68592e772a83c2b05d7627c7289e6d"
+checksum = "0b1b42c5066d6f47f772b7cdebe36437999defdf85554da426710390f57437d2"
 dependencies = [
  "gvdb",
  "serde",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.0+spec-1.1.0",
  "walkdir",
 ]
 
