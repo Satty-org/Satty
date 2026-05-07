@@ -28,7 +28,7 @@ use crate::{
     tools::{CropTool, Drawable, Tool},
 };
 
-use super::set_font_stack;
+use super::{font_stack, set_font_stack};
 
 const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 
@@ -190,61 +190,71 @@ impl FemtoVGArea {
             self.canvas.borrow_mut().replace(c);
         }
 
-        if self.font.borrow().is_some() {
-            return;
+        if self.font.borrow().is_none()
+            && let Some(first) = font_stack().first()
+        {
+            self.font.borrow_mut().replace(*first);
         }
+    }
 
-        let mut canvas_ref = self.canvas.borrow_mut();
-        let canvas = canvas_ref.as_mut().unwrap();
-
+    fn build_text_context(&self) -> Result<(femtovg::TextContext, Vec<FontId>)> {
+        let text_context = femtovg::TextContext::default();
         let mut loaded_fonts = Vec::new();
-        let mut loaded_paths = HashSet::<PathBuf>::new();
+        let mut loaded_paths = HashSet::<(PathBuf, u32)>::new();
 
         let app_config = APP_CONFIG.read();
         let fontconfig = Fontconfig::new();
 
-        let configured_font = app_config.font().family().and_then(|family| {
-            fontconfig
+        let mut load_font = |family: &str, style: Option<&str>| -> Result<FontId> {
+            let font = fontconfig
                 .as_ref()
-                .and_then(|fc| fc.find(family, app_config.font().style()))
-        });
+                .and_then(|fc| fc.find(family, style))
+                .ok_or_else(|| anyhow::anyhow!("Font family '{}' not found", family))?;
 
-        if let Some(font) = configured_font.as_ref() {
-            match canvas.add_font(font.path.clone()) {
-                Ok(id) => {
-                    loaded_paths.insert(font.path.clone());
-                    self.font.borrow_mut().replace(id);
-                    loaded_fonts.push(id);
-                }
-                Err(e) => {
-                    println!("Error while loading font. Using default font: {e}");
-                }
+            let face_index = font.index.unwrap_or(0).max(0) as u32;
+
+            if !loaded_paths.insert((font.path.clone(), face_index)) {
+                return Err(anyhow::anyhow!("Font '{}' already loaded", family));
+            }
+            let data = std::fs::read(&font.path)
+                .map_err(|e| anyhow::anyhow!("Failed to read font file: {}", e))?;
+
+            text_context
+                .add_shared_font_with_index(data, face_index)
+                .map_err(|e| anyhow::anyhow!("Failed to load font: {}", e))
+        };
+
+        match load_font(
+            app_config.font().family().unwrap_or(""),
+            app_config.font().style(),
+        ) {
+            Ok(id) => {
+                loaded_fonts.push(id);
+            }
+            Err(e) => {
+                eprintln!("Primary font: {}", e);
             }
         }
 
         if loaded_fonts.is_empty() {
-            let fallback = canvas
+            let fallback = text_context
                 .add_font_mem(&resource!("src/assets/Roboto-Regular.ttf"))
                 .expect("Cannot add font");
-            self.font.borrow_mut().replace(fallback);
             loaded_fonts.push(fallback);
         }
 
-        if let Some(fc) = fontconfig.as_ref() {
-            for family in app_config.font().fallback() {
-                if let Some(font) = fc.find(family, None)
-                    && loaded_paths.insert(font.path.clone())
-                    && let Ok(id) = canvas.add_font(font.path.clone())
-                {
+        for family in app_config.font().fallback() {
+            match load_font(family, None) {
+                Ok(id) => {
                     loaded_fonts.push(id);
+                }
+                Err(e) => {
+                    eprintln!("Fallback font: {}", e);
                 }
             }
         }
 
-        set_font_stack(loaded_fonts.clone());
-        if let Some(first) = loaded_fonts.first() {
-            self.font.borrow_mut().replace(*first);
-        }
+        Ok((text_context, loaded_fonts))
     }
 
     fn setup_canvas(&self) -> Result<femtovg::Canvas<femtovg::renderer::OpenGl>> {
@@ -267,7 +277,16 @@ impl FemtoVGArea {
             (renderer, glow::NativeFramebuffer(id))
         };
         renderer.set_screen_target(Some(fbo));
-        Ok(Canvas::new(renderer)?)
+
+        let (text_context, loaded_fonts) = self.build_text_context()?;
+        let canvas = Canvas::new_with_text_context(renderer, text_context)?;
+
+        set_font_stack(loaded_fonts.clone());
+        if let Some(first) = loaded_fonts.first() {
+            self.font.borrow_mut().replace(*first);
+        }
+
+        Ok(canvas)
     }
 
     pub fn inner(&self) -> RefMut<'_, Option<FemtoVgAreaMut>> {
