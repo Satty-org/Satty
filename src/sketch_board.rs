@@ -8,6 +8,7 @@ use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::RefCell;
 use std::io::Write;
 use std::panic;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::{fs, io};
@@ -365,6 +366,76 @@ impl SketchBoard {
         relm4::main_application().quit();
     }
 
+    fn configured_output_path() -> Option<PathBuf> {
+        APP_CONFIG
+            .read()
+            .output_filename()
+            .and_then(|output_filename| {
+                if output_filename == "-" {
+                    return None;
+                }
+
+                let delayed_format = chrono::Local::now().format(output_filename);
+                let mut output_filename =
+                    if panic::catch_unwind(|| delayed_format.to_string()).is_ok() {
+                        delayed_format.to_string()
+                    } else {
+                        output_filename.clone()
+                    };
+
+                if let Some(tilde_stripped) =
+                    output_filename.strip_prefix(&format!("~{}", std::path::MAIN_SEPARATOR_STR))
+                {
+                    if let Some(mut home_dir) = std::env::home_dir() {
+                        home_dir.push(tilde_stripped);
+                        output_filename = home_dir.to_string_lossy().into_owned();
+                    }
+                }
+
+                Some(PathBuf::from(output_filename))
+            })
+    }
+
+    fn save_as_last_dir_file() -> Option<PathBuf> {
+        let config_home = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::home_dir().map(|home_dir| home_dir.join(".config")))?;
+
+        Some(config_home.join("satty").join("save_as_last_dir"))
+    }
+
+    fn save_as_initial_dir(configured_output_path: Option<&Path>) -> Option<PathBuf> {
+        if let Some(last_dir_file) = Self::save_as_last_dir_file()
+            && let Ok(last_dir) = fs::read_to_string(last_dir_file)
+        {
+            let last_dir = PathBuf::from(last_dir.trim());
+            if last_dir.is_dir() {
+                return Some(last_dir);
+            }
+        }
+
+        configured_output_path
+            .and_then(Path::parent)
+            .filter(|parent| parent.is_dir())
+            .map(Path::to_path_buf)
+    }
+
+    fn remember_save_as_dir(output_filename: &str) {
+        let Some(last_dir_file) = Self::save_as_last_dir_file() else {
+            return;
+        };
+        let Some(parent) = Path::new(output_filename).parent() else {
+            return;
+        };
+        if let Some(last_dir_parent) = last_dir_file.parent()
+            && fs::create_dir_all(last_dir_parent).is_err()
+        {
+            return;
+        }
+
+        let _ = fs::write(last_dir_file, parent.to_string_lossy().as_bytes());
+    }
+
     fn handle_save(&self, image: &Pixbuf) {
         let mut output_filename = match APP_CONFIG.read().output_filename() {
             None => {
@@ -453,6 +524,13 @@ impl SketchBoard {
         sender: ComponentSender<Self>,
         followup_actions: Vec<Action>,
     ) {
+        let configured_output_path = Self::configured_output_path();
+        let initial_dir = Self::save_as_initial_dir(configured_output_path.as_deref());
+        let suggested_filename = configured_output_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned());
+
         let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
@@ -477,6 +555,17 @@ impl SketchBoard {
             }
             .build();
 
+            if let Some(initial_dir) = initial_dir {
+                let initial_dir = gtk::gio::File::for_path(initial_dir);
+                if let Err(e) = dialog.set_current_folder(Some(&initial_dir)) {
+                    println!("Error setting Save As folder: {e}");
+                }
+            }
+
+            if let Some(filename) = suggested_filename {
+                dialog.set_current_name(&filename);
+            }
+
             dialog.connect_response(move |dialog, response| {
                 let mut exit_app = false;
                 let mut filename: Option<String> = None;
@@ -496,6 +585,7 @@ impl SketchBoard {
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
+                            Self::remember_save_as_dir(&output_filename);
                             log_result(
                                 &format!("File saved to '{}'.", &output_filename),
                                 !APP_CONFIG.read().disable_notifications(),
