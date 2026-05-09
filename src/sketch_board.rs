@@ -405,7 +405,17 @@ impl SketchBoard {
     }
 
     fn save_as_initial_dir(configured_output_path: Option<&Path>) -> Option<PathBuf> {
-        if let Some(last_dir_file) = Self::save_as_last_dir_file()
+        Self::save_as_initial_dir_from_file(
+            Self::save_as_last_dir_file().as_deref(),
+            configured_output_path,
+        )
+    }
+
+    fn save_as_initial_dir_from_file(
+        last_dir_file: Option<&Path>,
+        configured_output_path: Option<&Path>,
+    ) -> Option<PathBuf> {
+        if let Some(last_dir_file) = last_dir_file
             && let Ok(last_dir) = fs::read_to_string(last_dir_file)
         {
             let last_dir = PathBuf::from(last_dir.trim());
@@ -424,6 +434,10 @@ impl SketchBoard {
         let Some(last_dir_file) = Self::save_as_last_dir_file() else {
             return;
         };
+        Self::remember_save_as_dir_to_file(&last_dir_file, output_filename);
+    }
+
+    fn remember_save_as_dir_to_file(last_dir_file: &Path, output_filename: &str) {
         let Some(parent) = Path::new(output_filename).parent() else {
             return;
         };
@@ -1366,5 +1380,116 @@ impl KeyEventMsg {
         // them to get correct evdev keycode.
         let keymap = KeyMap::from(code);
         self.key == key || self.code as u16 - 8 == keymap.evdev
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SketchBoard;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("satty-{name}-{nanos}"));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn save_as_initial_dir_uses_remembered_existing_directory() {
+        let temp = TempDir::new("remembered-dir");
+        let remembered_dir = temp.path().join("remembered");
+        let fallback_dir = temp.path().join("fallback");
+        fs::create_dir_all(&remembered_dir).expect("create remembered dir");
+        fs::create_dir_all(&fallback_dir).expect("create fallback dir");
+
+        let state_file = temp.path().join("state").join("save_as_last_dir");
+        fs::create_dir_all(state_file.parent().expect("state parent")).expect("create state dir");
+        fs::write(&state_file, remembered_dir.to_string_lossy().as_bytes())
+            .expect("write state file");
+
+        let initial_dir = SketchBoard::save_as_initial_dir_from_file(
+            Some(&state_file),
+            Some(&fallback_dir.join("screenshot.png")),
+        );
+
+        assert_eq!(initial_dir, Some(remembered_dir));
+    }
+
+    #[test]
+    fn save_as_initial_dir_falls_back_when_remembered_directory_is_invalid() {
+        let temp = TempDir::new("invalid-remembered-dir");
+        let fallback_dir = temp.path().join("fallback");
+        fs::create_dir_all(&fallback_dir).expect("create fallback dir");
+
+        let state_file = temp.path().join("save_as_last_dir");
+        fs::write(
+            &state_file,
+            temp.path().join("missing").to_string_lossy().as_bytes(),
+        )
+        .expect("write invalid state file");
+
+        let initial_dir = SketchBoard::save_as_initial_dir_from_file(
+            Some(&state_file),
+            Some(&fallback_dir.join("screenshot.png")),
+        );
+
+        assert_eq!(initial_dir, Some(fallback_dir));
+    }
+
+    #[test]
+    fn save_as_initial_dir_handles_missing_state_and_output_path() {
+        let initial_dir = SketchBoard::save_as_initial_dir_from_file(None, None);
+
+        assert_eq!(initial_dir, None);
+    }
+
+    #[test]
+    fn remember_save_as_dir_creates_state_file() {
+        let temp = TempDir::new("remember-save-as-dir");
+        let saved_dir = temp.path().join("saved");
+        fs::create_dir_all(&saved_dir).expect("create saved dir");
+        let state_file = temp.path().join("state").join("save_as_last_dir");
+
+        SketchBoard::remember_save_as_dir_to_file(
+            &state_file,
+            &saved_dir.join("image.png").to_string_lossy(),
+        );
+
+        let remembered_dir = fs::read_to_string(state_file).expect("read state file");
+        assert_eq!(remembered_dir, saved_dir.to_string_lossy());
+    }
+
+    #[test]
+    fn remember_save_as_dir_ignores_unwritable_state_path() {
+        let temp = TempDir::new("unwritable-state-path");
+        let saved_dir = temp.path().join("saved");
+        fs::create_dir_all(&saved_dir).expect("create saved dir");
+
+        SketchBoard::remember_save_as_dir_to_file(
+            temp.path(),
+            &saved_dir.join("image.png").to_string_lossy(),
+        );
     }
 }
