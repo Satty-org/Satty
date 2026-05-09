@@ -7,12 +7,15 @@ use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     configuration::APP_CONFIG,
-    math::{self, Vec2D},
+    math::{self, Rect, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
+    ToolUpdateResult, Tools, bbox_handles, bbox_resize,
+};
 
 #[derive(Clone, Debug)]
 pub struct Blur {
@@ -140,6 +143,61 @@ impl Drawable for Blur {
             );
             canvas.restore();
         }
+        Ok(())
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        self.size.map(|s| Rect::new(self.top_left, s))
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        // Invalidate the cached blurred image — its sample location changed.
+        self.cached_image.borrow_mut().take();
+    }
+
+    fn handles(&self) -> Vec<Handle> {
+        self.bounds().map(bbox_handles).unwrap_or_default()
+    }
+
+    fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
+        let Some(cur) = self.bounds() else { return };
+        let new = bbox_resize(cur, handle, to);
+        self.top_left = new.pos;
+        self.size = Some(new.size);
+        self.cached_image.borrow_mut().take();
+    }
+
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
+        // Style affects blur sigma → invalidate cache.
+        self.cached_image.borrow_mut().take();
+    }
+
+    fn render_glow(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: femtovg::FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> anyhow::Result<()> {
+        let Some(rect) = self.bounds() else {
+            return Ok(());
+        };
+        let inflate = GLOW_STROKE_WIDTH / 2.0;
+        canvas.save();
+        let mut path = Path::new();
+        path.rounded_rect(
+            rect.pos.x - inflate,
+            rect.pos.y - inflate,
+            rect.size.x + inflate * 2.0,
+            rect.size.y + inflate * 2.0,
+            APP_CONFIG.read().corner_roundness() + inflate,
+        );
+        let mut paint = Paint::color(GLOW_COLOR);
+        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_join(femtovg::LineJoin::Round);
+        canvas.stroke_path(&path, &paint);
+        canvas.restore();
         Ok(())
     }
 }

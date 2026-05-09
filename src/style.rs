@@ -29,10 +29,37 @@ pub struct Color {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub enum Size {
-    Small = 0,
+    XSmall = 0,
+    Small = 1,
     #[default]
-    Medium = 1,
-    Large = 2,
+    Medium = 2,
+    Large = 3,
+    XLarge = 4,
+    XXLarge = 5,
+}
+
+impl Size {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Size::XSmall => "X-Small",
+            Size::Small => "Small",
+            Size::Medium => "Medium",
+            Size::Large => "Large",
+            Size::XLarge => "X-Large",
+            Size::XXLarge => "XX-Large",
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Size::XSmall => "XS",
+            Size::Small => "S",
+            Size::Medium => "M",
+            Size::Large => "L",
+            Size::XLarge => "XL",
+            Size::XXLarge => "XXL",
+        }
+    }
 }
 
 impl Default for Style {
@@ -186,9 +213,12 @@ impl ToVariant for Size {
 impl FromVariant for Size {
     fn from_variant(variant: &Variant) -> Option<Self> {
         variant.get::<u32>().and_then(|v| match v {
-            0 => Some(Size::Small),
-            1 => Some(Size::Medium),
-            2 => Some(Size::Large),
+            0 => Some(Size::XSmall),
+            1 => Some(Size::Small),
+            2 => Some(Size::Medium),
+            3 => Some(Size::Large),
+            4 => Some(Size::XLarge),
+            5 => Some(Size::XXLarge),
             _ => None,
         })
     }
@@ -197,49 +227,67 @@ impl FromVariant for Size {
 impl Size {
     pub fn to_text_size(self, size_factor: f32) -> i32 {
         match self {
+            Size::XSmall => (24.0 * size_factor) as i32,
             Size::Small => (36.0 * size_factor) as i32,
             Size::Medium => (54.0 * size_factor) as i32,
-            Size::Large => (96.0 * size_factor) as i32,
+            Size::Large => (84.0 * size_factor) as i32,
+            Size::XLarge => (120.0 * size_factor) as i32,
+            Size::XXLarge => (168.0 * size_factor) as i32,
         }
     }
 
     pub fn to_line_width(self, size_factor: f32) -> f32 {
         match self {
+            Size::XSmall => 1.5 * size_factor,
             Size::Small => 3.0 * size_factor,
             Size::Medium => 5.0 * size_factor,
             Size::Large => 7.0 * size_factor,
+            Size::XLarge => 11.0 * size_factor,
+            Size::XXLarge => 16.0 * size_factor,
         }
     }
 
     pub fn to_arrow_tail_width(self, size_factor: f32) -> f32 {
         match self {
+            Size::XSmall => 1.0 * size_factor,
             Size::Small => 3.0 * size_factor,
             Size::Medium => 10.0 * size_factor,
-            Size::Large => 25.0 * size_factor,
+            Size::Large => 22.0 * size_factor,
+            Size::XLarge => 38.0 * size_factor,
+            Size::XXLarge => 60.0 * size_factor,
         }
     }
 
     pub fn to_arrow_head_length(self, size_factor: f32) -> f32 {
         match self {
-            Size::Small => 15.0 * size_factor,
+            Size::XSmall => 8.0 * size_factor,
+            Size::Small => 16.0 * size_factor,
             Size::Medium => 30.0 * size_factor,
-            Size::Large => 60.0 * size_factor,
+            Size::Large => 50.0 * size_factor,
+            Size::XLarge => 80.0 * size_factor,
+            Size::XXLarge => 120.0 * size_factor,
         }
     }
 
     pub fn to_blur_factor(self, size_factor: f32) -> f32 {
         match self {
+            Size::XSmall => 5.0 * size_factor,
             Size::Small => 10.0 * size_factor,
             Size::Medium => 20.0 * size_factor,
             Size::Large => 30.0 * size_factor,
+            Size::XLarge => 45.0 * size_factor,
+            Size::XXLarge => 65.0 * size_factor,
         }
     }
 
     pub fn to_highlight_width(self, size_factor: f32) -> f32 {
         match self {
+            Size::XSmall => 8.0 * size_factor,
             Size::Small => 15.0 * size_factor,
             Size::Medium => 30.0 * size_factor,
             Size::Large => 45.0 * size_factor,
+            Size::XLarge => 65.0 * size_factor,
+            Size::XXLarge => 90.0 * size_factor,
         }
     }
 }

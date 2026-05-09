@@ -255,6 +255,11 @@ impl Component for App {
                 self.tools_toolbar
                     .sender()
                     .emit(ToolsToolbarInput::SwitchSelectedTool(tool));
+                // Style toolbar adjusts which tool-specific controls are shown
+                // (e.g. arrow-style dropdown) based on the active tool.
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::ToolChanged(tool));
             }
             AppInput::ColorSwitchShortcut(index) => {
                 self.style_toolbar

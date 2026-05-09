@@ -6,7 +6,10 @@ use femtovg::{Color, Paint, Path};
 
 use crate::sketch_board::{MouseButton, MouseEventType, SketchBoardInput};
 use crate::style::Style;
-use crate::{math::Vec2D, sketch_board::MouseEventMsg};
+use crate::{
+    math::{Rect, Vec2D},
+    sketch_board::MouseEventMsg,
+};
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;
@@ -46,34 +49,27 @@ impl Drawable for Marker {
 
         let mut paint = Paint::color(text_color);
 
+        // Marker font size — tighter than the generic Style::to_text_size scale
+        // since the marker is a self-contained badge, not a paragraph of text.
+        let text_size = self.marker_text_size();
+
         paint.set_font(&[font]);
-        paint.set_font_size(
-            (self
-                .style
-                .size
-                .to_text_size(self.style.annotation_size_factor)) as f32,
-        );
+        paint.set_font_size(text_size);
         paint.set_text_align(femtovg::Align::Center);
         paint.set_text_baseline(femtovg::Baseline::Middle);
 
         let text_metrics = canvas.measure_text(self.pos.x, self.pos.y, &text, &paint)?;
 
-        let circle_radius = (text_metrics.width() * text_metrics.width()
+        // Solid filled disc — no outer ring. Padding so the digit doesn't
+        // touch the edge.
+        let circle_radius = ((text_metrics.width() * text_metrics.width()
             + text_metrics.height() * text_metrics.height())
-        .sqrt();
+        .sqrt()
+            * 0.65)
+            .max(text_size * 0.55);
 
-        let mut inner_circle_path = Path::new();
-        inner_circle_path.arc(
-            self.pos.x,
-            self.pos.y,
-            circle_radius * 0.8,
-            0.0,
-            2.0 * PI as f32,
-            femtovg::Solidity::Solid,
-        );
-
-        let mut outer_circle_path = Path::new();
-        outer_circle_path.arc(
+        let mut disc = Path::new();
+        disc.arc(
             self.pos.x,
             self.pos.y,
             circle_radius,
@@ -82,16 +78,10 @@ impl Drawable for Marker {
             femtovg::Solidity::Solid,
         );
 
-        let circle_paint = Paint::color(marker_color).with_line_width(
-            self.style
-                .size
-                .to_line_width(self.style.annotation_size_factor)
-                * 2.0,
-        );
+        let disc_paint = Paint::color(marker_color);
 
         canvas.save();
-        canvas.fill_path(&inner_circle_path, &circle_paint);
-        canvas.stroke_path(&outer_circle_path, &circle_paint);
+        canvas.fill_path(&disc, &disc_paint);
         canvas.fill_text(self.pos.x, self.pos.y, &text, &paint)?;
         canvas.restore();
         Ok(())
@@ -103,6 +93,52 @@ impl Drawable for Marker {
 
     fn handle_redo(&mut self) {
         *self.tool_next_number.borrow_mut() = self.number + 1;
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        let r = self.approx_radius();
+        Some(Rect {
+            pos: Vec2D::new(self.pos.x - r, self.pos.y - r),
+            size: Vec2D::new(r * 2.0, r * 2.0),
+        })
+    }
+
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
+        let r = self.approx_radius() + tolerance;
+        self.pos.distance_to(&point) <= r
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+    }
+
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
+    }
+}
+
+impl Marker {
+    /// Marker-specific text size. Smaller than Style::to_text_size — markers
+    /// are compact badges, not paragraphs.
+    fn marker_text_size(&self) -> f32 {
+        let factor = self.style.annotation_size_factor;
+        match self.style.size {
+            crate::style::Size::XSmall => 14.0 * factor,
+            crate::style::Size::Small => 22.0 * factor,
+            crate::style::Size::Medium => 36.0 * factor,
+            crate::style::Size::Large => 50.0 * factor,
+            crate::style::Size::XLarge => 70.0 * factor,
+            crate::style::Size::XXLarge => 96.0 * factor,
+        }
+    }
+
+    /// Approximate hit-test/selection radius without canvas-bound text metrics.
+    fn approx_radius(&self) -> f32 {
+        let text_size = self.marker_text_size();
+        let digits = self.number.to_string().len() as f32;
+        let w = text_size * 0.7 * digits.max(1.0);
+        let h = text_size;
+        (w * w + h * h).sqrt() * 0.65
     }
 }
 

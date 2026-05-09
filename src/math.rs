@@ -164,6 +164,109 @@ impl Display for Vec2D {
     }
 }
 
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
+pub struct Rect {
+    /// Top-left corner in canonical form (size always non-negative).
+    pub pos: Vec2D,
+    pub size: Vec2D,
+}
+
+impl Rect {
+    pub fn new(pos: Vec2D, size: Vec2D) -> Self {
+        let (pos, size) = rect_ensure_positive_size(pos, size);
+        Self { pos, size }
+    }
+
+    pub fn from_corners(a: Vec2D, b: Vec2D) -> Self {
+        let pos = Vec2D::new(a.x.min(b.x), a.y.min(b.y));
+        let size = Vec2D::new((a.x - b.x).abs(), (a.y - b.y).abs());
+        Self { pos, size }
+    }
+
+    pub fn from_tuple((pos, size): (Vec2D, Vec2D)) -> Self {
+        Self::new(pos, size)
+    }
+
+    pub fn top_left(&self) -> Vec2D {
+        self.pos
+    }
+
+    pub fn top_right(&self) -> Vec2D {
+        Vec2D::new(self.pos.x + self.size.x, self.pos.y)
+    }
+
+    pub fn bottom_left(&self) -> Vec2D {
+        Vec2D::new(self.pos.x, self.pos.y + self.size.y)
+    }
+
+    pub fn bottom_right(&self) -> Vec2D {
+        self.pos + self.size
+    }
+
+    pub fn center(&self) -> Vec2D {
+        self.pos + self.size * 0.5
+    }
+
+    pub fn contains(&self, p: Vec2D) -> bool {
+        p.x >= self.pos.x
+            && p.x <= self.pos.x + self.size.x
+            && p.y >= self.pos.y
+            && p.y <= self.pos.y + self.size.y
+    }
+
+    /// Expand the rectangle outward in all directions by `padding`.
+    /// Useful for hit-test tolerance on thin strokes.
+    pub fn inflated(&self, padding: f32) -> Rect {
+        Rect {
+            pos: Vec2D::new(self.pos.x - padding, self.pos.y - padding),
+            size: Vec2D::new(self.size.x + 2.0 * padding, self.size.y + 2.0 * padding),
+        }
+    }
+
+    pub fn translated(&self, delta: Vec2D) -> Rect {
+        Rect {
+            pos: self.pos + delta,
+            size: self.size,
+        }
+    }
+
+    pub fn union(&self, other: Rect) -> Rect {
+        let pos = Vec2D::new(self.pos.x.min(other.pos.x), self.pos.y.min(other.pos.y));
+        let br = Vec2D::new(
+            (self.pos.x + self.size.x).max(other.pos.x + other.size.x),
+            (self.pos.y + self.size.y).max(other.pos.y + other.size.y),
+        );
+        Rect {
+            pos,
+            size: br - pos,
+        }
+    }
+
+    /// True if `self` overlaps `other` (either touches or shares any area).
+    pub fn intersects(&self, other: Rect) -> bool {
+        let a_br = self.bottom_right();
+        let b_br = other.bottom_right();
+        self.pos.x < b_br.x
+            && other.pos.x < a_br.x
+            && self.pos.y < b_br.y
+            && other.pos.y < a_br.y
+    }
+}
+
+/// Shortest distance from point `p` to the segment from `a` to `b`.
+/// Used for hit-testing thin shapes (lines, arrow shafts).
+pub fn point_to_segment_distance(p: Vec2D, a: Vec2D, b: Vec2D) -> f32 {
+    let ab = b - a;
+    let len2 = ab.norm2();
+    if len2 < f32::EPSILON {
+        return p.distance_to(&a);
+    }
+    let ap = p - a;
+    let t = ((ap.x * ab.x + ap.y * ab.y) / len2).clamp(0.0, 1.0);
+    let proj = Vec2D::new(a.x + ab.x * t, a.y + ab.y * t);
+    p.distance_to(&proj)
+}
+
 pub fn rect_ensure_positive_size(pos: Vec2D, size: Vec2D) -> (Vec2D, Vec2D) {
     let (pos_x, size_x) = if size.x > 0.0 {
         (pos.x, size.x)

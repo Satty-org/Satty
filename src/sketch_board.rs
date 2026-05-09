@@ -24,7 +24,9 @@ use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
 use crate::notification::log_result;
 use crate::style::Style;
-use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
+use crate::tools::{
+    DrawableStore, HandleId, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager,
+};
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
 
@@ -766,6 +768,11 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
+                // Notify the parent so the style toolbar can re-evaluate
+                // tool-specific controls (e.g. the arrow-style dropdown).
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
                 let mut deactivate_result =
@@ -798,6 +805,10 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_sender(sender.input_sender().clone());
 
+                // give the tool a handle to query the drawable stack (hit-test, etc.)
+                let store: Rc<dyn DrawableStore> = Rc::new(self.renderer.clone());
+                self.active_tool.borrow_mut().set_drawable_store(store);
+
                 // send style event
                 self.active_tool
                     .borrow_mut()
@@ -809,6 +820,10 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::Activated);
 
+                // Update cursor immediately so the user gets the crosshair
+                // (or arrow for pointer/crop) without waiting for mouse move.
+                self.apply_idle_cursor();
+
                 match activate_result {
                     ToolUpdateResult::Unmodified => deactivate_result,
                     _ => activate_result,
@@ -816,15 +831,11 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.dispatch_style_change()
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.dispatch_style_change()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
@@ -833,19 +844,22 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.dispatch_style_change()
             }
             ToolbarEvent::AnnotationSizeChanged(value) => {
                 self.style.annotation_size_factor = value;
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                self.dispatch_style_change()
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
+            ToolbarEvent::ArrowStyleSelected(style) => {
+                self.tools
+                    .get(&Tools::Arrow)
+                    .borrow_mut()
+                    .set_arrow_style(style);
+                ToolUpdateResult::Unmodified
+            }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()
@@ -932,6 +946,106 @@ impl SketchBoard {
 
     pub fn active_tool_type(&self) -> Tools {
         self.active_tool.borrow().get_tool_type()
+    }
+
+    /// Dispatch a StyleChanged event so the toolbar's color/size/fill controls
+    /// affect both future drawings (via the active tool) and any current
+    /// selection (via the pointer tool's implicit selection state).
+    fn dispatch_style_change(&mut self) -> ToolUpdateResult {
+        let active_type = self.active_tool_type();
+        let pointer_result = if active_type != Tools::Pointer {
+            self.tools
+                .get(&Tools::Pointer)
+                .borrow_mut()
+                .handle_event(ToolEvent::StyleChanged(self.style))
+        } else {
+            ToolUpdateResult::Unmodified
+        };
+        let active_result = self
+            .active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(self.style));
+
+        // If the pointer applied the change to a selected drawable, that
+        // result is what should land on the undo stack.
+        match pointer_result {
+            ToolUpdateResult::ModifyDrawable(_, _) | ToolUpdateResult::ModifyDrawables(_) => {
+                pointer_result
+            }
+            _ => active_result,
+        }
+    }
+
+    /// Update the canvas cursor based on what the mouse is hovering over.
+    /// Called on PointerPos events so users see "grab" over existing shapes
+    /// and resize cursors over handles. Drawing tools (anything except
+    /// Pointer / Crop) show "crosshair" when not over an existing shape so
+    /// the canvas hints where new geometry will land.
+    fn update_hover_cursor(&self, image_pos: Vec2D) {
+        let pointer_tool = self.tools.get(&Tools::Pointer);
+        let pt = pointer_tool.borrow();
+        if pt.dragging_drawable_id().is_some() {
+            return;
+        }
+
+        // 1. Hovering a handle of the current selection wins.
+        let mut cursor: Option<&'static str> = None;
+        if let Some(id) = pt.selected_drawable()
+            && let Some(drawable) = self.renderer.clone_drawable(id)
+        {
+            for h in drawable.handles() {
+                if h.pos.distance_to(&image_pos) <= crate::tools::HANDLE_HIT_RADIUS {
+                    cursor = Some(cursor_for_handle(h.id));
+                    break;
+                }
+            }
+        }
+        drop(pt);
+
+        // 2. Otherwise, any drawable under the pointer → grab.
+        if cursor.is_none()
+            && self
+                .renderer
+                .hit_test(image_pos, crate::tools::HIT_TOLERANCE)
+                .is_some()
+        {
+            cursor = Some("grab");
+        }
+
+        // 3. Tool-specific default for empty canvas.
+        if cursor.is_none() {
+            cursor = self.idle_cursor_for_active_tool();
+        }
+
+        self.renderer.set_cursor_from_name(cursor);
+    }
+
+    /// Cursor to show when nothing is under the pointer.
+    fn idle_cursor_for_active_tool(&self) -> Option<&'static str> {
+        match self.active_tool_type() {
+            // Pointer + Crop use the default arrow — they manipulate or
+            // frame the image rather than draw new geometry.
+            Tools::Pointer | Tools::Crop => None,
+            _ => Some("crosshair"),
+        }
+    }
+
+    /// Apply the idle cursor immediately on a tool switch (so the user sees
+    /// the crosshair as soon as they pick a drawing tool, without needing to
+    /// move the mouse first).
+    fn apply_idle_cursor(&self) {
+        self.renderer
+            .set_cursor_from_name(self.idle_cursor_for_active_tool());
+    }
+}
+
+fn cursor_for_handle(handle: HandleId) -> &'static str {
+    match handle {
+        HandleId::Start | HandleId::End | HandleId::Control => "move",
+        HandleId::TopLeft | HandleId::BottomRight => "nwse-resize",
+        HandleId::TopRight | HandleId::BottomLeft => "nesw-resize",
+        HandleId::Top | HandleId::Bottom => "ns-resize",
+        HandleId::Left | HandleId::Right => "ew-resize",
     }
 }
 
@@ -1066,16 +1180,46 @@ impl Component for SketchBoard {
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
                 if let InputEvent::Key(ke) = ie {
-                    let active_tool_result = self
-                        .active_tool
-                        .borrow_mut()
-                        .handle_event(ToolEvent::Input(ie.clone()));
+                    // Implicit selection: route Delete / Escape through the
+                    // pointer tool first when a non-Pointer tool is active,
+                    // so a selected drawable can be deleted/deselected without
+                    // switching tools.
+                    let active_type = self.active_tool_type();
+                    let pointer_key_consumed = if active_type != Tools::Pointer {
+                        let r = self
+                            .tools
+                            .get(&Tools::Pointer)
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()));
+                        match r {
+                            ToolUpdateResult::StopPropagation
+                            | ToolUpdateResult::RedrawAndStopPropagation
+                            | ToolUpdateResult::ModifyDrawable(_, _)
+                            | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::DeleteDrawable(_)
+                            | ToolUpdateResult::DeleteDrawables(_) => Some(r),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
 
-                    // eprintln!("active_tool_result={:?}", active_tool_result);
+                    let active_tool_result = if let Some(r) = pointer_key_consumed {
+                        r
+                    } else {
+                        self.active_tool
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()))
+                    };
 
                     match active_tool_result {
                         ToolUpdateResult::StopPropagation
-                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
+                        | ToolUpdateResult::RedrawAndStopPropagation
+                        | ToolUpdateResult::DeleteDrawable(_)
+                        | ToolUpdateResult::DeleteDrawables(_)
+                        | ToolUpdateResult::ModifyDrawable(_, _)
+                        | ToolUpdateResult::ModifyDrawables(_)
+                        | ToolUpdateResult::Commit(_) => active_tool_result,
                         _ => {
                             if ke.is_one_of(Key::z, KeyMappingId::UsZ)
                                 && ke.modifier == ModifierType::CONTROL_MASK
@@ -1178,21 +1322,68 @@ impl Component for SketchBoard {
                     }
                 } else {
                     ie.handle_event_mouse_input(&self.renderer);
-                    let active_tool_result = self
-                        .active_tool
-                        .borrow_mut()
-                        .handle_event(ToolEvent::Input(ie.clone()));
 
-                    // eprintln!("active_tool_result={:?}", active_tool_result);
+                    // Update hover cursor on motion (PointerPos events keep
+                    // their raw widget coords through the chain — translate
+                    // ourselves).
+                    if let InputEvent::Mouse(me) = &ie
+                        && me.type_ == MouseEventType::PointerPos
+                    {
+                        let image_pos =
+                            self.renderer.abs_canvas_to_image_coordinates(me.pos);
+                        self.update_hover_cursor(image_pos);
+                    }
 
-                    match active_tool_result {
-                        ToolUpdateResult::StopPropagation
-                        | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
-                        _ => {
-                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
-                                result
-                            } else {
-                                active_tool_result
+                    // Implicit selection: when a non-Pointer tool is active,
+                    // give the pointer tool first crack at mouse events so
+                    // clicks on existing drawables select/manipulate them
+                    // without forcing the user to switch to the pointer tool.
+                    // The pointer tool returns *AndStopPropagation results
+                    // when it actually grabs a handle/shape; on empty canvas
+                    // it falls through (Unmodified/Redraw) so the active
+                    // drawing tool can start a new shape.
+                    let active_type = self.active_tool_type();
+                    let pointer_consumed = if active_type != Tools::Pointer {
+                        let r = self
+                            .tools
+                            .get(&Tools::Pointer)
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()));
+                        match r {
+                            ToolUpdateResult::StopPropagation
+                            | ToolUpdateResult::RedrawAndStopPropagation
+                            | ToolUpdateResult::ModifyDrawable(_, _)
+                            | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::DeleteDrawable(_)
+                            | ToolUpdateResult::DeleteDrawables(_) => Some(r),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(r) = pointer_consumed {
+                        r
+                    } else {
+                        let active_tool_result = self
+                            .active_tool
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()));
+
+                        match active_tool_result {
+                            ToolUpdateResult::StopPropagation
+                            | ToolUpdateResult::RedrawAndStopPropagation
+                            | ToolUpdateResult::DeleteDrawable(_)
+                            | ToolUpdateResult::DeleteDrawables(_)
+                            | ToolUpdateResult::ModifyDrawable(_, _)
+                            | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::Commit(_) => active_tool_result,
+                            _ => {
+                                if let Some(result) = ie.handle_mouse_event(&self.renderer) {
+                                    result
+                                } else {
+                                    active_tool_result
+                                }
                             }
                         }
                     }
@@ -1240,6 +1431,34 @@ impl Component for SketchBoard {
                 }
                 self.refresh_screen();
             }
+            ToolUpdateResult::ModifyDrawable(id, drawable) => {
+                self.renderer.modify(id, drawable);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                self.refresh_screen();
+            }
+            ToolUpdateResult::ModifyDrawables(updates) => {
+                self.renderer.modify_many(updates);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                self.refresh_screen();
+            }
+            ToolUpdateResult::DeleteDrawable(id) => {
+                self.renderer.delete(id);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                self.refresh_screen();
+            }
+            ToolUpdateResult::DeleteDrawables(ids) => {
+                self.renderer.delete_many(&ids);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                self.refresh_screen();
+            }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
             ToolUpdateResult::Redraw | ToolUpdateResult::RedrawAndStopPropagation => {
                 self.refresh_screen()
@@ -1266,11 +1485,13 @@ impl Component for SketchBoard {
             last_saved_filepath: RefCell::new(None),
         };
 
+        let pointer_tool = model.tools.get(&Tools::Pointer);
         let area = &mut model.renderer;
         area.init(
             sender.input_sender().clone(),
             model.tools.get_crop_tool(),
             model.active_tool.clone(),
+            pointer_tool,
             image,
         );
 
@@ -1342,6 +1563,17 @@ impl Component for SketchBoard {
                 im_context: model.im_context.clone(),
                 widget: widget_ref,
             }));
+
+        // Inject the drawable store into both the active tool and the pointer
+        // tool. The pointer tool also handles implicit selection while another
+        // tool is active, so it always needs a live renderer handle.
+        let store: Rc<dyn DrawableStore> = Rc::new(model.renderer.clone());
+        model.active_tool.borrow_mut().set_drawable_store(store.clone());
+        model
+            .tools
+            .get(&Tools::Pointer)
+            .borrow_mut()
+            .set_drawable_store(store);
 
         ComponentParts { model, widgets }
     }

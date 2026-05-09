@@ -13,7 +13,7 @@ use crate::{
     configuration::APP_CONFIG,
     femtovg_area,
     ime::preedit::{Preedit, UnderlineKind},
-    math::Vec2D,
+    math::{Rect, Vec2D},
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, TextEventMsg},
     style::Style,
 };
@@ -150,6 +150,28 @@ impl Drawable for Text {
         font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
+        // Ivory pill behind the glyphs (standardlabel background).
+        // Uses the cached glyph rect from the previous frame, so the very
+        // first frame after creation has no background — acceptable since
+        // the second frame catches up.
+        {
+            let r = self.rect.borrow();
+            if r.width() > 0 && r.height() > 0 {
+                let pad_x = 12.0_f32;
+                let pad_y = 8.0_f32;
+                let mut bg = Path::new();
+                bg.rounded_rect(
+                    r.x() as f32 - pad_x,
+                    r.y() as f32 - pad_y,
+                    r.width() as f32 + pad_x * 2.0,
+                    r.height() as f32 + pad_y * 2.0,
+                    8.0,
+                );
+                let bg_paint = Paint::color(femtovg::Color::rgba(248, 245, 235, 255));
+                canvas.fill_path(&bg, &bg_paint);
+            }
+        }
+
         let gtext = self.text_buffer.text(
             &self.text_buffer.start_iter(),
             &self.text_buffer.end_iter(),
@@ -382,6 +404,33 @@ impl Drawable for Text {
         }
 
         Ok(())
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        let r = self.rect.borrow();
+        if r.width() <= 0 || r.height() <= 0 {
+            return None;
+        }
+        Some(Rect {
+            pos: Vec2D::new(r.x() as f32, r.y() as f32),
+            size: Vec2D::new(r.width() as f32, r.height() as f32),
+        })
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.pos += delta;
+        // Shift cached glyph rect so bounds() stays valid until the next draw recomputes it.
+        let mut r = self.rect.borrow_mut();
+        *r = Rectangle::new(
+            r.x() + delta.x as i32,
+            r.y() + delta.y as i32,
+            r.width(),
+            r.height(),
+        );
+    }
+
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 }
 
@@ -1131,28 +1180,29 @@ impl Tool for TextTool {
                             }
                         }
 
-                        // create commit message if necessary
-                        let return_value = match &mut self.text {
-                            Some(l) => {
-                                l.preedit = None;
-                                l.editing = false;
-                                l.im_context = None;
-                                l.text_buffer.select_range(
-                                    &l.text_buffer.start_iter(),
-                                    &l.text_buffer.start_iter(),
-                                );
-                                *l.draw_rect.borrow_mut() = false;
-                                ToolUpdateResult::Commit(l.clone_box())
-                            }
-                            None => ToolUpdateResult::Redraw,
-                        };
+                        // Click-off semantics: if a text is currently being
+                        // edited, the off-canvas click *only* commits + clears
+                        // it — a new text box is NOT created on the same
+                        // gesture. The user clicks again to create one.
+                        if let Some(l) = self.text.as_mut() {
+                            l.preedit = None;
+                            l.editing = false;
+                            l.im_context = None;
+                            l.text_buffer.select_range(
+                                &l.text_buffer.start_iter(),
+                                &l.text_buffer.start_iter(),
+                            );
+                            *l.draw_rect.borrow_mut() = false;
+                            let committed = l.clone_box();
+                            self.text = None;
+                            self.set_input_enabled(false);
+                            return ToolUpdateResult::Commit(committed);
+                        }
 
-                        // create a new Text
+                        // No text in progress: this click *creates* a new one.
                         self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
-
                         self.set_input_enabled(true);
-
-                        return_value
+                        ToolUpdateResult::Redraw
                     }
                     _ => ToolUpdateResult::Unmodified,
                 }

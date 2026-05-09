@@ -7,12 +7,15 @@ use relm4::{
 
 use crate::{
     configuration::APP_CONFIG,
-    math::Vec2D,
+    math::{Rect, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
+    ToolUpdateResult, Tools, bbox_handles, bbox_resize,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Rectangle {
@@ -46,15 +49,6 @@ impl Drawable for Rectangle {
             APP_CONFIG.read().corner_roundness(),
         );
 
-        if !self.finishing && self.centered {
-            let mut helpers = Path::new();
-            helpers.circle(self.origin.x, self.origin.y, 2.0);
-            canvas.stroke_path(
-                &helpers,
-                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255)),
-            );
-        }
-
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
         } else {
@@ -62,6 +56,82 @@ impl Drawable for Rectangle {
         }
         canvas.restore();
 
+        Ok(())
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        self.size.map(|s| Rect::new(self.top_left, s))
+    }
+
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
+        let Some(rect) = self.bounds() else {
+            return false;
+        };
+        let stroke = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        rect.inflated(stroke / 2.0 + tolerance).contains(point)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        self.origin += delta;
+    }
+
+    fn handles(&self) -> Vec<Handle> {
+        self.bounds().map(bbox_handles).unwrap_or_default()
+    }
+
+    fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
+        let Some(cur) = self.bounds() else { return };
+        let new = bbox_resize(cur, handle, to);
+        self.top_left = new.pos;
+        self.size = Some(new.size);
+        self.origin = new.pos;
+    }
+
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
+    }
+
+    fn render_glow(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        let Some(rect) = self.bounds() else {
+            return Ok(());
+        };
+        // Inflate the path so the glow stroke sits *entirely outside* the
+        // visible silhouette. For stroked rectangles, the visible silhouette
+        // extends `stroke / 2` beyond the path; for filled rectangles it sits
+        // at the path. Add half the glow stroke so the glow's inner edge
+        // aligns with the silhouette's outer edge.
+        let stroke_pad = if self.style.fill {
+            0.0
+        } else {
+            self.style
+                .size
+                .to_line_width(self.style.annotation_size_factor)
+                / 2.0
+        };
+        let inflate = stroke_pad + GLOW_STROKE_WIDTH / 2.0;
+        canvas.save();
+        let mut path = Path::new();
+        path.rounded_rect(
+            rect.pos.x - inflate,
+            rect.pos.y - inflate,
+            rect.size.x + inflate * 2.0,
+            rect.size.y + inflate * 2.0,
+            APP_CONFIG.read().corner_roundness() + inflate,
+        );
+        let mut paint = femtovg::Paint::color(GLOW_COLOR);
+        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_join(femtovg::LineJoin::Round);
+        canvas.stroke_path(&path, &paint);
+        canvas.restore();
         Ok(())
     }
 }

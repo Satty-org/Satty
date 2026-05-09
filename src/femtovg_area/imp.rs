@@ -25,7 +25,7 @@ use crate::{
     configuration::Action,
     math::{Vec2D, rect_ensure_in_bounds, rect_round},
     sketch_board::SketchBoardInput,
-    tools::{CropTool, Drawable, Tool},
+    tools::{CropTool, Drawable, DrawableId, Stacked, Tool, UndoAction},
 };
 
 use super::{font_stack, set_font_stack};
@@ -46,11 +46,17 @@ pub struct FemtoVgAreaMut {
     background_image_id: Option<femtovg::ImageId>,
     transparent_background_id: Option<femtovg::ImageId>,
     active_tool: Rc<RefCell<dyn Tool>>,
+    /// The pointer tool is consulted alongside the active tool so implicit
+    /// selection (clicking a shape while a drawing tool is active) renders
+    /// handles, glow, and live drag visuals.
+    pointer_tool: Rc<RefCell<dyn Tool>>,
     crop_tool: Rc<RefCell<CropTool>>,
     scale_factor: f32,
     offset: Vec2D,
-    drawables: Vec<Box<dyn Drawable>>,
-    redo_stack: Vec<Box<dyn Drawable>>,
+    drawables: Vec<Stacked>,
+    undo_stack: Vec<UndoAction>,
+    redo_stack: Vec<UndoAction>,
+    next_drawable_id: u64,
     zoom_scale: f32,
     last_scale: f32,
     pointer_offset: Vec2D,
@@ -160,6 +166,7 @@ impl FemtoVGArea {
         sender: Sender<SketchBoardInput>,
         crop_tool: Rc<RefCell<CropTool>>,
         active_tool: Rc<RefCell<dyn Tool>>,
+        pointer_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
         self.inner().replace(FemtoVgAreaMut {
@@ -167,11 +174,14 @@ impl FemtoVGArea {
             background_image_id: None,
             transparent_background_id: None,
             active_tool,
+            pointer_tool,
             crop_tool,
             scale_factor: 1.0,
             offset: Vec2D::zero(),
             drawables: Vec::new(),
+            undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            next_drawable_id: 0,
             zoom_scale: 0.0,
             pointer_offset: Vec2D::zero(),
             last_offset: Vec2D::zero(),
@@ -302,50 +312,211 @@ impl FemtoVGArea {
 }
 
 impl FemtoVgAreaMut {
-    pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
-        self.drawables.push(drawable);
+    pub fn commit(&mut self, drawable: Box<dyn Drawable>) -> DrawableId {
+        let id = DrawableId(self.next_drawable_id);
+        self.next_drawable_id += 1;
+        self.drawables.push(Stacked { id, drawable });
+        self.undo_stack.push(UndoAction::Add(id));
         self.redo_stack.clear();
+        id
+    }
+
+    /// Replace the drawable with `id` in-place. Records a Modify undo action.
+    /// Returns true if the id was found.
+    pub fn modify(&mut self, id: DrawableId, new: Box<dyn Drawable>) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let prev = std::mem::replace(&mut self.drawables[pos].drawable, new);
+        self.undo_stack.push(UndoAction::Modify { id, prev });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Remove the drawable with `id` from the stack. Records a Remove undo
+    /// action so the deletion can be undone.
+    pub fn delete(&mut self, id: DrawableId) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let stacked = self.drawables.remove(pos);
+        self.undo_stack.push(UndoAction::Remove {
+            id: stacked.id,
+            idx: pos,
+            drawable: stacked.drawable,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Replace many drawables atomically (single Batch undo).
+    pub fn modify_many(&mut self, updates: Vec<(DrawableId, Box<dyn Drawable>)>) -> bool {
+        let mut actions = Vec::new();
+        for (id, new) in updates {
+            if let Some(pos) = self.drawables.iter().position(|s| s.id == id) {
+                let prev = std::mem::replace(&mut self.drawables[pos].drawable, new);
+                actions.push(UndoAction::Modify { id, prev });
+            }
+        }
+        if actions.is_empty() {
+            return false;
+        }
+        self.undo_stack.push(UndoAction::Batch(actions));
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Remove a set of drawables atomically. Records a single Batch undo
+    /// action so one Ctrl+Z brings them all back.
+    pub fn delete_many(&mut self, ids: &[DrawableId]) -> bool {
+        let mut actions = Vec::new();
+        // Sort by position descending so removing earlier ids doesn't shift
+        // later ones.
+        let mut positions: Vec<(usize, DrawableId)> = ids
+            .iter()
+            .filter_map(|&id| {
+                self.drawables
+                    .iter()
+                    .position(|s| s.id == id)
+                    .map(|pos| (pos, id))
+            })
+            .collect();
+        positions.sort_by_key(|p| std::cmp::Reverse(p.0));
+        for (pos, id) in positions {
+            let stacked = self.drawables.remove(pos);
+            actions.push(UndoAction::Remove {
+                id,
+                idx: pos,
+                drawable: stacked.drawable,
+            });
+        }
+        if actions.is_empty() {
+            return false;
+        }
+        // Apply order matters for the undo (Insert): the original order was
+        // back-to-front, so reverse the per-removal actions to insert in the
+        // right order on undo.
+        actions.reverse();
+        self.undo_stack.push(UndoAction::Batch(actions));
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Drawable ids whose AABB bounds overlap `rect` (image coords). Used
+    /// for marquee / drag-rect selection.
+    pub fn drawables_in_rect(&self, rect: crate::math::Rect) -> Vec<DrawableId> {
+        self.drawables
+            .iter()
+            .filter(|s| {
+                s.drawable
+                    .bounds()
+                    .map(|b| b.intersects(rect))
+                    .unwrap_or(false)
+            })
+            .map(|s| s.id)
+            .collect()
+    }
+
+    /// All drawable ids in stacking order (back-to-front).
+    pub fn all_drawable_ids(&self) -> Vec<DrawableId> {
+        self.drawables.iter().map(|s| s.id).collect()
     }
 
     pub fn undo(&mut self) -> bool {
-        match self.drawables.pop() {
-            Some(mut d) => {
-                // notify of the undo action
-                d.handle_undo();
-
-                // push to redo stack
-                self.redo_stack.push(d);
-                true
-            }
-            None => false,
-        }
+        let Some(action) = self.undo_stack.pop() else {
+            return false;
+        };
+        let inverse = self.apply_inverse(action);
+        self.redo_stack.push(inverse);
+        true
     }
+
     pub fn redo(&mut self) -> bool {
-        match self.redo_stack.pop() {
-            Some(mut d) => {
-                // notify of the redo action
-                d.handle_redo();
+        let Some(action) = self.redo_stack.pop() else {
+            return false;
+        };
+        let inverse = self.apply_inverse(action);
+        self.undo_stack.push(inverse);
+        true
+    }
 
-                // push to drawable stack
-                self.drawables.push(d);
-
-                true
+    /// Apply the inverse of `action`, returning the action that should be pushed
+    /// on the opposite stack. Shared between undo() and redo().
+    fn apply_inverse(&mut self, action: UndoAction) -> UndoAction {
+        match action {
+            UndoAction::Add(id) => {
+                let pos = self
+                    .drawables
+                    .iter()
+                    .position(|s| s.id == id)
+                    .expect("Add references missing drawable");
+                let mut stacked = self.drawables.remove(pos);
+                stacked.drawable.handle_undo();
+                UndoAction::Remove {
+                    id,
+                    idx: pos,
+                    drawable: stacked.drawable,
+                }
             }
-            None => false,
+            UndoAction::Remove {
+                id,
+                idx,
+                mut drawable,
+            } => {
+                drawable.handle_redo();
+                let insert_at = idx.min(self.drawables.len());
+                self.drawables.insert(insert_at, Stacked { id, drawable });
+                UndoAction::Add(id)
+            }
+            UndoAction::Modify { id, prev } => {
+                let pos = self
+                    .drawables
+                    .iter()
+                    .position(|s| s.id == id)
+                    .expect("Modify references missing drawable");
+                let cur = std::mem::replace(&mut self.drawables[pos].drawable, prev);
+                UndoAction::Modify { id, prev: cur }
+            }
+            UndoAction::Batch(actions) => {
+                // Reverse order while inverting so insert/remove indices stay
+                // consistent. The result is also a Batch; pushing it onto the
+                // opposite stack lets one Ctrl+Z/Y restore the whole group.
+                let mut inverses: Vec<UndoAction> = actions
+                    .into_iter()
+                    .rev()
+                    .map(|a| self.apply_inverse(a))
+                    .collect();
+                inverses.reverse();
+                UndoAction::Batch(inverses)
+            }
         }
     }
+
     pub fn reset(&mut self) -> bool {
-        let mut any_undone = false;
-        while let Some(mut d) = self.drawables.pop() {
-            // notify of the undo action
-            d.handle_undo();
-
-            // push to redo stack
-            self.redo_stack.push(d);
-
-            any_undone = true;
+        let mut any = false;
+        while !self.drawables.is_empty() && self.undo() {
+            any = true;
         }
-        any_undone
+        any
+    }
+
+    /// Topmost drawable hit by `point` (image coords). Iterates back-to-front so
+    /// the most recently drawn (visually on top) wins.
+    pub fn hit_test(&self, point: Vec2D, tolerance: f32) -> Option<DrawableId> {
+        for s in self.drawables.iter().rev() {
+            if s.drawable.hit_test(point, tolerance) {
+                return Some(s.id);
+            }
+        }
+        None
+    }
+
+    /// Borrow the live drawable for a given id, if it exists in the stack.
+    pub fn drawable(&self, id: DrawableId) -> Option<&dyn Drawable> {
+        self.drawables
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.drawable.as_ref())
     }
 
     pub fn set_active_tool(&mut self, active_tool: Rc<RefCell<dyn Tool>>) {
@@ -451,14 +622,65 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
-        // render the whole stack
-        for d in &mut self.drawables {
+        // Skip rendering of any drawable currently being dragged by either
+        // tool — the tool will render the moved/transformed copy below.
+        let dragging_active = self.active_tool.borrow().dragging_drawable_id();
+        let dragging_pointer = self.pointer_tool.borrow().dragging_drawable_id();
+        let selected_ids = self.pointer_tool.borrow().selected_drawables();
+
+        for s in &mut self.drawables {
+            if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
+                continue;
+            }
+            // Render the selection glow underneath each selected drawable so
+            // the wide blue trace is half-clipped by the drawable on top —
+            // leaving only an outer halo.
+            if selected_ids.contains(&s.id) {
+                s.drawable.render_glow(canvas, font, bounds)?;
+            }
+            s.drawable.draw(canvas, font, bounds)?;
+        }
+
+        let pointer_is_active = Rc::ptr_eq(&self.active_tool, &self.pointer_tool);
+
+        // In-progress drawable from the active tool (e.g. the shape currently
+        // being drawn). When the pointer tool is the active tool *and* it's
+        // mid-drag, this is the selection's working copy — render the glow
+        // beneath it so the halo follows the drag in real time.
+        {
+            let at = self.active_tool.borrow();
+            if let Some(d) = at.get_drawable() {
+                if pointer_is_active && at.dragging_drawable_id().is_some() {
+                    d.render_glow(canvas, font, bounds)?;
+                }
+                d.draw(canvas, font, bounds)?;
+            }
+        }
+
+        // The pointer tool's working copy during an implicit-mode drag (active
+        // tool is something else, like Arrow).
+        if !pointer_is_active
+            && let Some(d) = self.pointer_tool.borrow().get_drawable()
+        {
+            d.render_glow(canvas, font, bounds)?;
             d.draw(canvas, font, bounds)?;
         }
 
-        // render active tool
-        if let Some(d) = self.active_tool.borrow().get_drawable() {
-            d.draw(canvas, font, bounds)?;
+        // Selection overlay (marquee + handles for single selection).
+        let single_selected_drawable = if selected_ids.len() == 1 {
+            self.drawables
+                .iter()
+                .find(|s| s.id == selected_ids[0])
+                .map(|s| s.drawable.as_ref())
+        } else {
+            None
+        };
+        if let Some(o) = self
+            .pointer_tool
+            .borrow()
+            .build_overlay(single_selected_drawable)
+        {
+            o.draw(canvas, font, bounds)?;
         }
 
         // render crop tool

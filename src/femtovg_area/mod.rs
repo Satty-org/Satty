@@ -14,7 +14,7 @@ use crate::{
     configuration::Action,
     math::Vec2D,
     sketch_board::SketchBoardInput,
-    tools::{CropTool, Drawable, Tool},
+    tools::{CropTool, Drawable, DrawableId, DrawableStore, Tool},
 };
 
 static FONT_STACK: OnceLock<Vec<FontId>> = OnceLock::new();
@@ -48,12 +48,71 @@ impl FemtoVGArea {
             .set_active_tool(active_tool);
     }
 
-    pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
+    pub fn commit(&mut self, drawable: Box<dyn Drawable>) -> DrawableId {
         self.imp()
             .inner()
             .as_mut()
             .expect("Did you call init before using FemtoVgArea?")
-            .commit(drawable);
+            .commit(drawable)
+    }
+    pub fn modify(&mut self, id: DrawableId, drawable: Box<dyn Drawable>) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .modify(id, drawable)
+    }
+    pub fn delete(&mut self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .delete(id)
+    }
+    pub fn modify_many(&mut self, updates: Vec<(DrawableId, Box<dyn Drawable>)>) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .modify_many(updates)
+    }
+    pub fn delete_many(&mut self, ids: &[DrawableId]) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .delete_many(ids)
+    }
+    pub fn drawables_in_rect(&self, rect: crate::math::Rect) -> Vec<DrawableId> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .drawables_in_rect(rect)
+    }
+    pub fn all_drawable_ids(&self) -> Vec<DrawableId> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .all_drawable_ids()
+    }
+    pub fn hit_test(&self, point: Vec2D, tolerance: f32) -> Option<DrawableId> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .hit_test(point, tolerance)
+    }
+    /// Clone of the drawable with `id`, if any. Used by the pointer tool to grab
+    /// a working copy at drag-start.
+    pub fn clone_drawable(&self, id: DrawableId) -> Option<Box<dyn Drawable>> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .drawable(id)
+            .map(|d| d.clone_box())
     }
     pub fn undo(&mut self) -> bool {
         self.imp()
@@ -101,10 +160,16 @@ impl FemtoVGArea {
         sender: Sender<SketchBoardInput>,
         crop_tool: Rc<RefCell<CropTool>>,
         active_tool: Rc<RefCell<dyn Tool>>,
+        pointer_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
-        self.imp()
-            .init(sender, crop_tool, active_tool, background_image);
+        self.imp().init(
+            sender,
+            crop_tool,
+            active_tool,
+            pointer_tool,
+            background_image,
+        );
     }
 
     pub fn set_zoom_scale(&self, factor: f32) {
@@ -168,5 +233,23 @@ impl FemtoVGArea {
 
     pub fn resize(&self, width: i32, height: i32) {
         self.imp().resize(width, height);
+    }
+}
+
+impl DrawableStore for FemtoVGArea {
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> Option<DrawableId> {
+        FemtoVGArea::hit_test(self, point, tolerance)
+    }
+
+    fn clone_drawable(&self, id: DrawableId) -> Option<Box<dyn Drawable>> {
+        FemtoVGArea::clone_drawable(self, id)
+    }
+
+    fn drawables_in_rect(&self, rect: crate::math::Rect) -> Vec<DrawableId> {
+        FemtoVGArea::drawables_in_rect(self, rect)
+    }
+
+    fn all_drawable_ids(&self) -> Vec<DrawableId> {
+        FemtoVGArea::all_drawable_ids(self)
     }
 }

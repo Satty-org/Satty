@@ -6,12 +6,15 @@ use relm4::{
 };
 
 use crate::{
-    math::Vec2D,
+    math::{Rect, Vec2D, point_to_segment_distance},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
+    ToolUpdateResult, Tools,
+};
 
 #[derive(Default)]
 pub struct LineTool {
@@ -46,10 +49,96 @@ impl Drawable for Line {
         path.move_to(self.start.x, self.start.y);
         path.line_to(self.start.x + direction.x, self.start.y + direction.y);
 
-        canvas.stroke_path(&path, &self.style.into());
+        let mut paint: femtovg::Paint = self.style.into();
+        paint.set_line_cap(femtovg::LineCap::Round);
+        paint.set_line_join(femtovg::LineJoin::Round);
+        canvas.stroke_path(&path, &paint);
 
         canvas.restore();
 
+        Ok(())
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        let dir = self.direction?;
+        let end = self.start + dir;
+        let stroke = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(Rect::from_corners(self.start, end).inflated(stroke / 2.0))
+    }
+
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
+        let Some(dir) = self.direction else {
+            return false;
+        };
+        let end = self.start + dir;
+        let stroke = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        point_to_segment_distance(point, self.start, end) <= stroke / 2.0 + tolerance
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        // direction is a relative offset, so translating the line only moves start.
+        self.start += delta;
+    }
+
+    fn handles(&self) -> Vec<Handle> {
+        let Some(dir) = self.direction else {
+            return Vec::new();
+        };
+        vec![
+            Handle {
+                id: HandleId::Start,
+                pos: self.start,
+            },
+            Handle {
+                id: HandleId::End,
+                pos: self.start + dir,
+            },
+        ]
+    }
+
+    fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
+        let Some(dir) = self.direction else { return };
+        let cur_end = self.start + dir;
+        match handle {
+            HandleId::Start => {
+                self.start = to;
+                self.direction = Some(cur_end - to);
+            }
+            HandleId::End => {
+                self.direction = Some(to - self.start);
+            }
+            _ => {}
+        }
+    }
+
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
+    }
+
+    fn render_glow(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        let Some(direction) = self.direction else {
+            return Ok(());
+        };
+        canvas.save();
+        let mut path = Path::new();
+        path.move_to(self.start.x, self.start.y);
+        path.line_to(self.start.x + direction.x, self.start.y + direction.y);
+        let mut paint = femtovg::Paint::color(GLOW_COLOR);
+        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_cap(femtovg::LineCap::Round);
+        canvas.stroke_path(&path, &paint);
+        canvas.restore();
         Ok(())
     }
 }

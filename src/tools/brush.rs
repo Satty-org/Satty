@@ -1,15 +1,18 @@
 use std::time::Instant;
 
+use anyhow::Result;
 use femtovg::{FontId, Path};
 
 use crate::{
     configuration::APP_CONFIG,
-    math::Vec2D,
+    math::{Rect, Vec2D, point_to_segment_distance},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Tool, ToolUpdateResult, Tools,
+};
 use relm4::Sender;
 
 #[derive(Default)]
@@ -60,6 +63,101 @@ impl Drawable for BrushDrawable {
         }
 
         canvas.stroke_path(&path, &self.style.into());
+        canvas.restore();
+        Ok(())
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        let start = self.start_point?;
+        if self.points.len() < 2 {
+            return None;
+        }
+        let mut min = start;
+        let mut max = start;
+        for p in self.points.iter().skip(1) {
+            let abs = start + *p;
+            min.x = min.x.min(abs.x);
+            min.y = min.y.min(abs.y);
+            max.x = max.x.max(abs.x);
+            max.y = max.y.max(abs.y);
+        }
+        let stroke = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(
+            Rect {
+                pos: min,
+                size: max - min,
+            }
+            .inflated(stroke / 2.0),
+        )
+    }
+
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
+        let Some(start) = self.start_point else {
+            return false;
+        };
+        if self.points.len() < 2 {
+            return false;
+        }
+        let stroke = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        let pick = stroke / 2.0 + tolerance;
+        // Quick reject by inflated bounds.
+        if !self
+            .bounds()
+            .map(|b| b.inflated(tolerance).contains(point))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        let mut prev = start;
+        for p in self.points.iter().skip(1) {
+            let cur = start + *p;
+            if point_to_segment_distance(point, prev, cur) <= pick {
+                return true;
+            }
+            prev = cur;
+        }
+        false
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        if let Some(start) = self.start_point.as_mut() {
+            *start += delta;
+        }
+    }
+
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
+    }
+
+    fn render_glow(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        let Some(start) = self.start_point else {
+            return Ok(());
+        };
+        if self.points.len() < 2 {
+            return Ok(());
+        }
+        canvas.save();
+        let mut path = Path::new();
+        path.move_to(start.x, start.y);
+        for p in self.points.iter().skip(1) {
+            path.line_to(start.x + p.x, start.y + p.y);
+        }
+        let mut paint = femtovg::Paint::color(GLOW_COLOR);
+        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_cap(femtovg::LineCap::Round);
+        paint.set_line_join(femtovg::LineJoin::Round);
+        canvas.stroke_path(&path, &paint);
         canvas.restore();
         Ok(())
     }

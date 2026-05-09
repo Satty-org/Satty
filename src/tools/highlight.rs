@@ -11,7 +11,7 @@ use serde_derive::Deserialize;
 
 use crate::{
     configuration::APP_CONFIG,
-    math::{self, Vec2D},
+    math::{self, Rect, Vec2D, point_to_segment_distance},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
     tools::DrawableClone,
@@ -19,7 +19,10 @@ use crate::{
 
 use satty_cli::command_line;
 
-use super::{Drawable, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    bbox_handles, bbox_resize,
+};
 
 const HIGHLIGHT_OPACITY: f64 = 0.4;
 
@@ -152,6 +155,147 @@ impl Drawable for HighlightKind {
             HighlightKind::Block(highlighter) => highlighter.highlight(canvas),
             HighlightKind::Freehand(highlighter) => highlighter.highlight(canvas),
         }
+    }
+
+    fn bounds(&self) -> Option<Rect> {
+        match self {
+            HighlightKind::Block(h) => h.data.size.map(|s| Rect::new(h.data.top_left, s)),
+            HighlightKind::Freehand(h) => {
+                if h.data.points.len() < 2 {
+                    return None;
+                }
+                let first = *h.data.points.first()?;
+                let mut min = first;
+                let mut max = first;
+                for p in h.data.points.iter().skip(1) {
+                    let abs = first + *p;
+                    min.x = min.x.min(abs.x);
+                    min.y = min.y.min(abs.y);
+                    max.x = max.x.max(abs.x);
+                    max.y = max.y.max(abs.y);
+                }
+                let stroke = h.style.size.to_highlight_width(h.style.annotation_size_factor);
+                Some(
+                    Rect {
+                        pos: min,
+                        size: max - min,
+                    }
+                    .inflated(stroke / 2.0),
+                )
+            }
+        }
+    }
+
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
+        match self {
+            HighlightKind::Block(_) => self
+                .bounds()
+                .map(|b| b.inflated(tolerance).contains(point))
+                .unwrap_or(false),
+            HighlightKind::Freehand(h) => {
+                let Some(first) = h.data.points.first().copied() else {
+                    return false;
+                };
+                if h.data.points.len() < 2 {
+                    return false;
+                }
+                let stroke = h.style.size.to_highlight_width(h.style.annotation_size_factor);
+                let pick = stroke / 2.0 + tolerance;
+                let mut prev = first;
+                for p in h.data.points.iter().skip(1) {
+                    let cur = first + *p;
+                    if point_to_segment_distance(point, prev, cur) <= pick {
+                        return true;
+                    }
+                    prev = cur;
+                }
+                false
+            }
+        }
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        match self {
+            HighlightKind::Block(h) => h.data.top_left += delta,
+            HighlightKind::Freehand(h) => {
+                if let Some(first) = h.data.points.first_mut() {
+                    *first += delta;
+                }
+            }
+        }
+    }
+
+    fn handles(&self) -> Vec<Handle> {
+        match self {
+            HighlightKind::Block(_) => self.bounds().map(bbox_handles).unwrap_or_default(),
+            HighlightKind::Freehand(_) => Vec::new(),
+        }
+    }
+
+    fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
+        let HighlightKind::Block(h) = self else { return };
+        let Some(size) = h.data.size else { return };
+        let cur = Rect::new(h.data.top_left, size);
+        let new = bbox_resize(cur, handle, to);
+        h.data.top_left = new.pos;
+        h.data.size = Some(new.size);
+    }
+
+    fn set_style(&mut self, style: Style) {
+        match self {
+            HighlightKind::Block(h) => h.style = style,
+            HighlightKind::Freehand(h) => h.style = style,
+        }
+    }
+
+    fn render_glow(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: femtovg::FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> anyhow::Result<()> {
+        // Block-highlight is always filled — use the offset-rect glow so the
+        // halo sits entirely outside the highlight rectangle.
+        if let HighlightKind::Block(_) = self
+            && let Some(rect) = self.bounds()
+        {
+            let inflate = GLOW_STROKE_WIDTH / 2.0;
+            canvas.save();
+            let mut path = Path::new();
+            path.rounded_rect(
+                rect.pos.x - inflate,
+                rect.pos.y - inflate,
+                rect.size.x + inflate * 2.0,
+                rect.size.y + inflate * 2.0,
+                APP_CONFIG.read().corner_roundness() + inflate,
+            );
+            let mut paint = Paint::color(GLOW_COLOR);
+            paint.set_line_width(GLOW_STROKE_WIDTH);
+            paint.set_line_join(femtovg::LineJoin::Round);
+            canvas.stroke_path(&path, &paint);
+            canvas.restore();
+            return Ok(());
+        }
+        // Freehand falls back to the trait default (rounded-rect bbox glow).
+        // Render that here since we're overriding the trait method.
+        let Some(b) = self.bounds() else {
+            return Ok(());
+        };
+        let pad = 6.0;
+        canvas.save();
+        let mut path = Path::new();
+        path.rounded_rect(
+            b.pos.x - pad,
+            b.pos.y - pad,
+            b.size.x + pad * 2.0,
+            b.size.y + pad * 2.0,
+            6.0,
+        );
+        let mut paint = Paint::color(GLOW_COLOR);
+        paint.set_line_width(GLOW_STROKE_WIDTH);
+        canvas.stroke_path(&path, &paint);
+        canvas.restore();
+        Ok(())
     }
 }
 
