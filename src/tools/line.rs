@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
-    ToolUpdateResult, Tools,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    halo_in_image_units,
 };
 
 #[derive(Default)]
@@ -126,16 +126,23 @@ impl Drawable for Line {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> Result<()> {
         let Some(direction) = self.direction else {
             return Ok(());
         };
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
         canvas.save();
         let mut path = Path::new();
         path.move_to(self.start.x, self.start.y);
         path.line_to(self.start.x + direction.x, self.start.y + direction.y);
+        let stroke_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor)
+            + 2.0 * halo;
         let mut paint = femtovg::Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_width(stroke_width);
         paint.set_line_cap(femtovg::LineCap::Round);
         canvas.stroke_path(&path, &paint);
         canvas.restore();

@@ -20,8 +20,8 @@ use crate::{
 use satty_cli::command_line;
 
 use super::{
-    Drawable, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool, ToolUpdateResult, Tools,
-    bbox_handles, bbox_resize,
+    Drawable, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools, bbox_handles,
+    bbox_resize, halo_in_image_units,
 };
 
 const HIGHLIGHT_OPACITY: f64 = 0.4;
@@ -253,13 +253,13 @@ impl Drawable for HighlightKind {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> anyhow::Result<()> {
-        // Block-highlight is always filled — use the offset-rect glow so the
-        // halo sits entirely outside the highlight rectangle.
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
         if let HighlightKind::Block(_) = self
             && let Some(rect) = self.bounds()
         {
-            let inflate = GLOW_STROKE_WIDTH / 2.0;
+            let inflate = halo / 2.0;
             canvas.save();
             let mut path = Path::new();
             path.rounded_rect(
@@ -270,29 +270,27 @@ impl Drawable for HighlightKind {
                 APP_CONFIG.read().corner_roundness() + inflate,
             );
             let mut paint = Paint::color(GLOW_COLOR);
-            paint.set_line_width(GLOW_STROKE_WIDTH);
+            paint.set_line_width(halo);
             paint.set_line_join(femtovg::LineJoin::Round);
             canvas.stroke_path(&path, &paint);
             canvas.restore();
             return Ok(());
         }
-        // Freehand falls back to the trait default (rounded-rect bbox glow).
-        // Render that here since we're overriding the trait method.
         let Some(b) = self.bounds() else {
             return Ok(());
         };
-        let pad = 6.0;
+        let inflate = halo / 2.0;
         canvas.save();
         let mut path = Path::new();
         path.rounded_rect(
-            b.pos.x - pad,
-            b.pos.y - pad,
-            b.size.x + pad * 2.0,
-            b.size.y + pad * 2.0,
+            b.pos.x - inflate,
+            b.pos.y - inflate,
+            b.size.x + inflate * 2.0,
+            b.size.y + inflate * 2.0,
             6.0,
         );
         let mut paint = Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_width(halo);
         canvas.stroke_path(&path, &paint);
         canvas.restore();
         Ok(())

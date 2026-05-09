@@ -126,7 +126,15 @@ pub trait Tool {
     /// `selected` is the live drawable matching `selected_drawable()` from the
     /// renderer's stack, passed in to avoid the tool re-entering the renderer
     /// (which already holds a borrow during the render path).
-    fn build_overlay(&self, _selected: Option<&dyn Drawable>) -> Option<Box<dyn Drawable>> {
+    ///
+    /// `device_pixel_ratio` is the host display's DPR (1 on standard, 2 on
+    /// retina). Tools use it to size visuals in CSS pixels while still
+    /// looking sharp on HiDPI screens.
+    fn build_overlay(
+        &self,
+        _selected: Option<&dyn Drawable>,
+        _device_pixel_ratio: f32,
+    ) -> Option<Box<dyn Drawable>> {
         None
     }
 
@@ -241,38 +249,54 @@ pub trait Drawable: DrawableClone + Debug {
     /// mutable style.
     fn set_style(&mut self, _style: Style) {}
 
-    /// Render a Selection "glow" — a wide, semi-transparent
-    /// blue trace of the shape, drawn under the original. The default uses
-    /// the axis-aligned `bounds()` (good enough for filled shapes); shapes
-    /// like arrow/line/ellipse override to trace their actual outline.
+    /// Render a Selection "glow" — a semi-transparent blue
+    /// trace of the shape, drawn under the original. Each shape's impl
+    /// chooses how to map `HALO_PAD` (a CSS-pixel target) into image units
+    /// using `glow_scale_image_units` so the halo appears at constant
+    /// on-screen thickness regardless of zoom or DPR.
     fn render_glow(
         &self,
         canvas: &mut Canvas<OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> Result<()> {
         let Some(b) = self.bounds() else {
             return Ok(());
         };
         canvas.save();
-        let pad = 6.0;
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
+        let inflate = halo / 2.0;
         let mut path = FemtoPath::new();
         path.rounded_rect(
-            b.pos.x - pad,
-            b.pos.y - pad,
-            b.size.x + pad * 2.0,
-            b.size.y + pad * 2.0,
+            b.pos.x - inflate,
+            b.pos.y - inflate,
+            b.size.x + inflate * 2.0,
+            b.size.y + inflate * 2.0,
             6.0,
         );
         let mut paint = Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_width(halo);
         canvas.stroke_path(&path, &paint);
         canvas.restore();
         Ok(())
     }
 }
 
-/// Selection accent (used for handles + glow + hover cursor halo).
+/// Convert `HALO_PAD` (CSS pixels) into image units given the canvas's
+/// current image→canvas transform and the host display's DPR. Use this
+/// inside any `render_glow` impl that wants a halo of constant on-screen
+/// thickness.
+pub fn halo_in_image_units(
+    canvas: &Canvas<OpenGl>,
+    device_pixel_ratio: f32,
+) -> f32 {
+    let img_to_canvas = canvas.transform().average_scale().max(0.0001);
+    let css_to_image = device_pixel_ratio / img_to_canvas;
+    HALO_PAD * css_to_image
+}
+
+/// Selection accent colour (used for handles + glow + hover cursor halo).
 pub const SELECTION_BLUE: femtovg::Color = femtovg::Color {
     r: 0.18,
     g: 0.53,
@@ -286,11 +310,12 @@ pub const GLOW_COLOR: femtovg::Color = femtovg::Color {
     b: 0.87,
     a: 0.45,
 };
-pub const GLOW_STROKE_WIDTH: f32 = 8.0;
-/// Wider glow for shapes whose drawable already strokes a fat outline at the
-/// same path (currently only the Standard arrow's rounded-corner outline).
-/// Without this, the outline would entirely cover an 8 px glow.
-pub const GLOW_STROKE_WIDTH_WIDE: f32 = 14.0;
+/// Visible halo width (in CSS pixels) — the band of GLOW_COLOR shown
+/// outside each selected drawable's silhouette. Per-shape `render_glow`
+/// impls translate this into stroke widths, fill insets, etc., and
+/// scale it via `halo_in_image_units` so the on-screen size is constant
+/// regardless of zoom or DPR.
+pub const HALO_PAD: f32 = 4.0;
 
 /// A handle exposed by a drawable for direct manipulation.
 #[derive(Debug, Clone, Copy)]

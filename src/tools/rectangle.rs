@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, halo_in_image_units,
     ToolUpdateResult, Tools, bbox_handles, bbox_resize,
 };
 
@@ -100,37 +100,51 @@ impl Drawable for Rectangle {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> Result<()> {
         let Some(rect) = self.bounds() else {
             return Ok(());
         };
-        // Inflate the path so the glow stroke sits *entirely outside* the
-        // visible silhouette. For stroked rectangles, the visible silhouette
-        // extends `stroke / 2` beyond the path; for filled rectangles it sits
-        // at the path. Add half the glow stroke so the glow's inner edge
-        // aligns with the silhouette's outer edge.
-        let stroke_pad = if self.style.fill {
-            0.0
-        } else {
-            self.style
-                .size
-                .to_line_width(self.style.annotation_size_factor)
-                / 2.0
-        };
-        let inflate = stroke_pad + GLOW_STROKE_WIDTH / 2.0;
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
         canvas.save();
-        let mut path = Path::new();
-        path.rounded_rect(
-            rect.pos.x - inflate,
-            rect.pos.y - inflate,
-            rect.size.x + inflate * 2.0,
-            rect.size.y + inflate * 2.0,
-            APP_CONFIG.read().corner_roundness() + inflate,
-        );
-        let mut paint = femtovg::Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
-        paint.set_line_join(femtovg::LineJoin::Round);
-        canvas.stroke_path(&path, &paint);
+        if self.style.fill {
+            // Filled: halo entirely outside the silhouette. Inflate the
+            // path by halo/2 and stroke `halo` wide so the band is
+            // (silhouette, silhouette + halo).
+            let inflate = halo / 2.0;
+            let mut path = Path::new();
+            path.rounded_rect(
+                rect.pos.x - inflate,
+                rect.pos.y - inflate,
+                rect.size.x + inflate * 2.0,
+                rect.size.y + inflate * 2.0,
+                APP_CONFIG.read().corner_roundness() + inflate,
+            );
+            let mut paint = femtovg::Paint::color(GLOW_COLOR);
+            paint.set_line_width(halo);
+            paint.set_line_join(femtovg::LineJoin::Round);
+            canvas.stroke_path(&path, &paint);
+        } else {
+            // Stroked: bracket the stroke on both sides. Stroke at the
+            // path with line_width + 2 * halo; the actual rect stroke
+            // overdraws the middle, leaving `halo` visible inside and out.
+            let line_width = self
+                .style
+                .size
+                .to_line_width(self.style.annotation_size_factor);
+            let mut path = Path::new();
+            path.rounded_rect(
+                rect.pos.x,
+                rect.pos.y,
+                rect.size.x,
+                rect.size.y,
+                APP_CONFIG.read().corner_roundness(),
+            );
+            let mut paint = femtovg::Paint::color(GLOW_COLOR);
+            paint.set_line_width(line_width + 2.0 * halo);
+            paint.set_line_join(femtovg::LineJoin::Round);
+            canvas.stroke_path(&path, &paint);
+        }
         canvas.restore();
         Ok(())
     }

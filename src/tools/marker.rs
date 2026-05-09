@@ -11,7 +11,7 @@ use crate::{
     sketch_board::MouseEventMsg,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, GLOW_COLOR, Tool, ToolUpdateResult, Tools, halo_in_image_units};
 use relm4::Sender;
 
 pub struct MarkerTool {
@@ -114,6 +114,31 @@ impl Drawable for Marker {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn render_glow(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: femtovg::FontId,
+        _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
+    ) -> anyhow::Result<()> {
+        // Fill a circle slightly larger than the marker disc. Drawn under the
+        // marker itself, so only the outer ring (HALO_PAD wide) shows as a halo.
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
+        let glow_radius = self.approx_radius() + halo;
+        let mut path = Path::new();
+        path.arc(
+            self.pos.x,
+            self.pos.y,
+            glow_radius,
+            0.0,
+            2.0 * PI as f32,
+            femtovg::Solidity::Solid,
+        );
+        let paint = Paint::color(GLOW_COLOR);
+        canvas.fill_path(&path, &paint);
+        Ok(())
     }
 }
 

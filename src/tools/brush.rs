@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Tool, ToolUpdateResult, Tools,
+    Drawable, DrawableClone, GLOW_COLOR, Tool, ToolUpdateResult, Tools, halo_in_image_units,
 };
 use relm4::Sender;
 
@@ -140,6 +140,7 @@ impl Drawable for BrushDrawable {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> Result<()> {
         let Some(start) = self.start_point else {
             return Ok(());
@@ -147,14 +148,20 @@ impl Drawable for BrushDrawable {
         if self.points.len() < 2 {
             return Ok(());
         }
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
         canvas.save();
         let mut path = Path::new();
         path.move_to(start.x, start.y);
         for p in self.points.iter().skip(1) {
             path.line_to(start.x + p.x, start.y + p.y);
         }
+        let stroke_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor)
+            + 2.0 * halo;
         let mut paint = femtovg::Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_width(stroke_width);
         paint.set_line_cap(femtovg::LineCap::Round);
         paint.set_line_join(femtovg::LineJoin::Round);
         canvas.stroke_path(&path, &paint);

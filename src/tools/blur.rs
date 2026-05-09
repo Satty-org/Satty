@@ -13,8 +13,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
-    ToolUpdateResult, Tools, bbox_handles, bbox_resize,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    bbox_handles, bbox_resize, halo_in_image_units,
 };
 
 #[derive(Clone, Debug)]
@@ -179,11 +179,13 @@ impl Drawable for Blur {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> anyhow::Result<()> {
         let Some(rect) = self.bounds() else {
             return Ok(());
         };
-        let inflate = GLOW_STROKE_WIDTH / 2.0;
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
+        let inflate = halo / 2.0;
         canvas.save();
         let mut path = Path::new();
         path.rounded_rect(
@@ -194,7 +196,7 @@ impl Drawable for Blur {
             APP_CONFIG.read().corner_roundness() + inflate,
         );
         let mut paint = Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
+        paint.set_line_width(halo);
         paint.set_line_join(femtovg::LineJoin::Round);
         canvas.stroke_path(&path, &paint);
         canvas.restore();

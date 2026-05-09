@@ -18,12 +18,18 @@ use super::{
 };
 
 pub const HIT_TOLERANCE: f32 = 6.0;
-/// Visible blue handle radius (12 px diameter).
-const HANDLE_INNER_RADIUS: f32 = 6.0;
-/// Outer white-ring radius (gives a 2 px white outline around the blue).
-const HANDLE_OUTER_RADIUS: f32 = 8.0;
-/// Hit-test radius for grabbing a handle.
-pub const HANDLE_HIT_RADIUS: f32 = 10.0;
+/// Target visible diameter of the blue inner disc, in canvas (post-zoom)
+/// pixels. The actual draw radius is divided by the current canvas
+/// transform scale so handles look the same size regardless of how much
+/// the image is fit-scaled or zoomed.
+const HANDLE_INNER_DIAMETER: f32 = 12.0;
+/// White ring thickness on each side of the inner disc (so outer
+/// diameter = inner + 2 × ring).
+const HANDLE_RING: f32 = 2.0;
+/// Hit-test radius (image units) for grabbing a handle. Kept in image
+/// units because hit-tests run against image-space pointer positions;
+/// scaled up a bit so the cursor doesn't have to be pixel-perfect.
+pub const HANDLE_HIT_RADIUS: f32 = 12.0;
 /// Marquee fill / stroke color (accent blue, faded).
 const MARQUEE_FILL: Color = Color {
     r: 0.18,
@@ -52,6 +58,10 @@ pub struct PointerTool {
     /// when it's only being consulted in implicit-mode for selection. Set
     /// from `handle_activated` / `handle_deactivated`.
     active_as_primary: bool,
+    /// Set true when a BeginDrag in implicit mode just deselected because the
+    /// user clicked empty space. The follow-up Click event is then suppressed
+    /// so e.g. the Marker tool doesn't drop a counter on the same gesture.
+    consume_next_click: bool,
 }
 
 struct DragState {
@@ -87,6 +97,8 @@ impl MarqueeState {
 struct SelectionOverlay {
     marquee: Option<Rect>,
     handles: Vec<Handle>,
+    /// DPR captured at build time, used to size handles in CSS pixels.
+    device_pixel_ratio: f32,
 }
 
 impl Clone for SelectionOverlay {
@@ -94,6 +106,7 @@ impl Clone for SelectionOverlay {
         Self {
             marquee: self.marquee,
             handles: self.handles.clone(),
+            device_pixel_ratio: self.device_pixel_ratio,
         }
     }
 }
@@ -117,17 +130,26 @@ impl Drawable for SelectionOverlay {
             canvas.stroke_path(&path, &stroke);
         }
 
-        // Handles: white-filled outer disc + blue inner disc → 12 px blue
-        // dot with a 2 px white ring.
+        // Handles: white-filled outer disc + blue inner disc. Final goal
+        // is HANDLE_INNER_DIAMETER CSS pixels visible on screen. The
+        // pipeline:
+        //   image_units → (image_to_canvas scale, from canvas.transform)
+        //               → physical pixels (canvas is sized in physical px)
+        // So to draw N CSS px we want N × DPR physical px, which means
+        // (N × DPR) ÷ image_to_canvas in image units.
+        let img_to_canvas = canvas.transform().average_scale().max(0.0001);
+        let css_to_image = self.device_pixel_ratio / img_to_canvas;
+        let inner_r = (HANDLE_INNER_DIAMETER / 2.0) * css_to_image;
+        let outer_r = (HANDLE_INNER_DIAMETER / 2.0 + HANDLE_RING) * css_to_image;
         let white_fill = Paint::color(Color::white());
         let blue_fill = Paint::color(SELECTION_BLUE);
         for h in &self.handles {
             let mut outer = Path::new();
-            outer.circle(h.pos.x, h.pos.y, HANDLE_OUTER_RADIUS);
+            outer.circle(h.pos.x, h.pos.y, outer_r);
             canvas.fill_path(&outer, &white_fill);
 
             let mut inner = Path::new();
-            inner.circle(h.pos.x, h.pos.y, HANDLE_INNER_RADIUS);
+            inner.circle(h.pos.x, h.pos.y, inner_r);
             canvas.fill_path(&inner, &blue_fill);
         }
         canvas.restore();
@@ -162,7 +184,11 @@ impl Tool for PointerTool {
         self.drag.as_ref().map(|d| d.working.as_ref())
     }
 
-    fn build_overlay(&self, selected: Option<&dyn Drawable>) -> Option<Box<dyn Drawable>> {
+    fn build_overlay(
+        &self,
+        selected: Option<&dyn Drawable>,
+        device_pixel_ratio: f32,
+    ) -> Option<Box<dyn Drawable>> {
         // Marquee rect during drag-rect selection.
         let marquee = self.marquee.as_ref().map(MarqueeState::rect);
 
@@ -184,7 +210,11 @@ impl Tool for PointerTool {
         if marquee.is_none() && handles.is_empty() {
             return None;
         }
-        Some(Box::new(SelectionOverlay { marquee, handles }))
+        Some(Box::new(SelectionOverlay {
+            marquee,
+            handles,
+            device_pixel_ratio,
+        }))
     }
 
     fn selected_drawables(&self) -> Vec<DrawableId> {
@@ -352,8 +382,11 @@ impl Tool for PointerTool {
                 } else if had_selection {
                     // Implicit mode + had a selection: just clear; consume
                     // so drawing tools don't ALSO start drawing on this
-                    // gesture.
+                    // gesture. Also flag the follow-up Click so the active
+                    // drawing tool (e.g. Marker) doesn't create a new shape
+                    // when the user releases without moving.
                     self.selected.clear();
+                    self.consume_next_click = true;
                     ToolUpdateResult::RedrawAndStopPropagation
                 } else {
                     // Implicit mode + no selection: pass through so the
@@ -406,6 +439,10 @@ impl Tool for PointerTool {
                 }
             }
             MouseEventType::Click => {
+                if self.consume_next_click {
+                    self.consume_next_click = false;
+                    return ToolUpdateResult::RedrawAndStopPropagation;
+                }
                 // Suppress the post-drag Click so drawing tools don't ALSO
                 // act on it when the pointer just selected something.
                 if store.hit_test(event.pos, HIT_TOLERANCE).is_some() {

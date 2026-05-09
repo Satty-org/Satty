@@ -64,6 +64,11 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+    /// Device pixel ratio of the host display (1 on standard DPI, 2 on
+    /// retina). Updated on `resize`. Used so per-frame UI elements
+    /// (selection handles) can render at constant CSS-pixel size while
+    /// still looking sharp on HiDPI screens.
+    device_pixel_ratio: f32,
 }
 
 #[glib::object_subclass]
@@ -103,17 +108,20 @@ impl GLAreaImpl for FemtoVGArea {
         let w = canvas.width();
         let h = canvas.height();
 
+        let dpr = self.obj().scale_factor() as f32;
         canvas.set_size(
             if width == 0 { w } else { width as u32 },
             if height == 0 { h } else { height as u32 },
-            self.obj().scale_factor() as f32,
+            dpr,
         );
 
         // update scale factor
-        self.inner()
+        let mut inner_ref = self.inner();
+        let inner = inner_ref
             .as_mut()
-            .expect("Did you call init before using FemtoVgArea?")
-            .update_transformation(canvas);
+            .expect("Did you call init before using FemtoVgArea?");
+        inner.device_pixel_ratio = dpr;
+        inner.update_transformation(canvas);
     }
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
         self.ensure_canvas();
@@ -189,6 +197,7 @@ impl FemtoVGArea {
             last_scale: 0.0,
             is_drag: false,
             is_reset: false,
+            device_pixel_ratio: 1.0,
         });
         self.sender.borrow_mut().replace(sender);
     }
@@ -636,7 +645,8 @@ impl FemtoVgAreaMut {
             // the wide blue trace is half-clipped by the drawable on top —
             // leaving only an outer halo.
             if selected_ids.contains(&s.id) {
-                s.drawable.render_glow(canvas, font, bounds)?;
+                s.drawable
+                    .render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
             }
             s.drawable.draw(canvas, font, bounds)?;
         }
@@ -651,7 +661,7 @@ impl FemtoVgAreaMut {
             let at = self.active_tool.borrow();
             if let Some(d) = at.get_drawable() {
                 if pointer_is_active && at.dragging_drawable_id().is_some() {
-                    d.render_glow(canvas, font, bounds)?;
+                    d.render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
                 }
                 d.draw(canvas, font, bounds)?;
             }
@@ -662,7 +672,7 @@ impl FemtoVgAreaMut {
         if !pointer_is_active
             && let Some(d) = self.pointer_tool.borrow().get_drawable()
         {
-            d.render_glow(canvas, font, bounds)?;
+            d.render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
             d.draw(canvas, font, bounds)?;
         }
 
@@ -678,7 +688,7 @@ impl FemtoVgAreaMut {
         if let Some(o) = self
             .pointer_tool
             .borrow()
-            .build_overlay(single_selected_drawable)
+            .build_overlay(single_selected_drawable, self.device_pixel_ratio)
         {
             o.draw(canvas, font, bounds)?;
         }

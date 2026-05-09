@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, GLOW_STROKE_WIDTH_WIDE, Handle,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, halo_in_image_units,
     HandleId, Tool, ToolUpdateResult, Tools,
 };
 
@@ -551,6 +551,7 @@ impl Drawable for Arrow {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> Result<()> {
         let Some(end) = self.end else {
             return Ok(());
@@ -561,25 +562,27 @@ impl Drawable for Arrow {
             return Ok(());
         }
 
+        // Visible halo width outside the silhouette, in image units, scaled
+        // so the on-screen halo is halo_pad CSS pixels regardless of zoom
+        // or DPR. Shapes that use the rounded-outline overlay (8 px) extend
+        // `OUTLINE_HALF` outside their path.
+        let halo_pad = halo_in_image_units(canvas, device_pixel_ratio);
+        const OUTLINE_HALF: f32 = 4.0;
+
         let mut glow_paint = Paint::color(GLOW_COLOR);
-        glow_paint.set_line_width(GLOW_STROKE_WIDTH);
         glow_paint.set_line_cap(LineCap::Round);
         glow_paint.set_line_join(LineJoin::Round);
 
         match self.arrow_style {
             ArrowStyle::Standard => {
-                // Standard arrow's draw method strokes a wide rounded outline
-                // overlay (8 px) at the same path. Use the wider glow stroke
-                // so a halo remains visible outside the outline; the inner
-                // half is masked by the arrow's fill.
                 let direction = chord * (1.0 / length);
                 canvas.save();
                 canvas.translate(self.start.x, self.start.y);
                 canvas.rotate(direction.angle().radians);
                 let path = self.standard_path(length);
-                let mut wide = glow_paint.clone();
-                wide.set_line_width(GLOW_STROKE_WIDTH_WIDE);
-                canvas.stroke_path(&path, &wide);
+                let mut p = glow_paint.clone();
+                p.set_line_width(2.0 * (OUTLINE_HALF + halo_pad));
+                canvas.stroke_path(&path, &p);
                 canvas.restore();
             }
             ArrowStyle::Fancy => {
@@ -588,47 +591,60 @@ impl Drawable for Arrow {
                 canvas.translate(self.start.x, self.start.y);
                 canvas.rotate(direction.angle().radians);
 
-                // Trace the shaft + head outline as one combined path for a
-                // tight glow that follows the visible silhouette.
                 let head_side = self.head_side_length();
                 let half_angle = Angle::from_degrees(HEAD_ANGLE_DEG) * 0.5;
                 let head_back =
                     Vec2D::new(length, 0.0) - Vec2D::from_angle(half_angle) * head_side;
 
+                // Shaft: line of `shaft_width()` thickness — halo brush is
+                // shaft_width + 2 * halo_pad wide so the outer halo_pad shows
+                // either side once the actual shaft overdraws.
+                let mut shaft_glow = glow_paint.clone();
+                shaft_glow.set_line_width(self.shaft_width() + 2.0 * halo_pad);
                 let mut shaft = Path::new();
                 shaft.move_to(0.0, 0.0);
                 shaft.line_to(head_back.x, 0.0);
-                canvas.stroke_path(&shaft, &glow_paint);
+                canvas.stroke_path(&shaft, &shaft_glow);
 
+                // Head: filled + 8 px rounded-outline overlay → silhouette
+                // extends OUTLINE_HALF outside head_path.
+                let mut head_glow = glow_paint.clone();
+                head_glow.set_line_width(2.0 * (OUTLINE_HALF + halo_pad));
                 let mut head = Path::new();
                 head.move_to(head_back.x, -head_back.y);
                 head.line_to(length, 0.0);
                 head.line_to(head_back.x, head_back.y);
                 head.close();
-                canvas.stroke_path(&head, &glow_paint);
+                canvas.stroke_path(&head, &head_glow);
                 canvas.restore();
             }
             ArrowStyle::Curved | ArrowStyle::Double => {
                 let Some(control) = self.bezier_control(end) else {
                     return Ok(());
                 };
+                let mut shaft_glow = glow_paint.clone();
+                shaft_glow.set_line_width(self.shaft_width() + 2.0 * halo_pad);
+
                 canvas.save();
                 let mut shaft = Path::new();
                 shaft.move_to(self.start.x, self.start.y);
                 shaft.quad_to(control.x, control.y, end.x, end.y);
-                canvas.stroke_path(&shaft, &glow_paint);
+                canvas.stroke_path(&shaft, &shaft_glow);
                 canvas.restore();
+
+                let mut head_glow = glow_paint.clone();
+                head_glow.set_line_width(2.0 * (OUTLINE_HALF + halo_pad));
 
                 if self.orient_head(canvas, end, end - control) {
                     let head = self.head_path();
-                    canvas.stroke_path(&head, &glow_paint);
+                    canvas.stroke_path(&head, &head_glow);
                     canvas.restore();
                 }
                 if matches!(self.arrow_style, ArrowStyle::Double)
                     && self.orient_head(canvas, self.start, self.start - control)
                 {
                     let head = self.head_path();
-                    canvas.stroke_path(&head, &glow_paint);
+                    canvas.stroke_path(&head, &head_glow);
                     canvas.restore();
                 }
             }

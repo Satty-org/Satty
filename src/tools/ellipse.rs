@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, GLOW_STROKE_WIDTH, Handle, HandleId, Tool,
-    ToolUpdateResult, Tools, bbox_handles, bbox_resize,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    bbox_handles, bbox_resize, halo_in_image_units,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -107,27 +107,33 @@ impl Drawable for Ellipse {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
+        device_pixel_ratio: f32,
     ) -> Result<()> {
         let Some(radii) = self.radii else {
             return Ok(());
         };
         let rx = radii.x.abs();
         let ry = radii.y.abs();
-        let stroke_pad = if self.style.fill {
-            0.0
-        } else {
-            self.style
-                .size
-                .to_line_width(self.style.annotation_size_factor)
-                / 2.0
-        };
-        let inflate = stroke_pad + GLOW_STROKE_WIDTH / 2.0;
+        let halo = halo_in_image_units(canvas, device_pixel_ratio);
         canvas.save();
-        let mut path = Path::new();
-        path.ellipse(self.middle.x, self.middle.y, rx + inflate, ry + inflate);
-        let mut paint = femtovg::Paint::color(GLOW_COLOR);
-        paint.set_line_width(GLOW_STROKE_WIDTH);
-        canvas.stroke_path(&path, &paint);
+        if self.style.fill {
+            let inflate = halo / 2.0;
+            let mut path = Path::new();
+            path.ellipse(self.middle.x, self.middle.y, rx + inflate, ry + inflate);
+            let mut paint = femtovg::Paint::color(GLOW_COLOR);
+            paint.set_line_width(halo);
+            canvas.stroke_path(&path, &paint);
+        } else {
+            let line_width = self
+                .style
+                .size
+                .to_line_width(self.style.annotation_size_factor);
+            let mut path = Path::new();
+            path.ellipse(self.middle.x, self.middle.y, rx, ry);
+            let mut paint = femtovg::Paint::color(GLOW_COLOR);
+            paint.set_line_width(line_width + 2.0 * halo);
+            canvas.stroke_path(&path, &paint);
+        }
         canvas.restore();
         Ok(())
     }
