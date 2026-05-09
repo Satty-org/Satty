@@ -1066,6 +1066,38 @@ impl Component for SketchBoard {
                 set_focusable: true,
                 grab_focus: (),
 
+                // Controller order matters: GTK4 dispatches gestures in
+                // reverse-registration order, so the *last-added* gesture
+                // gets the press event first. We need GestureDrag's
+                // drag-begin to fire before GestureClick's pressed —
+                // otherwise GestureClick.pressed → MarkerTool.Click commits
+                // a marker, and the subsequent BeginDrag's hit-test picks
+                // up the just-created marker as a "click on existing
+                // shape" and auto-selects it.
+                add_controller = gtk::GestureClick {
+                    set_button: 0,
+                    connect_pressed[sender] => move |controller, n_pressed, x, y| {
+                        sender.input(SketchBoardInput::new_mouse_event(
+                            MouseEventType::Click,
+                            controller.current_button(),
+                            n_pressed,
+                            controller.current_event_state(),
+                            Vec2D::new(x as f32, y as f32),
+                            false,
+                        ));
+                    },
+                    connect_released[sender] => move |controller, n_released, x, y| {
+                        sender.input(SketchBoardInput::new_mouse_event(
+                            MouseEventType::Release,
+                            controller.current_button(),
+                            n_released,
+                            controller.current_event_state(),
+                            Vec2D::new(x as f32, y as f32),
+                            true,
+                        ));
+                    }
+                },
+
                 add_controller = gtk::GestureDrag {
                         set_button: 0,
                         connect_drag_begin[sender] => move |controller, x, y| {
@@ -1099,30 +1131,6 @@ impl Component for SketchBoard {
                                 false
                             ));
                         }
-                },
-
-                add_controller = gtk::GestureClick {
-                    set_button: 0,
-                    connect_pressed[sender] => move |controller, n_pressed, x, y| {
-                        sender.input(SketchBoardInput::new_mouse_event(
-                            MouseEventType::Click,
-                            controller.current_button(),
-                            n_pressed,
-                            controller.current_event_state(),
-                            Vec2D::new(x as f32, y as f32),
-                            false,
-                        ));
-                    },
-                    connect_released[sender] => move |controller, n_released, x, y| {
-                        sender.input(SketchBoardInput::new_mouse_event(
-                            MouseEventType::Release,
-                            controller.current_button(),
-                            n_released,
-                            controller.current_event_state(),
-                            Vec2D::new(x as f32, y as f32),
-                            true,
-                        ));
-                    }
                 },
 
                 add_controller = gtk::EventControllerScroll{
