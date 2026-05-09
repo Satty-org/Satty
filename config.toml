@@ -12,6 +12,7 @@ copy-command = "wl-copy"
 # Increase or decrease the size of the annotations
 annotation-size-factor = 2
 # Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
+# Starting with NEXTRELEASE, save as uses this as initial filename/path when available
 output-filename = "/tmp/test-%Y-%m-%d_%H:%M:%S.png"
 # After copying the screenshot, save it to a file as well
 save-after-copy = false

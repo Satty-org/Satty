@@ -385,11 +385,10 @@ impl SketchBoard {
 
                 if let Some(tilde_stripped) =
                     output_filename.strip_prefix(&format!("~{}", std::path::MAIN_SEPARATOR_STR))
+                    && let Some(mut home_dir) = std::env::home_dir()
                 {
-                    if let Some(mut home_dir) = std::env::home_dir() {
-                        home_dir.push(tilde_stripped);
-                        output_filename = home_dir.to_string_lossy().into_owned();
-                    }
+                    home_dir.push(tilde_stripped);
+                    output_filename = home_dir.to_string_lossy().into_owned();
                 }
 
                 Some(PathBuf::from(output_filename))
