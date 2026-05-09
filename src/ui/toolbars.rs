@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap};
 use crate::{
     configuration::APP_CONFIG,
     style::{Color, Size},
-    tools::Tools,
+    tools::{ArrowStyle, Tools},
 };
 
 use gtk::ToggleButton;
@@ -17,6 +17,88 @@ use relm4::{
     gtk::{Align, ColorChooserDialog, ResponseType, Window, gdk::RGBA, prelude::*},
     prelude::*,
 };
+
+/// Install a tooltip that re-shows reliably on every hover.
+///
+/// Why: GTK4's built-in tooltip system keeps a window-level "tooltip
+/// recently shown / dismissed" state that only clears when the pointer
+/// leaves the toplevel window. Toggling `has-tooltip` or returning true
+/// from `query-tooltip` doesn't reset it. So we bypass the tooltip system
+/// entirely and drive a per-widget `gtk::Popover` ourselves with motion
+/// enter/leave events — popup on enter, popdown on leave. No window-wide
+/// state to get stuck.
+trait RobustTooltipExt {
+    /// Tooltip pops downward (good for top-toolbar buttons).
+    fn install_tooltip(&self, text: &str);
+    /// Tooltip pops upward (good for bottom-toolbar buttons so it stays
+    /// inside the window).
+    fn install_tooltip_above(&self, text: &str);
+}
+
+impl<T: IsA<gtk::Widget> + Clone> RobustTooltipExt for T {
+    fn install_tooltip(&self, text: &str) {
+        attach_tooltip(self, text, gtk::PositionType::Bottom);
+    }
+    fn install_tooltip_above(&self, text: &str) {
+        attach_tooltip(self, text, gtk::PositionType::Top);
+    }
+}
+
+fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
+    widget: &W,
+    text: &str,
+    position: gtk::PositionType,
+) {
+    let label = gtk::Label::builder()
+        .label(text)
+        .margin_start(8)
+        .margin_end(8)
+        .margin_top(4)
+        .margin_bottom(4)
+        .build();
+    let popover = gtk::Popover::builder()
+        .child(&label)
+        .has_arrow(false)
+        .autohide(false)
+        .position(position)
+        .build();
+    popover.add_css_class("custom-tooltip");
+    popover.set_can_focus(false);
+    // Don't intercept hover/clicks on the underlying widget.
+    popover.set_can_target(false);
+    // Push the popover a few pixels away from the widget edge so the
+    // text isn't crammed against the toolbar.
+    let gap = 8;
+    let y_offset = match position {
+        gtk::PositionType::Bottom => gap,
+        gtk::PositionType::Top => -gap,
+        _ => 0,
+    };
+    popover.set_offset(0, y_offset);
+    popover.set_parent(widget);
+
+    let motion = gtk::EventControllerMotion::new();
+    {
+        let popover = popover.clone();
+        motion.connect_enter(move |_, _, _| {
+            popover.popup();
+        });
+    }
+    {
+        let popover = popover.clone();
+        motion.connect_leave(move |_| {
+            popover.popdown();
+        });
+    }
+    widget.add_controller(motion);
+
+    // GtkPopover::set_parent attaches the popover as a child of the
+    // widget; we have to unparent it explicitly before the parent is
+    // finalized or GTK warns on shutdown.
+    widget.connect_destroy(move |_| {
+        popover.unparent();
+    });
+}
 
 pub struct ToolsToolbar {
     visible: bool,
@@ -34,6 +116,9 @@ pub struct StyleToolbar {
     annotation_size_formatted: String,
     annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
     output_dimensions: String,
+    /// Tracks the currently-active tool so tool-specific controls (e.g. the
+    /// arrow-style dropdown) can show/hide reactively.
+    current_tool: Tools,
 }
 
 pub struct AnnotationSizeDialog {
@@ -45,6 +130,7 @@ pub enum ToolbarEvent {
     ToolSelected(Tools),
     ColorSelected(Color),
     SizeSelected(Size),
+    ArrowStyleSelected(ArrowStyle),
     Redo,
     Undo,
     SaveFile,
@@ -74,6 +160,9 @@ pub enum StyleToolbarInput {
     ShowAnnotationDialog,
     AnnotationDialogFinished(Option<f32>),
     DimensionsChanged((i32, i32)),
+    /// The active drawing tool changed; tool-specific controls re-evaluate
+    /// their visibility.
+    ToolChanged(Tools),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -122,7 +211,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "resize-large-regular",
-                set_tooltip: "1:1",
+                install_tooltip: "1:1",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
             },
             gtk::Button {
@@ -130,7 +219,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "page-fit-regular",
-                set_tooltip: "Resize",
+                install_tooltip: "Fit to window",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
             },
             gtk::Button {
@@ -138,7 +227,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "recycling-bin",
-                set_tooltip: "Reset",
+                install_tooltip: "Reset all annotations (Delete)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
             },
             gtk::Separator {},
@@ -147,7 +236,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "arrow-undo-filled",
-                set_tooltip: "Undo (Ctrl-Z)",
+                install_tooltip: "Undo (Ctrl-Z)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Undo);},
             },
             gtk::Button {
@@ -155,7 +244,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "arrow-redo-filled",
-                set_tooltip: "Redo (Ctrl-Y)",
+                install_tooltip: "Redo (Ctrl-Y)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
             },
             gtk::Separator {},
@@ -264,7 +353,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "copy-regular",
-                set_tooltip: "Copy to clipboard (Ctrl+C)",
+                install_tooltip: "Copy to clipboard (Ctrl+C)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
             },
             gtk::Button {
@@ -272,7 +361,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "save-regular",
-                set_tooltip: "Save (Ctrl+S)",
+                install_tooltip: "Save (Ctrl+S)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
 
                 set_visible: APP_CONFIG.read().output_filename().is_some()
@@ -282,7 +371,7 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "save-multiple-regular",
-                set_tooltip: "Save as (Ctrl+Shift+S)",
+                install_tooltip: "Save as (Ctrl+Shift+S)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
             },
         },
@@ -356,16 +445,19 @@ impl SimpleComponent for ToolsToolbar {
             .map(|(k, v)| (v, k))
             .collect();
 
-        // Update tooltips based on configured keybinds
+        // Update tooltips based on configured keybinds. `install_tooltip`
+        // wires a `query-tooltip` handler that re-shows on every hover —
+        // GTK4's default `tooltip-text` path can go stale after the
+        // popover is dismissed once on Wayland.
         for (tool, button) in &model.tool_buttons {
             let display_name = tool.display_name();
 
             let tooltip = if let Some(key) = tool_to_key_map.get(tool) {
-                &format!("{} ({})", display_name, key.to_uppercase())
+                format!("{} ({})", display_name, key.to_uppercase())
             } else {
-                display_name
+                display_name.to_string()
             };
-            button.set_tooltip_text(Some(tooltip));
+            button.install_tooltip(&tooltip);
         }
 
         // Set initial active button correctly
@@ -498,6 +590,7 @@ impl Component for StyleToolbar {
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
+                install_tooltip_above: "Custom color",
 
                 gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf)) {
                     #[watch]
@@ -511,7 +604,7 @@ impl Component for StyleToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "color-regular",
-                set_tooltip: "Pick custom color",
+                install_tooltip_above: "Pick custom color",
 
                 connect_clicked => StyleToolbarInput::ShowColorDialog,
             },
@@ -519,26 +612,65 @@ impl Component for StyleToolbar {
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
+                set_label: "XS",
+                install_tooltip_above: "Annotation size: X-Small",
+                ActionablePlus::set_action::<SizeAction>: Size::XSmall,
+            },
+            gtk::ToggleButton {
+                set_focusable: false,
+                set_hexpand: false,
                 set_label: "S",
-                set_tooltip: "Small size",
+                install_tooltip_above: "Annotation size: Small",
                 ActionablePlus::set_action::<SizeAction>: Size::Small,
             },
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_label: "M",
-                set_tooltip: "Medium size",
+                install_tooltip_above: "Annotation size: Medium",
                 ActionablePlus::set_action::<SizeAction>: Size::Medium,
             },
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_label: "L",
-                set_tooltip: "Large size",
+                install_tooltip_above: "Annotation size: Large",
                 ActionablePlus::set_action::<SizeAction>: Size::Large,
+            },
+            gtk::ToggleButton {
+                set_focusable: false,
+                set_hexpand: false,
+                set_label: "XL",
+                install_tooltip_above: "Annotation size: X-Large",
+                ActionablePlus::set_action::<SizeAction>: Size::XLarge,
+            },
+            gtk::ToggleButton {
+                set_focusable: false,
+                set_hexpand: false,
+                set_label: "XXL",
+                install_tooltip_above: "Annotation size: XX-Large",
+                ActionablePlus::set_action::<SizeAction>: Size::XXLarge,
+            },
+            // Arrow style dropdown — only relevant when the Arrow tool is
+            // active. Hidden otherwise so it doesn't clutter the toolbar.
+            gtk::DropDown {
+                set_focusable: false,
+                set_hexpand: false,
+                set_model: Some(&gtk::StringList::new(&["Standard", "Fancy", "Curved", "Double"])),
+                install_tooltip_above: "Arrow style",
+                set_margin_start: 4,
+                #[watch]
+                set_visible: model.current_tool == Tools::Arrow,
+                connect_selected_notify[sender] => move |dropdown| {
+                    let style = match dropdown.selected() {
+                        0 => ArrowStyle::Standard,
+                        1 => ArrowStyle::Fancy,
+                        2 => ArrowStyle::Curved,
+                        3 => ArrowStyle::Double,
+                        _ => return,
+                    };
+                    sender.output_sender().emit(ToolbarEvent::ArrowStyleSelected(style));
+                },
             },
             gtk::Label {
                 set_focusable: false,
@@ -552,7 +684,7 @@ impl Component for StyleToolbar {
 
                 #[watch]
                 set_label: &model.annotation_size_formatted,
-                set_tooltip: "Edit Annotation Size Factor",
+                install_tooltip_above: "Edit Annotation Size Factor",
 
                 connect_clicked => StyleToolbarInput::ShowAnnotationDialog
             },
@@ -565,7 +697,7 @@ impl Component for StyleToolbar {
 
                 #[watch]
                 set_text: &model.output_dimensions,
-                set_tooltip: "Output dimensions (width x height)",
+                install_tooltip_above: "Output dimensions (width x height)",
             },
             gtk::Separator {},
             gtk::Button {
@@ -577,7 +709,7 @@ impl Component for StyleToolbar {
                 } else {
                     "paint-bucket-regular"
                 },
-                set_tooltip: "Fill shape",
+                install_tooltip_above: "Fill shape",
                 connect_clicked[sender] => move |button| {
                     sender.output_sender().emit(ToolbarEvent::ToggleFill);
                     let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
@@ -641,6 +773,9 @@ impl Component for StyleToolbar {
             StyleToolbarInput::DimensionsChanged((width, height)) => {
                 self.output_dimensions = format!("{}x{}", width, height);
             }
+            StyleToolbarInput::ToolChanged(tool) => {
+                self.current_tool = tool;
+            }
         }
     }
 
@@ -663,6 +798,20 @@ impl Component for StyleToolbar {
                 .child(&create_icon(color))
                 .build();
             btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
+            // Color shortcut keys are 1..=9 then 0 for the 10th slot.
+            let shortcut = if i < 9 {
+                format!("{}", i + 1)
+            } else if i == 9 {
+                "0".to_string()
+            } else {
+                String::new()
+            };
+            let tooltip = if shortcut.is_empty() {
+                format!("Color #{}", i + 1)
+            } else {
+                format!("Color #{} ({})", i + 1, shortcut)
+            };
+            btn.install_tooltip_above(&tooltip);
             root.prepend(&btn);
         }
 
@@ -709,6 +858,7 @@ impl Component for StyleToolbar {
             ),
             annotation_dialog_controller: None,
             output_dimensions: String::new(),
+            current_tool: APP_CONFIG.read().initial_tool(),
         };
 
         // create widgets
@@ -792,7 +942,7 @@ impl Component for AnnotationSizeDialog {
                     set_can_focus: true,
                     set_hexpand: false,
 
-                    set_tooltip: "Annotation Size Factor",
+                    install_tooltip: "Annotation Size Factor",
                     set_numeric: true,
                     set_adjustment: &gtk::Adjustment::new(0.0, 0.0, 100.0, 0.01, 0.1, 0.0),
                     set_climb_rate: 0.1,
@@ -810,7 +960,7 @@ impl Component for AnnotationSizeDialog {
                     set_focusable: false,
                     set_hexpand: false,
 
-                    set_tooltip: "Reset Annotation Size Factor",
+                    install_tooltip: "Reset Annotation Size Factor",
                     set_icon_name: "edit-reset-symbolic",
                     connect_clicked[sender] => move |_| {
                         sender.input(AnnotationSizeDialogInput::Reset);
