@@ -182,6 +182,11 @@ impl Tool for ArrowTool {
 /// Apex angle of the Standard arrowhead, in degrees. ~53° gives an isoceles
 /// triangle whose length along the shaft equals its full base width.
 const HEAD_FULL_ANGLE_DEG: f32 = 53.13;
+/// Apex angle of the open V-tip used by Curved/Double arrows (path-space).
+/// the standard V-tips render at ~85° visible apex; the round line-join
+/// narrows the visible angle vs the path angle slightly. Empirically tuned
+/// to 90° to minimize per-pixel diff against the reference across all sizes.
+const CURVED_HEAD_FULL_ANGLE_DEG: f32 = 90.0;
 /// Forward slant of the back-of-head edge for Standard, expressed as a
 /// fraction of head_length. 0.0 = perpendicular cut (sharp shoulder); larger
 /// values rake the back of the head forward toward the tip.
@@ -398,13 +403,16 @@ impl Arrow {
     }
 
     /// Build an open V arrowhead path (two line segments from the tip back
-    /// to the head corners). Used by Curved/Double arrows for a slim,
-    /// open look that traces just the tip silhouette. The V is sized at
-    /// half the standard head length — Curved/Double in the reference use
-    /// noticeably smaller heads than the bulky filled Standard.
+    /// to the head corners). Used by Curved/Double arrows. Side length and
+    /// apex come from a Curved-specific calibration table + constant — the
+    /// V-tip is much wider (~85°) than the Standard filled triangle and
+    /// has its own per-size length progression.
     fn head_v_path(&self) -> Path {
-        let head_side = self.head_length() * 0.5;
-        let half_angle = Angle::from_degrees(HEAD_FULL_ANGLE_DEG) * 0.5;
+        let head_side = self
+            .style
+            .size
+            .to_arrow_curved_head_side(self.style.annotation_size_factor);
+        let half_angle = Angle::from_degrees(CURVED_HEAD_FULL_ANGLE_DEG) * 0.5;
         let back_offset = Vec2D::from_angle(half_angle) * (-head_side);
         let mut path = Path::new();
         path.move_to(back_offset.x, -back_offset.y); // top corner

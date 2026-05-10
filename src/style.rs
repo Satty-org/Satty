@@ -337,6 +337,23 @@ impl Size {
         }
     }
 
+    /// Length of each side of the open V-tip used by Curved/Double arrows
+    /// (path-space, before stroke cap widens it). The visible side length
+    /// is this value plus `to_line_width / 2` — the round cap extends the
+    /// corner outward by stroke_radius along the V direction. XSmall and
+    /// Small share the same value: below that there's a minimum head size
+    /// the V doesn't shrink past regardless of line width.
+    pub fn to_arrow_curved_head_side(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 9.0 * size_factor,
+            Size::Small => 9.0 * size_factor,
+            Size::Medium => 15.0 * size_factor,
+            Size::Large => 19.0 * size_factor,
+            Size::XLarge => 26.0 * size_factor,
+            Size::XXLarge => 40.0 * size_factor,
+        }
+    }
+
     /// Head length (along the shaft) for Fancy arrows. Exact the standard
     /// reference *head triangle* widths (standard 2026-05-09 at
     /// 11.45.11@2x.png), halved from 2× DPR (31, 44, 69, 86, 118, 179).
