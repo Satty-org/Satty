@@ -58,10 +58,17 @@
 .color-picker-popover contents {
     padding: 4px;
 }
+/* Match the standard: rounded-rectangle swatch on the MenuButton mirrors
+ * the shape of the rectangle tool's annotations (corner radius). The
+ * inner Image is clipped so the colored area itself reads as a rounded
+ * rectangle, not a square inside a button. */
+.color-picker-button image {
+    border-radius: 6px;
+}
 /* Tight swatch buttons inside the picker popover: drop the GTK button
  * chrome (focus ring, hover background, checked-state pill) so only the
- * colored square reads. The currently-selected swatch is indicated by a
- * subtle outline added on :checked. */
+ * colored square reads. The colored Image is clipped to a circle to
+ * match the standard vertical color column. */
 .color-swatch {
     padding: 2px;
     min-width: 0;
@@ -71,9 +78,28 @@
     box-shadow: none;
     outline: none;
 }
+.color-swatch image {
+    border-radius: 50%;
+}
 .color-swatch:hover {
     background: alpha(@headerbar_fg_color, 0.08);
+    border-radius: 50%;
 }
 .color-swatch:checked {
     background: alpha(@accent_color, 0.18);
+    border-radius: 50%;
+}
+/* Empty custom-color slots — dashed circle outline that visually
+ * indicates "this slot can hold a color you've saved". Inert until
+ * Phase 2 wires up "+ Add to My Colors". */
+.color-slot-empty {
+    border: 1px dashed alpha(@headerbar_fg_color, 0.35);
+    border-radius: 50%;
+}
+/* Color-wheel button at the bottom of the popover keeps a subtle
+ * background so it reads as a separate action from the swatches. */
+.color-wheel-button {
+    padding: 4px;
+    min-width: 0;
+    min-height: 0;
 }

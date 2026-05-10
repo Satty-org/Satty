@@ -170,7 +170,11 @@ impl ToolsToolbar {
 }
 
 /// Build the popover that hangs off the unified color-picker MenuButton.
-/// Lays out the palette swatches in a single row + a custom-color row.
+/// style:a vertical 2-column grid with palette colors on the
+/// left, custom-color slots on the right (mostly empty placeholders for
+/// now — Phase 2 will let users save into them), and a color-wheel icon
+/// at the bottom that opens the system color dialog as a stopgap until
+/// the full custom picker lands.
 fn build_color_popover(
     model: &ToolsToolbar,
     sender: &ComponentSender<ToolsToolbar>,
@@ -180,25 +184,24 @@ fn build_color_popover(
     popover.set_position(gtk::PositionType::Bottom);
     popover.set_has_arrow(true);
 
-    let outer = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(6)
-        .margin_start(6)
-        .margin_end(6)
-        .margin_top(6)
-        .margin_bottom(6)
+    let grid = gtk::Grid::builder()
+        .row_spacing(4)
+        .column_spacing(8)
+        .margin_start(8)
+        .margin_end(8)
+        .margin_top(8)
+        .margin_bottom(8)
         .build();
 
-    let palette_row = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(2)
-        .build();
+    // Left column: 10 palette swatches, one per row, with shortcut keys
+    // 1..9, 0 mapped to indexes 0..9.
     for (i, &color) in APP_CONFIG
         .read()
         .color_palette()
         .palette()
         .iter()
         .enumerate()
+        .take(10)
     {
         let btn = gtk::ToggleButton::builder()
             .focusable(false)
@@ -211,40 +214,47 @@ fn build_color_popover(
         btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
         let shortcut = if i < 9 {
             format!("{}", i + 1)
-        } else if i == 9 {
+        } else {
             "0".to_string()
-        } else {
-            String::new()
         };
-        let tooltip = if shortcut.is_empty() {
-            format!("Color #{}", i + 1)
-        } else {
-            format!("Color #{} ({})", i + 1, shortcut)
-        };
-        btn.set_tooltip_text(Some(&tooltip));
-        palette_row.append(&btn);
+        btn.set_tooltip_text(Some(&format!("Color {} ({})", i + 1, shortcut)));
+        grid.attach(&btn, 0, i as i32, 1, 1);
     }
-    outer.append(&palette_row);
 
-    outer.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    // Right column: 10 custom-color slot placeholders. Only the first slot
+    // is wired to the legacy custom-color action for now (so the existing
+    // GTK color-dialog flow still works); slots 2..10 are inert dashed
+    // outlines until the expanded picker lands and adds "Add to My Colors".
+    for slot in 0..10 {
+        let placeholder = if slot == 0 {
+            let btn = gtk::ToggleButton::builder()
+                .focusable(false)
+                .focus_on_click(false)
+                .hexpand(false)
+                .build();
+            btn.add_css_class("flat");
+            btn.add_css_class("color-swatch");
+            let img = gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf));
+            btn.set_child(Some(&img));
+            btn.set_action::<ColorAction>(ColorButtons::Custom);
+            btn.set_tooltip_text(Some("Custom color"));
+            btn.upcast::<gtk::Widget>()
+        } else {
+            // Empty slot — fixed-size widget with a dashed outline drawn
+            // entirely via CSS. Inert: not focusable, not clickable.
+            let placeholder = gtk::Box::builder()
+                .width_request(20)
+                .height_request(20)
+                .build();
+            placeholder.add_css_class("color-slot-empty");
+            placeholder.upcast::<gtk::Widget>()
+        };
+        grid.attach(&placeholder, 1, slot, 1, 1);
+    }
 
-    let custom_row = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(2)
-        .build();
-    let custom_toggle = gtk::ToggleButton::builder()
-        .focusable(false)
-        .focus_on_click(false)
-        .hexpand(false)
-        .build();
-    custom_toggle.add_css_class("flat");
-    custom_toggle.add_css_class("color-swatch");
-    let custom_image = gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf));
-    custom_toggle.set_child(Some(&custom_image));
-    custom_toggle.set_action::<ColorAction>(ColorButtons::Custom);
-    custom_toggle.set_tooltip_text(Some("Custom color"));
-    custom_row.append(&custom_toggle);
-
+    // Bottom row: color-wheel icon (left) + chevron (right). The chevron
+    // is reserved for the future expanded picker but visible now so the
+    // layout matches convention's UI.
     let pick_btn = gtk::Button::builder()
         .focusable(false)
         .focus_on_click(false)
@@ -252,15 +262,26 @@ fn build_color_popover(
         .icon_name("color-regular")
         .build();
     pick_btn.add_css_class("flat");
+    pick_btn.add_css_class("color-wheel-button");
     pick_btn.set_tooltip_text(Some("Pick custom color"));
     let sender_clone = sender.clone();
     pick_btn.connect_clicked(move |_| {
         sender_clone.input(ToolsToolbarInput::ShowColorDialog);
     });
-    custom_row.append(&pick_btn);
-    outer.append(&custom_row);
+    grid.attach(&pick_btn, 0, 10, 1, 1);
 
-    popover.set_child(Some(&outer));
+    let chevron = gtk::Button::builder()
+        .focusable(false)
+        .focus_on_click(false)
+        .hexpand(false)
+        .icon_name("chevron-right-regular")
+        .sensitive(false)
+        .build();
+    chevron.add_css_class("flat");
+    chevron.set_tooltip_text(Some("Expanded picker (coming soon)"));
+    grid.attach(&chevron, 1, 10, 1, 1);
+
+    popover.set_child(Some(&grid));
     popover
 }
 
@@ -521,7 +542,7 @@ impl Component for ToolsToolbar {
                 set_hexpand: false,
                 add_css_class: "color-picker-button",
                 add_css_class: "flat",
-                set_tooltip_text: Some("Color"),
+                set_tooltip_text: Some("Color (1–0 picks a palette color)"),
                 set_always_show_arrow: false,
 
                 #[wrap(Some)]
