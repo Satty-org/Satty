@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap};
 
 use crate::{
     configuration::APP_CONFIG,
@@ -22,11 +22,15 @@ use relm4::{
 ///
 /// Why: GTK4's built-in tooltip system keeps a window-level "tooltip
 /// recently shown / dismissed" state that only clears when the pointer
-/// leaves the toplevel window. Toggling `has-tooltip` or returning true
-/// from `query-tooltip` doesn't reset it. So we bypass the tooltip system
-/// entirely and drive a per-widget `gtk::Popover` ourselves with motion
-/// enter/leave events — popup on enter, popdown on leave. No window-wide
-/// state to get stuck.
+/// leaves the toplevel window. We bypass it with a per-widget
+/// `gtk::Popover` driven by motion enter/leave.
+///
+/// Why a global tracker: GTK4's `EventControllerMotion::leave` can drop
+/// when the pointer moves quickly between adjacent siblings, leaving the
+/// previous widget's tooltip stuck open. We track the currently-shown
+/// tooltip in a thread-local `RefCell` and dismiss it whenever a new
+/// tooltip's `enter` fires — so even if `leave` never arrives, the
+/// stale tooltip is forced down by the next hover.
 trait RobustTooltipExt {
     /// Tooltip pops downward (good for top-toolbar buttons).
     fn install_tooltip(&self, text: &str);
@@ -42,6 +46,35 @@ impl<T: IsA<gtk::Widget> + Clone> RobustTooltipExt for T {
     fn install_tooltip_above(&self, text: &str) {
         attach_tooltip(self, text, gtk::PositionType::Top);
     }
+}
+
+thread_local! {
+    /// The currently-shown tooltip popover, if any. Lets `show_tooltip`
+    /// dismiss the previous one even when its `leave` event was dropped.
+    static ACTIVE_TOOLTIP: RefCell<Option<gtk::Popover>> = const { RefCell::new(None) };
+}
+
+fn show_tooltip(popover: &gtk::Popover) {
+    ACTIVE_TOOLTIP.with(|active| {
+        let mut active = active.borrow_mut();
+        if let Some(prev) = active.as_ref()
+            && prev != popover
+        {
+            prev.popdown();
+        }
+        *active = Some(popover.clone());
+    });
+    popover.popup();
+}
+
+fn hide_tooltip(popover: &gtk::Popover) {
+    popover.popdown();
+    ACTIVE_TOOLTIP.with(|active| {
+        let mut active = active.borrow_mut();
+        if active.as_ref() == Some(popover) {
+            *active = None;
+        }
+    });
 }
 
 fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
@@ -64,8 +97,8 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
         .build();
     popover.add_css_class("custom-tooltip");
     popover.set_can_focus(false);
-    // Don't intercept hover/clicks on the underlying widget.
     popover.set_can_target(false);
+
     // Push the popover a few pixels away from the widget edge so the
     // text isn't crammed against the toolbar.
     let gap = 8;
@@ -81,13 +114,13 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
     {
         let popover = popover.clone();
         motion.connect_enter(move |_, _, _| {
-            popover.popup();
+            show_tooltip(&popover);
         });
     }
     {
         let popover = popover.clone();
         motion.connect_leave(move |_| {
-            popover.popdown();
+            hide_tooltip(&popover);
         });
     }
     widget.add_controller(motion);
@@ -96,6 +129,12 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
     // widget; we have to unparent it explicitly before the parent is
     // finalized or GTK warns on shutdown.
     widget.connect_destroy(move |_| {
+        ACTIVE_TOOLTIP.with(|active| {
+            let mut active = active.borrow_mut();
+            if active.as_ref() == Some(&popover) {
+                *active = None;
+            }
+        });
         popover.unparent();
     });
 }
@@ -855,7 +894,7 @@ impl Component for ToolsToolbar {
                 set_hexpand: false,
                 add_css_class: "color-picker-button",
                 add_css_class: "flat",
-                set_tooltip_text: Some("Color (1–0 picks a palette color)"),
+                install_tooltip: "Color (1–0 picks a palette color)",
                 set_always_show_arrow: false,
 
                 #[wrap(Some)]
@@ -1123,10 +1162,7 @@ impl Component for ToolsToolbar {
             .map(|(k, v)| (v, k))
             .collect();
 
-        // Update tooltips based on configured keybinds. `install_tooltip`
-        // wires a `query-tooltip` handler that re-shows on every hover —
-        // GTK4's default `tooltip-text` path can go stale after the
-        // popover is dismissed once on Wayland.
+        // Update tooltips based on configured keybinds.
         for (tool, button) in &model.tool_buttons {
             let display_name = tool.display_name();
 
@@ -1484,7 +1520,7 @@ impl Component for AnnotationSizeDialog {
                     set_can_focus: true,
                     set_hexpand: false,
 
-                    install_tooltip: "Annotation Size Factor",
+                    set_tooltip_text: Some("Annotation Size Factor"),
                     set_numeric: true,
                     set_adjustment: &gtk::Adjustment::new(0.0, 0.0, 100.0, 0.01, 0.1, 0.0),
                     set_climb_rate: 0.1,
@@ -1502,7 +1538,7 @@ impl Component for AnnotationSizeDialog {
                     set_focusable: false,
                     set_hexpand: false,
 
-                    install_tooltip: "Reset Annotation Size Factor",
+                    set_tooltip_text: Some("Reset Annotation Size Factor"),
                     set_icon_name: "edit-reset-symbolic",
                     connect_clicked[sender] => move |_| {
                         sender.input(AnnotationSizeDialogInput::Reset);
