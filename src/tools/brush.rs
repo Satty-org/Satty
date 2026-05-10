@@ -190,9 +190,14 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 }
 
-                let Some(brush) = &mut self.drawable else {
-                    return ToolUpdateResult::Unmodified;
-                };
+                // BeginDrag may fire before Click after the gesture-controller
+                // reorder, so create the drawable on demand here.
+                let brush = self.drawable.get_or_insert_with(|| BrushDrawable {
+                    start_point: None,
+                    smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
+                    points: vec![event.pos],
+                    style: self.style,
+                });
                 brush.start_point = Some(event.pos);
                 ToolUpdateResult::Redraw
             }
