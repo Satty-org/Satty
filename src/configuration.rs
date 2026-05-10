@@ -700,13 +700,21 @@ impl Default for Configuration {
 
 impl Default for ColorPalette {
     fn default() -> Self {
+        // 10-color curated palette. Order matches the keyboard
+        // shortcuts (1..9, 0) so users can pick any palette color from
+        // the keyboard without thinking.
         Self {
             palette: vec![
-                Color::orange(),
+                Color::black(),
                 Color::red(),
+                Color::orange(),
+                Color::yellow(),
                 Color::green(),
-                Color::blue(),
-                Color::cove(),
+                Color::teal(),
+                Color::royal_blue(),
+                Color::purple(),
+                Color::pink(),
+                Color::white(),
             ],
             custom: vec![],
         }

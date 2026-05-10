@@ -131,9 +131,30 @@ impl Color {
     pub fn cove() -> Self {
         Self::new(19, 15, 64, 255)
     }
-
     pub fn pink() -> Self {
         Self::new(200, 37, 184, 255)
+    }
+
+    // curated palette additions — black/white anchor each end of the
+    // 10-slot row, plus yellow/purple/royal-blue/teal fill the gaps that
+    // the older 6-color helper set was missing.
+    pub fn black() -> Self {
+        Self::new(0, 0, 0, 255)
+    }
+    pub fn white() -> Self {
+        Self::new(255, 255, 255, 255)
+    }
+    pub fn yellow() -> Self {
+        Self::new(240, 211, 47, 255)
+    }
+    pub fn teal() -> Self {
+        Self::new(34, 166, 179, 255)
+    }
+    pub fn royal_blue() -> Self {
+        Self::new(64, 128, 224, 255)
+    }
+    pub fn purple() -> Self {
+        Self::new(96, 72, 205, 255)
     }
 
     pub fn to_rgba_f64(self) -> (f64, f64, f64, f64) {
