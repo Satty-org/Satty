@@ -175,11 +175,10 @@ fn build_color_popover(
     model: &ToolsToolbar,
     sender: &ComponentSender<ToolsToolbar>,
 ) -> gtk::Popover {
-    let popover = gtk::Popover::builder()
-        .has_arrow(true)
-        .position(gtk::PositionType::Bottom)
-        .build();
+    let popover = gtk::Popover::new();
     popover.add_css_class("color-picker-popover");
+    popover.set_position(gtk::PositionType::Bottom);
+    popover.set_has_arrow(true);
 
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -219,7 +218,7 @@ fn build_color_popover(
         } else {
             format!("Color #{} ({})", i + 1, shortcut)
         };
-        btn.install_tooltip(&tooltip);
+        btn.set_tooltip_text(Some(&tooltip));
         palette_row.append(&btn);
     }
     outer.append(&palette_row);
@@ -237,7 +236,7 @@ fn build_color_popover(
     let custom_image = gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf));
     custom_toggle.set_child(Some(&custom_image));
     custom_toggle.set_action::<ColorAction>(ColorButtons::Custom);
-    custom_toggle.install_tooltip("Custom color");
+    custom_toggle.set_tooltip_text(Some("Custom color"));
     custom_row.append(&custom_toggle);
 
     let pick_btn = gtk::Button::builder()
@@ -246,7 +245,7 @@ fn build_color_popover(
         .icon_name("color-regular")
         .build();
     pick_btn.add_css_class("flat");
-    pick_btn.install_tooltip("Pick custom color");
+    pick_btn.set_tooltip_text(Some("Pick custom color"));
     let sender_clone = sender.clone();
     pick_btn.connect_clicked(move |_| {
         sender_clone.input(ToolsToolbarInput::ShowColorDialog);
@@ -502,15 +501,15 @@ impl Component for ToolsToolbar {
             // custom-color picker, mirroring a standard X's compact picker.
             #[name(color_button)]
             gtk::MenuButton {
-                set_focusable: false,
                 set_hexpand: false,
                 add_css_class: "color-picker-button",
-                install_tooltip: "Color",
+                set_tooltip_text: Some("Color"),
+                set_always_show_arrow: false,
 
                 #[wrap(Some)]
-                #[name(color_swatch)]
                 set_child = &gtk::Image {
                     set_pixel_size: 18,
+                    set_can_target: false,
                     #[watch]
                     set_from_pixbuf: Some(&model.current_color_pixbuf),
                 },
