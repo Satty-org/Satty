@@ -20,11 +20,13 @@ pub struct ZoomIndicator {
 pub enum ZoomIndicatorInput {
     SetCurrentZoom(f32),
     Emit(ZoomCommand),
+    RequestCanvasFocus,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum ZoomIndicatorOutput {
     Command(ZoomCommand),
+    FocusCanvas,
 }
 
 #[relm4::component(pub)]
@@ -39,6 +41,7 @@ impl SimpleComponent for ZoomIndicator {
             add_css_class: "zoom-indicator",
             add_css_class: "flat",
             set_focusable: false,
+            set_focus_on_click: false,
             set_halign: gtk::Align::Start,
             set_valign: gtk::Align::Center,
             set_margin_start: 8,
@@ -92,6 +95,16 @@ impl SimpleComponent for ZoomIndicator {
         popover.set_child(Some(&list));
         widgets.menu_button.set_popover(Some(&popover));
 
+        // Refocus the canvas when the popover closes so keyboard
+        // shortcuts resume working without the user having to click the
+        // canvas — mirrors the color-picker popover in toolbars.rs.
+        {
+            let sender = sender.clone();
+            popover.connect_closed(move |_| {
+                sender.input(ZoomIndicatorInput::RequestCanvasFocus);
+            });
+        }
+
         // Wire each row to send its command and dismiss the popover.
         wire_row(&zoom_in, &popover, sender.clone(), ZoomCommand::In);
         wire_row(&zoom_out, &popover, sender.clone(), ZoomCommand::Out);
@@ -108,6 +121,9 @@ impl SimpleComponent for ZoomIndicator {
             ZoomIndicatorInput::SetCurrentZoom(scale) => self.current_scale = scale,
             ZoomIndicatorInput::Emit(cmd) => {
                 let _ = sender.output(ZoomIndicatorOutput::Command(cmd));
+            }
+            ZoomIndicatorInput::RequestCanvasFocus => {
+                let _ = sender.output(ZoomIndicatorOutput::FocusCanvas);
             }
         }
     }

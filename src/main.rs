@@ -375,6 +375,7 @@ impl Component for App {
             sketch_board.sender(),
             |out| match out {
                 ZoomIndicatorOutput::Command(cmd) => SketchBoardInput::ZoomCommand(cmd),
+                ZoomIndicatorOutput::FocusCanvas => SketchBoardInput::FocusCanvas,
             },
         );
 
