@@ -223,18 +223,23 @@ impl Arrow {
         }
     }
 
-    /// Half of the head's full perpendicular height at its base. For
-    /// Standard, derived from the 53° apex angle (gives head_full_h =
-    /// head_length, i.e. 1:1 base-to-length). For Fancy, looked up per-size
-    /// from a separate table so the heads exactly match the standard
-    /// reference (which uses a per-size apex from ~53° at small sizes down
-    /// to ~51° at larger sizes — not derivable from a single constant).
+    /// Half of the head's full perpendicular height at its base. Standard
+    /// and Fancy each store their own per-size table — the standard heads
+    /// don't match a single apex angle (Standard uses ~49°, Fancy ranges
+    /// 51-53° per size). Curved/Double fall back to the 53° apex constant
+    /// for the open V-tip path.
     fn head_half_height(&self) -> f32 {
         match self.arrow_style {
             ArrowStyle::Fancy => {
                 self.style
                     .size
                     .to_arrow_fancy_head_full_height(self.style.annotation_size_factor)
+                    * 0.5
+            }
+            ArrowStyle::Standard => {
+                self.style
+                    .size
+                    .to_arrow_head_full_height(self.style.annotation_size_factor)
                     * 0.5
             }
             _ => {

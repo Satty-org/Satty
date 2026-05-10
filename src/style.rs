@@ -306,18 +306,34 @@ impl Size {
     }
 
     /// Length of the arrowhead along the shaft, from tip to back of the head
-    /// triangle. Re-measured from the new design reference (heads at
-    /// 2× DPR were 31, 42, 65, 82, 111, 167 → halved). The head is isoceles
-    /// with full base ≈ head_length (base equals length), giving a full apex
-    /// angle of ~53° (atan(0.5) * 2).
+    /// triangle. Larger sizes (L/XL/XXL) shave 1–2 px off a strict
+    /// geometric scaling to compensate for the rounded line-join's
+    /// natural backward bulge at the head's outer corner.
     pub fn to_arrow_head_length(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 15.0 * size_factor,
-            Size::Small => 21.0 * size_factor,
-            Size::Medium => 32.0 * size_factor,
-            Size::Large => 41.0 * size_factor,
-            Size::XLarge => 55.0 * size_factor,
-            Size::XXLarge => 84.0 * size_factor,
+            Size::Small => 20.0 * size_factor,
+            Size::Medium => 31.5 * size_factor,
+            Size::Large => 38.0 * size_factor,
+            Size::XLarge => 52.0 * size_factor,
+            Size::XXLarge => 78.5 * size_factor,
+        }
+    }
+
+    /// Full perpendicular head height (path-space, before rounded outline
+    /// stroke widens it). Reference visible heights (1× DPR): 15.5, 21, 32.5,
+    /// 40.5, 55, 83.5; subtract `to_arrow_tail_back_width` (the rounded stroke
+    /// adds that to the visible height). REF heads are slightly *squatter*
+    /// than the body length suggests — full apex ≈ 49°, not 53° — so we
+    /// store these per-size like Fancy does, not derive from a single angle.
+    pub fn to_arrow_head_full_height(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 14.0 * size_factor,
+            Size::Small => 18.5 * size_factor,
+            Size::Medium => 29.0 * size_factor,
+            Size::Large => 36.0 * size_factor,
+            Size::XLarge => 49.0 * size_factor,
+            Size::XXLarge => 75.0 * size_factor,
         }
     }
 
