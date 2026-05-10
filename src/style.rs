@@ -248,17 +248,15 @@ impl Size {
     }
 
     /// Visible body width where it meets the back of the arrowhead, in
-    /// logical pixels at size_factor=1.0. Re-measured from a design
-    /// reference at 2× DPR; values
-    /// are 6, 8, 12, 15, 20, 30 — the same as the user-confirmed targets.
+    /// logical pixels at size_factor=1.0.
     pub fn to_arrow_tail_width(self, size_factor: f32) -> f32 {
         match self {
-            Size::XSmall => 6.0 * size_factor,
-            Size::Small => 8.0 * size_factor,
-            Size::Medium => 12.0 * size_factor,
-            Size::Large => 15.0 * size_factor,
-            Size::XLarge => 20.0 * size_factor,
-            Size::XXLarge => 30.0 * size_factor,
+            Size::XSmall => 5.5 * size_factor,
+            Size::Small => 7.0 * size_factor,
+            Size::Medium => 11.5 * size_factor,
+            Size::Large => 14.5 * size_factor,
+            Size::XLarge => 19.5 * size_factor,
+            Size::XXLarge => 29.5 * size_factor,
         }
     }
 
@@ -299,11 +297,11 @@ impl Size {
     pub fn to_arrow_tail_back_width(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 1.5 * size_factor,
-            Size::Small => 3.0 * size_factor,
-            Size::Medium => 4.0 * size_factor,
-            Size::Large => 5.0 * size_factor,
-            Size::XLarge => 6.5 * size_factor,
-            Size::XXLarge => 9.5 * size_factor,
+            Size::Small => 2.5 * size_factor,
+            Size::Medium => 3.5 * size_factor,
+            Size::Large => 4.5 * size_factor,
+            Size::XLarge => 6.0 * size_factor,
+            Size::XXLarge => 8.5 * size_factor,
         }
     }
 
