@@ -32,6 +32,7 @@ mod ime;
 mod math;
 mod notification;
 mod sketch_board;
+mod state;
 mod style;
 mod tools;
 mod ui;

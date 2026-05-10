@@ -607,6 +607,7 @@ impl Component for ToolsToolbar {
                 self.color_action.change_state(&button.to_variant());
                 self.current_color = color;
                 self.current_color_pixbuf = create_icon_pixbuf(color);
+                crate::state::save_last_color(color);
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
@@ -622,6 +623,7 @@ impl Component for ToolsToolbar {
                         .change_state(&ColorButtons::Custom.to_variant());
                     self.current_color = color;
                     self.current_color_pixbuf = create_icon_pixbuf(color);
+                    crate::state::save_last_color(color);
                     sender
                         .output_sender()
                         .emit(ToolbarEvent::ColorSelected(color));
@@ -647,33 +649,56 @@ impl Component for ToolsToolbar {
             },
         );
 
+        // Resolve the starting color: persisted last-color from the XDG
+        // state file wins; otherwise fall back to the palette's red entry
+        // (or `Color::red()` directly if the user removed it). Black is
+        // intentionally not the default — the prior `palette.first()`
+        // behavior gave the wrong impression that black was the chosen
+        // annotation color on every launch.
+        let palette: Vec<Color> = APP_CONFIG
+            .read()
+            .color_palette()
+            .palette()
+            .to_vec();
+        let saved_last_color = crate::state::load_last_color();
+        let initial_color = saved_last_color.unwrap_or_else(|| {
+            palette
+                .iter()
+                .copied()
+                .find(|c| *c == Color::red())
+                .unwrap_or_else(Color::red)
+        });
+        let initial_button = palette
+            .iter()
+            .position(|c| *c == initial_color)
+            .map(|i| ColorButtons::Palette(i as u64))
+            .unwrap_or(ColorButtons::Custom);
+        let custom_color = if matches!(initial_button, ColorButtons::Custom) {
+            initial_color
+        } else {
+            APP_CONFIG
+                .read()
+                .color_palette()
+                .custom()
+                .first()
+                .copied()
+                .unwrap_or(Color::red())
+        };
+        let custom_color_pixbuf = create_icon_pixbuf(custom_color);
+        let initial_color_pixbuf = create_icon_pixbuf(initial_color);
+
         // Color action — palette-or-Custom enum, tracks current selection
         // and routes through `ColorButtonSelected` so the swatch updates.
+        // Initial state matches `initial_button` so the popover's
+        // ":checked" highlight lands on the restored color on first open.
         let sender_tmp = sender.clone();
         let color_action: RelmAction<ColorAction> = RelmAction::new_stateful_with_target_value(
-            &ColorButtons::Palette(0),
+            &initial_button,
             move |_, state, value| {
                 *state = value;
                 sender_tmp.input(ToolsToolbarInput::ColorButtonSelected(value));
             },
         );
-
-        let custom_color = APP_CONFIG
-            .read()
-            .color_palette()
-            .custom()
-            .first()
-            .copied()
-            .unwrap_or(Color::red());
-        let custom_color_pixbuf = create_icon_pixbuf(custom_color);
-        let initial_color = APP_CONFIG
-            .read()
-            .color_palette()
-            .palette()
-            .first()
-            .copied()
-            .unwrap_or(Color::red());
-        let initial_color_pixbuf = create_icon_pixbuf(initial_color);
 
         let mut model = ToolsToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
