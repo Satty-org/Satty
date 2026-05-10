@@ -232,7 +232,9 @@ impl Tool for BrushTool {
                 if event.button != MouseButton::Primary {
                     return ToolUpdateResult::Unmodified;
                 }
-                self.drawable = Some(BrushDrawable {
+                // BeginDrag fires before Click and may have already created
+                // the drawable + set start_point — don't overwrite it.
+                self.drawable.get_or_insert_with(|| BrushDrawable {
                     start_point: None,
                     smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
                     points: vec![event.pos],
