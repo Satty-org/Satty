@@ -347,6 +347,86 @@ fn build_color_popover(
     popover
 }
 
+thread_local! {
+    /// One shared tooltip popover used for every swatch in the picker.
+    /// Parented lazily to the top-level window (NOT to a widget inside
+    /// the picker popover) so it lives in its own Wayland surface,
+    /// outside the picker — sidestepping the deadlocks we hit with
+    /// per-swatch install_tooltip popovers inside the picker.
+    static FLOATING_SWATCH_TIP: RefCell<Option<(gtk::Popover, gtk::Label)>> =
+        const { RefCell::new(None) };
+}
+
+fn ensure_floating_swatch_tip(near: &gtk::Widget) -> (gtk::Popover, gtk::Label) {
+    FLOATING_SWATCH_TIP.with(|cell| {
+        if let Some(pair) = cell.borrow().as_ref() {
+            return pair.clone();
+        }
+        // Walk up to the top-level window and parent the shared
+        // popover there. Any descendant widget shares the same root.
+        let window = near
+            .root()
+            .expect("swatch widget should be parented before hover");
+        let label = gtk::Label::builder()
+            .margin_start(8)
+            .margin_end(8)
+            .margin_top(4)
+            .margin_bottom(4)
+            .build();
+        let popover = gtk::Popover::builder()
+            .child(&label)
+            .has_arrow(false)
+            .autohide(false)
+            .position(gtk::PositionType::Top)
+            .build();
+        popover.add_css_class("custom-tooltip");
+        popover.set_can_focus(false);
+        popover.set_can_target(false);
+        popover.set_offset(0, -6);
+        popover.set_parent(&window);
+        *cell.borrow_mut() = Some((popover.clone(), label.clone()));
+        (popover, label)
+    })
+}
+
+/// Attach a custom floating tooltip to a swatch inside the picker
+/// popover. Uses ONE shared popover parented to the top-level window,
+/// repositioned via `set_pointing_to` with the swatch's bounds in
+/// window coordinates. Because the tooltip popover lives outside the
+/// picker, the popover-in-popover deadlock doesn't apply.
+fn attach_floating_swatch_tooltip(target: &impl IsA<gtk::Widget>, text: &str) {
+    let target_widget = target.clone().upcast::<gtk::Widget>();
+    let motion = gtk::EventControllerMotion::new();
+    let text = text.to_string();
+    let target_enter = target_widget.clone();
+    motion.connect_enter(move |_, _, _| {
+        let window = target_enter
+            .root()
+            .expect("swatch widget should be parented");
+        let (popover, label) = ensure_floating_swatch_tip(&target_enter);
+        label.set_label(&text);
+        if let Some(bounds) = target_enter.compute_bounds(&window) {
+            let rect = gtk::gdk::Rectangle::new(
+                bounds.x() as i32,
+                bounds.y() as i32,
+                bounds.width() as i32,
+                bounds.height() as i32,
+            );
+            popover.set_pointing_to(Some(&rect));
+        }
+        popover.popup();
+    });
+    let target_leave = target_widget.clone();
+    motion.connect_leave(move |_| {
+        if let Some(pair) = FLOATING_SWATCH_TIP.with(|c| c.borrow().clone()) {
+            let _ = &target_leave;
+            pair.0.popdown();
+        }
+    });
+    target_widget.add_controller(motion);
+}
+
+
 /// Build the grid that lives inside the picker popover. Separated from
 /// `build_color_popover` so the contents can be regenerated when the
 /// user appends a new saved custom color — see
@@ -364,6 +444,10 @@ fn build_color_popover_grid(
         .margin_top(8)
         .margin_bottom(8)
         .build();
+
+    // Per-swatch tooltips are attached via `attach_floating_swatch_tooltip`
+    // below. See its docstring for why we use a custom shared popover
+    // parented to the top-level window rather than GTK's tooltip system.
 
     // Left column: 10 palette swatches, one per row, with shortcut
     // keys 1..9, 0 mapped to indexes 0..9.
@@ -393,7 +477,7 @@ fn build_color_popover_grid(
             .name()
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("Color {}", i + 1));
-        btn.set_tooltip_text(Some(&format!("{name} ({shortcut})")));
+        attach_floating_swatch_tooltip(&btn, &format!("{name} ({shortcut})"));
         grid.attach(&btn, 0, i as i32, 1, 1);
     }
 
@@ -412,11 +496,19 @@ fn build_color_popover_grid(
         let col_idx = slot / SLOTS_PER_COLUMN;
         let row_idx = slot % SLOTS_PER_COLUMN;
         let grid_col = (1 + col_idx) as i32;
-        let widget: gtk::Widget = if let Some(color) = saved.get(slot).copied() {
-            build_saved_custom_swatch(color, slot, sender)
+        let (widget, tooltip) = if let Some(color) = saved.get(slot).copied() {
+            let w = build_saved_custom_swatch(color, slot, sender);
+            let t = match color.name() {
+                Some(name) => format!("{name} (saved {})", slot + 1),
+                None => format!("Saved color {}", slot + 1),
+            };
+            (w, Some(t))
         } else {
-            build_dashed_placeholder()
+            (build_dashed_placeholder(), None)
         };
+        if let Some(t) = tooltip {
+            attach_floating_swatch_tooltip(&widget, &t);
+        }
         // Every slot — filled or empty — is a drop target so the
         // user can drag-rearrange or push a swatch off the end.
         attach_reorder_drop_target(&widget, slot, sender);
@@ -438,7 +530,7 @@ fn build_color_popover_grid(
         .build();
     pick_btn.add_css_class("flat");
     pick_btn.add_css_class("color-wheel-button");
-    pick_btn.set_tooltip_text(Some("Pick custom color"));
+    attach_floating_swatch_tooltip(&pick_btn, "Pick custom color");
     let sender_clone = sender.clone();
     let popover_clone = popover.clone();
     pick_btn.connect_clicked(move |_| {
@@ -613,11 +705,9 @@ fn build_saved_custom_swatch(
     btn.add_css_class("flat");
     btn.add_css_class("color-swatch");
     btn.set_action::<ColorAction>(ColorButtons::CustomSaved(slot as u64));
-    let tooltip = match color.name() {
-        Some(name) => format!("{name} (saved {})", slot + 1),
-        None => format!("Saved color {}", slot + 1),
-    };
-    btn.set_tooltip_text(Some(&tooltip));
+    // Tooltip is attached by the caller via
+    // `attach_floating_swatch_tooltip` — one shared popover for all
+    // swatches in the grid.
 
     // DragSource — the payload is the source slot index. GTK only
     // starts a drag once the pointer crosses the motion threshold, so
