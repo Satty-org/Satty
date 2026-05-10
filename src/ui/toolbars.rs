@@ -235,16 +235,26 @@ fn build_color_popover(
             btn.add_css_class("flat");
             btn.add_css_class("color-swatch");
             let img = gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf));
+            img.set_pixel_size(SWATCH_DISPLAY_SIZE);
             btn.set_child(Some(&img));
             btn.set_action::<ColorAction>(ColorButtons::Custom);
             btn.set_tooltip_text(Some("Custom color"));
             btn.upcast::<gtk::Widget>()
         } else {
-            // Empty slot — fixed-size widget with a dashed outline drawn
-            // entirely via CSS. Inert: not focusable, not clickable.
+            // Empty slot — fixed-size widget with a dashed outline
+            // drawn entirely via CSS. Inert: not focusable, not
+            // clickable. `hexpand/vexpand = false` plus center
+            // alignment pins the Box to its requested
+            // `SWATCH_DISPLAY_SIZE` even when the grid column is
+            // stretched wider by the pick/chevron footer buttons —
+            // otherwise an empty `Box` inflates to fill the cell.
             let placeholder = gtk::Box::builder()
-                .width_request(20)
-                .height_request(20)
+                .width_request(SWATCH_DISPLAY_SIZE)
+                .height_request(SWATCH_DISPLAY_SIZE)
+                .hexpand(false)
+                .vexpand(false)
+                .halign(gtk::Align::Center)
+                .valign(gtk::Align::Center)
                 .build();
             placeholder.add_css_class("color-slot-empty");
             placeholder.upcast::<gtk::Widget>()
@@ -363,13 +373,62 @@ pub enum AnnotationSizeDialogOutput {
     AnnotationSizeSubmitted(f32),
 }
 
+/// Source pixbuf size for swatch icons. Rendered down via
+/// `gtk::Image::set_pixel_size` at the call site — we keep the source
+/// large so the cairo-drawn rounded corners stay smooth on hi-dpi.
+const SWATCH_PIXBUF_SIZE: i32 = 40;
+/// Corner radius in pixbuf pixels. Tuned with `SWATCH_PIXBUF_SIZE` so
+/// the displayed swatch matches `.color-slot-empty`'s 4px CSS radius
+/// once scaled to its on-screen size (~20px).
+const SWATCH_PIXBUF_RADIUS: f64 = 8.0;
+
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
-    let pixbuf = Pixbuf::new(relm4::gtk::gdk_pixbuf::Colorspace::Rgb, false, 8, 40, 40).unwrap();
-    pixbuf.fill(color.to_rgba_u32());
-    pixbuf
+    // GTK4's CSS `border-radius` doesn't clip a `GtkImage`'s pixbuf —
+    // it only rounds the widget's own background/border. So we bake the
+    // rounded rectangle directly into the pixbuf via cairo: transparent
+    // corners, solid color elsewhere. That way both the popover swatch
+    // and the always-visible MenuButton swatch render as the same
+    // rounded square shape as the dashed placeholder slots.
+    use relm4::gtk::cairo;
+    use relm4::gtk::gdk;
+
+    let size = SWATCH_PIXBUF_SIZE;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, size, size)
+        .expect("create swatch cairo surface");
+    let ctx = cairo::Context::new(&surface).expect("create swatch cairo context");
+
+    let w = size as f64;
+    let h = size as f64;
+    let r = SWATCH_PIXBUF_RADIUS;
+    let pi = std::f64::consts::PI;
+    ctx.new_sub_path();
+    ctx.arc(w - r, r, r, -pi / 2.0, 0.0);
+    ctx.arc(w - r, h - r, r, 0.0, pi / 2.0);
+    ctx.arc(r, h - r, r, pi / 2.0, pi);
+    ctx.arc(r, r, r, pi, 3.0 * pi / 2.0);
+    ctx.close_path();
+
+    ctx.set_source_rgba(
+        color.r as f64 / 255.0,
+        color.g as f64 / 255.0,
+        color.b as f64 / 255.0,
+        color.a as f64 / 255.0,
+    );
+    ctx.fill().expect("fill swatch");
+    drop(ctx);
+
+    gdk::pixbuf_get_from_surface(&surface, 0, 0, size, size).expect("swatch surface → pixbuf")
 }
+
+/// Displayed size for popover swatches and placeholders — chosen so
+/// the dashed `.color-slot-empty` boxes line up with the filled
+/// swatch buttons on the left column.
+const SWATCH_DISPLAY_SIZE: i32 = 20;
+
 fn create_icon(color: Color) -> gtk::Image {
-    gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
+    let img = gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)));
+    img.set_pixel_size(SWATCH_DISPLAY_SIZE);
+    img
 }
 
 #[relm4::component(pub)]
