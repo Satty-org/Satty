@@ -247,25 +247,111 @@ impl Size {
         }
     }
 
+    /// Visible body width where it meets the back of the arrowhead, in
+    /// logical pixels at size_factor=1.0. Re-measured from a design
+    /// reference at 2× DPR; values
+    /// are 6, 8, 12, 15, 20, 30 — the same as the user-confirmed targets.
     pub fn to_arrow_tail_width(self, size_factor: f32) -> f32 {
         match self {
-            Size::XSmall => 1.0 * size_factor,
-            Size::Small => 3.0 * size_factor,
-            Size::Medium => 10.0 * size_factor,
-            Size::Large => 22.0 * size_factor,
-            Size::XLarge => 38.0 * size_factor,
-            Size::XXLarge => 60.0 * size_factor,
+            Size::XSmall => 6.0 * size_factor,
+            Size::Small => 8.0 * size_factor,
+            Size::Medium => 12.0 * size_factor,
+            Size::Large => 15.0 * size_factor,
+            Size::XLarge => 20.0 * size_factor,
+            Size::XXLarge => 30.0 * size_factor,
         }
     }
 
-    pub fn to_arrow_head_length(self, size_factor: f32) -> f32 {
+    /// Visible body width at the head intersection for the Fancy arrow style.
+    /// Matches a reference exactly
+    /// (3-run-zone middle-run widths halved from 2× DPR).
+    pub fn to_arrow_fancy_tail_width(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 8.0 * size_factor,
-            Size::Small => 16.0 * size_factor,
-            Size::Medium => 30.0 * size_factor,
-            Size::Large => 50.0 * size_factor,
-            Size::XLarge => 80.0 * size_factor,
-            Size::XXLarge => 120.0 * size_factor,
+            Size::Small => 10.0 * size_factor,
+            Size::Medium => 16.0 * size_factor,
+            Size::Large => 20.0 * size_factor,
+            Size::XLarge => 27.0 * size_factor,
+            Size::XXLarge => 41.0 * size_factor,
+        }
+    }
+
+    /// Flat-edge thickness of the Fancy arrow's tail back, in 1× logical px.
+    /// the standard fancy arrows do not taper to a perfect needle — there is
+    /// a thin finite back edge that scales with size. Calibrated against the
+    /// reference using a screen pixel ruler; the smaller sizes were a touch
+    /// too thin in the first pass (target ruler readings: 2.5, 2.5, 3.5, 4,
+    /// 4.5, 6.5 at 2× DPR), so XS/S/M were nudged up to match.
+    pub fn to_arrow_fancy_tail_back_width(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 1.5 * size_factor,
+            Size::Small => 1.5 * size_factor,
+            Size::Medium => 1.75 * size_factor,
+            Size::Large => 2.0 * size_factor,
+            Size::XLarge => 2.5 * size_factor,
+            Size::XXLarge => 3.5 * size_factor,
+        }
+    }
+
+    /// Diameter of the arrow tail's rounded back cap (visible). Sized so
+    /// the body taper rate scales with the arrow size — larger sizes get
+    /// a steeper taper, smaller sizes stay nearly parallel.
+    pub fn to_arrow_tail_back_width(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 1.5 * size_factor,
+            Size::Small => 3.0 * size_factor,
+            Size::Medium => 4.0 * size_factor,
+            Size::Large => 5.0 * size_factor,
+            Size::XLarge => 6.5 * size_factor,
+            Size::XXLarge => 9.5 * size_factor,
+        }
+    }
+
+    /// Length of the arrowhead along the shaft, from tip to back of the head
+    /// triangle. Re-measured from the new design reference (heads at
+    /// 2× DPR were 31, 42, 65, 82, 111, 167 → halved). The head is isoceles
+    /// with full base ≈ head_length (base equals length), giving a full apex
+    /// angle of ~53° (atan(0.5) * 2).
+    pub fn to_arrow_head_length(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 15.0 * size_factor,
+            Size::Small => 21.0 * size_factor,
+            Size::Medium => 32.0 * size_factor,
+            Size::Large => 41.0 * size_factor,
+            Size::XLarge => 55.0 * size_factor,
+            Size::XXLarge => 84.0 * size_factor,
+        }
+    }
+
+    /// Head length (along the shaft) for Fancy arrows. Exact the standard
+    /// reference *head triangle* widths (standard 2026-05-09 at
+    /// 11.45.11@2x.png), halved from 2× DPR (31, 44, 69, 86, 118, 179).
+    /// Excludes the reference's swept-back ear, which is a separate feature
+    /// we don't model.
+    pub fn to_arrow_fancy_head_length(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 15.5 * size_factor,
+            Size::Small => 22.0 * size_factor,
+            Size::Medium => 34.5 * size_factor,
+            Size::Large => 43.0 * size_factor,
+            Size::XLarge => 59.0 * size_factor,
+            Size::XXLarge => 89.5 * size_factor,
+        }
+    }
+
+    /// Full perpendicular head height for Fancy. Stored independently of
+    /// `to_arrow_fancy_head_length` because standard uses a per-size apex:
+    /// nearly 1:1 (apex ≈ 53°) at XSmall/Small, squatter (apex ≈ 51°) at
+    /// larger sizes. Exact reference values halved from 2× DPR (31, 44, 66,
+    /// 83, 113, 171).
+    pub fn to_arrow_fancy_head_full_height(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 15.5 * size_factor,
+            Size::Small => 22.0 * size_factor,
+            Size::Medium => 33.0 * size_factor,
+            Size::Large => 41.5 * size_factor,
+            Size::XLarge => 56.5 * size_factor,
+            Size::XXLarge => 85.5 * size_factor,
         }
     }
 
