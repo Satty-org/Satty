@@ -157,6 +157,40 @@ impl Color {
         Self::new(96, 72, 205, 255)
     }
 
+    /// Plain-english name for the built-in palette colors. Returns
+    /// `None` for arbitrary user picks. Used by the popover tooltip
+    /// so common swatches read "Red (2)" instead of "Color 2 (2)".
+    pub fn name(self) -> Option<&'static str> {
+        // Match by exact RGBA — covers user-customized palettes that
+        // happen to include any of the built-in colors and stays
+        // robust to palette reordering.
+        if self == Self::black() {
+            Some("Black")
+        } else if self == Self::red() {
+            Some("Red")
+        } else if self == Self::orange() {
+            Some("Orange")
+        } else if self == Self::yellow() {
+            Some("Yellow")
+        } else if self == Self::green() {
+            Some("Green")
+        } else if self == Self::teal() {
+            Some("Teal")
+        } else if self == Self::royal_blue() || self == Self::blue() {
+            Some("Blue")
+        } else if self == Self::purple() {
+            Some("Purple")
+        } else if self == Self::pink() {
+            Some("Pink")
+        } else if self == Self::white() {
+            Some("White")
+        } else if self == Self::cove() {
+            Some("Cove")
+        } else {
+            None
+        }
+    }
+
     pub fn to_rgba_f64(self) -> (f64, f64, f64, f64) {
         (
             (self.r as f64) / 255.0,
