@@ -91,14 +91,8 @@ impl Drawable for Line {
             return Vec::new();
         };
         vec![
-            Handle {
-                id: HandleId::Start,
-                pos: self.start,
-            },
-            Handle {
-                id: HandleId::End,
-                pos: self.start + dir,
-            },
+            Handle::new(HandleId::Start, self.start),
+            Handle::new(HandleId::End, self.start + dir),
         ]
     }
 

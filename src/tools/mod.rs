@@ -322,6 +322,25 @@ pub const HALO_PAD: f32 = 4.0;
 pub struct Handle {
     pub id: HandleId,
     pub pos: Vec2D,
+    /// Hit-test radius in image units. Defaults to `HANDLE_HIT_RADIUS`;
+    /// drawables can opt into a bigger target (e.g. Curved/Double arrows
+    /// where the midpoint handle sits on a wide shaft) via `with_hit_radius`.
+    pub hit_radius: f32,
+}
+
+impl Handle {
+    pub fn new(id: HandleId, pos: Vec2D) -> Self {
+        Self {
+            id,
+            pos,
+            hit_radius: pointer::HANDLE_HIT_RADIUS,
+        }
+    }
+
+    pub fn with_hit_radius(mut self, r: f32) -> Self {
+        self.hit_radius = r;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -352,38 +371,14 @@ pub fn bbox_handles(rect: Rect) -> Vec<Handle> {
     let br = rect.bottom_right();
     let center = rect.center();
     vec![
-        Handle {
-            id: HandleId::TopLeft,
-            pos: tl,
-        },
-        Handle {
-            id: HandleId::TopRight,
-            pos: tr,
-        },
-        Handle {
-            id: HandleId::BottomLeft,
-            pos: bl,
-        },
-        Handle {
-            id: HandleId::BottomRight,
-            pos: br,
-        },
-        Handle {
-            id: HandleId::Top,
-            pos: Vec2D::new(center.x, tl.y),
-        },
-        Handle {
-            id: HandleId::Bottom,
-            pos: Vec2D::new(center.x, br.y),
-        },
-        Handle {
-            id: HandleId::Left,
-            pos: Vec2D::new(tl.x, center.y),
-        },
-        Handle {
-            id: HandleId::Right,
-            pos: Vec2D::new(br.x, center.y),
-        },
+        Handle::new(HandleId::TopLeft, tl),
+        Handle::new(HandleId::TopRight, tr),
+        Handle::new(HandleId::BottomLeft, bl),
+        Handle::new(HandleId::BottomRight, br),
+        Handle::new(HandleId::Top, Vec2D::new(center.x, tl.y)),
+        Handle::new(HandleId::Bottom, Vec2D::new(center.x, br.y)),
+        Handle::new(HandleId::Left, Vec2D::new(tl.x, center.y)),
+        Handle::new(HandleId::Right, Vec2D::new(br.x, center.y)),
     ]
 }
 

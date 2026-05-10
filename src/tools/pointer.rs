@@ -170,7 +170,7 @@ impl PointerTool {
         let hit = drawable
             .handles()
             .into_iter()
-            .find(|h| h.pos.distance_to(&point) <= HANDLE_HIT_RADIUS)?;
+            .find(|h| h.pos.distance_to(&point) <= h.hit_radius)?;
         Some((id, drawable, hit))
     }
 }

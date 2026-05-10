@@ -994,7 +994,7 @@ impl SketchBoard {
             && let Some(drawable) = self.renderer.clone_drawable(id)
         {
             for h in drawable.handles() {
-                if h.pos.distance_to(&image_pos) <= crate::tools::HANDLE_HIT_RADIUS {
+                if h.pos.distance_to(&image_pos) <= h.hit_radius {
                     cursor = Some(cursor_for_handle(h.id));
                     break;
                 }

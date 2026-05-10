@@ -643,29 +643,29 @@ impl Drawable for Arrow {
         let Some(end) = self.end else {
             return Vec::new();
         };
+        // Curved/Double arrows get bigger hit targets on all three handles —
+        // their shafts are wide and the midpoint sits on the visible shaft,
+        // so the default 12 px radius is hard to grab without precision.
+        let curved = matches!(self.arrow_style, ArrowStyle::Curved | ArrowStyle::Double);
+        let radius = if curved {
+            crate::tools::HANDLE_HIT_RADIUS * 2.0
+        } else {
+            crate::tools::HANDLE_HIT_RADIUS
+        };
         let mut handles = vec![
-            Handle {
-                id: HandleId::Start,
-                pos: self.start,
-            },
-            Handle {
-                id: HandleId::End,
-                pos: end,
-            },
+            Handle::new(HandleId::Start, self.start).with_hit_radius(radius),
+            Handle::new(HandleId::End, end).with_hit_radius(radius),
         ];
         // Curved / Double arrows expose a third middle handle so the user
         // can bend the arc. The handle sits *on the curve* (at t=0.5)
         // rather than on the off-curve Bezier control point so it tracks
         // the visible shaft.
-        if matches!(self.arrow_style, ArrowStyle::Curved | ArrowStyle::Double)
+        if curved
             && let Some(c) = self.bezier_control(end)
         {
             // B(0.5) for a quadratic Bezier with control C = 0.25 S + 0.5 C + 0.25 E.
             let midpoint = self.start * 0.25 + c * 0.5 + end * 0.25;
-            handles.push(Handle {
-                id: HandleId::Control,
-                pos: midpoint,
-            });
+            handles.push(Handle::new(HandleId::Control, midpoint).with_hit_radius(radius));
         }
         handles
     }
