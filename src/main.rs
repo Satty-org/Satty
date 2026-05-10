@@ -22,6 +22,7 @@ use satty_cli::command_line::{Fullscreen, Resize};
 
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
+use ui::zoom_indicator::{ZoomIndicator, ZoomIndicatorInput, ZoomIndicatorOutput};
 use xdg::BaseDirectories;
 
 mod configuration;
@@ -58,6 +59,7 @@ struct App {
     sketch_board: Controller<SketchBoard>,
     tools_toolbar: Controller<ToolsToolbar>,
     style_toolbar: Controller<StyleToolbar>,
+    zoom_indicator: Controller<ZoomIndicator>,
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
 }
@@ -72,6 +74,9 @@ enum AppInput {
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
+    /// Renderer reports a new effective scale; forwarded to the
+    /// zoom-indicator widget so its label stays in sync with scroll-zoom.
+    ZoomChanged(f32),
 }
 
 #[derive(Debug)]
@@ -294,6 +299,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::DimensionsChanged(d));
             }
+            AppInput::ZoomChanged(scale) => {
+                self.zoom_indicator
+                    .sender()
+                    .emit(ZoomIndicatorInput::SetCurrentZoom(scale));
+            }
         }
     }
 
@@ -331,6 +341,7 @@ impl Component for App {
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
                     }
+                    SketchBoardOutput::ZoomChanged(scale) => AppInput::ZoomChanged(scale),
                 });
 
         // Toolbars
@@ -342,16 +353,29 @@ impl Component for App {
             .launch(())
             .forward(sketch_board.sender(), SketchBoardInput::ToolbarEvent);
 
+        let zoom_indicator = ZoomIndicator::builder().launch(1.0).forward(
+            sketch_board.sender(),
+            |out| match out {
+                ZoomIndicatorOutput::Command(cmd) => SketchBoardInput::ZoomCommand(cmd),
+            },
+        );
+
         let outer_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let outer_box_clone = outer_box.clone();
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
+
+        // Mount the zoom indicator as an overlay child positioned in the
+        // lower-left of the canvas. Does not capture pointer events outside
+        // its own widget so drawing on the canvas underneath still works.
+        overlay.add_overlay(zoom_indicator.widget());
 
         // Model
         let model = App {
             sketch_board,
             tools_toolbar,
             style_toolbar,
+            zoom_indicator,
             image_dimensions,
             outer_box,
             overlay,

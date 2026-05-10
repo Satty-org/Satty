@@ -39,6 +39,10 @@ pub struct FemtoVGArea {
     inner: RefCell<Option<FemtoVgAreaMut>>,
     request_render: RefCell<Option<Vec<Action>>>,
     sender: RefCell<Option<Sender<SketchBoardInput>>>,
+    /// Last `scale_factor` we emitted to the parent so we can suppress
+    /// redundant `ZoomDisplayChanged` notifications during steady-state
+    /// frame rendering.
+    last_emitted_scale: RefCell<f32>,
 }
 
 pub struct FemtoVgAreaMut {
@@ -116,12 +120,16 @@ impl GLAreaImpl for FemtoVGArea {
         );
 
         // update scale factor
-        let mut inner_ref = self.inner();
-        let inner = inner_ref
-            .as_mut()
-            .expect("Did you call init before using FemtoVgArea?");
-        inner.device_pixel_ratio = dpr;
-        inner.update_transformation(canvas);
+        let scale_factor = {
+            let mut inner_ref = self.inner();
+            let inner = inner_ref
+                .as_mut()
+                .expect("Did you call init before using FemtoVgArea?");
+            inner.device_pixel_ratio = dpr;
+            inner.update_transformation(canvas);
+            inner.scale_factor
+        };
+        self.notify_zoom_display(scale_factor);
     }
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
         self.ensure_canvas();
@@ -169,6 +177,19 @@ impl GLAreaImpl for FemtoVGArea {
     }
 }
 impl FemtoVGArea {
+    /// Forward a `ZoomDisplayChanged` event to the parent component when
+    /// the rendered scale factor changes. Idempotent: skips emission when
+    /// the value matches what we sent last time.
+    fn notify_zoom_display(&self, scale_factor: f32) {
+        let mut last = self.last_emitted_scale.borrow_mut();
+        if (*last - scale_factor).abs() > 0.0005 {
+            *last = scale_factor;
+            if let Some(sender) = self.sender.borrow().as_ref() {
+                sender.emit(SketchBoardInput::ZoomDisplayChanged(scale_factor));
+            }
+        }
+    }
+
     pub fn init(
         &self,
         sender: Sender<SketchBoardInput>,

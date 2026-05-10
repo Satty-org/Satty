@@ -44,7 +44,25 @@ pub enum SketchBoardInput {
     Refresh,
     Exit,
     ScaleFactorChanged,
+    /// The renderer reports its current effective scale_factor whenever it
+    /// changes. We forward this as a `ZoomChanged` output so the
+    /// zoom-indicator widget can stay in sync with scroll-wheel zooms.
+    ZoomDisplayChanged(f32),
+    /// User interaction with the zoom-indicator dropdown.
+    ZoomCommand(ZoomCommand),
     Output(SketchBoardOutput),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ZoomCommand {
+    /// Multiplicative zoom-in by `zoom_factor` from the configuration.
+    In,
+    /// Multiplicative zoom-out by `1 / zoom_factor`.
+    Out,
+    /// Reset to auto-fit (scale_factor recomputed from canvas/image dims).
+    FitCanvas,
+    /// Set absolute scale factor (1.0 = 100%, 0.5 = 50%, 2.0 = 200%).
+    Abs(f32),
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +71,9 @@ pub enum SketchBoardOutput {
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
     DimensionsUpdate(Option<(i32, i32)>),
+    /// Current rendered scale factor (1.0 = 100%, 0.5 = 50%, etc.) whenever
+    /// it changes — driven by the renderer after every `update_transformation`.
+    ZoomChanged(f32),
 }
 
 #[derive(Debug, Clone)]
@@ -750,6 +771,20 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
+    /// Apply a zoom command from the zoom-indicator dropdown. Each path
+    /// triggers a render whose `update_transformation` then pushes a
+    /// `ZoomDisplayChanged` back up to keep the indicator in sync.
+    fn handle_zoom_command(&mut self, cmd: ZoomCommand) {
+        let factor = APP_CONFIG.read().zoom_factor();
+        match cmd {
+            ZoomCommand::In => self.renderer.set_zoom_scale(factor),
+            ZoomCommand::Out => self.renderer.set_zoom_scale(1.0 / factor),
+            ZoomCommand::FitCanvas => self.renderer.reset_size(0.0),
+            ZoomCommand::Abs(scale) => self.renderer.reset_size(scale),
+        }
+        self.renderer.request_render(&[]);
+    }
+
     // Toolbars = Tools Toolbar + Style Toolbar
     fn handle_toggle_toolbars_display(
         &mut self,
@@ -1135,9 +1170,17 @@ impl Component for SketchBoard {
 
                 add_controller = gtk::EventControllerScroll{
                     set_flags: gtk::EventControllerScrollFlags::VERTICAL,
-                    connect_scroll[sender] => move |_, _, dy| {
-                        sender.input(SketchBoardInput::new_scroll_event(dy));
-                        relm4::gtk::glib::Propagation::Stop
+                    connect_scroll[sender] => move |controller, _, dy| {
+                        // Only treat scroll as zoom when Super is held; plain
+                        // scroll is intentionally a no-op so trackpad/mouse
+                        // wheel scrolling doesn't fight with normal page-flow.
+                        let modifier = controller.current_event_state();
+                        if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
+                            sender.input(SketchBoardInput::new_scroll_event(dy));
+                            relm4::gtk::glib::Propagation::Stop
+                        } else {
+                            relm4::gtk::glib::Propagation::Proceed
+                        }
                     },
                 },
 
@@ -1422,6 +1465,16 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::ScaleFactorChanged => {
                 self.renderer.resize(0, 0);
+                ToolUpdateResult::Redraw
+            }
+            SketchBoardInput::ZoomDisplayChanged(scale) => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ZoomChanged(scale));
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::ZoomCommand(cmd) => {
+                self.handle_zoom_command(cmd);
                 ToolUpdateResult::Redraw
             }
             SketchBoardInput::Output(output) => {

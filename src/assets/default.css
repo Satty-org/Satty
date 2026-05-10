@@ -25,3 +25,19 @@
 
 .overlay .toolbar-bottom { border-radius: 6px 6px 0px 0px; }
 .overlay .toolbar-top { border-radius: 0px 0px 6px 6px; }
+
+.zoom-indicator {
+    background-color: alpha(@headerbar_bg_color, 0.85);
+    color: @headerbar_fg_color;
+    border-radius: 6px;
+    padding: 2px 6px;
+    min-width: 56px;
+    font-size: 0.85em;
+}
+.zoom-indicator-popover contents {
+    padding: 4px;
+}
+.zoom-indicator-row {
+    padding: 6px 12px;
+    min-width: 160px;
+}
