@@ -62,6 +62,7 @@ struct App {
     zoom_indicator: Controller<ZoomIndicator>,
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
+    bottom_row: gtk::CenterBox,
 }
 
 #[derive(Debug)]
@@ -227,7 +228,12 @@ impl Component for App {
                     add_css_class: "overlay",
                     model.sketch_board.widget(),
                 },
-                append = model.style_toolbar.widget(),
+                #[local_ref]
+                bottom_row_clone -> gtk::CenterBox {
+                    add_css_class: "bottom_row",
+                    set_start_widget: Some(model.zoom_indicator.widget()),
+                    set_center_widget: Some(model.style_toolbar.widget()),
+                },
             },
 
             connect_show[sender] => move |_| {
@@ -267,9 +273,9 @@ impl Component for App {
                     .emit(StyleToolbarInput::ToolChanged(tool));
             }
             AppInput::ColorSwitchShortcut(index) => {
-                self.style_toolbar
+                self.tools_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::ColorButtonSelected(
+                    .emit(ToolsToolbarInput::ColorButtonSelected(
                         ui::toolbars::ColorButtons::Palette(index),
                     ));
             }
@@ -280,17 +286,16 @@ impl Component for App {
             }
             AppInput::FullscreenChanged(fullscreen) => {
                 let tools = self.tools_toolbar.widget();
-                let style = self.style_toolbar.widget();
                 if fullscreen {
                     self.outer_box.remove(tools);
-                    self.outer_box.remove(style);
+                    self.outer_box.remove(&self.bottom_row);
                     self.overlay.add_overlay(tools);
-                    self.overlay.add_overlay(style);
+                    self.overlay.add_overlay(&self.bottom_row);
                 } else {
                     self.overlay.remove_overlay(tools);
-                    self.overlay.remove_overlay(style);
+                    self.overlay.remove_overlay(&self.bottom_row);
                     self.outer_box.prepend(tools);
-                    self.outer_box.append(style);
+                    self.outer_box.append(&self.bottom_row);
                 }
             }
             AppInput::DimensionsUpdate(dimensions) => {
@@ -364,11 +369,8 @@ impl Component for App {
         let outer_box_clone = outer_box.clone();
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
-
-        // Mount the zoom indicator as an overlay child positioned in the
-        // lower-left of the canvas. Does not capture pointer events outside
-        // its own widget so drawing on the canvas underneath still works.
-        overlay.add_overlay(zoom_indicator.widget());
+        let bottom_row = gtk::CenterBox::new();
+        let bottom_row_clone = bottom_row.clone();
 
         // Model
         let model = App {
@@ -379,6 +381,7 @@ impl Component for App {
             image_dimensions,
             outer_box,
             overlay,
+            bottom_row,
         };
 
         // Initialize style toolbar with full image dimensions

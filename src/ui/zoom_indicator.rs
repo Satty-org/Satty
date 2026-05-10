@@ -37,11 +37,13 @@ impl SimpleComponent for ZoomIndicator {
         #[name = "menu_button"]
         gtk::MenuButton {
             add_css_class: "zoom-indicator",
+            add_css_class: "flat",
             set_focusable: false,
             set_halign: gtk::Align::Start,
-            set_valign: gtk::Align::End,
-            set_margin_start: 12,
-            set_margin_bottom: 12,
+            set_valign: gtk::Align::Center,
+            set_margin_start: 8,
+            set_margin_top: 4,
+            set_margin_bottom: 4,
 
             #[watch]
             set_label: &format_zoom(model.current_scale),

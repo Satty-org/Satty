@@ -105,12 +105,160 @@ pub struct ToolsToolbar {
     active_button: Option<ToggleButton>,
     tool_buttons: HashMap<Tools, ToggleButton>,
     tool_action: SimpleAction,
-}
-
-pub struct StyleToolbar {
+    /// Currently-selected color, mirrored on the unified color-picker
+    /// MenuButton's swatch. Updated whenever a palette/custom color is
+    /// chosen, so the swatch reflects what subsequent annotations will use.
+    current_color: Color,
+    current_color_pixbuf: Pixbuf,
     custom_color: Color,
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
+}
+
+impl ToolsToolbar {
+    fn map_button_to_color(&self, button: ColorButtons) -> Color {
+        let config = APP_CONFIG.read();
+        match button {
+            ColorButtons::Palette(n) => config.color_palette().palette()[n as usize],
+            ColorButtons::Custom => self.custom_color,
+        }
+    }
+
+    fn show_color_dialog(&self, sender: ComponentSender<ToolsToolbar>, root: Option<Window>) {
+        let current_color: RGBA = self.custom_color.into();
+        relm4::spawn_local(async move {
+            let mut builder = ColorChooserDialog::builder()
+                .modal(true)
+                .title("Choose Color")
+                .hide_on_close(true)
+                .rgba(&current_color);
+
+            if let Some(w) = root {
+                builder = builder.transient_for(&w);
+            }
+
+            let dialog = builder.build();
+            dialog.set_use_alpha(true);
+
+            let custom_colors = APP_CONFIG
+                .read()
+                .color_palette()
+                .custom()
+                .iter()
+                .copied()
+                .map(RGBA::from)
+                .collect::<Vec<_>>();
+
+            if !custom_colors.is_empty() {
+                dialog.add_palette(gtk::Orientation::Horizontal, 8, &custom_colors);
+            }
+
+            let dialog_copy = dialog.clone();
+            dialog.connect_response(move |_, r| {
+                if r == ResponseType::Ok {
+                    dialog_copy.hide();
+                    let color = Color::from_gdk(dialog_copy.rgba());
+                    sender.input(ToolsToolbarInput::ColorDialogFinished(Some(color)));
+                } else if r == ResponseType::Cancel || r == ResponseType::Close {
+                    dialog_copy.hide();
+                }
+            });
+
+            dialog.show();
+        });
+    }
+}
+
+/// Build the popover that hangs off the unified color-picker MenuButton.
+/// Lays out the palette swatches in a single row + a custom-color row.
+fn build_color_popover(
+    model: &ToolsToolbar,
+    sender: &ComponentSender<ToolsToolbar>,
+) -> gtk::Popover {
+    let popover = gtk::Popover::builder()
+        .has_arrow(true)
+        .position(gtk::PositionType::Bottom)
+        .build();
+    popover.add_css_class("color-picker-popover");
+
+    let outer = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .margin_start(6)
+        .margin_end(6)
+        .margin_top(6)
+        .margin_bottom(6)
+        .build();
+
+    let palette_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(4)
+        .build();
+    for (i, &color) in APP_CONFIG
+        .read()
+        .color_palette()
+        .palette()
+        .iter()
+        .enumerate()
+    {
+        let btn = gtk::ToggleButton::builder()
+            .focusable(false)
+            .hexpand(false)
+            .child(&create_icon(color))
+            .build();
+        btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
+        let shortcut = if i < 9 {
+            format!("{}", i + 1)
+        } else if i == 9 {
+            "0".to_string()
+        } else {
+            String::new()
+        };
+        let tooltip = if shortcut.is_empty() {
+            format!("Color #{}", i + 1)
+        } else {
+            format!("Color #{} ({})", i + 1, shortcut)
+        };
+        btn.install_tooltip(&tooltip);
+        palette_row.append(&btn);
+    }
+    outer.append(&palette_row);
+
+    outer.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+    let custom_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(4)
+        .build();
+    let custom_toggle = gtk::ToggleButton::builder()
+        .focusable(false)
+        .hexpand(false)
+        .build();
+    let custom_image = gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf));
+    custom_toggle.set_child(Some(&custom_image));
+    custom_toggle.set_action::<ColorAction>(ColorButtons::Custom);
+    custom_toggle.install_tooltip("Custom color");
+    custom_row.append(&custom_toggle);
+
+    let pick_btn = gtk::Button::builder()
+        .focusable(false)
+        .hexpand(true)
+        .icon_name("color-regular")
+        .build();
+    pick_btn.add_css_class("flat");
+    pick_btn.install_tooltip("Pick custom color");
+    let sender_clone = sender.clone();
+    pick_btn.connect_clicked(move |_| {
+        sender_clone.input(ToolsToolbarInput::ShowColorDialog);
+    });
+    custom_row.append(&pick_btn);
+    outer.append(&custom_row);
+
+    popover.set_child(Some(&outer));
+    popover
+}
+
+pub struct StyleToolbar {
     visible: bool,
     annotation_size: f32,
     annotation_size_formatted: String,
@@ -148,13 +296,13 @@ pub enum ToolsToolbarInput {
     SetVisibility(bool),
     ToggleVisibility,
     SwitchSelectedTool(Tools),
+    ColorButtonSelected(ColorButtons),
+    ShowColorDialog,
+    ColorDialogFinished(Option<Color>),
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum StyleToolbarInput {
-    ColorButtonSelected(ColorButtons),
-    ShowColorDialog,
-    ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
     ShowAnnotationDialog,
@@ -189,10 +337,11 @@ fn create_icon(color: Color) -> gtk::Image {
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for ToolsToolbar {
+impl Component for ToolsToolbar {
     type Init = ();
     type Input = ToolsToolbarInput;
     type Output = ToolbarEvent;
+    type CommandOutput = ();
 
     view! {
         root = gtk::Box {
@@ -348,6 +497,25 @@ impl SimpleComponent for ToolsToolbar {
                 ActionablePlus::set_action::<ToolsAction>: Tools::Highlight,
             },
             gtk::Separator {},
+            // Unified color picker — single MenuButton showing the current
+            // color; the popover (built in init) holds the palette and a
+            // custom-color picker, mirroring a standard X's compact picker.
+            #[name(color_button)]
+            gtk::MenuButton {
+                set_focusable: false,
+                set_hexpand: false,
+                add_css_class: "color-picker-button",
+                install_tooltip: "Color",
+
+                #[wrap(Some)]
+                #[name(color_swatch)]
+                set_child = &gtk::Image {
+                    set_pixel_size: 18,
+                    #[watch]
+                    set_from_pixbuf: Some(&model.current_color_pixbuf),
+                },
+            },
+            gtk::Separator {},
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
@@ -377,7 +545,7 @@ impl SimpleComponent for ToolsToolbar {
         },
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
             ToolsToolbarInput::SetVisibility(visible) => self.visible = visible,
             ToolsToolbarInput::ToggleVisibility => {
@@ -389,6 +557,31 @@ impl SimpleComponent for ToolsToolbar {
 
                 if let Some(selected_tool_button) = self.tool_buttons.get(&tool) {
                     self.active_button = Some(selected_tool_button.clone());
+                }
+            }
+            ToolsToolbarInput::ColorButtonSelected(button) => {
+                let color = self.map_button_to_color(button);
+                self.color_action.change_state(&button.to_variant());
+                self.current_color = color;
+                self.current_color_pixbuf = create_icon_pixbuf(color);
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::ColorSelected(color));
+            }
+            ToolsToolbarInput::ShowColorDialog => {
+                self.show_color_dialog(sender, root.toplevel_window());
+            }
+            ToolsToolbarInput::ColorDialogFinished(color) => {
+                if let Some(color) = color {
+                    self.custom_color = color;
+                    self.custom_color_pixbuf = create_icon_pixbuf(color);
+                    self.color_action
+                        .change_state(&ColorButtons::Custom.to_variant());
+                    self.current_color = color;
+                    self.current_color_pixbuf = create_icon_pixbuf(color);
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::ColorSelected(color));
                 }
             }
         }
@@ -411,13 +604,52 @@ impl SimpleComponent for ToolsToolbar {
             },
         );
 
+        // Color action — palette-or-Custom enum, tracks current selection
+        // and routes through `ColorButtonSelected` so the swatch updates.
+        let sender_tmp = sender.clone();
+        let color_action: RelmAction<ColorAction> = RelmAction::new_stateful_with_target_value(
+            &ColorButtons::Palette(0),
+            move |_, state, value| {
+                *state = value;
+                sender_tmp.input(ToolsToolbarInput::ColorButtonSelected(value));
+            },
+        );
+
+        let custom_color = APP_CONFIG
+            .read()
+            .color_palette()
+            .custom()
+            .first()
+            .copied()
+            .unwrap_or(Color::red());
+        let custom_color_pixbuf = create_icon_pixbuf(custom_color);
+        let initial_color = APP_CONFIG
+            .read()
+            .color_palette()
+            .palette()
+            .first()
+            .copied()
+            .unwrap_or(Color::red());
+        let initial_color_pixbuf = create_icon_pixbuf(initial_color);
+
         let mut model = ToolsToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             active_button: None,
             tool_buttons: HashMap::new(),
             tool_action: tool_action.clone().into(),
+            current_color: initial_color,
+            current_color_pixbuf: initial_color_pixbuf,
+            custom_color,
+            custom_color_pixbuf,
+            color_action: SimpleAction::from(color_action.clone()),
         };
         let widgets = view_output!();
+
+        // Build the popover for the unified color picker — palette swatches
+        // stacked horizontally, then a separator, then the custom color
+        // toggle and a "Pick custom color" button.
+        let popover = build_color_popover(&model, &sender);
+        widgets.color_button.set_popover(Some(&popover));
 
         model.tool_buttons = HashMap::from([
             (Tools::Pointer, widgets.pointer_button.clone()),
@@ -470,6 +702,17 @@ impl SimpleComponent for ToolsToolbar {
         group.add_action(tool_action);
         group.register_for_widget(&widgets.root);
 
+        // Color action lives in its own group so it can target both the
+        // palette buttons inside the popover and any external triggers
+        // (e.g. number-key shortcuts).
+        let mut color_group = RelmActionGroup::<StyleToolbarActionGroup>::new();
+        color_group.add_action(color_action);
+        color_group.register_for_widget(&widgets.root);
+
+        // Suppress unused-root warning; we keep the parameter in case a
+        // later popover needs to anchor itself to the toplevel.
+        let _ = root;
+
         ComponentParts { model, widgets }
     }
 }
@@ -481,64 +724,6 @@ pub enum ColorButtons {
 }
 
 impl StyleToolbar {
-    fn show_color_dialog(&self, sender: ComponentSender<StyleToolbar>, root: Option<Window>) {
-        let current_color: RGBA = self.custom_color.into();
-        relm4::spawn_local(async move {
-            let mut builder = ColorChooserDialog::builder()
-                .modal(true)
-                .title("Choose Color")
-                .hide_on_close(true)
-                .rgba(&current_color);
-
-            if let Some(w) = root {
-                builder = builder.transient_for(&w);
-            }
-
-            // build dialog and configure further
-            let dialog = builder.build();
-            dialog.set_use_alpha(true);
-
-            let custom_colors = APP_CONFIG
-                .read()
-                .color_palette()
-                .custom()
-                .iter()
-                .copied()
-                .map(RGBA::from)
-                .collect::<Vec<_>>();
-
-            if !custom_colors.is_empty() {
-                dialog.add_palette(
-                    gtk::Orientation::Horizontal,
-                    8, // A more or less arbitrary, but reasonable value.
-                    &custom_colors,
-                );
-            }
-
-            // set callback for result
-            let dialog_copy = dialog.clone();
-            dialog.connect_response(move |_, r| {
-                if r == ResponseType::Ok {
-                    dialog_copy.hide();
-                    let color = Color::from_gdk(dialog_copy.rgba());
-                    sender.input(StyleToolbarInput::ColorDialogFinished(Some(color)));
-                } else if r == ResponseType::Cancel || r == ResponseType::Close {
-                    dialog_copy.hide();
-                }
-            });
-
-            dialog.show();
-        });
-    }
-
-    fn map_button_to_color(&self, button: ColorButtons) -> Color {
-        let config = APP_CONFIG.read();
-        match button {
-            ColorButtons::Palette(n) => config.color_palette().palette()[n as usize],
-            ColorButtons::Custom => self.custom_color,
-        }
-    }
-
     fn show_annotation_dialog(
         &mut self,
         sender: ComponentSender<StyleToolbar>,
@@ -586,29 +771,6 @@ impl Component for StyleToolbar {
             #[watch]
             set_visible: model.visible,
 
-            gtk::Separator {},
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                install_tooltip_above: "Custom color",
-
-                gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf)) {
-                    #[watch]
-                    set_from_pixbuf: Some(&model.custom_color_pixbuf)
-                },
-                ActionablePlus::set_action::<ColorAction>: ColorButtons::Custom,
-            },
-            gtk::Button {
-
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "color-regular",
-                install_tooltip_above: "Pick custom color",
-
-                connect_clicked => StyleToolbarInput::ShowColorDialog,
-            },
-            gtk::Separator {},
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
@@ -725,32 +887,6 @@ impl Component for StyleToolbar {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            StyleToolbarInput::ShowColorDialog => {
-                self.show_color_dialog(sender, root.toplevel_window());
-            }
-            StyleToolbarInput::ColorDialogFinished(color) => {
-                if let Some(color) = color {
-                    self.custom_color = color;
-                    self.custom_color_pixbuf = create_icon_pixbuf(color);
-
-                    // set the custom button active
-                    self.color_action
-                        .change_state(&ColorButtons::Custom.to_variant());
-
-                    // set new color
-                    sender
-                        .output_sender()
-                        .emit(ToolbarEvent::ColorSelected(color));
-                }
-            }
-            StyleToolbarInput::ColorButtonSelected(button) => {
-                let color = self.map_button_to_color(button);
-                self.color_action.change_state(&button.to_variant());
-                sender
-                    .output_sender()
-                    .emit(ToolbarEvent::ColorSelected(color));
-            }
-
             StyleToolbarInput::ShowAnnotationDialog => {
                 self.show_annotation_dialog(sender, root.toplevel_window());
             }
@@ -781,51 +917,9 @@ impl Component for StyleToolbar {
 
     fn init(
         _: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        for (i, &color) in APP_CONFIG
-            .read()
-            .color_palette()
-            .palette()
-            .iter()
-            .enumerate()
-            .rev()
-        {
-            let btn = gtk::ToggleButton::builder()
-                .focusable(false)
-                .hexpand(false)
-                .child(&create_icon(color))
-                .build();
-            btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
-            // Color shortcut keys are 1..=9 then 0 for the 10th slot.
-            let shortcut = if i < 9 {
-                format!("{}", i + 1)
-            } else if i == 9 {
-                "0".to_string()
-            } else {
-                String::new()
-            };
-            let tooltip = if shortcut.is_empty() {
-                format!("Color #{}", i + 1)
-            } else {
-                format!("Color #{} ({})", i + 1, shortcut)
-            };
-            btn.install_tooltip_above(&tooltip);
-            root.prepend(&btn);
-        }
-
-        // Color Action for selecting colors
-        let sender_tmp: ComponentSender<StyleToolbar> = sender.clone();
-        let color_action: RelmAction<ColorAction> = RelmAction::new_stateful_with_target_value(
-            &ColorButtons::Palette(0),
-            move |_, state, value| {
-                *state = value;
-
-                sender_tmp.input(StyleToolbarInput::ColorButtonSelected(value));
-            },
-        );
-
         // Size Action for selecting sizes
         let sender_tmp = sender.clone();
         let size_action: RelmAction<SizeAction> =
@@ -836,20 +930,8 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::SizeSelected(*state));
             });
 
-        let custom_color = APP_CONFIG
-            .read()
-            .color_palette()
-            .custom()
-            .first()
-            .copied()
-            .unwrap_or(Color::red());
-        let custom_color_pixbuf = create_icon_pixbuf(custom_color);
-
         // create model
         let model = StyleToolbar {
-            custom_color,
-            custom_color_pixbuf,
-            color_action: SimpleAction::from(color_action.clone()),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             annotation_size: APP_CONFIG.read().annotation_size_factor(),
             annotation_size_formatted: format!(
@@ -865,7 +947,6 @@ impl Component for StyleToolbar {
         let widgets = view_output!();
 
         let mut group = RelmActionGroup::<StyleToolbarActionGroup>::new();
-        group.add_action(color_action);
         group.add_action(size_action);
 
         group.register_for_widget(&widgets.root);

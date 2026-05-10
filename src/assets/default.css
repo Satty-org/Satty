@@ -26,13 +26,14 @@
 .overlay .toolbar-bottom { border-radius: 6px 6px 0px 0px; }
 .overlay .toolbar-top { border-radius: 0px 0px 6px 6px; }
 
+.bottom_row {
+    background-color: @headerbar_bg_color;
+}
 .zoom-indicator {
-    background-color: alpha(@headerbar_bg_color, 0.85);
     color: @headerbar_fg_color;
-    border-radius: 6px;
-    padding: 2px 6px;
-    min-width: 56px;
-    font-size: 0.85em;
+    padding: 2px 8px;
+    min-width: 48px;
+    font-size: 0.9em;
 }
 .zoom-indicator-popover contents {
     padding: 4px;
@@ -40,4 +41,17 @@
 .zoom-indicator-row {
     padding: 6px 12px;
     min-width: 160px;
+}
+
+/* Unified color picker — circular swatch button with no chevron clutter */
+.color-picker-button {
+    padding: 2px 4px;
+    min-width: 24px;
+}
+.color-picker-button image {
+    border-radius: 50%;
+    border: 1px solid alpha(@headerbar_fg_color, 0.25);
+}
+.color-picker-popover contents {
+    padding: 4px;
 }
