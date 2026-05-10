@@ -265,7 +265,12 @@ fn build_color_popover(
     pick_btn.add_css_class("color-wheel-button");
     pick_btn.set_tooltip_text(Some("Pick custom color"));
     let sender_clone = sender.clone();
+    let popover_clone = popover.clone();
     pick_btn.connect_clicked(move |_| {
+        // Dismiss the popover before opening the modal dialog —
+        // otherwise the popover sits on top of the dialog (especially
+        // on Wayland) and intercepts clicks meant for the color picker.
+        popover_clone.popdown();
         sender_clone.input(ToolsToolbarInput::ShowColorDialog);
     });
     grid.attach(&pick_btn, 0, 10, 1, 1);
