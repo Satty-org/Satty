@@ -291,9 +291,16 @@ impl Arrow {
     }
 
     fn shaft_width(&self) -> f32 {
-        self.style
-            .size
-            .to_line_width(self.style.annotation_size_factor)
+        match self.arrow_style {
+            ArrowStyle::Curved | ArrowStyle::Double => self
+                .style
+                .size
+                .to_arrow_curved_shaft_width(self.style.annotation_size_factor),
+            _ => self
+                .style
+                .size
+                .to_line_width(self.style.annotation_size_factor),
+        }
     }
 
     /// Control point for curved/double arrows. Uses the user-overridden value

@@ -354,6 +354,22 @@ impl Size {
         }
     }
 
+    /// Stroke width for the Curved/Double arrow shaft and V-tip head.
+    /// Curved/Double shafts are noticeably thicker than the global
+    /// `to_line_width` defaults (especially at XSmall and XXLarge). Kept
+    /// arrow-specific so we don't fatten lines, rectangles, etc., used by
+    /// other tools.
+    pub fn to_arrow_curved_shaft_width(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 3.0 * size_factor,
+            Size::Small => 3.0 * size_factor,
+            Size::Medium => 6.0 * size_factor,
+            Size::Large => 7.5 * size_factor,
+            Size::XLarge => 11.5 * size_factor,
+            Size::XXLarge => 18.5 * size_factor,
+        }
+    }
+
     /// Head length (along the shaft) for Fancy arrows. Exact the standard
     /// reference *head triangle* widths (standard 2026-05-09 at
     /// 11.45.11@2x.png), halved from 2× DPR (31, 44, 69, 86, 118, 179).
