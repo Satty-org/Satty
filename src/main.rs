@@ -231,6 +231,9 @@ impl Component for App {
                 #[local_ref]
                 bottom_row_clone -> gtk::CenterBox {
                     add_css_class: "bottom_row",
+                    set_valign: gtk::Align::End,
+                    set_halign: gtk::Align::Fill,
+                    set_hexpand: true,
                     set_start_widget: Some(model.zoom_indicator.widget()),
                     set_center_widget: Some(model.style_toolbar.widget()),
                 },
@@ -245,7 +248,17 @@ impl Component for App {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            AppInput::Realized => self.resize_window_initial(root, sender),
+            AppInput::Realized => {
+                self.resize_window_initial(root, sender);
+                // Make sure the canvas owns keyboard focus on startup —
+                // GTK can otherwise auto-focus a toolbar widget (the
+                // unified color picker MenuButton was a repeat offender),
+                // breaking single-key shortcuts until the user clicks
+                // the canvas or tabs past the toolbar.
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::FocusCanvas);
+            }
             AppInput::SetToolbarsDisplay(visible) => {
                 self.tools_toolbar
                     .sender()

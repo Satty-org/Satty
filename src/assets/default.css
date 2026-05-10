@@ -43,15 +43,37 @@
     min-width: 160px;
 }
 
-/* Unified color picker — circular swatch button with no chevron clutter */
+/* Unified color picker — let the inner GtkButton inside the MenuButton
+ * handle hover/focus/press exactly like every other toolbar button. The
+ * outer .color-picker-button shell stays a passthrough. */
 .color-picker-button {
-    padding: 2px 4px;
-    min-width: 24px;
-}
-.color-picker-button image {
-    border-radius: 50%;
-    border: 1px solid alpha(@headerbar_fg_color, 0.25);
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
 }
 .color-picker-popover contents {
     padding: 4px;
+}
+/* Tight swatch buttons inside the picker popover: drop the GTK button
+ * chrome (focus ring, hover background, checked-state pill) so only the
+ * colored square reads. The currently-selected swatch is indicated by a
+ * subtle outline added on :checked. */
+.color-swatch {
+    padding: 2px;
+    min-width: 0;
+    min-height: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+}
+.color-swatch:hover {
+    background: alpha(@headerbar_fg_color, 0.08);
+}
+.color-swatch:checked {
+    background: alpha(@accent_color, 0.18);
 }

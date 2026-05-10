@@ -50,6 +50,10 @@ pub enum SketchBoardInput {
     ZoomDisplayChanged(f32),
     /// User interaction with the zoom-indicator dropdown.
     ZoomCommand(ZoomCommand),
+    /// Force keyboard focus back onto the canvas. Sent from App at
+    /// startup and after popovers/dialogs close so single-key shortcuts
+    /// work without the user having to click on the canvas first.
+    FocusCanvas,
     Output(SketchBoardOutput),
 }
 
@@ -888,6 +892,10 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
+            ToolbarEvent::FocusCanvas => {
+                self.renderer.grab_focus();
+                ToolUpdateResult::Unmodified
+            }
             ToolbarEvent::ArrowStyleSelected(style) => {
                 self.tools
                     .get(&Tools::Arrow)
@@ -1171,11 +1179,13 @@ impl Component for SketchBoard {
                 add_controller = gtk::EventControllerScroll{
                     set_flags: gtk::EventControllerScrollFlags::VERTICAL,
                     connect_scroll[sender] => move |controller, _, dy| {
-                        // Only treat scroll as zoom when Super is held; plain
-                        // scroll is intentionally a no-op so trackpad/mouse
-                        // wheel scrolling doesn't fight with normal page-flow.
+                        // Only treat scroll as zoom when Ctrl is held — the
+                        // universal browser/editor convention. Super+scroll
+                        // conflicts with Hyprland's workspace switching.
+                        // Plain scroll stays a no-op so trackpad/mouse wheel
+                        // scrolling doesn't fight with normal page-flow.
                         let modifier = controller.current_event_state();
-                        if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
+                        if modifier.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
                             sender.input(SketchBoardInput::new_scroll_event(dy));
                             relm4::gtk::glib::Propagation::Stop
                         } else {
@@ -1306,6 +1316,27 @@ impl Component for SketchBoard {
                             {
                                 self.renderer
                                     .request_render(&[Action::CopyFilepathToClipboard]);
+                                ToolUpdateResult::Unmodified
+                            } else if (ke.is_one_of(Key::equal, KeyMappingId::Equal)
+                                || ke.is_one_of(Key::plus, KeyMappingId::Equal))
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::In);
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::minus, KeyMappingId::Minus)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Out);
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_0, KeyMappingId::Digit0)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Abs(1.0));
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_1, KeyMappingId::Digit1)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::FitCanvas);
                                 ToolUpdateResult::Unmodified
                             } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
                                 || ke.is_one_of(Key::i, KeyMappingId::UsI))
@@ -1476,6 +1507,10 @@ impl Component for SketchBoard {
             SketchBoardInput::ZoomCommand(cmd) => {
                 self.handle_zoom_command(cmd);
                 ToolUpdateResult::Redraw
+            }
+            SketchBoardInput::FocusCanvas => {
+                self.renderer.grab_focus();
+                ToolUpdateResult::Unmodified
             }
             SketchBoardInput::Output(output) => {
                 sender.output_sender().emit(output);

@@ -191,7 +191,7 @@ fn build_color_popover(
 
     let palette_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(4)
+        .spacing(2)
         .build();
     for (i, &color) in APP_CONFIG
         .read()
@@ -202,9 +202,12 @@ fn build_color_popover(
     {
         let btn = gtk::ToggleButton::builder()
             .focusable(false)
+            .focus_on_click(false)
             .hexpand(false)
             .child(&create_icon(color))
             .build();
+        btn.add_css_class("flat");
+        btn.add_css_class("color-swatch");
         btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
         let shortcut = if i < 9 {
             format!("{}", i + 1)
@@ -227,12 +230,15 @@ fn build_color_popover(
 
     let custom_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(4)
+        .spacing(2)
         .build();
     let custom_toggle = gtk::ToggleButton::builder()
         .focusable(false)
+        .focus_on_click(false)
         .hexpand(false)
         .build();
+    custom_toggle.add_css_class("flat");
+    custom_toggle.add_css_class("color-swatch");
     let custom_image = gtk::Image::from_pixbuf(Some(&model.custom_color_pixbuf));
     custom_toggle.set_child(Some(&custom_image));
     custom_toggle.set_action::<ColorAction>(ColorButtons::Custom);
@@ -241,7 +247,8 @@ fn build_color_popover(
 
     let pick_btn = gtk::Button::builder()
         .focusable(false)
-        .hexpand(true)
+        .focus_on_click(false)
+        .hexpand(false)
         .icon_name("color-regular")
         .build();
     pick_btn.add_css_class("flat");
@@ -288,6 +295,10 @@ pub enum ToolbarEvent {
     SaveFileAs,
     Resize,
     OriginalScale,
+    /// A toolbar popover (e.g. the unified color picker) has closed; the
+    /// canvas should grab keyboard focus back so single-key shortcuts
+    /// (z, r, b, …) keep working without the user having to click first.
+    FocusCanvas,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -499,10 +510,17 @@ impl Component for ToolsToolbar {
             // Unified color picker — single MenuButton showing the current
             // color; the popover (built in init) holds the palette and a
             // custom-color picker, mirroring a standard X's compact picker.
+            // `focusable: false` blocks Tab navigation; `focus_on_click:
+            // false` blocks mouse-click focus too — both are needed or
+            // shortcuts stop working until the user tabs focus back to
+            // the canvas.
             #[name(color_button)]
             gtk::MenuButton {
+                set_focusable: false,
+                set_focus_on_click: false,
                 set_hexpand: false,
                 add_css_class: "color-picker-button",
+                add_css_class: "flat",
                 set_tooltip_text: Some("Color"),
                 set_always_show_arrow: false,
 
@@ -649,6 +667,15 @@ impl Component for ToolsToolbar {
         // toggle and a "Pick custom color" button.
         let popover = build_color_popover(&model, &sender);
         widgets.color_button.set_popover(Some(&popover));
+
+        // Refocus the canvas when the popover closes so keyboard shortcuts
+        // resume working without the user having to click on the canvas.
+        {
+            let sender = sender.clone();
+            popover.connect_closed(move |_| {
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            });
+        }
 
         model.tool_buttons = HashMap::from([
             (Tools::Pointer, widgets.pointer_button.clone()),

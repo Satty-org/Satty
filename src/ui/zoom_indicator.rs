@@ -73,11 +73,11 @@ impl SimpleComponent for ZoomIndicator {
             .spacing(0)
             .build();
 
-        let zoom_in = make_row("Zoom In", Some("Super  +"));
-        let zoom_out = make_row("Zoom Out", Some("Super  −"));
-        let fit = make_row("Fit Canvas", Some("Super  1"));
+        let zoom_in = make_row("Zoom In", Some("Ctrl  ="));
+        let zoom_out = make_row("Zoom Out", Some("Ctrl  −"));
+        let fit = make_row("Fit Canvas", Some("Ctrl  1"));
         let p50 = make_row("50%", None);
-        let p100 = make_row("100%", Some("Super  0"));
+        let p100 = make_row("100%", Some("Ctrl  0"));
         let p200 = make_row("200%", None);
 
         list.append(&zoom_in);
