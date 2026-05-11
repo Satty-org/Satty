@@ -2,7 +2,7 @@ use anyhow::Result;
 use femtovg::{Color, FontId, Paint, Path};
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
-    TextBuffer,
+    self, TextBuffer,
     gdk::{Key, ModifierType, Rectangle},
 };
 use std::{borrow::Cow, ops::Range};
@@ -18,12 +18,193 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, InputContext, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, DrawableId, GLOW_COLOR, Handle, HandleId, HandleKind,
+    InputContext, SELECTION_BLUE, Tool, ToolUpdateResult, Tools,
+};
 use crate::sketch_board::SketchBoardInput;
 use relm4::Sender;
 use relm4::gtk::gdk::DisplayManager;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+/// Visual padding (CSS px) between the cream text-pill and the blue
+/// selection/edit outline. 10 px on every side so the outline sits
+/// clearly outside the pill and the spacing reads as deliberate.
+const OUTLINE_PADDING_CSS: f32 = 10.0;
+/// CSS-pixel padding inside each cream pill on the X axis. Equal on
+/// left + right so glyphs aren't flush against the rounded edge.
+const PILL_PAD_X_CSS: f32 = 6.0;
+/// Vertical pill padding (CSS px). Symmetric 6 px above cap-top and
+/// 6 px below baseline so the text body floats inside the pill with
+/// equal breathing room top and bottom. The bottom pad is further
+/// expanded at draw time when the font's descender exceeds 6 CSS
+/// px (large annotation sizes / multipliers) so commas, apostrophes,
+/// and lowercase "g"/"p"/"y" stay contained inside the pill rather
+/// than poking below it.
+const PILL_PAD_Y_TOP_CSS: f32 = 6.0;
+const PILL_PAD_Y_BOTTOM_CSS: f32 = 6.0;
+/// Estimated descender depth as a fraction of `line_height` (the
+/// image-space "|"-measured glyph extent). Typical Latin fonts put
+/// descenders at ~0.2 em and the "|" measurement comes out around
+/// the em-box, so 0.22 leaves a small safety cushion across the
+/// font families we ship + the system fallbacks. Used only to size
+/// the pill bottom pad when the font is large enough that the
+/// descender would otherwise exceed the 8 CSS-px floor.
+const DESCENDER_RATIO_OF_LINE_HEIGHT: f32 = 0.22;
+/// Extra CSS-px breathing room added below the deepest descender
+/// when we extend the bottom pad to contain them at large sizes.
+const DESCENDER_SAFETY_CSS: f32 = 2.0;
+/// Combined CSS-pixel pad from text glyph to the visible outline —
+/// used by bounds() and move_handle to convert between drag positions
+/// and wrap-width.
+const SELECTION_PAD_X_CSS: f32 = PILL_PAD_X_CSS + OUTLINE_PADDING_CSS;
+const SELECTION_PAD_Y_TOP_CSS: f32 = PILL_PAD_Y_TOP_CSS + OUTLINE_PADDING_CSS;
+const SELECTION_PAD_Y_BOTTOM_CSS: f32 = PILL_PAD_Y_BOTTOM_CSS + OUTLINE_PADDING_CSS;
+/// Default wrap-area width (image-space px) used as a floor when text
+/// is empty (no measurable content to auto-fit against). Once the user
+/// has typed anything, the auto-fit code derives wrap from glyph
+/// metrics and ignores this constant.
+const DEFAULT_INITIAL_BOX_WIDTH: f32 = 80.0;
+/// Lower bound for `text_box_width`. Below this, dragging a handle
+/// inward stops shrinking the box.
+const MIN_TEXT_BOX_WIDTH: f32 = 60.0;
+/// Inner blue-disc diameter for editing-mode handles, in CSS pixels.
+/// Matches the value used by `SelectionOverlay` in pointer.rs so editing
+/// and selection handles render identically.
+const HANDLE_INNER_DIAMETER: f32 = 12.0;
+/// White ring thickness on each side of the inner disc, in CSS pixels.
+const HANDLE_RING: f32 = 2.0;
+/// Image-space hit radius for the editing-mode handle hit test inside
+/// `TextTool`. Bigger than the visual handle so users don't have to
+/// pixel-precise hit a ~12 px disc to grab it.
+const HANDLE_HIT_RADIUS: f32 = 20.0;
+/// Blue outline thickness for the editing-mode wrap-area outline, in
+/// CSS pixels. Scaled to image units at draw time. 2 px reads as a
+/// deliberate frame at any zoom; semi-transparency comes from
+/// `TEXT_OUTLINE_ALPHA` so the outline stays unobtrusive.
+const EDITING_OUTLINE_WIDTH: f32 = 2.0;
+/// Alpha applied to `SELECTION_BLUE` for the text outline (both
+/// editing and selected states). Semi-transparent so the outline
+/// reads as UI rather than competing with the rendered text.
+const TEXT_OUTLINE_ALPHA: f32 = 0.6;
+/// Corner radius (CSS px) for the editing/selection outline.
+const OUTLINE_CORNER_RADIUS_CSS: f32 = 8.0;
+/// Dash and gap lengths (CSS px) for the post-creation selection
+/// outline. A solid outline reads as "I'm being edited right now",
+/// the dashed variant reads as "I'm selected but not active", which
+/// keeps the editing-mode and selection-mode states visually
+/// distinct without needing a second color.
+const SELECTION_DASH_LEN_CSS: f32 = 8.0;
+const SELECTION_GAP_LEN_CSS: f32 = 4.0;
+/// Pill corner radius — half the outline's. The pill reads as a
+/// snug label backdrop with subtle softening; the outline keeps the
+/// stronger 8 px rounding so the concentric shapes are visually
+/// distinct.
+const PILL_CORNER_RADIUS_CSS: f32 = OUTLINE_CORNER_RADIUS_CSS / 2.0;
+
+/// Build a path of evenly-spaced dashes that trace the outline of a
+/// rounded rectangle. Each dash is emitted as its own sub-path so a
+/// single `stroke_path` call paints the whole pattern at once. The
+/// total dash/gap segment is rebalanced to divide the perimeter
+/// cleanly — without that, the last dash near the start point gets
+/// awkwardly clipped or overlapped.
+fn dashed_rounded_rect_path(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    r: f32,
+    dash_len: f32,
+    gap_len: f32,
+) -> Path {
+    use std::f32::consts::PI;
+    let r = r.min(w * 0.5).min(h * 0.5).max(0.0);
+    let edge_w = (w - 2.0 * r).max(0.0);
+    let edge_h = (h - 2.0 * r).max(0.0);
+    let arc_len = 0.5 * PI * r;
+    // Cumulative perimeter offsets at the boundary of each segment
+    // (top edge, top-right arc, right edge, br arc, bottom edge,
+    // bl arc, left edge, tl arc).
+    let s1 = edge_w;
+    let s2 = s1 + arc_len;
+    let s3 = s2 + edge_h;
+    let s4 = s3 + arc_len;
+    let s5 = s4 + edge_w;
+    let s6 = s5 + arc_len;
+    let s7 = s6 + edge_h;
+    let perimeter = s7 + arc_len;
+
+    // Map a perimeter parameter `s` ∈ [0, perimeter) to its (x, y)
+    // position on the outline. Convention: s=0 is the top edge just
+    // after the top-left rounded corner, going clockwise.
+    let position_at = |mut s: f32| -> (f32, f32) {
+        s = s.rem_euclid(perimeter);
+        if s <= s1 {
+            (x + r + s, y)
+        } else if s <= s2 {
+            let t = (s - s1) / arc_len;
+            let a = 1.5 * PI + 0.5 * PI * t;
+            (x + w - r + r * a.cos(), y + r + r * a.sin())
+        } else if s <= s3 {
+            (x + w, y + r + (s - s2))
+        } else if s <= s4 {
+            let t = (s - s3) / arc_len;
+            let a = 0.5 * PI * t;
+            (x + w - r + r * a.cos(), y + h - r + r * a.sin())
+        } else if s <= s5 {
+            (x + w - r - (s - s4), y + h)
+        } else if s <= s6 {
+            let t = (s - s5) / arc_len;
+            let a = 0.5 * PI + 0.5 * PI * t;
+            (x + r + r * a.cos(), y + h - r + r * a.sin())
+        } else if s <= s7 {
+            (x, y + h - r - (s - s6))
+        } else {
+            let t = (s - s7) / arc_len;
+            let a = PI + 0.5 * PI * t;
+            (x + r + r * a.cos(), y + r + r * a.sin())
+        }
+    };
+
+    let mut path = Path::new();
+    if perimeter <= 0.0 {
+        return path;
+    }
+    let raw_segment = (dash_len + gap_len).max(0.1);
+    let n_cycles = (perimeter / raw_segment).round().max(1.0) as usize;
+    let actual_segment = perimeter / n_cycles as f32;
+    let dash_ratio = dash_len / (dash_len + gap_len);
+    let actual_dash = actual_segment * dash_ratio;
+    // Quality knob for the arc portions: a quarter arc is broken
+    // into this many line segments so stroked dashes that span a
+    // corner stay visibly curved at reasonable zooms.
+    let steps_per_dash = 8;
+    for cycle in 0..n_cycles {
+        let s_start = cycle as f32 * actual_segment;
+        let (sx, sy) = position_at(s_start);
+        path.move_to(sx, sy);
+        for k in 1..=steps_per_dash {
+            let t = k as f32 / steps_per_dash as f32;
+            let (px, py) = position_at(s_start + actual_dash * t);
+            path.line_to(px, py);
+        }
+    }
+    path
+}
+
+/// Background style behind the rendered text — picked by the user via
+/// the StyleToolbar dropdown (visible only when the Text tool is
+/// active). `Plain` renders the text glyphs directly on the canvas;
+/// `Rounded` adds a cream-colored rounded pill behind each line of
+/// text (the pill snugly fits each line's glyph metrics).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextBackground {
+    Plain,
+    #[default]
+    Rounded,
+}
 
 #[derive(Clone, Debug)]
 pub struct Text {
@@ -31,14 +212,46 @@ pub struct Text {
     editing: bool,
     text_buffer: TextBuffer,
     style: Style,
+    /// Captured at creation/edit time. Each line's pill is rendered
+    /// per-line so wrapped text shows as a vertical stack of pills
+    /// rather than one giant rect spanning the wrap area.
+    background: TextBackground,
     preedit: Option<Preedit>,
     im_context: Option<InputContext>,
     rect: RefCell<Rectangle>,
+    /// Wrap-area rect (top-left + size, image coords) updated each frame
+    /// during editing — covers the full text-box including unfilled wrap
+    /// width and empty-line space. Used to render the blue outline and
+    /// to hit-test editing handles.
+    editing_rect: RefCell<Rect>,
+    /// Last measured line height (image-space px) from the most recent
+    /// draw. Cached so `bounds()` / handle hit-tests can reason about
+    /// the box height without re-measuring the font.
+    last_line_height: RefCell<f32>,
+    /// CSS-px → image-space conversion factor captured from the last
+    /// draw (= 1 / canvas.transform.average_scale). Used by `bounds`
+    /// and `move_handle` to translate the CSS-pixel
+    /// PILL_PAD/OUTLINE_PADDING constants into image units, and to
+    /// convert a dragged handle position back into the underlying
+    /// `text_box_width` (which is the WRAP width, not the visible
+    /// outline width).
+    last_css_to_image: RefCell<f32>,
+    /// Natural single-line width of the full text (image-space px),
+    /// captured from `measure_text` on every draw. Used by `bounds`
+    /// during a handle drag to estimate the *new* line count
+    /// (= natural_width / wrap_width, ceil) so the blue outline
+    /// reflects wrapping in real-time instead of lagging until the
+    /// next draw refreshes `line_ranges`.
+    last_natural_text_width: RefCell<f32>,
     glyphs: RefCell<Vec<Vec<Rectangle>>>,
     line_ranges: RefCell<Vec<Range<usize>>>,
     cursor_visible: RefCell<bool>,
-    draw_rect: RefCell<bool>,
     font_ids: Vec<FontId>,
+    /// Explicit wrap width set on creation and by side-handle drags.
+    /// When `None`, layout falls back to "use available image width from
+    /// `pos.x` to the right edge" — only relevant for legacy/edge-case
+    /// Text instances; new Texts always carry an explicit width.
+    text_box_width: Option<f32>,
 }
 
 struct DisplayContent<'a> {
@@ -50,23 +263,52 @@ struct DisplayContent<'a> {
 struct LineLayout {
     range: Range<usize>,
     baseline: f32,
+    /// Image-space x where this line's glyphs start. Equals
+    /// `self.pos.x + center_off` where `center_off` horizontally
+    /// centers the line within the wrap area. The caret, selection
+    /// rects, and click hit-test all use this so they track the
+    /// rendered glyphs instead of the wrap-area left edge.
+    start_x: f32,
 }
 
 struct TextDrawingContext<'a> {
     paint: &'a Paint,
     text: &'a str,
     lines: &'a [LineLayout],
+    /// Wrap-area width and origin x; used for caret positioning on
+    /// empty lines / between-line states where no glyph layout exists.
+    wrap_width: f32,
+    base_x: f32,
 }
 
 #[derive(Clone, Copy)]
 struct CursorMetrics {
+    /// Glyph-extent top offset from baseline (negative). Used for
+    /// selection rectangles, preedit highlights, and glyph hit-test
+    /// rects — anything that should hug the actual letterforms.
     top_offset: f32,
+    /// Glyph-extent height. Same audience as `top_offset`.
     height: f32,
     line_height: f32,
+    /// Caret-only top offset from baseline (negative). Equals
+    /// `top_offset - pill_pad_y_top` so the blinking caret reaches
+    /// all the way up to the top of the cream pill background
+    /// instead of stopping at cap-height.
+    caret_top_offset: f32,
+    /// Caret-only height — spans the full pill (cap-pad above plus
+    /// glyph body plus baseline-pad below, including the descender
+    /// extension at large font sizes). Lets the cursor read as a
+    /// full-height insertion mark, matching the standard pattern.
+    caret_height: f32,
 }
 
 impl Text {
-    fn new(pos: Vec2D, style: Style, im_context: Option<InputContext>) -> Self {
+    fn new(
+        pos: Vec2D,
+        style: Style,
+        background: TextBackground,
+        im_context: Option<InputContext>,
+    ) -> Self {
         let text_buffer = TextBuffer::new(None);
         text_buffer.set_enable_undo(true);
 
@@ -75,14 +317,24 @@ impl Text {
             text_buffer,
             editing: true,
             style,
+            background,
             preedit: None,
             im_context,
             rect: RefCell::new(Rectangle::new(0, 0, 0, 0)),
+            editing_rect: RefCell::new(Rect::default()),
+            last_line_height: RefCell::new(0.0),
+            last_css_to_image: RefCell::new(1.0),
+            last_natural_text_width: RefCell::new(0.0),
             glyphs: RefCell::new(Vec::new()),
             line_ranges: RefCell::new(Vec::new()),
             cursor_visible: RefCell::new(true),
-            draw_rect: RefCell::new(true),
             font_ids: femtovg_area::font_stack().to_vec(),
+            // Start with auto-fit (None) so the wrap area hugs the
+            // text from the very first keystroke instead of extending
+            // out to a fixed default. Dragging the right handle sets
+            // an explicit width via `move_handle`, which switches the
+            // text into "user-set wrap width" mode.
+            text_box_width: None,
         }
     }
 
@@ -144,33 +396,19 @@ impl Text {
 }
 
 impl Drawable for Text {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        // Ivory pill behind the glyphs (standardlabel background).
-        // Uses the cached glyph rect from the previous frame, so the very
-        // first frame after creation has no background — acceptable since
-        // the second frame catches up.
-        {
-            let r = self.rect.borrow();
-            if r.width() > 0 && r.height() > 0 {
-                let pad_x = 12.0_f32;
-                let pad_y = 8.0_f32;
-                let mut bg = Path::new();
-                bg.rounded_rect(
-                    r.x() as f32 - pad_x,
-                    r.y() as f32 - pad_y,
-                    r.width() as f32 + pad_x * 2.0,
-                    r.height() as f32 + pad_y * 2.0,
-                    8.0,
-                );
-                let bg_paint = Paint::color(femtovg::Color::rgba(248, 245, 235, 255));
-                canvas.fill_path(&bg, &bg_paint);
-            }
-        }
+        // (Cream pill background drawing moved below — it's now drawn
+        // per-line after layout, so the pill snugly fits each
+        // wrapped line of glyphs instead of the full multi-line bbox.)
 
         let gtext = self.text_buffer.text(
             &self.text_buffer.start_iter(),
@@ -193,9 +431,39 @@ impl Drawable for Text {
         let transform = canvas.transform();
         let canva_scale = transform.average_scale();
 
-        let width = _bounds.1.x - self.pos.x;
+        // Auto-fit wrap width when the user hasn't manually resized:
+        // measure the text's natural single-line width and use that
+        // (clamped to the empty-text floor). When `text_box_width` is
+        // Some(_) the user has set an explicit wrap via the right
+        // handle drag, which we honor — including when narrower than
+        // the text, in which case `break_text_vec` wraps it onto
+        // multiple lines.
+        //
+        // `measure_text` and `break_text_vec` round sub-pixel
+        // differences in opposite directions: a measured width passed
+        // straight back as a wrap width will sometimes cause
+        // `break_text_vec` to wrap the LAST glyph onto a second line
+        // (visible to the user as a character "bumping down" mid-type
+        // and snapping back up the next frame). The
+        // `JITTER_BUFFER_PX` floor keeps wrap_width strictly larger
+        // than the measured text so this never happens.
+        const JITTER_BUFFER_PX: f32 = 4.0;
+        let wrap_width = if let Some(w) = self.text_box_width {
+            w.max(MIN_TEXT_BOX_WIDTH)
+        } else {
+            let measured = canvas
+                .measure_text(self.pos.x, self.pos.y, text, &base_paint)
+                .ok()
+                .map(|m| m.width())
+                .unwrap_or(0.0);
+            if measured > 0.0 {
+                (measured + JITTER_BUFFER_PX).max(MIN_TEXT_BOX_WIDTH)
+            } else {
+                DEFAULT_INITIAL_BOX_WIDTH
+            }
+        };
 
-        let lines = canvas.break_text_vec(width, text, &base_paint)?;
+        let lines = canvas.break_text_vec(wrap_width, text, &base_paint)?;
         self.line_ranges.replace(lines.clone());
 
         let font_metrics = canvas.measure_font(&base_paint)?;
@@ -217,19 +485,67 @@ impl Drawable for Text {
             line_height = font_metrics.height() / canva_scale;
         }
 
-        let cursor_top_offset = -line_height;
+        // Caret extent — sized to roughly cap-height (baseline →
+        // top of tall glyphs) instead of the full line_height (which
+        // includes the leading above ascenders). Using the full
+        // line_height made the cursor overshoot well above the
+        // visible glyph tops and made the cream pill (which is keyed
+        // off `cursor_height`) balloon to nearly twice the rendered
+        // text's height. The 0.72 factor approximates the typical
+        // cap-height-to-line-height ratio across UI fonts (cap ≈
+        // 0.7em, line ≈ 1.2em → 0.7/1.2 ≈ 0.58, but bumped up so
+        // ascenders like "d"/"h" still fit cleanly).
         let cursor_height = if line_height.abs() > f32::EPSILON {
-            line_height.abs()
+            line_height.abs() * 0.72
         } else {
-            (font_metrics.height() / canva_scale).abs()
+            (font_metrics.height() / canva_scale).abs() * 0.72
         };
+        let cursor_top_offset = -cursor_height;
 
+        // CSS→image conversion factor (DPR-aware, post-zoom) shared
+        // between the pill pad, outline, and caret metrics so all
+        // these dimensions stay locked together at every zoom level.
+        let dpr_for_pads = crate::femtovg_area::current_device_pixel_ratio().max(0.0001);
+        let css_to_image_dpr_for_caret =
+            dpr_for_pads / canvas.transform().average_scale().max(0.0001);
+        let pill_pad_y_top_img_for_caret = PILL_PAD_Y_TOP_CSS * css_to_image_dpr_for_caret;
+        let descender_estimate_img_for_caret =
+            line_height.abs() * DESCENDER_RATIO_OF_LINE_HEIGHT;
+        let pill_pad_y_bottom_img_for_caret = (PILL_PAD_Y_BOTTOM_CSS
+            * css_to_image_dpr_for_caret)
+            .max(descender_estimate_img_for_caret + DESCENDER_SAFETY_CSS * css_to_image_dpr_for_caret);
+        // Caret spans the full cream pill: pad above cap-top + glyph
+        // body + pad (or descender) below baseline — the blinking caret
+        // reads as a full-height insertion mark rather than a short bar.
+        let caret_top_offset = cursor_top_offset - pill_pad_y_top_img_for_caret;
+        let caret_height = cursor_height + pill_pad_y_top_img_for_caret + pill_pad_y_bottom_img_for_caret;
+
+        // Build line layouts up-front and capture each line's natural
+        // width so we can compute the `center_off` that horizontally
+        // centers the line within the wrap area. The cached `start_x`
+        // is the single source of truth for "where this line begins
+        // in image space" — used by the cursor caret, selection rects,
+        // glyph hit-test, pill background, and the final glyph draw.
+        // Without this, the caret/selection would sit at `self.pos.x`
+        // while the glyphs/pill were shifted right by `center_off`,
+        // visibly drifting the caret left of the text whenever the
+        // wrap area was wider than the line.
+        let mut line_widths: Vec<f32> = Vec::with_capacity(lines.len());
         let mut line_layouts: Vec<LineLayout> = Vec::with_capacity(lines.len());
         let mut baseline = self.pos.y;
         for line_range in &lines {
+            let line_text = &text[line_range.clone()];
+            let line_w = canvas
+                .measure_text(self.pos.x, baseline, line_text, &base_paint)
+                .ok()
+                .map(|m| m.width())
+                .unwrap_or(0.0);
+            let center_off = ((wrap_width - line_w) / 2.0).max(0.0);
+            line_widths.push(line_w);
             line_layouts.push(LineLayout {
                 range: line_range.clone(),
                 baseline,
+                start_x: self.pos.x + center_off,
             });
             baseline += line_height;
         }
@@ -238,68 +554,23 @@ impl Drawable for Text {
             top_offset: cursor_top_offset,
             height: cursor_height,
             line_height,
+            caret_top_offset,
+            caret_height,
         };
 
         let layout_context = TextDrawingContext {
             paint: &base_paint,
             text,
             lines: &line_layouts,
+            wrap_width,
+            base_x: self.pos.x,
         };
 
-        if self.editing
-            && let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range)
-        {
-            self.draw_preedit_background(
-                canvas,
-                &layout_context,
-                preedit,
-                preedit_range,
-                cursor_metrics,
-            );
-        }
-
-        let mut cursor_visible = self.cursor_visible.borrow_mut();
-        //draw selection
-        if let Some((sel_start_iter, sel_end_iter)) = self.text_buffer.selection_bounds() {
-            let sel_start = sel_start_iter.offset() as usize;
-            let sel_end = sel_end_iter.offset() as usize;
-
-            for line in &line_layouts {
-                let start_index = text[..line.range.start].chars().count();
-                let end_index = text[..line.range.end].chars().count();
-
-                let overlap_start = sel_start.max(start_index);
-                let overlap_end = sel_end.min(end_index);
-                if overlap_start >= overlap_end {
-                    continue;
-                }
-
-                let segments = self.segments_for_line_span(
-                    canvas,
-                    &layout_context,
-                    line,
-                    overlap_start..overlap_end,
-                );
-                for (start_x, end_x) in segments {
-                    let mut path = Path::new();
-
-                    let offset_y = cursor_metrics.height * 0.1;
-                    let y = line.baseline + cursor_metrics.top_offset + offset_y;
-                    let h = cursor_metrics.height;
-                    let x = start_x;
-                    let w = end_x - start_x;
-
-                    path.rect(x, y, w, h);
-                    let mut paint = Paint::color(Color::rgbaf(0.3, 0.5, 1.0, 0.3)); // transparent blue
-                    paint.set_anti_alias(true);
-                    canvas.fill_path(&path, &paint);
-                }
-            }
-
-            *cursor_visible = false;
-        } else {
-            *cursor_visible = true;
-        }
+        // Selection blanks the caret, so resolve that flag up front;
+        // the rect itself is drawn below, *after* the pill, so it
+        // shows on top of the cream backdrop instead of being hidden.
+        let cursor_visible_now = self.text_buffer.selection_bounds().is_none();
+        *self.cursor_visible.borrow_mut() = cursor_visible_now;
 
         //calculate rect and glyphs
         let mut draw_baseline = self.pos.y;
@@ -353,25 +624,220 @@ impl Drawable for Text {
             }
         }
 
-        //draw rect
-        if *self.draw_rect.borrow() {
-            let mut rect_paint = Path::new();
-            rect_paint.move_to(self.pos.x, self.pos.y);
-            let y = rect.y() as f32;
-            let h = rect.height() as f32;
-            let x = rect.x() as f32;
-            let w = rect.width() as f32;
+        // Per the user spec: the pill (and outline) measure padding
+        // from the BASELINE, not from descenders. Padding above
+        // cap-height + below baseline = symmetric breathing room
+        // around what reads as "the text"; descenders (g, p, y,
+        // commas) are allowed to poke below the pill. Without this
+        // rule, a single comma would force the pill to be ~25%
+        // taller than visually warranted.
+        let line_extent_img = cursor_height;
+        let line_count = line_layouts.len().max(1) as f32;
+        // Top of the first line is at `pos.y - cursor_height`. Total
+        // stack for N lines = (N-1) * line_height + cursor_height
+        // (the last line ends at the baseline, not below it).
+        let stack_top = self.pos.y - cursor_height;
+        let stack_height = (line_count - 1.0) * line_height + line_extent_img;
 
-            rect_paint.rect(x, y, w, h);
-            let mut paint = Paint::color(Color::rgbaf(1.0, 0.5, 0.3, 0.3)); // transparent orange
-            paint.set_anti_alias(true);
-            paint.set_line_width(2.0);
-            canvas.stroke_path(&rect_paint, &paint);
+        // DPR-aware CSS→image factor so the editing outline + padding
+        // match the on-screen size used by SelectionOverlay (which
+        // also factors DPR). Without DPR the editing visuals end up
+        // half-sized on retina.
+        let dpr_for_pads = crate::femtovg_area::current_device_pixel_ratio().max(0.0001);
+        let css_to_image_dpr =
+            dpr_for_pads / canvas.transform().average_scale().max(0.0001);
+        let pill_pad_x_img = PILL_PAD_X_CSS * css_to_image_dpr;
+        let pill_pad_y_top_img = PILL_PAD_Y_TOP_CSS * css_to_image_dpr;
+        // Bottom pad floors at 8 CSS px (symmetric with the top), but
+        // grows when the font's descender would otherwise exceed it —
+        // at 3× annotation multipliers the descender on commas /
+        // apostrophes is well past 8 image px, so a fixed 8-px floor
+        // would let them poke below the pill. Keeping a small safety
+        // cushion above the descender keeps the glyph visibly INSIDE
+        // the cream area instead of riding the edge.
+        let descender_estimate_img = line_height.abs() * DESCENDER_RATIO_OF_LINE_HEIGHT;
+        let pill_pad_y_bottom_floor = PILL_PAD_Y_BOTTOM_CSS * css_to_image_dpr;
+        let pill_pad_y_bottom_img = pill_pad_y_bottom_floor
+            .max(descender_estimate_img + DESCENDER_SAFETY_CSS * css_to_image_dpr);
+        let outline_pad_img = OUTLINE_PADDING_CSS * css_to_image_dpr;
+        let pad_x_img = pill_pad_x_img + outline_pad_img;
+        let pad_y_top_img = pill_pad_y_top_img + outline_pad_img;
+        let pad_y_bottom_img = pill_pad_y_bottom_img + outline_pad_img;
+        // editing_box wraps the pill stack with `outline_pad` on
+        // every side. The pill itself adds asymmetric pill_pad
+        // (less above cap-height, more below baseline) so commas
+        // and small descenders sit comfortably without forcing a
+        // taller pill on every line.
+        let editing_box = Rect {
+            pos: Vec2D::new(self.pos.x - pad_x_img, stack_top - pad_y_top_img),
+            size: Vec2D::new(
+                wrap_width + pad_x_img * 2.0,
+                stack_height + pad_y_top_img + pad_y_bottom_img,
+            ),
+        };
+        *self.editing_rect.borrow_mut() = editing_box;
+        *self.last_line_height.borrow_mut() = cursor_height;
+        *self.last_css_to_image.borrow_mut() = css_to_image_dpr;
+        // Measure the full text on a single line (no wrapping) so
+        // bounds() can estimate live line count during a drag.
+        let natural_w = canvas
+            .measure_text(self.pos.x, self.pos.y, text, &base_paint)
+            .ok()
+            .map(|m| m.width())
+            .unwrap_or(0.0);
+        *self.last_natural_text_width.borrow_mut() = natural_w;
+
+        // Blue editing outline + side/corner handles (replaces the legacy
+        // orange debug rect). style:a thin rounded outline around
+        // the wrap area with draggable handles, visible during text
+        // creation/editing and replaced by the PointerTool's glow halo
+        // once committed.
+        // Draw the blue outline whenever the text is being edited
+        // OR is currently selected (renderer publishes selection
+        // state via the thread-local). Doing this inside `draw`
+        // means the outline geometry is always based on the SAME
+        // line-break + measurements that produced the cream pills
+        // and glyphs in this same frame — no more 1-frame lag from
+        // a stale `render_glow` cache during handle drags.
+        let is_selected = crate::femtovg_area::current_drawable_is_selected();
+        let render_outline = self.editing || is_selected;
+        if render_outline {
+            // Scale CSS-pixel widths to image units. Use the
+            // renderer-published DPR so on-screen sizing stays
+            // consistent across HiDPI; without DPR we'd get a
+            // half-size outline on retina displays.
+            let img_to_canvas = canvas.transform().average_scale().max(0.0001);
+            let css_to_image_dpr =
+                crate::femtovg_area::current_device_pixel_ratio().max(0.0001) / img_to_canvas;
+
+            // While actively editing, use a solid outline — the user
+            // is interacting with this exact box. Once the text is
+            // committed and just selected, switch to a dashed outline
+            // so the two states read as visually distinct without
+            // needing extra UI chrome.
+            let path = if self.editing {
+                let mut p = Path::new();
+                p.rounded_rect(
+                    editing_box.pos.x,
+                    editing_box.pos.y,
+                    editing_box.size.x,
+                    editing_box.size.y,
+                    OUTLINE_CORNER_RADIUS_CSS * css_to_image_dpr,
+                );
+                p
+            } else {
+                dashed_rounded_rect_path(
+                    editing_box.pos.x,
+                    editing_box.pos.y,
+                    editing_box.size.x,
+                    editing_box.size.y,
+                    OUTLINE_CORNER_RADIUS_CSS * css_to_image_dpr,
+                    SELECTION_DASH_LEN_CSS * css_to_image_dpr,
+                    SELECTION_GAP_LEN_CSS * css_to_image_dpr,
+                )
+            };
+            let outline_color = femtovg::Color::rgbaf(
+                SELECTION_BLUE.r,
+                SELECTION_BLUE.g,
+                SELECTION_BLUE.b,
+                TEXT_OUTLINE_ALPHA,
+            );
+            let mut outline = Paint::color(outline_color);
+            outline.set_line_width(EDITING_OUTLINE_WIDTH * css_to_image_dpr);
+            outline.set_anti_alias(true);
+            canvas.stroke_path(&path, &outline);
         }
 
-        for line_range in &lines {
+        // Per-line cream pills behind each line's glyphs (when the
+        // user picks the Rounded background). Each pill is sized to
+        // the line's actual text width — so wrapped multi-line text
+        // shows as a stack of narrow pills — and uses the SHARED
+        // `line_extent_img` (cursor_height + clamped descender) so
+        // the pill height grows in lockstep with the editing
+        // outline instead of diverging at large font sizes.
+        //
+        // When the user has dragged the wrap area wider than the
+        // longest line, each line centers horizontally within the
+        // wrap so the text stays balanced inside the blue outline.
+        let pill_corner = PILL_CORNER_RADIUS_CSS * css_to_image_dpr;
+
+        if matches!(self.background, TextBackground::Rounded) {
+            let bg_paint = Paint::color(femtovg::Color::rgba(248, 245, 235, 255));
+            for (idx, layout) in line_layouts.iter().enumerate() {
+                if text[layout.range.clone()].is_empty() {
+                    continue;
+                }
+                let line_w = line_widths[idx];
+                // Pill spans cap-top (baseline - cursor_height) down
+                // to baseline, with asymmetric pad: small above
+                // cap, generous below baseline. Descenders extend
+                // below freely.
+                let pill_top = layout.baseline - cursor_height - pill_pad_y_top_img;
+                let pill_height = line_extent_img + pill_pad_y_top_img + pill_pad_y_bottom_img;
+                let pill_left = layout.start_x - pill_pad_x_img;
+                let pill_width = line_w + pill_pad_x_img * 2.0;
+                let mut bg = Path::new();
+                bg.rounded_rect(pill_left, pill_top, pill_width, pill_height, pill_corner);
+                canvas.fill_path(&bg, &bg_paint);
+            }
+        }
+
+        // Selection + preedit backgrounds layer above the cream pill
+        // (so they're visible) and below the glyphs (so text stays
+        // readable). When the pill was drawn AFTER these, the cream
+        // fill hid the selection highlight entirely.
+        if self.editing
+            && let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range)
+        {
+            self.draw_preedit_background(
+                canvas,
+                &layout_context,
+                preedit,
+                preedit_range,
+                cursor_metrics,
+            );
+        }
+
+        if let Some((sel_start_iter, sel_end_iter)) = self.text_buffer.selection_bounds() {
+            let sel_start = sel_start_iter.offset() as usize;
+            let sel_end = sel_end_iter.offset() as usize;
+
+            for line in &line_layouts {
+                let start_index = text[..line.range.start].chars().count();
+                let end_index = text[..line.range.end].chars().count();
+
+                let overlap_start = sel_start.max(start_index);
+                let overlap_end = sel_end.min(end_index);
+                if overlap_start >= overlap_end {
+                    continue;
+                }
+
+                let segments = self.segments_for_line_span(
+                    canvas,
+                    &layout_context,
+                    line,
+                    overlap_start..overlap_end,
+                );
+                for (start_x, end_x) in segments {
+                    let mut path = Path::new();
+
+                    let offset_y = cursor_metrics.height * 0.1;
+                    let y = line.baseline + cursor_metrics.top_offset + offset_y;
+                    let h = cursor_metrics.height;
+                    let x = start_x;
+                    let w = end_x - start_x;
+
+                    path.rect(x, y, w, h);
+                    let mut paint = Paint::color(Color::rgbaf(0.3, 0.5, 1.0, 0.3)); // transparent blue
+                    paint.set_anti_alias(true);
+                    canvas.fill_path(&path, &paint);
+                }
+            }
+        }
+
+        for (idx, line_range) in lines.iter().enumerate() {
             canvas.fill_text(
-                self.pos.x,
+                line_layouts[idx].start_x,
                 draw_baseline,
                 &text[line_range.clone()],
                 &base_paint,
@@ -399,22 +865,107 @@ impl Drawable for Text {
                 &layout_context,
                 cursor_metrics,
                 display.cursor_byte_pos,
-                *cursor_visible,
+                cursor_visible_now,
             );
+            // Three editing-mode handles: left/right midpoints (drag to
+            // change `text_box_width`) and bottom-right corner (drag to
+            // change font size + width). Drawn last so they sit on top of
+            // the text and outline.
+            self.draw_editing_handles(canvas, editing_box);
         }
 
         Ok(())
     }
 
     fn bounds(&self) -> Option<Rect> {
-        let r = self.rect.borrow();
-        if r.width() <= 0 || r.height() <= 0 {
+        // Recompute the selection rect FRESH from current state on
+        // every call rather than returning the cached editing_rect.
+        // Reason: during a drag, `move_handle` mutates `pos` and
+        // `text_box_width` but the cached editing_rect is still from
+        // the last draw — and `render_glow` (which uses bounds())
+        // runs BEFORE the next draw repopulates it. Returning the
+        // cache made the blue outline lag a frame behind the drag,
+        // visible as the outline snapping to its final size only
+        // after mouse-up. Using current pos + width + cached line
+        // metrics here makes the outline track the drag in real time.
+        let line_height = *self.last_line_height.borrow();
+        let css_to_image = *self.last_css_to_image.borrow();
+        if line_height <= 0.0 || css_to_image <= 0.0 {
             return None;
         }
+        let total_pad_x = SELECTION_PAD_X_CSS * css_to_image;
+        let total_pad_y_top = SELECTION_PAD_Y_TOP_CSS * css_to_image;
+        // Mirror the descender-aware pill bottom pad from `draw()` so
+        // selection bounds / hit-test grow alongside it. Without this
+        // the cached SELECTION_PAD_Y_BOTTOM_CSS would clip below the
+        // real pill at large annotation sizes and the bottom-edge
+        // handle wouldn't track the actual visible edge.
+        let descender_estimate_img = line_height * DESCENDER_RATIO_OF_LINE_HEIGHT;
+        let pill_pad_bottom_dyn = (PILL_PAD_Y_BOTTOM_CSS * css_to_image)
+            .max(descender_estimate_img + DESCENDER_SAFETY_CSS * css_to_image);
+        let total_pad_y_bottom =
+            pill_pad_bottom_dyn + OUTLINE_PADDING_CSS * css_to_image;
+
+        // Width: text_box_width when set, else the cached glyph
+        // width + jitter buffer (matches the auto-fit branch in
+        // draw). Floor to MIN_TEXT_BOX_WIDTH.
+        let glyph_w = self.glyph_rect().map(|g| g.size.x).unwrap_or(0.0);
+        let wrap_width = match self.text_box_width {
+            Some(w) => w.max(MIN_TEXT_BOX_WIDTH).max(glyph_w),
+            None => (glyph_w + 4.0).max(MIN_TEXT_BOX_WIDTH),
+        };
+
+        // Live line-count: estimate from the natural text width
+        // divided by current wrap_width so the outline reflects
+        // wrapping in real time during a drag, instead of waiting
+        // for the next draw to re-run break_text_vec. The cached
+        // natural-text-width covers the whole text laid out on a
+        // single line; combined with current wrap_width this gives
+        // the correct line count even mid-drag when the cached
+        // line_ranges is still from the previous frame.
+        let natural_w = (*self.last_natural_text_width.borrow()).max(0.0);
+        let live_line_count = if natural_w > 0.0 && wrap_width > 0.0 {
+            (natural_w / wrap_width).ceil().max(1.0)
+        } else {
+            self.line_ranges.borrow().len().max(1) as f32
+        };
+
+        // Vertical: stack_top = pos.y - line_height (matches draw).
+        let stack_top = self.pos.y - line_height;
+        let stack_height = live_line_count * line_height;
+
         Some(Rect {
-            pos: Vec2D::new(r.x() as f32, r.y() as f32),
-            size: Vec2D::new(r.width() as f32, r.height() as f32),
+            pos: Vec2D::new(self.pos.x - total_pad_x, stack_top - total_pad_y_top),
+            size: Vec2D::new(
+                wrap_width + 2.0 * total_pad_x,
+                stack_height + total_pad_y_top + total_pad_y_bottom,
+            ),
         })
+    }
+
+    fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
+        // Use bounds() inflated by AT LEAST the pointer's full
+        // handle hit-radius (= the visible handle's outer radius
+        // plus generous slop) so clicks anywhere on or near a
+        // resize handle still count as hits on the text. The
+        // tolerance argument is the standard pointer slack —
+        // taking the max of the two ensures we never UNDER-count.
+        // Without this, a click on the OUTSIDE edge of a resize
+        // handle (a few pixels past `bounds.right`) would miss the
+        // text and bubble through to TextTool, which would commit
+        // the current text and spawn an extra one at the click
+        // position — the "phantom text box on handle drag" bug.
+        let css_to_image = *self.last_css_to_image.borrow();
+        // Match SelectionOverlay's outer handle radius (12/2 + 2 = 8
+        // CSS px) and add a comfortable safety margin of another 8
+        // px so the boundary hit-test doesn't fail at the very edge
+        // of the visible handle disc.
+        let handle_margin = 16.0 * css_to_image.max(1.0);
+        let inflate = tolerance.max(handle_margin);
+        match self.bounds() {
+            Some(b) => b.inflated(inflate).contains(point),
+            None => false,
+        }
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -427,10 +978,109 @@ impl Drawable for Text {
             r.width(),
             r.height(),
         );
+        let mut er = self.editing_rect.borrow_mut();
+        er.pos += delta;
+    }
+
+    fn handles(&self) -> Vec<Handle> {
+        // Use the committed-selection box (`bounds`) so handles span the
+        // wrap area when the user set one, but stay snug to the glyphs
+        // when they didn't. Empty/uninitialized text has no handles.
+        let Some(b) = self.bounds() else {
+            return Vec::new();
+        };
+        let center_y = b.pos.y + b.size.y / 2.0;
+        let right = b.pos.x + b.size.x;
+        let bottom = b.pos.y + b.size.y;
+        vec![
+            // Round side handles for left/right wrap-width adjust.
+            Handle::new(HandleId::Left, Vec2D::new(b.pos.x, center_y)),
+            Handle::new(HandleId::Right, Vec2D::new(right, center_y)),
+            // Square bottom-right handle: visually distinct because
+            // dragging it scales font size + width together (not a
+            // pure resize).
+            Handle::new(HandleId::BottomRight, Vec2D::new(right, bottom))
+                .with_kind(HandleKind::Square),
+        ]
+    }
+
+    fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
+        let Some(b) = self.bounds() else { return };
+        let current_right = b.pos.x + b.size.x;
+        let current_top = b.pos.y;
+        let current_height = b.size.y.max(1.0);
+        // Handles sit on the visible OUTLINE which is `SELECTION_PAD`
+        // CSS px outside the rendered glyphs (glyph→cream pill→outline).
+        // Convert a dragged handle position back into wrap-width space
+        // by subtracting that pad in image-space units.
+        let css_to_image = *self.last_css_to_image.borrow();
+        let pad_x = SELECTION_PAD_X_CSS * css_to_image;
+        // Total vertical padding (above the top of the glyphs + below
+        // the bottom). Used to convert a dragged BottomRight handle
+        // position back into glyph-height units: the handle sits on
+        // the outline, which extends `pad_y` beyond the glyphs.
+        let pad_y =
+            (SELECTION_PAD_Y_TOP_CSS + SELECTION_PAD_Y_BOTTOM_CSS) * css_to_image;
+        match handle {
+            HandleId::Right => {
+                let new_w = (to.x - self.pos.x - pad_x).max(MIN_TEXT_BOX_WIDTH);
+                self.text_box_width = Some(new_w);
+            }
+            HandleId::Left => {
+                // Pin the right edge; move pos.x to follow the dragged
+                // left edge, and shrink/grow text_box_width to match.
+                // Drag pos is at outline_left = self.pos.x − pad_x, so
+                // the new self.pos.x = drag.x + pad_x.
+                let new_x = (to.x + pad_x).min(current_right - MIN_TEXT_BOX_WIDTH);
+                let new_w = current_right - new_x;
+                self.pos.x = new_x;
+                self.text_box_width = Some(new_w);
+            }
+            HandleId::BottomRight => {
+                // Scale font size proportionally to the height change so
+                // text reflows to roughly fit the dragged corner. Width
+                // change is applied independently so the user can adjust
+                // wrap separately from font size.
+                let new_h = (to.y - current_top - pad_y).max(current_height * 0.2);
+                let scale = (new_h / current_height).clamp(0.2, 5.0);
+                let new_factor =
+                    (self.style.annotation_size_factor * scale).clamp(0.2, 5.0);
+                self.style.annotation_size_factor = new_factor;
+                let new_w = (to.x - self.pos.x - pad_x).max(MIN_TEXT_BOX_WIDTH);
+                self.text_box_width = Some(new_w);
+            }
+            _ => {}
+        }
     }
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
+    }
+
+    fn set_text_background(&mut self, bg: TextBackground) {
+        self.background = bg;
+    }
+
+    fn render_glow(
+        &self,
+        _canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: FontId,
+        _bounds: (Vec2D, Vec2D),
+        _device_pixel_ratio: f32,
+    ) -> Result<()> {
+        // Intentionally a no-op: the selection outline for Text is
+        // drawn inside `Drawable::draw` (gated by the renderer's
+        // CURRENT_SELECTED thread-local) so its geometry uses the
+        // SAME line-break and font metrics computed in the same
+        // draw call. Drawing it here would either lag a frame
+        // behind during handle drags (cache from previous frame)
+        // or duplicate-stroke the outline.
+        let _ = GLOW_COLOR;
+        Ok(())
     }
 }
 
@@ -516,7 +1166,7 @@ impl Text {
                             (cursor.height + 2.0).ceil(),
                         );
                         canvas.fill_text(
-                            self.pos.x,
+                            line.start_x,
                             line.baseline,
                             &context.text[line.range.clone()],
                             &overlay_paint,
@@ -631,7 +1281,7 @@ impl Text {
         let prefix = &line_text[..start_byte];
         let selected = &line_text[start_byte..end_byte].replace("\n", "");
 
-        let start_x: f32 = self.pos.x + Self::text_width(canvas, context.paint, prefix);
+        let start_x: f32 = line.start_x + Self::text_width(canvas, context.paint, prefix);
         let width = Self::text_width(canvas, context.paint, selected);
 
         vec![(start_x, start_x + width.max(0.0))]
@@ -644,8 +1294,27 @@ impl Text {
         cursor_byte_pos: usize,
         cursor: CursorMetrics,
     ) -> (f32, f32) {
+        // X for "no glyphs to position against" states (empty buffer,
+        // caret on a brand-new line after Enter). When the user has
+        // an explicit `text_box_width` the centered text idiom holds,
+        // so we sit the caret at the horizontal middle of the wrap
+        // area; in the auto-fit case the wrap is the placeholder size
+        // (`DEFAULT_INITIAL_BOX_WIDTH`) and centering there would put
+        // the caret far to the right of where the first typed char
+        // ends up, causing a large leftward jump on the first keystroke.
+        let empty_caret_x = if self.text_box_width.is_some() {
+            context.base_x + context.wrap_width / 2.0
+        } else {
+            context.base_x
+        };
+
+        // Vertical caret top uses `caret_top_offset` (pill extent),
+        // not `top_offset` (glyph extent), so the caret reaches the
+        // top of the cream pill.
+        let caret_top = cursor.caret_top_offset;
+
         if context.lines.is_empty() {
-            return (self.pos.x, self.pos.y + cursor.top_offset);
+            return (empty_caret_x, self.pos.y + caret_top);
         }
 
         let mut newline_pending_baseline: Option<f32> = None;
@@ -659,7 +1328,7 @@ impl Text {
                     .min(line_text.len());
                 let prefix = &line_text[..prefix_len];
                 let offset = Self::text_width(canvas, context.paint, prefix);
-                return (self.pos.x + offset, line.baseline + cursor.top_offset);
+                return (line.start_x + offset, line.baseline + caret_top);
             }
 
             if cursor_byte_pos == line.range.end {
@@ -667,27 +1336,27 @@ impl Text {
                     // The caret is positioned right after a manual line break,
                     // so place it on the next visual line instead.
                     newline_pending_baseline =
-                        Some(line.baseline + cursor.top_offset + cursor.line_height);
+                        Some(line.baseline + caret_top + cursor.line_height);
                     continue;
                 }
                 let offset = Self::text_width(canvas, context.paint, line_text);
-                return (self.pos.x + offset, line.baseline + cursor.top_offset);
+                return (line.start_x + offset, line.baseline + caret_top);
             }
         }
 
         if let Some(baseline) = newline_pending_baseline {
-            return (self.pos.x, baseline);
+            return (empty_caret_x, baseline);
         }
 
         if let Some(last_line) = context.lines.last() {
             let line_text = &context.text[last_line.range.clone()];
             let offset = Self::text_width(canvas, context.paint, line_text);
             (
-                self.pos.x + offset,
-                last_line.baseline + cursor.top_offset + cursor.line_height,
+                last_line.start_x + offset,
+                last_line.baseline + caret_top + cursor.line_height,
             )
         } else {
-            (self.pos.x, self.pos.y + cursor.top_offset)
+            (empty_caret_x, self.pos.y + caret_top)
         }
     }
 
@@ -701,16 +1370,42 @@ impl Text {
         cursor_visible: bool,
     ) {
         let (cursor_x, cursor_top) = self.caret_top_left(canvas, context, cursor_byte_pos, cursor);
-        let caret_height = cursor.height;
+        let caret_height = cursor.caret_height;
 
         let mut caret_paint: Paint = self.style.into();
         caret_paint.set_font(&[font]);
 
-        if cursor_visible {
-            let extra_height = caret_height * 0.05;
+        // Blink: combine the no-selection visibility flag with a
+        // 500 ms phase from the system clock so the caret pulses
+        // even between input events. The TextTool runs a tick
+        // timer (cursor_blink_timer) that fires `Refresh` events
+        // at 250 ms intervals so each phase boundary triggers a
+        // redraw — without it the canvas would only redraw on
+        // user input and the blink would be invisible.
+        let blink_on = {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            (now_ms / 500) % 2 == 0
+        };
+        if cursor_visible && blink_on {
+            // Draw the caret as a 2 CSS px wide rounded rect filled
+            // with the text color. Using `fill_path` on a rect (vs
+            // `stroke_path` on a line) is more reliable in femtovg
+            // — degenerate-line strokes can render at 0 width on
+            // some backends. DPR-aware so the on-screen width is
+            // consistent across HiDPI. The caret already spans the
+            // full pill height via `caret_height`, so we don't add
+            // extra vertical padding here — doing so used to make
+            // the bar overshoot the pill by ~10%.
+            let dpr = crate::femtovg_area::current_device_pixel_ratio().max(0.0001);
+            let img_to_canvas = canvas.transform().average_scale().max(0.0001);
+            let css_to_image_dpr = dpr / img_to_canvas;
+            let half_w = 1.0 * css_to_image_dpr;
+            let radius = 1.0 * css_to_image_dpr;
             let mut path = Path::new();
-            path.move_to(cursor_x, cursor_top - extra_height);
-            path.line_to(cursor_x, cursor_top + caret_height + extra_height * 2.0);
+            path.rounded_rect(cursor_x - half_w, cursor_top, half_w * 2.0, caret_height, radius);
             canvas.fill_path(&path, &caret_paint);
         }
 
@@ -743,17 +1438,198 @@ impl Text {
             .map(|metrics| metrics.width())
             .unwrap_or(0.0)
     }
+
+    /// Cached glyph bounding rect in image coordinates, or `None` when
+    /// the text hasn't been measured yet or is empty.
+    fn glyph_rect(&self) -> Option<Rect> {
+        let r = self.rect.borrow();
+        if r.width() <= 0 || r.height() <= 0 {
+            return None;
+        }
+        Some(Rect {
+            pos: Vec2D::new(r.x() as f32, r.y() as f32),
+            size: Vec2D::new(r.width() as f32, r.height() as f32),
+        })
+    }
+
+    /// Current wrap-area rect (the editing-mode box). Pulled from the
+    /// per-frame cache populated in `draw`. Returns the cached value
+    /// even when stale — callers that need a freshly measured rect must
+    /// queue a draw first.
+    fn editing_box(&self) -> Rect {
+        *self.editing_rect.borrow()
+    }
+
+    /// Positions of the three editing-mode handles (`Left`, `Right`,
+    /// `BottomRight`) at the wrap-area edges. Used both for inline
+    /// rendering and for `TextTool`'s editing-mode handle hit-test.
+    fn editing_handles(&self) -> Vec<Handle> {
+        let b = self.editing_box();
+        if b.size.x <= 0.0 || b.size.y <= 0.0 {
+            return Vec::new();
+        }
+        let center_y = b.pos.y + b.size.y / 2.0;
+        let right = b.pos.x + b.size.x;
+        let bottom = b.pos.y + b.size.y;
+        vec![
+            Handle::new(HandleId::Left, Vec2D::new(b.pos.x, center_y))
+                .with_hit_radius(HANDLE_HIT_RADIUS),
+            Handle::new(HandleId::Right, Vec2D::new(right, center_y))
+                .with_hit_radius(HANDLE_HIT_RADIUS),
+            Handle::new(HandleId::BottomRight, Vec2D::new(right, bottom))
+                .with_hit_radius(HANDLE_HIT_RADIUS)
+                // Square — same semantic as the committed-selection
+                // BR handle: scales font size + width together.
+                .with_kind(HandleKind::Square),
+        ]
+    }
+
+    /// Render the three editing-mode handles at the wrap-area edges with
+    /// the same visual style as the `PointerTool::SelectionOverlay` so
+    /// editing and selection states match. Sized in CSS pixels and scaled
+    /// to image units to look constant on-screen regardless of zoom.
+    fn draw_editing_handles(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        editing_box: Rect,
+    ) {
+        // DPR-aware sizing so editing handles look the same on-screen
+        // size as the SelectionOverlay's handles in selected mode.
+        let dpr = crate::femtovg_area::current_device_pixel_ratio().max(0.0001);
+        let img_to_canvas = canvas.transform().average_scale().max(0.0001);
+        let css_to_image_dpr = dpr / img_to_canvas;
+        let inner_r = (HANDLE_INNER_DIAMETER / 2.0) * css_to_image_dpr;
+        let outer_r = (HANDLE_INNER_DIAMETER / 2.0 + HANDLE_RING) * css_to_image_dpr;
+        let white_fill = Paint::color(Color::white());
+        let blue_fill = Paint::color(SELECTION_BLUE);
+
+        let center_y = editing_box.pos.y + editing_box.size.y / 2.0;
+        let right = editing_box.pos.x + editing_box.size.x;
+        let bottom = editing_box.pos.y + editing_box.size.y;
+
+        // Two round side handles for left/right wrap-width adjust.
+        // Drawn as the standard PointerTool selection handle (white
+        // ring + blue disc) so the visual language matches.
+        let round_positions = [
+            Vec2D::new(editing_box.pos.x, center_y),
+            Vec2D::new(right, center_y),
+        ];
+        for p in &round_positions {
+            let mut outer = Path::new();
+            outer.circle(p.x, p.y, outer_r);
+            canvas.fill_path(&outer, &white_fill);
+            let mut inner = Path::new();
+            inner.circle(p.x, p.y, inner_r);
+            canvas.fill_path(&inner, &blue_fill);
+        }
+
+        // Bottom-right corner: SMALL rounded square. Half the size
+        // of the round handles per the user spec — visually distinct
+        // (different shape + smaller) signaling the special "scales
+        // font + width together" semantic. 6 px inner blue + 2 px
+        // white ring = 10 px total square, half the round handles'
+        // ~16 px outer diameter.
+        let sq_inner_half = (HANDLE_INNER_DIAMETER / 4.0) * css_to_image_dpr;
+        let sq_outer_half = (HANDLE_INNER_DIAMETER / 4.0 + HANDLE_RING) * css_to_image_dpr;
+        let sq_corner = 1.5 * css_to_image_dpr;
+        let mut square_outer = Path::new();
+        square_outer.rounded_rect(
+            right - sq_outer_half,
+            bottom - sq_outer_half,
+            sq_outer_half * 2.0,
+            sq_outer_half * 2.0,
+            sq_corner,
+        );
+        canvas.fill_path(&square_outer, &white_fill);
+        let mut square_inner = Path::new();
+        square_inner.rounded_rect(
+            right - sq_inner_half,
+            bottom - sq_inner_half,
+            sq_inner_half * 2.0,
+            sq_inner_half * 2.0,
+            sq_corner,
+        );
+        canvas.fill_path(&square_inner, &blue_fill);
+    }
 }
 
 #[derive(Default)]
 pub struct TextTool {
     text: Option<Text>,
     style: Style,
+    /// Last-selected background style from the toolbar dropdown,
+    /// captured into each new Text drawable on creation. Persisted
+    /// for the duration of the satty session — defaults to Rounded
+    /// to keep the existing look out of the box.
+    background: TextBackground,
     input_enabled: bool,
     im_context: Option<InputContext>,
     sender: Option<Sender<SketchBoardInput>>,
     drag_start_pos: Vec2D,
     dragged: Rc<RefCell<bool>>,
+    /// In-flight editing-mode handle drag (left/right midpoint or
+    /// bottom-right corner). Snapshots the original geometry so each
+    /// `UpdateDrag` recomputes from a stable baseline, mirroring
+    /// `PointerTool::DragState`. `None` outside a handle drag.
+    handle_drag: Option<EditHandleDrag>,
+    /// glib timer that fires `Refresh` events every 250 ms while a
+    /// text is being edited so the cursor blink phase (computed
+    /// from system time inside `draw_cursor_and_update_ime`) gets
+    /// rendered. Stored so we can cancel it on commit/deactivate
+    /// — leaking the timer would keep firing redraws after the
+    /// text tool exits.
+    cursor_blink_timer: Option<gtk::glib::SourceId>,
+    /// Set when `self.text` is a clone of an already-committed drawable
+    /// (re-edit via double-click). Causes the eventual commit to emit
+    /// `ModifyDrawable(id, _)` instead of `Commit(_)` so the existing
+    /// stacked drawable is replaced in-place. The renderer also hides
+    /// the original via `dragging_drawable_id` while editing.
+    edit_target_id: Option<DrawableId>,
+}
+
+impl TextTool {
+    /// Begin emitting `Refresh` events at the cursor blink cadence
+    /// (250 ms — half the 500 ms blink period so each phase
+    /// boundary triggers a redraw). Idempotent: cancels any
+    /// existing timer first so re-entering edit mode doesn't pile
+    /// up duplicate ticks.
+    fn start_cursor_blink_timer(&mut self) {
+        self.stop_cursor_blink_timer();
+        let Some(sender) = self.sender.clone() else {
+            return;
+        };
+        let id = gtk::glib::timeout_add_local(
+            std::time::Duration::from_millis(250),
+            move || {
+                let _ = sender.send(SketchBoardInput::Refresh);
+                gtk::glib::ControlFlow::Continue
+            },
+        );
+        self.cursor_blink_timer = Some(id);
+    }
+
+    fn stop_cursor_blink_timer(&mut self) {
+        if let Some(id) = self.cursor_blink_timer.take() {
+            id.remove();
+        }
+    }
+}
+
+/// Stable snapshot of an in-progress Text's geometry at the moment a
+/// handle drag began. `move_handle` is called each `UpdateDrag` with
+/// `anchor + delta_from_begin`, mutating a fresh clone of these original
+/// values so successive drag updates don't accumulate.
+struct EditHandleDrag {
+    handle: HandleId,
+    original_pos: Vec2D,
+    original_text_box_width: Option<f32>,
+    original_size_factor: f32,
+    /// Cached line height (image-space px) at BeginDrag. Restored each
+    /// `UpdateDrag` so `move_handle`'s height-scale math doesn't drift
+    /// as `last_line_height` updates per frame.
+    original_line_height: f32,
+    /// Image-space position of the handle at BeginDrag.
+    anchor: Vec2D,
 }
 
 impl Tool for TextTool {
@@ -790,6 +1666,17 @@ impl Tool for TextTool {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
+        }
+    }
+
+    fn set_text_background(&mut self, bg: TextBackground) {
+        // New text drawables created from now on use the picked
+        // background. Also update the in-progress one if any so the
+        // user sees the change live without having to click away
+        // and re-create.
+        self.background = bg;
+        if let Some(t) = &mut self.text {
+            t.background = bg;
         }
     }
 
@@ -854,11 +1741,15 @@ impl Tool for TextTool {
                         t.im_context = None;
                         t.text_buffer
                             .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
-                        *t.draw_rect.borrow_mut() = false;
                         let result = t.clone_box();
+                        let edit_id = self.edit_target_id.take();
                         self.text = None;
                         self.input_enabled = false;
-                        tool_update_result = ToolUpdateResult::Commit(result);
+                        self.stop_cursor_blink_timer();
+                        tool_update_result = match edit_id {
+                            Some(id) => ToolUpdateResult::ModifyDrawable(id, result),
+                            None => ToolUpdateResult::Commit(result),
+                        };
                     }
                 },
                 Key::Escape => {
@@ -1119,9 +2010,39 @@ impl Tool for TextTool {
                 match event.button {
                     MouseButton::Primary => {
                         let pos = event.pos;
+                        // Suppress click-bubble when the user just
+                        // clicked on (or near) an editing handle.
+                        // Without this, a click-and-release on a
+                        // round side handle would fall through to the
+                        // "click outside rect → commit + create new"
+                        // branch below and spawn an unwanted second
+                        // text box near the handle position.
+                        if let Some(t) = &self.text
+                            && t.editing
+                        {
+                            let on_handle = t.editing_handles().into_iter().any(|h| {
+                                h.pos.distance_to(&pos) <= h.hit_radius
+                            });
+                            if on_handle {
+                                return ToolUpdateResult::StopPropagation;
+                            }
+                        }
                         if let Some(t) = &mut self.text {
-                            let rect = t.rect.borrow();
-                            if rect.contains_point(pos.x as i32, pos.y as i32) {
+                            // Hit area for click-to-place-caret is the
+                            // entire editing body (the blue-outlined
+                            // wrap area) during editing, not just the
+                            // glyph bbox — matches the i-beam hover
+                            // zone so anywhere the user sees an i-beam
+                            // actually drops the caret instead of
+                            // committing the text and starting fresh.
+                            let in_body = if t.editing {
+                                t.editing_box().contains(pos)
+                            } else {
+                                t.rect
+                                    .borrow()
+                                    .contains_point(pos.x as i32, pos.y as i32)
+                            };
+                            if in_body {
                                 //calculate text cursor position
                                 let mut index = 0;
                                 let mut find_index = false;
@@ -1192,15 +2113,26 @@ impl Tool for TextTool {
                                 &l.text_buffer.start_iter(),
                                 &l.text_buffer.start_iter(),
                             );
-                            *l.draw_rect.borrow_mut() = false;
                             let committed = l.clone_box();
+                            let edit_id = self.edit_target_id.take();
                             self.text = None;
                             self.set_input_enabled(false);
-                            return ToolUpdateResult::Commit(committed);
+                            self.stop_cursor_blink_timer();
+                            return match edit_id {
+                                Some(id) => ToolUpdateResult::ModifyDrawable(id, committed),
+                                None => ToolUpdateResult::Commit(committed),
+                            };
                         }
 
                         // No text in progress: this click *creates* a new one.
-                        self.text = Some(Text::new(event.pos, self.style, self.im_context.clone()));
+                        self.text = Some(Text::new(
+                            event.pos,
+                            self.style,
+                            self.background,
+                            self.im_context.clone(),
+                        ));
+                        // Start cursor blink redraws.
+                        self.start_cursor_blink_timer();
                         self.set_input_enabled(true);
                         ToolUpdateResult::Redraw
                     }
@@ -1249,6 +2181,27 @@ impl Tool for TextTool {
             },
             MouseEventType::BeginDrag => {
                 self.drag_start_pos = event.pos;
+                // 1. Editing-mode handle drag (left/right/bottom-right of
+                //    the wrap area) takes priority over text-cursor drag.
+                if let Some(t) = &self.text
+                    && t.editing
+                {
+                    let hit = t
+                        .editing_handles()
+                        .into_iter()
+                        .find(|h| h.pos.distance_to(&event.pos) <= h.hit_radius);
+                    if let Some(handle) = hit {
+                        self.handle_drag = Some(EditHandleDrag {
+                            handle: handle.id,
+                            original_pos: t.pos,
+                            original_text_box_width: t.text_box_width,
+                            original_size_factor: t.style.annotation_size_factor,
+                            original_line_height: *t.last_line_height.borrow(),
+                            anchor: handle.pos,
+                        });
+                        return ToolUpdateResult::StopPropagation;
+                    }
+                }
                 if let Some(t) = &mut self.text {
                     let rect = t.rect.borrow();
                     if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
@@ -1258,6 +2211,25 @@ impl Tool for TextTool {
                 ToolUpdateResult::Unmodified
             }
             MouseEventType::UpdateDrag => {
+                // Editing-mode handle drag: rebuild from the BeginDrag
+                // snapshot each frame so successive updates don't
+                // accumulate. `event.pos` is the image-space delta from
+                // BeginDrag (set up by sketch_board).
+                if let Some(drag) = &self.handle_drag {
+                    if let Some(t) = &mut self.text {
+                        t.pos = drag.original_pos;
+                        t.text_box_width = drag.original_text_box_width;
+                        t.style.annotation_size_factor = drag.original_size_factor;
+                        // Restore last_line_height so move_handle's
+                        // height-based scale math sees the pre-drag
+                        // box geometry (it drifts each frame as the
+                        // factor changes).
+                        *t.last_line_height.borrow_mut() = drag.original_line_height;
+                        let to = drag.anchor + event.pos;
+                        t.move_handle(drag.handle, to);
+                    }
+                    return ToolUpdateResult::RedrawAndStopPropagation;
+                }
                 self.dragged = Rc::new(RefCell::new(true));
                 if event.button == MouseButton::Primary {
                     let global_pos = self.drag_start_pos + event.pos;
@@ -1308,6 +2280,12 @@ impl Tool for TextTool {
                 ToolUpdateResult::Unmodified
             }
             MouseEventType::EndDrag => {
+                // Finish editing-mode handle drag. The Text remains in
+                // edit mode; the size/width changes were already applied
+                // to `self.text` during UpdateDrag.
+                if self.handle_drag.take().is_some() {
+                    return ToolUpdateResult::RedrawAndStopPropagation;
+                }
                 self.dragged = Rc::new(RefCell::new(false));
                 if let Some(t) = &mut self.text {
                     let rect = t.rect.borrow();
@@ -1323,17 +2301,22 @@ impl Tool for TextTool {
 
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
         self.input_enabled = false;
+        self.handle_drag = None;
+        self.stop_cursor_blink_timer();
         if let Some(t) = &mut self.text {
             t.preedit = None;
             t.editing = false;
             t.im_context = None;
             t.text_buffer
                 .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
-            *t.draw_rect.borrow_mut() = false;
             let result = t.clone_box();
+            let edit_id = self.edit_target_id.take();
             self.text = None;
             self.input_enabled = false;
-            ToolUpdateResult::Commit(result)
+            match edit_id {
+                Some(id) => ToolUpdateResult::ModifyDrawable(id, result),
+                None => ToolUpdateResult::Commit(result),
+            }
         } else {
             ToolUpdateResult::Unmodified
         }
@@ -1363,6 +2346,69 @@ impl Tool for TextTool {
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
         self.sender = Some(sender);
+    }
+
+    /// Identify the committed drawable that's currently being re-edited
+    /// (via double-click). The renderer hides this drawable from the
+    /// normal draw loop so the editing copy in `self.text` doesn't
+    /// double up with the original.
+    fn dragging_drawable_id(&self) -> Option<DrawableId> {
+        self.edit_target_id
+    }
+
+    fn editing_handles(&self) -> Vec<Handle> {
+        self.text
+            .as_ref()
+            .filter(|t| t.editing)
+            .map(|t| t.editing_handles())
+            .unwrap_or_default()
+    }
+
+    fn editing_body_rect(&self) -> Option<Rect> {
+        self.text
+            .as_ref()
+            .filter(|t| t.editing)
+            .map(|t| t.editing_box())
+    }
+
+    fn enter_text_edit_mode(
+        &mut self,
+        id: DrawableId,
+        drawable: Box<dyn Drawable>,
+    ) -> bool {
+        // Drop any unfinished new text or in-flight handle drag first
+        // so the re-edit starts clean.
+        if let Some(t) = self.text.as_mut() {
+            t.editing = false;
+            t.im_context = None;
+        }
+        self.handle_drag = None;
+
+        // Type-erased downcast to recover the concrete Text. Bail if
+        // the drawable isn't actually a Text (shouldn't happen — only
+        // PointerTool's double-click path emits this).
+        let Some(text) = drawable.as_any().downcast_ref::<Text>() else {
+            return false;
+        };
+        let mut t = text.clone();
+        t.editing = true;
+        t.preedit = None;
+        t.im_context = self.im_context.clone();
+        // Place cursor at end of buffer so subsequent typing extends
+        // the text — the default for re-edit.
+        let buffer = t.text_buffer.clone();
+        buffer.place_cursor(&buffer.end_iter());
+        self.style = t.style;
+        self.text = Some(t);
+        self.edit_target_id = Some(id);
+        self.input_enabled = true;
+        // Re-edit path mirrors fresh-text creation: start the 250 ms
+        // tick timer so the caret blink-phase boundaries actually
+        // trigger redraws. Without this, double-clicking an existing
+        // text shows a static (non-blinking) caret because the canvas
+        // only redraws on user input.
+        self.start_cursor_blink_timer();
+        true
     }
 }
 enum ActionScope {

@@ -55,6 +55,7 @@ fn main() -> Result<(), io::Error> {
             "number-circle-1-regular",
             "drop-regular",
             "highlight-regular",
+            "flashlight-regular",
             "arrow-redo-filled",
             "arrow-undo-filled",
             "recycling-bin",

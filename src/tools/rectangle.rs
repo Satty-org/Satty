@@ -28,6 +28,10 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -71,7 +75,32 @@ impl Drawable for Rectangle {
             .style
             .size
             .to_line_width(self.style.annotation_size_factor);
-        rect.inflated(stroke / 2.0 + tolerance).contains(point)
+        let half = stroke / 2.0 + tolerance;
+        // Outer picking edge — everything outside this is a definite miss.
+        if !rect.inflated(half).contains(point) {
+            return false;
+        }
+        // Filled: any point inside the silhouette counts (the
+        // interior is opaque).
+        if self.style.fill {
+            return true;
+        }
+        // Unfilled: hits only land on the stroke band. The inner
+        // edge of the band is the rect deflated by `half`; we miss
+        // if the point is INSIDE that inner edge (the hollow
+        // middle). When the rect is small enough that the deflated
+        // inner has no area, the stroke covers the whole interior —
+        // any hit in the outer is a real hit.
+        let inner_w = rect.size.x - 2.0 * half;
+        let inner_h = rect.size.y - 2.0 * half;
+        if inner_w <= 0.0 || inner_h <= 0.0 {
+            return true;
+        }
+        let inner = Rect {
+            pos: Vec2D::new(rect.pos.x + half, rect.pos.y + half),
+            size: Vec2D::new(inner_w, inner_h),
+        };
+        !inner.contains(point)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -93,6 +122,10 @@ impl Drawable for Rectangle {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
     }
 
     fn render_glow(

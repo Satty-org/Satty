@@ -1,9 +1,15 @@
-use std::{borrow::Cow, cell::RefCell, collections::HashMap};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::HashMap,
+    rc::Rc,
+    time::Duration,
+};
 
 use crate::{
     configuration::APP_CONFIG,
     style::{Color, Size},
-    tools::{ArrowStyle, Tools},
+    tools::{ArrowStyle, BlurStyle, Tools},
 };
 
 use gtk::ToggleButton;
@@ -31,7 +37,7 @@ use relm4::{
 /// tooltip in a thread-local `RefCell` and dismiss it whenever a new
 /// tooltip's `enter` fires — so even if `leave` never arrives, the
 /// stale tooltip is forced down by the next hover.
-trait RobustTooltipExt {
+pub trait RobustTooltipExt {
     /// Tooltip pops downward (good for top-toolbar buttons).
     fn install_tooltip(&self, text: &str);
     /// Tooltip pops upward (good for bottom-toolbar buttons so it stays
@@ -47,6 +53,10 @@ impl<T: IsA<gtk::Widget> + Clone> RobustTooltipExt for T {
         attach_tooltip(self, text, gtk::PositionType::Top);
     }
 }
+
+/// Hover delay before any of our custom tooltips appear. Tuned to feel
+/// snappy without flashing tooltips at every passing pointer movement.
+const TOOLTIP_DELAY: Duration = Duration::from_millis(750);
 
 thread_local! {
     /// The currently-shown tooltip popover, if any. Lets `show_tooltip`
@@ -77,11 +87,24 @@ fn hide_tooltip(popover: &gtk::Popover) {
     });
 }
 
+/// Like the trait `install_tooltip{,_above}` methods but returns the
+/// inner `gtk::Label` so callers can update the text later — used for
+/// buttons whose tooltip describes a live state (e.g. the Fill toggle).
+/// The label is part of the popover's child tree; updating its text via
+/// `set_label` reflows the next time the popover shows.
+fn install_dynamic_tooltip<W: IsA<gtk::Widget> + Clone>(
+    widget: &W,
+    initial: &str,
+    position: gtk::PositionType,
+) -> gtk::Label {
+    attach_tooltip(widget, initial, position)
+}
+
 fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
     widget: &W,
     text: &str,
     position: gtk::PositionType,
-) {
+) -> gtk::Label {
     let label = gtk::Label::builder()
         .label(text)
         .margin_start(8)
@@ -110,16 +133,36 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
     popover.set_offset(0, y_offset);
     popover.set_parent(widget);
 
+    // `pending_show` holds the SourceId of a timer that will pop the
+    // tooltip up after `TOOLTIP_DELAY`. Re-entering cancels and
+    // re-arms; leaving (or destroying the widget) cancels outright.
+    let pending_show: Rc<RefCell<Option<gtk::glib::SourceId>>> =
+        Rc::new(RefCell::new(None));
+
     let motion = gtk::EventControllerMotion::new();
     {
         let popover = popover.clone();
+        let pending_show = pending_show.clone();
         motion.connect_enter(move |_, _, _| {
-            show_tooltip(&popover);
+            if let Some(id) = pending_show.borrow_mut().take() {
+                id.remove();
+            }
+            let popover_for_timer = popover.clone();
+            let pending_inner = pending_show.clone();
+            let id = gtk::glib::timeout_add_local_once(TOOLTIP_DELAY, move || {
+                pending_inner.borrow_mut().take();
+                show_tooltip(&popover_for_timer);
+            });
+            *pending_show.borrow_mut() = Some(id);
         });
     }
     {
         let popover = popover.clone();
+        let pending_show = pending_show.clone();
         motion.connect_leave(move |_| {
+            if let Some(id) = pending_show.borrow_mut().take() {
+                id.remove();
+            }
             hide_tooltip(&popover);
         });
     }
@@ -129,6 +172,9 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
     // widget; we have to unparent it explicitly before the parent is
     // finalized or GTK warns on shutdown.
     widget.connect_destroy(move |_| {
+        if let Some(id) = pending_show.borrow_mut().take() {
+            id.remove();
+        }
         ACTIVE_TOOLTIP.with(|active| {
             let mut active = active.borrow_mut();
             if active.as_ref() == Some(&popover) {
@@ -137,6 +183,7 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
         });
         popover.unparent();
     });
+    label
 }
 
 pub struct ToolsToolbar {
@@ -163,16 +210,76 @@ pub struct ToolsToolbar {
     /// Reference to the popover so `update` can rebuild the right
     /// column when a saved color is appended.
     color_popover: Option<gtk::Popover>,
+    /// The popover's actual child is a `gtk::Stack` containing one
+    /// or more grid pages — `refresh_color_popover` adds a fresh
+    /// grid as a new page and flips the visible child to it, which
+    /// crossfades from the previous grid over `STACK_FADE_MS`. Stored
+    /// here so the refresh path doesn't have to walk the popover's
+    /// child tree on every update.
+    color_popover_stack: Option<gtk::Stack>,
+    /// Monotonic counter so each fresh grid page gets a unique name
+    /// inside the stack. The names themselves are throwaway — only
+    /// uniqueness matters.
+    color_popover_page_id: u64,
+    /// Color currently being dragged within the saved-custom column,
+    /// captured at drag-begin. While set, `custom_colors` is rendered
+    /// WITHOUT this entry (it's been temporarily pulled out so the
+    /// remaining items shift up to fill the gap); the popover
+    /// instead shows a `.color-slot-ghost` placeholder at
+    /// `dragging_preview_slot`. `None` between drags.
+    dragging_color: Option<Color>,
+    /// Snapshot of `custom_colors` taken at drag-begin so a cancelled
+    /// drag (drop outside the popover, Esc, etc.) can fully restore
+    /// the pre-drag list. Both the pull-out and the ghost-position
+    /// changes happen against the live `custom_colors`, so the
+    /// snapshot is the only way back to the original order.
+    pre_drag_snapshot: Option<Vec<Color>>,
+    /// While a drag is in flight, the index in the *post-pullout*
+    /// `custom_colors` list where the ghost placeholder is currently
+    /// drawn — i.e. the slot the dragged color will land in if the
+    /// user drops right now. Updated each time the pointer enters a
+    /// new slot's drop area; rendered by `build_color_popover_grid`
+    /// as a brighter outlined placeholder so the user sees where
+    /// other swatches have shifted aside to make room.
+    dragging_preview_slot: Option<usize>,
 }
 
 impl ToolsToolbar {
-    /// Regenerate the popover's grid with the current model state.
-    /// Called after saved-customs change (save / reorder / delete) so
-    /// the next popup reflects the new list.
-    fn refresh_color_popover(&self, sender: &ComponentSender<ToolsToolbar>) {
-        if let Some(popover) = self.color_popover.clone() {
-            let grid = build_color_popover_grid(self, sender, &popover);
-            popover.set_child(Some(&grid));
+    /// Regenerate the popover's grid with the current model state and
+    /// crossfade to it via the embedded `gtk::Stack`. Called after
+    /// saved-customs change (save / reorder / delete / live drag) so
+    /// the next paint reflects the new list with a smooth fade rather
+    /// than a snap. Takes `&mut self` so the monotonic page-id
+    /// counter can advance.
+    ///
+    /// Old grid pages stay attached to the stack while a drag is in
+    /// flight — the drag's source widget lives inside one of those
+    /// pages, and removing the page would unparent it and cancel the
+    /// drag. After the drag ends, `clean_up_old_popover_pages`
+    /// reaps everything but the current visible child.
+    fn refresh_color_popover(&mut self, sender: &ComponentSender<ToolsToolbar>) {
+        let Some(stack) = self.color_popover_stack.clone() else {
+            return;
+        };
+        let Some(popover) = self.color_popover.clone() else {
+            return;
+        };
+        let grid = build_color_popover_grid(self, sender, &popover);
+        let name = format!("page-{}", self.color_popover_page_id);
+        self.color_popover_page_id = self.color_popover_page_id.wrapping_add(1);
+        stack.add_named(&grid, Some(&name));
+        stack.set_visible_child(&grid);
+        // Outside an active drag, prune old pages once the fade has
+        // completed. During a drag, leave the previous grids attached
+        // so the drag source widget stays parented.
+        if self.dragging_color.is_none() {
+            let stack_for_cleanup = stack.clone();
+            gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(STACK_FADE_MS as u64 + 50),
+                move || {
+                    clean_up_old_popover_pages(&stack_for_cleanup);
+                },
+            );
         }
     }
 
@@ -328,23 +435,41 @@ impl ToolsToolbar {
 /// the pick-button footer in the left column.
 const SLOTS_PER_COLUMN: usize = 11;
 
+/// Duration of the crossfade between successive popover-grid layouts
+/// while reorder drag-and-drop is in flight. Short enough that a fast
+/// hover still feels responsive (the new layout commits within ~1.5
+/// frames at 60 fps after `STACK_FADE_MS`) but long enough that the
+/// shift reads as motion rather than a snap.
+const STACK_FADE_MS: u32 = 120;
+
 /// Build the popover that hangs off the unified color-picker MenuButton.
 /// style:a vertical 2-column grid with palette colors on
 /// the left and the user's saved-custom colors (plus dashed empty
 /// slots) on the right, with a color-wheel button at the bottom that
-/// opens the system color dialog.
+/// opens the system color dialog. The grid lives inside a
+/// `gtk::Stack` so subsequent rebuilds (live drag-reorder) crossfade
+/// between layouts instead of snapping.
 fn build_color_popover(
     model: &ToolsToolbar,
     sender: &ComponentSender<ToolsToolbar>,
-) -> gtk::Popover {
+) -> (gtk::Popover, gtk::Stack) {
     let popover = gtk::Popover::new();
     popover.add_css_class("color-picker-popover");
     popover.set_position(gtk::PositionType::Bottom);
     popover.set_has_arrow(true);
 
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .transition_duration(STACK_FADE_MS)
+        .hhomogeneous(true)
+        .vhomogeneous(true)
+        .build();
+
     let grid = build_color_popover_grid(model, sender, &popover);
-    popover.set_child(Some(&grid));
-    popover
+    stack.add_named(&grid, Some("page-0"));
+    stack.set_visible_child(&grid);
+    popover.set_child(Some(&stack));
+    (popover, stack)
 }
 
 thread_local! {
@@ -389,7 +514,69 @@ fn ensure_floating_swatch_tip(near: &gtk::Widget) -> (gtk::Popover, gtk::Label) 
     })
 }
 
+/// Dismiss every tooltip we currently own — both the install_tooltip
+/// popover for toolbar buttons (tracked via `ACTIVE_TOOLTIP`) and the
+/// floating swatch tooltip shared across the picker. Called when a
+/// modal dialog is about to open so no tooltip lingers on top of it.
+fn hide_all_tooltips() {
+    ACTIVE_TOOLTIP.with(|cell| {
+        if let Some(popover) = cell.borrow_mut().take() {
+            popover.popdown();
+        }
+    });
+    FLOATING_SWATCH_TIP.with(|cell| {
+        if let Some((popover, _)) = cell.borrow().as_ref() {
+            popover.popdown();
+        }
+    });
+}
+
 /// Attach a custom floating tooltip to a swatch inside the picker
+/// Attach a secondary-button GestureClick to `target` that pops up a
+/// small "Save as default" popover at the click point. The popover is
+/// rebuilt per-press (so each instance is independent) and unparented
+/// on close. `on_save` runs when the popover's button is clicked —
+/// typically it emits a `ToolbarEvent` or `StyleToolbarInput` to drive
+/// the actual persistence path.
+///
+/// `set_propagation_phase(Capture)` is intentional: bubble-phase
+/// gestures lose secondary-button presses on `gtk::Button` because
+/// the button's internal click controller absorbs them; capture
+/// phase fires first and reliably picks up the press.
+fn attach_save_default_popover<F>(target: &impl IsA<gtk::Widget>, on_save: F)
+where
+    F: Fn() + 'static + Clone,
+{
+    use relm4::gtk::gdk;
+    let target_widget = target.clone().upcast::<gtk::Widget>();
+    let right_click = gtk::GestureClick::new();
+    right_click.set_button(gdk::BUTTON_SECONDARY);
+    right_click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    right_click.connect_pressed(move |_g, _n, x, y| {
+        let menu = gtk::Popover::builder()
+            .has_arrow(false)
+            .autohide(true)
+            .build();
+        menu.add_css_class("save-default-menu");
+        let save = gtk::Button::with_label("Save as default");
+        save.add_css_class("flat");
+        save.set_focusable(false);
+        save.set_focus_on_click(false);
+        let menu_for_click = menu.clone();
+        let on_save = on_save.clone();
+        save.connect_clicked(move |_| {
+            on_save();
+            menu_for_click.popdown();
+        });
+        menu.set_child(Some(&save));
+        menu.set_parent(&target_widget);
+        menu.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        menu.connect_closed(|m| m.unparent());
+        menu.popup();
+    });
+    target.add_controller(right_click);
+}
+
 /// popover. Uses ONE shared popover parented to the top-level window,
 /// repositioned via `set_pointing_to` with the swatch's bounds in
 /// window coordinates. Because the tooltip popover lives outside the
@@ -399,30 +586,54 @@ fn attach_floating_swatch_tooltip(target: &impl IsA<gtk::Widget>, text: &str) {
     let motion = gtk::EventControllerMotion::new();
     let text = text.to_string();
     let target_enter = target_widget.clone();
-    motion.connect_enter(move |_, _, _| {
-        let window = target_enter
-            .root()
-            .expect("swatch widget should be parented");
-        let (popover, label) = ensure_floating_swatch_tip(&target_enter);
-        label.set_label(&text);
-        if let Some(bounds) = target_enter.compute_bounds(&window) {
-            let rect = gtk::gdk::Rectangle::new(
-                bounds.x() as i32,
-                bounds.y() as i32,
-                bounds.width() as i32,
-                bounds.height() as i32,
-            );
-            popover.set_pointing_to(Some(&rect));
-        }
-        popover.popup();
-    });
-    let target_leave = target_widget.clone();
-    motion.connect_leave(move |_| {
-        if let Some(pair) = FLOATING_SWATCH_TIP.with(|c| c.borrow().clone()) {
-            let _ = &target_leave;
-            pair.0.popdown();
-        }
-    });
+
+    // Delay the show by `TOOLTIP_DELAY` — re-arm on every enter,
+    // cancel on leave. Keeps quick passes over the swatches from
+    // flashing a tooltip the user never asked to see.
+    let pending_show: Rc<RefCell<Option<gtk::glib::SourceId>>> =
+        Rc::new(RefCell::new(None));
+
+    {
+        let pending_show = pending_show.clone();
+        motion.connect_enter(move |_, _, _| {
+            if let Some(id) = pending_show.borrow_mut().take() {
+                id.remove();
+            }
+            let target = target_enter.clone();
+            let text = text.clone();
+            let pending_inner = pending_show.clone();
+            let id = gtk::glib::timeout_add_local_once(TOOLTIP_DELAY, move || {
+                pending_inner.borrow_mut().take();
+                let Some(window) = target.root() else {
+                    return;
+                };
+                let (popover, label) = ensure_floating_swatch_tip(&target);
+                label.set_label(&text);
+                if let Some(bounds) = target.compute_bounds(&window) {
+                    let rect = gtk::gdk::Rectangle::new(
+                        bounds.x() as i32,
+                        bounds.y() as i32,
+                        bounds.width() as i32,
+                        bounds.height() as i32,
+                    );
+                    popover.set_pointing_to(Some(&rect));
+                }
+                popover.popup();
+            });
+            *pending_show.borrow_mut() = Some(id);
+        });
+    }
+    {
+        let pending_show = pending_show.clone();
+        motion.connect_leave(move |_| {
+            if let Some(id) = pending_show.borrow_mut().take() {
+                id.remove();
+            }
+            if let Some(pair) = FLOATING_SWATCH_TIP.with(|c| c.borrow().clone()) {
+                pair.0.popdown();
+            }
+        });
+    }
     target_widget.add_controller(motion);
 }
 
@@ -436,13 +647,18 @@ fn build_color_popover_grid(
     sender: &ComponentSender<ToolsToolbar>,
     popover: &gtk::Popover,
 ) -> gtk::Grid {
+    // picker breathes more easily than the default
+    // Adwaita popover chrome. The earlier 8-px margins felt cramped
+    // once the saved-custom column landed (right edge sat right
+    // against the dashed placeholders); 16-px outer margins + larger
+    // inter-swatch gaps restore the airy look the user expected.
     let grid = gtk::Grid::builder()
-        .row_spacing(4)
-        .column_spacing(8)
-        .margin_start(8)
-        .margin_end(8)
-        .margin_top(8)
-        .margin_bottom(8)
+        .row_spacing(8)
+        .column_spacing(14)
+        .margin_start(16)
+        .margin_end(16)
+        .margin_top(14)
+        .margin_bottom(14)
         .build();
 
     // Per-swatch tooltips are attached via `attach_floating_swatch_tooltip`
@@ -463,6 +679,16 @@ fn build_color_popover_grid(
             .focusable(false)
             .focus_on_click(false)
             .hexpand(false)
+            .vexpand(false)
+            // Pin the toggle button to the same SWATCH_DISPLAY_SIZE
+            // bounds the dashed placeholders use. Without this the
+            // button's natural size includes a few pixels of vertical
+            // chrome that makes the `:checked` outline read as
+            // asymmetric (thicker on the top/bottom than left/right).
+            .width_request(SWATCH_DISPLAY_SIZE)
+            .height_request(SWATCH_DISPLAY_SIZE)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
             .child(&create_icon(color))
             .build();
         btn.add_css_class("flat");
@@ -482,36 +708,61 @@ fn build_color_popover_grid(
     }
 
     // Right column(s): persisted saved-custom colors, then dashed
-    // placeholders filling out the rest of each column. We keep at
-    // least one column visible even when nothing is saved (so the
-    // user sees where the slots will appear), and grow rightward
-    // each time the saved list crosses an `SLOTS_PER_COLUMN`
-    // boundary. Every slot — filled or empty — accepts a drop, so
-    // colors can be dragged into any position including past the
-    // current end of the list.
+    // placeholders filling out the rest of each column. Every slot
+    // — filled or empty — accepts a drop, so colors can be dragged
+    // into any position including past the current end of the list.
+    //
+    // During an in-flight drag, the dragged color has already been
+    // pulled out of `custom_colors` by `BeginCustomDrag` and the
+    // ghost preview slot at `dragging_preview_slot` is rendered as
+    // an outlined placeholder. Subsequent items shift down by one
+    // visual position around the ghost so the user sees exactly
+    // where the swatch will land.
     let saved = &model.custom_colors;
-    let n_custom_cols = saved.len().div_ceil(SLOTS_PER_COLUMN).max(1);
+    let dragging = model.dragging_color.is_some();
+    // Visual length: when dragging we have the truncated list plus
+    // one ghost slot (so the column doesn't visibly shrink while the
+    // user is mid-drag).
+    let visual_len = if dragging { saved.len() + 1 } else { saved.len() };
+    let n_custom_cols = visual_len.div_ceil(SLOTS_PER_COLUMN).max(1);
     let total_slots = n_custom_cols * SLOTS_PER_COLUMN;
-    for slot in 0..total_slots {
-        let col_idx = slot / SLOTS_PER_COLUMN;
-        let row_idx = slot % SLOTS_PER_COLUMN;
+    let ghost_at = model.dragging_preview_slot.unwrap_or(usize::MAX);
+    for visual_slot in 0..total_slots {
+        let col_idx = visual_slot / SLOTS_PER_COLUMN;
+        let row_idx = visual_slot % SLOTS_PER_COLUMN;
         let grid_col = (1 + col_idx) as i32;
-        let (widget, tooltip) = if let Some(color) = saved.get(slot).copied() {
-            let w = build_saved_custom_swatch(color, slot, sender);
-            let t = match color.name() {
-                Some(name) => format!("{name} (saved {})", slot + 1),
-                None => format!("Saved color {}", slot + 1),
-            };
-            (w, Some(t))
+
+        // Map `visual_slot` back to either a `saved` index, the
+        // ghost, or an empty trailing placeholder.
+        let (widget, tooltip) = if dragging && visual_slot == ghost_at {
+            // Outlined ghost placeholder — drop here on release.
+            (build_ghost_placeholder(), None)
         } else {
-            (build_dashed_placeholder(), None)
+            // Adjust for the ghost shifting subsequent items by one.
+            let saved_idx = if dragging && visual_slot > ghost_at {
+                visual_slot - 1
+            } else {
+                visual_slot
+            };
+            if let Some(color) = saved.get(saved_idx).copied() {
+                let w = build_saved_custom_swatch(color, saved_idx, sender);
+                let t = match color.name() {
+                    Some(name) => format!("{name} (saved {})", saved_idx + 1),
+                    None => format!("Saved color {}", saved_idx + 1),
+                };
+                (w, Some(t))
+            } else {
+                (build_dashed_placeholder(), None)
+            }
         };
         if let Some(t) = tooltip {
             attach_floating_swatch_tooltip(&widget, &t);
         }
-        // Every slot — filled or empty — is a drop target so the
-        // user can drag-rearrange or push a swatch off the end.
-        attach_reorder_drop_target(&widget, slot, sender);
+        // Every slot — filled, ghost, or empty — accepts a drop so
+        // the user can drag through any position. The drop target's
+        // closure uses `visual_slot` (not `saved_idx`) so the ghost
+        // preview tracks the pointer position directly.
+        attach_reorder_drop_target(&widget, visual_slot, sender);
         grid.attach(&widget, grid_col, row_idx as i32, 1, 1);
     }
 
@@ -535,6 +786,9 @@ fn build_color_popover_grid(
     let popover_clone = popover.clone();
     pick_btn.connect_clicked(move |_| {
         popover_clone.popdown();
+        // Dismiss every tooltip so none lingers on top of the
+        // custom-color dialog when it opens.
+        hide_all_tooltips();
         sender_clone.input(ToolsToolbarInput::ShowColorDialog);
     });
     grid.attach(&pick_btn, 0, 10, 1, 1);
@@ -547,11 +801,149 @@ pub struct StyleToolbar {
     annotation_size: f32,
     annotation_size_formatted: String,
     annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
-    output_dimensions: String,
     /// Tracks the currently-active tool so tool-specific controls (e.g. the
     /// arrow-style dropdown) can show/hide reactively.
     current_tool: Tools,
+    /// Currently-selected size step, mirrored locally so the size
+    /// slider's value can stay in sync via `#[watch]`. Replaces the
+    /// 6-button radio bank's `RelmAction` state.
+    current_size: Size,
+    /// Spotlight overlay darkness (0.10–0.90). Persisted across launches
+    /// via state.rs; restored here on init.
+    spotlight_darkness: f32,
+    /// Highlighter stroke opacity (0.10–1.00). Persisted likewise.
+    highlighter_opacity: f32,
+    /// True iff a crop region currently exists (in either edit or
+    /// committed state). Drives the "Revert to Original" button's
+    /// visibility — pushed via `CropPresenceChanged` from sketch_board.
+    has_crop: bool,
+    /// Current fill state — true means "fill shapes", false means
+    /// "outline only". Mirrored locally so the Fill Shape button's
+    /// icon and tooltip can update via `#[watch]`.
+    fill_shapes: bool,
+    /// Annotation-size value captured at the start of a drag-to-edit
+    /// gesture on the multiplier pill, in factor units. `AnnotationDragMove`
+    /// adds (delta_x_in_pixels × ANNOTATION_DRAG_GAIN) to this to get the
+    /// new value. Cleared on `AnnotationDragEnd`.
+    annotation_drag_origin: Option<f32>,
+    /// True while the annotation pill is showing its inline `gtk::Entry`
+    /// (click without drag flips this on). Drives the stack's visible
+    /// child via imperative `set_visible_child_name` calls in the
+    /// update handlers — using `#[watch]` here would emit a startup
+    /// warning because the watch fires before the named children have
+    /// been attached.
+    editing_annotation: bool,
+    /// Handle to the inline entry so the update path can grab focus +
+    /// select-all the moment edit mode is entered. Stashed after
+    /// `view_output!` in `init`.
+    annotation_entry: Option<gtk::Entry>,
+    /// Handle to the display ↔ edit stack so update handlers can flip
+    /// the visible child without going through `#[watch]`.
+    annotation_stack: Option<gtk::Stack>,
+    /// Inner `Label` of the Fill button's custom-tooltip popover,
+    /// captured in init() after `install_dynamic_tooltip` so the
+    /// `ToggleFill` handler can refresh the wording every time the
+    /// state flips (filled ↔ outline). Built lazily so a Fill button
+    /// that never appears doesn't pay the popover cost.
+    fill_tooltip_label: Option<gtk::Label>,
 }
+
+/// Tooltip wording for the Fill button — describes the *current* state
+/// and what a click will do. Shared between init() (first install) and
+/// the `ToggleFill` handler (refresh on toggle).
+fn fill_tooltip_text(fill_shapes: bool) -> &'static str {
+    if fill_shapes {
+        "Currently filling shapes — click to switch to outline only"
+    } else {
+        "Currently outlining shapes — click to switch to filled"
+    }
+}
+
+/// How many factor units one pointer-pixel of horizontal drag is worth
+/// on the annotation-size pill before quantising to `ANNOTATION_STEP`.
+/// 0.02 × 5 px = one 0.1 step — so a comfortable wrist-flick of ~50 px
+/// covers a 1.0-unit change without making smaller tweaks awkward.
+const ANNOTATION_DRAG_GAIN: f32 = 0.02;
+/// Quantisation step for the annotation-size value. Both drag and
+/// inline-edit commits snap to this, and the displayed string uses one
+/// decimal place to match.
+const ANNOTATION_STEP: f32 = 0.1;
+/// Pointer-pixel threshold before a press counts as a drag rather than
+/// a plain click. Below this, releasing falls through to the
+/// inline-edit path (the entry takes focus).
+const ANNOTATION_DRAG_THRESHOLD: f64 = 3.0;
+/// Hard limits for the annotation-size factor — keeps both drag and
+/// inline-edit inputs in the same range that the welcome dialog and
+/// state-persistence layers expect.
+const ANNOTATION_MIN: f32 = 0.10;
+const ANNOTATION_MAX: f32 = 10.0;
+
+/// Format a factor value the way the pill (and the entry) should show
+/// it: single decimal, always present, no leading "0" stripping.
+fn format_annotation(value: f32) -> String {
+    format!("{value:.1}")
+}
+
+/// Snap a raw factor to the nearest `ANNOTATION_STEP` and clamp into
+/// `[ANNOTATION_MIN, ANNOTATION_MAX]`. Shared between drag and inline
+/// commits so both paths produce identical, persistable values.
+fn quantise_annotation(value: f32) -> f32 {
+    let stepped = (value / ANNOTATION_STEP).round() * ANNOTATION_STEP;
+    stepped.clamp(ANNOTATION_MIN, ANNOTATION_MAX)
+}
+
+/// Map a `Size` to the size slider's integer position (0..=5). The
+/// helper sits next to its inverse so the two stay in sync.
+fn size_to_slider_value(size: Size) -> f64 {
+    match size {
+        Size::XSmall => 0.0,
+        Size::Small => 1.0,
+        Size::Medium => 2.0,
+        Size::Large => 3.0,
+        Size::XLarge => 4.0,
+        Size::XXLarge => 5.0,
+    }
+}
+
+fn slider_value_to_size(v: f64) -> Size {
+    match v.round() as i32 {
+        0 => Size::XSmall,
+        1 => Size::Small,
+        2 => Size::Medium,
+        3 => Size::Large,
+        4 => Size::XLarge,
+        _ => Size::XXLarge,
+    }
+}
+
+/// Display label for the right-side "tool-specific cluster" — empty
+/// when the active tool has no dedicated control to show.
+fn tool_cluster_label(tool: Tools) -> &'static str {
+    match tool {
+        Tools::Arrow => "Style",
+        Tools::Blur => "Blur",
+        Tools::Text => "Background",
+        Tools::Spotlight => "Darkness",
+        Tools::Highlighter => "Opacity",
+        Tools::Rectangle | Tools::Ellipse => "Fill Shape",
+        _ => "",
+    }
+}
+
+/// Total horizontal width reserved for the bottom bar's centering
+/// hardware: the left mirror spacer + right tool cluster each get
+/// half of this, so the content (size slider, x, factor, dims,
+/// fill) stays centered between two equal-width slots regardless
+/// of which tool's controls are showing. Set to roughly match the
+/// top bar's natural width so the window's natural-min stays
+/// consistent top-vs-bottom and there's no width oscillation
+/// during compositor-driven resize negotiations.
+const TOOL_CLUSTER_WIDTH: i32 = 220;
+/// Width of the Spotlight darkness / Highlighter opacity sliders
+/// inside the cluster. Narrower than they used to be — wide enough
+/// to drag precisely, slim enough that they don't dominate the
+/// cluster slot.
+const CLUSTER_SLIDER_WIDTH: i32 = 140;
 
 pub struct AnnotationSizeDialog {
     annotation_size: f32,
@@ -563,6 +955,10 @@ pub enum ToolbarEvent {
     ColorSelected(Color),
     SizeSelected(Size),
     ArrowStyleSelected(ArrowStyle),
+    BlurStyleSelected(BlurStyle),
+    /// Crop tool's "Snap to edges" checkbox toggled. sketch_board
+    /// forwards the value to `CropTool` and persists it to state.
+    SnapToEdgesChanged(bool),
     Redo,
     Undo,
     SaveFile,
@@ -577,6 +973,26 @@ pub enum ToolbarEvent {
     /// canvas should grab keyboard focus back so single-key shortcuts
     /// (z, r, b, …) keep working without the user having to click first.
     FocusCanvas,
+    /// Spotlight overlay darkness (0.10–0.90) — global, applies to all
+    /// committed and in-progress spotlights. Sketch_board pushes the
+    /// value into the renderer for the next frame.
+    SpotlightDarknessChanged(f32),
+    /// User picked "Save as default" from the darkness slider's
+    /// right-click menu — write the live value to state.toml.
+    SaveSpotlightDarknessAsDefault,
+    /// Highlighter stroke opacity (0.10–1.00) — applies only to
+    /// future strokes; existing strokes keep their captured value.
+    HighlighterOpacityChanged(f32),
+    /// User picked "Save as default" from the opacity slider's
+    /// right-click menu — write the live value to state.toml.
+    SaveHighlighterOpacityAsDefault,
+    /// User clicked "Revert to Original" — drop the committed crop
+    /// entirely so the canvas shows the full original image again.
+    RevertCrop,
+    /// User picked a different background style for new text
+    /// drawables (Plain or Rounded). Sketch_board pushes through to
+    /// the Text tool's `set_text_background`.
+    TextBackgroundSelected(crate::tools::TextBackground),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -599,6 +1015,21 @@ pub enum ToolsToolbarInput {
     /// Drop the saved-custom color at the given index. Fired by the
     /// per-swatch right-click → "Delete" menu.
     DeleteCustomColor(usize),
+    /// A drag of a saved-custom swatch is starting at `slot`. The
+    /// handler stashes both the color (so the live-reorder path can
+    /// keep tracking it as the list mutates) and a snapshot of the
+    /// pre-drag order so a cancel can revert.
+    BeginCustomDrag(usize),
+    /// While a drag is in flight, the pointer entered the drop area
+    /// for `target_slot`. The handler relocates the dragged color to
+    /// that slot in real time so the user sees a live preview instead
+    /// of having to release to see the final order.
+    LiveReorderCustomColor { target: usize },
+    /// Drag finished. `success = true` if the drop landed on a valid
+    /// target (we persist the latest order); `false` means cancel
+    /// (drop outside the popover, Esc, etc.) and the handler restores
+    /// the pre-drag snapshot.
+    EndCustomDrag { success: bool },
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -607,10 +1038,63 @@ pub enum StyleToolbarInput {
     ToggleVisibility,
     ShowAnnotationDialog,
     AnnotationDialogFinished(Option<f32>),
+    /// Drag started on the annotation-size pill. Snapshot the current
+    /// value so subsequent `AnnotationDragMove` events can compute the
+    /// new factor relative to drag-start (avoids drift from repeated
+    /// rounding).
+    AnnotationDragStart,
+    /// In-flight drag delta in pointer-pixels (positive = right). The
+    /// handler converts pixels to factor units and broadcasts a fresh
+    /// `AnnotationSizeChanged` so the change is live, not deferred to
+    /// release.
+    AnnotationDragMove(f64),
+    /// Drag finished. `dragged` is true if the pointer moved enough to
+    /// count as a value-edit; when false we treat the gesture as a
+    /// plain click and flip the pill into inline-edit mode.
+    AnnotationDragEnd { dragged: bool },
+    /// Inline `gtk::Entry` confirmed a value — fires on Enter (the
+    /// entry's `connect_activate`) and on focus-out. The handler reads
+    /// the live text out of the stashed entry handle so we don't have
+    /// to ship the String through the input enum (every event source
+    /// would otherwise need its own widget reference).
+    AnnotationCommitEditFromEntry,
+    /// Esc was pressed while editing — abandon the entry without
+    /// committing, restoring the prior value.
+    AnnotationCancelEdit,
+    /// Right-click → "Save as default" on the multiplier pill.
+    /// Writes the current annotation_size to persisted state so the
+    /// next launch starts at this value instead of falling back to
+    /// the welcome-dialog default or the config.toml fallback.
+    SaveAnnotationAsDefault,
+    /// Right-click → "Save as default" on the size slider. Writes
+    /// the current size as the saved default for the currently-active
+    /// tool. Future tool-switches into that tool (and the next
+    /// launch) start at this size.
+    SaveSizeAsDefault,
+    /// The renderer's selection went empty — pop the slider back to
+    /// the active tool's saved default. Mirror image of
+    /// `SyncFromSelection`, which loads the selected object's size.
+    SyncToToolDefault,
     DimensionsChanged((i32, i32)),
     /// The active drawing tool changed; tool-specific controls re-evaluate
     /// their visibility.
     ToolChanged(Tools),
+    /// Crop is present (edit OR committed) — show/hide the
+    /// "Revert to Original" button accordingly.
+    CropPresenceChanged(bool),
+    /// Size slider changed — update the model mirror and broadcast
+    /// `SizeSelected` so sketch_board picks up the new size.
+    SizeChanged(Size),
+    /// Selection in sketch_board changed — push the selected
+    /// drawable's style here so the size slider (and other style
+    /// widgets) reflect the picked shape instead of the last value
+    /// the user typed. Does NOT re-broadcast — applying the value
+    /// back to the selection would loop forever.
+    SyncFromSelection(crate::style::Style),
+    /// Fill-shape button clicked. Mirrors `ToolbarEvent::ToggleFill`
+    /// upstream and flips the local `fill_shapes` flag so the icon +
+    /// tooltip in the right cluster update reactively.
+    ToggleFill,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -700,6 +1184,14 @@ fn build_saved_custom_swatch(
         .focusable(false)
         .focus_on_click(false)
         .hexpand(false)
+        .vexpand(false)
+        // Match the palette-swatch sizing path: pin the toggle button
+        // to SWATCH_DISPLAY_SIZE so the `:checked` outline (a 2 px
+        // box-shadow around the button bounds) reads as symmetric.
+        .width_request(SWATCH_DISPLAY_SIZE)
+        .height_request(SWATCH_DISPLAY_SIZE)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
         .child(&create_icon(color))
         .build();
     btn.add_css_class("flat");
@@ -709,15 +1201,48 @@ fn build_saved_custom_swatch(
     // `attach_floating_swatch_tooltip` — one shared popover for all
     // swatches in the grid.
 
-    // DragSource — the payload is the source slot index. GTK only
-    // starts a drag once the pointer crosses the motion threshold, so
-    // a quick click still falls through to the action handler.
+    // DragSource — the payload carries the source slot index for the
+    // legacy `connect_drop`-based reorder path (still kept as a
+    // fallback if `connect_enter` never fires for some reason). The
+    // live-reorder pipeline below doesn't depend on it: `BeginCustomDrag`
+    // captures the color, and `LiveReorderCustomColor` looks the color
+    // up by value as the user drags so the dragged item rides through
+    // each slot the pointer crosses.
     let drag = gtk::DragSource::new();
     drag.set_actions(gdk::DragAction::MOVE);
     let slot_for_prepare = slot;
-    drag.connect_prepare(move |_src, _x, _y| {
+    let color_for_icon = color;
+    drag.connect_prepare(move |src, _x, _y| {
+        // Replace GTK's default drag icon (a generic "document"
+        // glyph) with a faithful copy of the swatch being dragged.
+        // The pixbuf is the same one we render in the picker, so the
+        // user sees the actual color floating under the cursor.
+        // Hotspot is the center of the swatch so it sits centered on
+        // the cursor.
+        let pixbuf = create_icon_pixbuf(color_for_icon);
+        let texture = gdk::Texture::for_pixbuf(&pixbuf);
+        src.set_icon(
+            Some(&texture),
+            SWATCH_DISPLAY_SIZE / 2,
+            SWATCH_DISPLAY_SIZE / 2,
+        );
         let value = (slot_for_prepare as u32).to_value();
         Some(gdk::ContentProvider::for_value(&value))
+    });
+    let sender_for_begin = sender.clone();
+    let slot_for_begin = slot;
+    drag.connect_drag_begin(move |_src, _drag| {
+        sender_for_begin.input(ToolsToolbarInput::BeginCustomDrag(slot_for_begin));
+    });
+    let sender_for_end = sender.clone();
+    drag.connect_drag_end(move |_src, _drag, _delete_data| {
+        // `delete_data` is true when the source acknowledged the move.
+        // We use it as the success/cancel signal — anything else means
+        // the drag was rejected (drop outside any target, Esc, etc.)
+        // and the live preview should revert.
+        sender_for_end.input(ToolsToolbarInput::EndCustomDrag {
+            success: _delete_data,
+        });
     });
     btn.add_controller(drag);
 
@@ -777,6 +1302,41 @@ fn build_dashed_placeholder() -> gtk::Widget {
     placeholder.upcast::<gtk::Widget>()
 }
 
+/// Remove every page from the color-picker's `gtk::Stack` except the
+/// currently-visible one. Scheduled after each `refresh_color_popover`
+/// outside an active drag (the fade completes within ~`STACK_FADE_MS`)
+/// and again after `EndCustomDrag` to drain anything accumulated mid-
+/// drag. Safe to call at any time — the visible child is always kept.
+fn clean_up_old_popover_pages(stack: &gtk::Stack) {
+    let visible = stack.visible_child();
+    let mut child = stack.first_child();
+    while let Some(c) = child {
+        let next = c.next_sibling();
+        if visible.as_ref() != Some(&c) {
+            stack.remove(&c);
+        }
+        child = next;
+    }
+}
+
+/// Build the brighter, solid-outlined ghost slot used to preview
+/// where a drag-in-flight swatch will land. Same geometry as the
+/// dashed empty slot so it reads as a sibling cell rather than
+/// reshuffling the grid layout; the visual treatment is owned by
+/// the `.color-slot-ghost` CSS class.
+fn build_ghost_placeholder() -> gtk::Widget {
+    let placeholder = gtk::Box::builder()
+        .width_request(SWATCH_DISPLAY_SIZE)
+        .height_request(SWATCH_DISPLAY_SIZE)
+        .hexpand(false)
+        .vexpand(false)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    placeholder.add_css_class("color-slot-ghost");
+    placeholder.upcast::<gtk::Widget>()
+}
+
 /// Attach a `DropTarget` to a slot widget that, on drop, fires a
 /// `ReorderCustomColor` input with the source slot (drag payload)
 /// and the target slot (closure-captured). Accepting on filled and
@@ -789,21 +1349,25 @@ fn attach_reorder_drop_target(
 ) {
     use relm4::gtk::gdk;
     let drop_target = gtk::DropTarget::new(u32::static_type(), gdk::DragAction::MOVE);
-    let sender = sender.clone();
-    drop_target.connect_drop(move |_dt, value, _x, _y| {
-        let Ok(from) = value.get::<u32>() else {
-            return false;
-        };
-        let from = from as usize;
-        if from == target_slot {
-            // Self-drop: nothing to do, but report success so GTK
-            // doesn't render a "drop refused" cursor flash.
-            return true;
-        }
-        sender.input(ToolsToolbarInput::ReorderCustomColor {
-            from,
-            to: target_slot,
+    // Live-reorder: every time the drag pointer enters this slot's
+    // bounds, ask the model to relocate the dragged color here so the
+    // user sees the new order in real time instead of having to drop
+    // to find out where the swatch will land.
+    let sender_for_enter = sender.clone();
+    drop_target.connect_enter(move |_dt, _x, _y| {
+        sender_for_enter.input(ToolsToolbarInput::LiveReorderCustomColor {
+            target: target_slot,
         });
+        gdk::DragAction::MOVE
+    });
+    let sender_for_drop = sender.clone();
+    drop_target.connect_drop(move |_dt, _value, _x, _y| {
+        // By the time `connect_drop` fires the live-reorder path has
+        // already mutated the list to the correct order — just emit
+        // `EndCustomDrag { success: true }` so the model persists.
+        // (We can't read the payload reliably here when the source
+        // widget has been re-built mid-drag, so we don't depend on it.)
+        sender_for_drop.input(ToolsToolbarInput::EndCustomDrag { success: true });
         true
     });
     widget.add_controller(drop_target);
@@ -967,7 +1531,16 @@ impl Component for ToolsToolbar {
 
                 set_icon_name: "highlight-regular",
                 // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Highlight,
+                ActionablePlus::set_action::<ToolsAction>: Tools::Highlighter,
+            },
+            #[name(spotlight_button)]
+            gtk::ToggleButton {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_icon_name: "flashlight-regular",
+                // tooltip set programmatically
+                ActionablePlus::set_action::<ToolsAction>: Tools::Spotlight,
             },
             gtk::Separator {},
             // Unified color picker — single MenuButton showing the current
@@ -1123,6 +1696,87 @@ impl Component for ToolsToolbar {
                 self.sync_color_action();
                 self.refresh_color_popover(&sender);
             }
+            ToolsToolbarInput::BeginCustomDrag(slot) => {
+                // Pull the dragged color out of the live list so the
+                // remaining saved customs shift up to fill the gap
+                // (the user sees the dragged item "lifted off" the
+                // grid). The pre-drag snapshot is the only way back
+                // if the user cancels the drag; on a successful drop
+                // we reinsert at `dragging_preview_slot`.
+                if slot >= self.custom_colors.len() {
+                    return;
+                }
+                let snapshot = self.custom_colors.clone();
+                let color = self.custom_colors.remove(slot);
+                self.dragging_color = Some(color);
+                self.pre_drag_snapshot = Some(snapshot);
+                // Ghost lands at the same logical position as the
+                // pulled item — clamped to the new (shorter) list
+                // length so dragging from the last slot doesn't put
+                // the preview slot out of range.
+                self.dragging_preview_slot =
+                    Some(slot.min(self.custom_colors.len()));
+                self.sync_color_action();
+                self.refresh_color_popover(&sender);
+            }
+            ToolsToolbarInput::LiveReorderCustomColor { target } => {
+                // Move the ghost preview slot to wherever the pointer
+                // is currently hovering. The actual color list is
+                // *not* touched here — `custom_colors` already had
+                // the dragged entry pulled out at drag-begin, so the
+                // surrounding swatches stay in their current order;
+                // only the ghost placeholder moves through them.
+                if self.dragging_color.is_none() {
+                    return;
+                }
+                let clamped = target.min(self.custom_colors.len());
+                if self.dragging_preview_slot == Some(clamped) {
+                    return;
+                }
+                self.dragging_preview_slot = Some(clamped);
+                self.refresh_color_popover(&sender);
+            }
+            ToolsToolbarInput::EndCustomDrag { success } => {
+                // Idempotent: connect_drop AND connect_drag_end both
+                // route here, so a successful drop fires this twice.
+                // Bail when there's nothing left to commit/revert.
+                let Some(color) = self.dragging_color.take() else {
+                    self.pre_drag_snapshot = None;
+                    self.dragging_preview_slot = None;
+                    return;
+                };
+                if success {
+                    // Reinsert at the slot the ghost preview was
+                    // sitting in. The snapshot is discarded — the
+                    // post-insert list is the new canonical order.
+                    let insert_at = self
+                        .dragging_preview_slot
+                        .unwrap_or(self.custom_colors.len())
+                        .min(self.custom_colors.len());
+                    self.custom_colors.insert(insert_at, color);
+                    crate::state::save_custom_colors(&self.custom_colors);
+                } else if let Some(snapshot) = self.pre_drag_snapshot.take() {
+                    // Cancel: full revert to the snapshot.
+                    self.custom_colors = snapshot;
+                }
+                self.pre_drag_snapshot = None;
+                self.dragging_preview_slot = None;
+                self.sync_color_action();
+                self.refresh_color_popover(&sender);
+                // Reap all the popover-grid pages that piled up while
+                // the drag was held open (one per hover-enter event).
+                // The cleanup runs after `STACK_FADE_MS` so the final
+                // crossfade has a chance to finish before old children
+                // disappear.
+                if let Some(stack) = self.color_popover_stack.clone() {
+                    gtk::glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(STACK_FADE_MS as u64 + 50),
+                        move || {
+                            clean_up_old_popover_pages(&stack);
+                        },
+                    );
+                }
+            }
         }
     }
 
@@ -1143,26 +1797,18 @@ impl Component for ToolsToolbar {
             },
         );
 
-        // Resolve the starting color: persisted last-color from the XDG
-        // state file wins; otherwise fall back to the palette's red entry
-        // (or `Color::red()` directly if the user removed it). Black is
-        // intentionally not the default — the prior `palette.first()`
-        // behavior gave the wrong impression that black was the chosen
-        // annotation color on every launch.
+        // Resolve the starting color via the shared helper so the
+        // toolbar swatch and sketch_board's drawing style agree on the
+        // first stroke. The helper restores the user's previous color
+        // across launches; falls back to red so a fresh state file
+        // starts on the most-reached-for annotation color.
         let palette: Vec<Color> = APP_CONFIG
             .read()
             .color_palette()
             .palette()
             .to_vec();
-        let saved_last_color = crate::state::load_last_color();
         let saved_customs = crate::state::load_custom_colors();
-        let initial_color = saved_last_color.unwrap_or_else(|| {
-            palette
-                .iter()
-                .copied()
-                .find(|c| *c == Color::red())
-                .unwrap_or_else(Color::red)
-        });
+        let initial_color = crate::state::initial_color();
         // Mirror the popover's "checked" highlight onto whichever
         // swatch represents the restored color: a palette entry, one
         // of the persisted saved customs, or — failing both — the
@@ -1207,15 +1853,23 @@ impl Component for ToolsToolbar {
             custom_colors: saved_customs,
             color_action: SimpleAction::from(color_action.clone()),
             color_popover: None,
+            dragging_color: None,
+            pre_drag_snapshot: None,
+            dragging_preview_slot: None,
+            color_popover_stack: None,
+            color_popover_page_id: 0,
         };
         let widgets = view_output!();
 
         // Build the popover for the unified color picker. Stash the
-        // handle on the model so `SaveCustomColor` can regenerate the
-        // grid in place without rebuilding the whole popover.
-        let popover = build_color_popover(&model, &sender);
+        // popover + its inner Stack so `refresh_color_popover` can
+        // crossfade between grid layouts (e.g. mid-drag reorder
+        // previews) without rebuilding the popover itself.
+        let (popover, stack) = build_color_popover(&model, &sender);
         widgets.color_button.set_popover(Some(&popover));
         model.color_popover = Some(popover.clone());
+        model.color_popover_stack = Some(stack);
+        model.color_popover_page_id = 1;
 
         // Refocus the canvas when the popover closes so keyboard shortcuts
         // resume working without the user having to click on the canvas.
@@ -1237,7 +1891,8 @@ impl Component for ToolsToolbar {
             (Tools::Text, widgets.text_button.clone()),
             (Tools::Marker, widgets.marker_button.clone()),
             (Tools::Blur, widgets.blur_button.clone()),
-            (Tools::Highlight, widgets.highlight_button.clone()),
+            (Tools::Highlighter, widgets.highlight_button.clone()),
+            (Tools::Spotlight, widgets.spotlight_button.clone()),
         ]);
 
         // reverse shortcuts mapping
@@ -1348,125 +2003,376 @@ impl Component for StyleToolbar {
         root = gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 2,
-            set_valign: Align::End,
+            // Center the toolbar vertically in the bottom row so the
+            // slider's trough lines up with the visual midline (and the
+            // compact buttons stay aligned to it). Was Align::End — that
+            // pinned the whole toolbar to the bottom of the row, which
+            // pushed the slider trough below center.
+            set_valign: Align::Center,
             set_halign: Align::Center,
             add_css_class: "toolbar",
             add_css_class: "toolbar-bottom",
 
+            // Crop is a focused, one-and-done mode; hide the entire
+            // style toolbar while it's active so the bottom row
+            // reduces to "zoom indicator + snap controls (left) /
+            // Revert to Original (right)". Returning to a regular tool
+            // brings the style toolbar back.
             #[watch]
-            set_visible: model.visible,
+            set_visible: model.visible && model.current_tool != Tools::Crop,
 
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_label: "XS",
-                install_tooltip_above: "Annotation size: X-Small",
-                ActionablePlus::set_action::<SizeAction>: Size::XSmall,
+            // Mirror spacer. Reserves `TOOL_CLUSTER_WIDTH` on the
+            // left so the visible "main controls" (size slider, x,
+            // factor, dimensions, fill) stay centered between the
+            // empty left zone and the right tool-specific cluster.
+            // Without this, the cluster's reserved width on the
+            // right would visually pull all content left of center.
+            gtk::Box {
+                set_width_request: TOOL_CLUSTER_WIDTH,
             },
-            gtk::ToggleButton {
+
+            // Size slider with detents at each step (XS, S, M, L, XL,
+            // XXL). Replaces a row of six ToggleButtons — takes less
+            // space and stays one widget wide regardless of which step
+            // is active. `set_round_digits(0)` enforces integer snap so
+            // dragging always lands on a labeled detent. `set_digits(0)`
+            // hides any decimal places from the (unused) value readout.
+            #[name = "size_slider"]
+            gtk::Scale {
+                add_css_class: "compact-slider",
+                set_orientation: gtk::Orientation::Horizontal,
                 set_focusable: false,
                 set_hexpand: false,
-                set_label: "S",
-                install_tooltip_above: "Annotation size: Small",
-                ActionablePlus::set_action::<SizeAction>: Size::Small,
-            },
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_label: "M",
-                install_tooltip_above: "Annotation size: Medium",
-                ActionablePlus::set_action::<SizeAction>: Size::Medium,
-            },
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_label: "L",
-                install_tooltip_above: "Annotation size: Large",
-                ActionablePlus::set_action::<SizeAction>: Size::Large,
-            },
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_label: "XL",
-                install_tooltip_above: "Annotation size: X-Large",
-                ActionablePlus::set_action::<SizeAction>: Size::XLarge,
-            },
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_label: "XXL",
-                install_tooltip_above: "Annotation size: XX-Large",
-                ActionablePlus::set_action::<SizeAction>: Size::XXLarge,
-            },
-            // Arrow style dropdown — only relevant when the Arrow tool is
-            // active. Hidden otherwise so it doesn't clutter the toolbar.
-            gtk::DropDown {
-                set_focusable: false,
-                set_hexpand: false,
-                set_model: Some(&gtk::StringList::new(&["Standard", "Fancy", "Curved", "Double"])),
-                install_tooltip_above: "Arrow style",
-                set_margin_start: 4,
+                set_width_request: 200,
+                set_valign: gtk::Align::Center,
+                // GTK's valign:Center splits remaining space evenly above
+                // and below the widget, but the slider's mark labels
+                // hang below the trough — so the "visual center" (the
+                // trough) ends up below the row midline. A 4 px bottom
+                // margin shifts the centered widget up by 2 px so the
+                // trough lines up with the compact buttons' midlines.
+                set_margin_bottom: 4,
+                set_range: (0.0, 5.0),
+                set_increments: (1.0, 1.0),
+                set_round_digits: 0,
+                set_digits: 0,
+                set_draw_value: false,
+                install_tooltip_above: "Annotation size",
+                add_mark: (0.0, gtk::PositionType::Bottom, Some("XS")),
+                add_mark: (1.0, gtk::PositionType::Bottom, Some("S")),
+                add_mark: (2.0, gtk::PositionType::Bottom, Some("M")),
+                add_mark: (3.0, gtk::PositionType::Bottom, Some("L")),
+                add_mark: (4.0, gtk::PositionType::Bottom, Some("XL")),
+                add_mark: (5.0, gtk::PositionType::Bottom, Some("XXL")),
                 #[watch]
-                set_visible: model.current_tool == Tools::Arrow,
-                connect_selected_notify[sender] => move |dropdown| {
-                    let style = match dropdown.selected() {
-                        0 => ArrowStyle::Standard,
-                        1 => ArrowStyle::Fancy,
-                        2 => ArrowStyle::Curved,
-                        3 => ArrowStyle::Double,
-                        _ => return,
-                    };
-                    sender.output_sender().emit(ToolbarEvent::ArrowStyleSelected(style));
-                },
+                #[block_signal(size_changed)]
+                set_value: size_to_slider_value(model.current_size),
+                connect_value_changed[sender] => move |scale| {
+                    let size = slider_value_to_size(scale.value());
+                    sender.input(StyleToolbarInput::SizeChanged(size));
+                } @size_changed,
             },
+            // (Tool-specific controls — arrow style, blur style,
+            // text background, spotlight darkness, highlighter
+            // opacity — used to sit inline here. They've been moved
+            // to the fixed-width right cluster below so toggling
+            // between tools doesn't make the central toolbar's
+            // width pulse.)
             gtk::Label {
                 set_focusable: false,
                 set_hexpand: false,
+                set_margin_start: 12,
+                set_margin_end: 6,
 
                 set_text: "x",
             },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+            // Multiplier pill: a Stack with the drag-edit Button visible
+            // most of the time, swapping in a `gtk::Entry` for inline
+            // typing when the user single-clicks the pill. Both children
+            // share the same outer width so the cluster doesn't reflow
+            // mid-edit. The Stack's transition is `None` because the
+            // flip is meant to feel instantaneous (focus has to land in
+            // the entry the same frame the user clicked).
+            #[name = "annotation_stack"]
+            gtk::Stack {
+                set_transition_type: gtk::StackTransitionType::None,
+                set_hhomogeneous: true,
+                set_vhomogeneous: true,
+                set_valign: gtk::Align::Center,
 
-                #[watch]
-                set_label: &model.annotation_size_formatted,
-                install_tooltip_above: "Edit Annotation Size Factor",
+                #[name = "annotation_pill"]
+                add_named[Some("display")] = &gtk::Button {
+                    add_css_class: "compact-control",
+                    add_css_class: "drag-edit",
+                    set_focusable: false,
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    // ew-resize cursor signals "horizontal scrub" the moment
+                    // the pointer enters the pill; combined with the
+                    // GestureDrag below this gives the same feel as the
+                    // numeric inputs in Blender / web devtools.
+                    set_cursor_from_name: Some("ew-resize"),
 
-                connect_clicked => StyleToolbarInput::ShowAnnotationDialog
-            },
-            gtk::Separator {},
-            gtk::Label {
-                set_focusable: false,
-                set_hexpand: false,
-                set_margin_start: 10,
-                set_width_chars: 11,
+                    #[watch]
+                    set_label: &model.annotation_size_formatted,
+                    install_tooltip_above: "Drag to change · click to type a value",
 
-                #[watch]
-                set_text: &model.output_dimensions,
-                install_tooltip_above: "Output dimensions (width x height)",
-            },
-            gtk::Separator {},
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: if APP_CONFIG.read().default_fill_shapes() {
-                    "paint-bucket-filled"
-                } else {
-                    "paint-bucket-regular"
+                    add_controller = gtk::GestureDrag {
+                        connect_drag_begin[sender] => move |_gesture, _x, _y| {
+                            sender.input(StyleToolbarInput::AnnotationDragStart);
+                        },
+                        connect_drag_update[sender, dragged] => move |_gesture, offset_x, _offset_y| {
+                            if offset_x.abs() >= ANNOTATION_DRAG_THRESHOLD {
+                                dragged.set(true);
+                            }
+                            sender.input(StyleToolbarInput::AnnotationDragMove(offset_x));
+                        },
+                        connect_drag_end[sender, dragged] => move |_gesture, _x, _y| {
+                            let was_dragged = dragged.replace(false);
+                            sender.input(StyleToolbarInput::AnnotationDragEnd { dragged: was_dragged });
+                        },
+                    },
                 },
-                install_tooltip_above: "Fill shape",
-                connect_clicked[sender] => move |button| {
-                    sender.output_sender().emit(ToolbarEvent::ToggleFill);
-                    let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
+
+                #[name = "annotation_entry"]
+                add_named[Some("edit")] = &gtk::Entry {
+                    add_css_class: "compact-control",
+                    add_css_class: "annotation-entry",
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    // `EntryExt::set_alignment` and `EditableExt::set_alignment`
+                    // both exist on `Entry` and the relm4 view-macro can't
+                    // pick between them — call the editable one
+                    // explicitly post-construction in init().
+                    set_max_length: 6,
+                    set_width_chars: 4,
+                    set_max_width_chars: 5,
+                    set_input_purpose: gtk::InputPurpose::Number,
+                    set_text: &model.annotation_size_formatted,
+                    install_tooltip_above: "Enter a multiplier (0.1–10.0)",
+
+                    // Enter commits; focus-out below routes through the
+                    // same path so clicking away persists whatever the
+                    // user typed. Both signals dispatch the variant
+                    // that reads the entry text from the stashed handle
+                    // rather than threading it through the input enum.
+                    connect_activate[sender] => move |_entry| {
+                        sender.input(StyleToolbarInput::AnnotationCommitEditFromEntry);
+                    },
+
+                    // Focus-out commits — feels more forgiving than
+                    // discarding the entry text when the user tabs
+                    // away or clicks elsewhere.
+                    add_controller = gtk::EventControllerFocus {
+                        connect_leave[sender] => move |_| {
+                            sender.input(StyleToolbarInput::AnnotationCommitEditFromEntry);
+                        },
+                    },
+
+                    // Esc cancels — explicit escape hatch in case the
+                    // user wants to bail out without saving whatever
+                    // they typed.
+                    add_controller = gtk::EventControllerKey {
+                        connect_key_pressed[sender] => move |_, key, _, _| {
+                            if key == gtk::gdk::Key::Escape {
+                                sender.input(StyleToolbarInput::AnnotationCancelEdit);
+                                gtk::glib::Propagation::Stop
+                            } else {
+                                gtk::glib::Propagation::Proceed
+                            }
+                        },
+                    },
+                },
+            },
+            // (Output dimensions moved out of the center cluster into
+            // `bottom_row.end_widget` so they live opposite the zoom
+            // indicator and stay visible during Crop mode, where the
+            // whole StyleToolbar is hidden. The Fill button moved
+            // into the right cluster below as the tool-specific
+            // control for Rectangle/Ellipse.)
+            // Right cluster: every tool-specific control lives here,
+            // pinned to a fixed minimum width so swapping between
+            // tools (Arrow → Blur → Text → Spotlight → Highlighter
+            // → nothing) doesn't make the toolbar reflow. Exactly
+            // one inner widget is visible at a time; the leading
+            // label re-targets per tool via
+            // `tool_cluster_label(current_tool)`.
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 6,
+                set_margin_start: 16,
+                set_width_request: TOOL_CLUSTER_WIDTH,
+                set_halign: gtk::Align::Start,
+
+                gtk::Label {
+                    add_css_class: "dim-label",
+                    #[watch]
+                    set_label: tool_cluster_label(model.current_tool),
+                    #[watch]
+                    set_visible: !tool_cluster_label(model.current_tool).is_empty(),
+                },
+
+                #[name = "arrow_style_dropdown"]
+                gtk::DropDown {
+                    add_css_class: "compact-control",
+                    set_focusable: false,
+                    set_focus_on_click: false,
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    set_model: Some(&gtk::StringList::new(&["Standard", "Fancy", "Curved", "Double"])),
+                    install_tooltip_above: "Arrow style",
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Arrow,
+                    connect_selected_notify[sender] => move |dropdown| {
+                        let style = match dropdown.selected() {
+                            0 => ArrowStyle::Standard,
+                            1 => ArrowStyle::Fancy,
+                            2 => ArrowStyle::Curved,
+                            3 => ArrowStyle::Double,
+                            _ => return,
+                        };
+                        sender.output_sender().emit(ToolbarEvent::ArrowStyleSelected(style));
+                        sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                    },
+                },
+
+                #[name = "blur_style_dropdown"]
+                gtk::DropDown {
+                    add_css_class: "compact-control",
+                    set_focusable: false,
+                    set_focus_on_click: false,
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    set_model: Some(&gtk::StringList::new(&["Gaussian", "Pixelate"])),
+                    install_tooltip_above: "Blur algorithm — Pixelate is irreversible-grade for redacting sensitive content",
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Blur,
+                    connect_selected_notify[sender] => move |dropdown| {
+                        let style = match dropdown.selected() {
+                            0 => BlurStyle::Gaussian,
+                            1 => BlurStyle::Pixelate,
+                            _ => return,
+                        };
+                        sender.output_sender().emit(ToolbarEvent::BlurStyleSelected(style));
+                        sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                    },
+                },
+
+                gtk::DropDown {
+                    add_css_class: "compact-control",
+                    set_focusable: false,
+                    set_focus_on_click: false,
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    set_model: Some(&gtk::StringList::new(&["Rounded", "Plain"])),
+                    install_tooltip_above: "Text background",
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Text,
+                    connect_selected_notify[sender] => move |dropdown| {
+                        let bg = match dropdown.selected() {
+                            0 => crate::tools::TextBackground::Rounded,
+                            1 => crate::tools::TextBackground::Plain,
+                            _ => return,
+                        };
+                        sender.output_sender().emit(ToolbarEvent::TextBackgroundSelected(bg));
+                        sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                    },
+                },
+
+                // Fill Shape button — visible only for tools that
+                // actually honor fill (Rectangle / Ellipse). Tooltip
+                // reflects the current state so hovering the icon
+                // tells the user what they're about to leave behind.
+                // We use the custom hover-tooltip system (750 ms
+                // delay) wired up in init() rather than GTK's built-in
+                // `set_tooltip_text` (which only appears after the
+                // window-manager delay and never matches our toolbar's
+                // styling).
+                #[name = "fill_button"]
+                gtk::Button {
+                    add_css_class: "compact-control",
+                    set_focusable: false,
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    #[watch]
+                    set_visible: matches!(
+                        model.current_tool,
+                        Tools::Rectangle | Tools::Ellipse
+                    ),
+                    #[watch]
+                    set_icon_name: if model.fill_shapes {
                         "paint-bucket-filled"
                     } else {
                         "paint-bucket-regular"
-                    };
-                    button.set_icon_name(new_icon);
+                    },
+                    connect_clicked => StyleToolbarInput::ToggleFill,
+                },
+
+                #[name(spotlight_slider)]
+                gtk::Scale {
+                    add_css_class: "compact-slider",
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_focusable: false,
+                    set_hexpand: false,
+                    set_width_request: CLUSTER_SLIDER_WIDTH,
+                    set_valign: gtk::Align::Center,
+                    set_range: (0.10, 0.90),
+                    set_increments: (0.01, 0.10),
+                    set_draw_value: false,
+                    set_value: model.spotlight_darkness as f64,
+                    add_mark: (0.50, gtk::PositionType::Bottom, None),
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Spotlight,
+                    connect_value_changed[sender] => move |scale| {
+                        // Detent: snap to 0.50 within ±0.025 so the
+                        // user can land on the default without
+                        // pixel-precise dragging. set_value with the
+                        // already-displayed value is a no-op signal-
+                        // wise, so no recursion.
+                        let mut v = scale.value() as f32;
+                        if (v - 0.50).abs() < 0.025 {
+                            v = 0.50;
+                            scale.set_value(0.50);
+                        }
+                        sender.output_sender().emit(ToolbarEvent::SpotlightDarknessChanged(v));
+                    },
+                },
+
+                #[name(highlighter_slider)]
+                gtk::Scale {
+                    add_css_class: "compact-slider",
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_focusable: false,
+                    set_hexpand: false,
+                    set_width_request: CLUSTER_SLIDER_WIDTH,
+                    set_valign: gtk::Align::Center,
+                    set_range: (0.10, 1.00),
+                    set_increments: (0.01, 0.10),
+                    set_draw_value: false,
+                    set_value: model.highlighter_opacity as f64,
+                    // Visual parity with the spotlight darkness slider:
+                    // a single midpoint mark gives both sliders the same
+                    // natural height (the mark indicator adds bottom
+                    // chrome below the trough), so they line up
+                    // vertically when the cluster swaps between them.
+                    add_mark: (0.50, gtk::PositionType::Bottom, None),
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Highlighter,
+                    connect_value_changed[sender] => move |scale| {
+                        let v = scale.value() as f32;
+                        sender.output_sender().emit(ToolbarEvent::HighlighterOpacityChanged(v));
+                    },
                 },
             },
+            // ("Revert to Original" lives in `bottom_row.end_widget`
+            // — outside the StyleToolbar — so its visibility toggling
+            // doesn't shift the centered toolbar's width.)
         },
     }
 
@@ -1478,12 +2384,125 @@ impl Component for StyleToolbar {
 
             StyleToolbarInput::AnnotationDialogFinished(value) => {
                 if let Some(value) = value {
-                    self.annotation_size = value;
-                    self.annotation_size_formatted = format!("{value:.2}");
+                    let snapped = quantise_annotation(value);
+                    self.annotation_size = snapped;
+                    self.annotation_size_formatted = format_annotation(snapped);
 
                     sender
                         .output_sender()
-                        .emit(ToolbarEvent::AnnotationSizeChanged(value));
+                        .emit(ToolbarEvent::AnnotationSizeChanged(snapped));
+                }
+            }
+            StyleToolbarInput::AnnotationDragStart => {
+                self.annotation_drag_origin = Some(self.annotation_size);
+            }
+            StyleToolbarInput::AnnotationDragMove(dx) => {
+                if let Some(origin) = self.annotation_drag_origin {
+                    let raw = origin + dx as f32 * ANNOTATION_DRAG_GAIN;
+                    let new_value = quantise_annotation(raw);
+                    if (new_value - self.annotation_size).abs() >= ANNOTATION_STEP / 2.0 {
+                        self.annotation_size = new_value;
+                        self.annotation_size_formatted = format_annotation(new_value);
+                        sender
+                            .output_sender()
+                            .emit(ToolbarEvent::AnnotationSizeChanged(new_value));
+                    }
+                }
+            }
+            StyleToolbarInput::AnnotationDragEnd { dragged } => {
+                self.annotation_drag_origin = None;
+                if !dragged {
+                    // Click without drag → flip into inline-edit mode and
+                    // hand keyboard focus to the entry. Stack swap is
+                    // synchronous; the focus+select needs an idle tick
+                    // because the entry's first realize happens during
+                    // this same event-loop turn and grab_focus before
+                    // realize is a no-op.
+                    self.editing_annotation = true;
+                    if let Some(stack) = &self.annotation_stack {
+                        stack.set_visible_child_name("edit");
+                    }
+                    if let Some(entry) = self.annotation_entry.clone() {
+                        entry.set_text(&self.annotation_size_formatted);
+                        gtk::glib::idle_add_local_once(move || {
+                            entry.grab_focus();
+                            entry.select_region(0, -1);
+                        });
+                    }
+                } else {
+                    sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                }
+            }
+            StyleToolbarInput::AnnotationCommitEditFromEntry => {
+                // Idempotent: focus-out can fire after we've already
+                // exited edit mode (e.g. Enter committed first, then
+                // focus moves out). Skip the work in that case so we
+                // don't double-emit AnnotationSizeChanged.
+                if !self.editing_annotation {
+                    return;
+                }
+                let text = self
+                    .annotation_entry
+                    .as_ref()
+                    .map(|e| e.text().to_string())
+                    .unwrap_or_default();
+                // Parse leniently, snap to the 0.1 step, clamp into the
+                // supported range. Unparseable text just restores the
+                // prior value (no error, no toast).
+                let parsed = text.trim().parse::<f32>().ok();
+                if let Some(value) = parsed {
+                    let snapped = quantise_annotation(value);
+                    if (snapped - self.annotation_size).abs() >= ANNOTATION_STEP / 2.0 {
+                        self.annotation_size = snapped;
+                        self.annotation_size_formatted = format_annotation(snapped);
+                        sender
+                            .output_sender()
+                            .emit(ToolbarEvent::AnnotationSizeChanged(snapped));
+                    } else {
+                        // Even when the value didn't actually change, the
+                        // formatted string we display might have drifted
+                        // (e.g. user typed "2" → "2.0"); refresh so the
+                        // pill reads back canonically on exit.
+                        self.annotation_size_formatted = format_annotation(self.annotation_size);
+                    }
+                } else {
+                    self.annotation_size_formatted = format_annotation(self.annotation_size);
+                }
+                self.editing_annotation = false;
+                if let Some(stack) = &self.annotation_stack {
+                    stack.set_visible_child_name("display");
+                }
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
+            StyleToolbarInput::AnnotationCancelEdit => {
+                // Drop edit mode and re-sync the entry text to the live
+                // model value so re-opening starts clean.
+                self.editing_annotation = false;
+                if let Some(entry) = &self.annotation_entry {
+                    entry.set_text(&self.annotation_size_formatted);
+                }
+                if let Some(stack) = &self.annotation_stack {
+                    stack.set_visible_child_name("display");
+                }
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
+            StyleToolbarInput::SaveAnnotationAsDefault => {
+                // Persist the live multiplier to state so next launch
+                // starts here. Side-effect-only — we don't re-emit
+                // AnnotationSizeChanged because the value already IS
+                // the live value (the drag/entry path emitted it on
+                // change).
+                crate::state::save_annotation_size_factor(self.annotation_size);
+            }
+            StyleToolbarInput::SaveSizeAsDefault => {
+                // Persist the live size as the default for THE
+                // CURRENT TOOL only — different tools each get their
+                // own saved default. Pointer / Crop don't use a size,
+                // so saving while they're active is a no-op (the
+                // size slider isn't even visible then, but guard
+                // anyway in case the slider lingers).
+                if !matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
+                    crate::state::save_size_for_tool(self.current_tool, self.current_size);
                 }
             }
 
@@ -1491,11 +2510,78 @@ impl Component for StyleToolbar {
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
             }
-            StyleToolbarInput::DimensionsChanged((width, height)) => {
-                self.output_dimensions = format!("{}x{}", width, height);
+            StyleToolbarInput::DimensionsChanged((_width, _height)) => {
+                // Dimensions display moved to App's bottom_row.end_widget;
+                // ignore here so the variant can be deprecated later.
             }
             StyleToolbarInput::ToolChanged(tool) => {
                 self.current_tool = tool;
+                // Per-tool size default: when switching tools, snap
+                // the size slider to the new tool's saved default
+                // (if the user has saved one). Pointer / Crop don't
+                // own a meaningful "size" — leave the slider where
+                // it was so coming back to a drawing tool isn't
+                // disorienting.
+                if !matches!(tool, Tools::Pointer | Tools::Crop)
+                    && let Some(default_size) = crate::state::load_size_for_tool(tool)
+                    && default_size != self.current_size
+                {
+                    self.current_size = default_size;
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::SizeSelected(default_size));
+                }
+            }
+            StyleToolbarInput::SyncToToolDefault => {
+                // Fired by main.rs on deselect — slide back to the
+                // active tool's saved default. Same fall-through
+                // rules as ToolChanged: skip Pointer/Crop, and only
+                // act if the user has actually saved a default for
+                // this tool.
+                if !matches!(self.current_tool, Tools::Pointer | Tools::Crop)
+                    && let Some(default_size) = crate::state::load_size_for_tool(self.current_tool)
+                    && default_size != self.current_size
+                {
+                    self.current_size = default_size;
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::SizeSelected(default_size));
+                }
+            }
+            StyleToolbarInput::CropPresenceChanged(present) => {
+                self.has_crop = present;
+            }
+            StyleToolbarInput::SizeChanged(size) => {
+                self.current_size = size;
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::SizeSelected(size));
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
+            StyleToolbarInput::SyncFromSelection(style) => {
+                // Reflect the selected shape in the toolbar widgets
+                // without re-broadcasting — pushing `SizeSelected`
+                // back to sketch_board would feedback into the same
+                // selection and clobber its other style fields.
+                self.current_size = style.size;
+                self.annotation_size = style.annotation_size_factor;
+                self.annotation_size_formatted =
+                    format_annotation(style.annotation_size_factor);
+                self.fill_shapes = style.fill;
+                if let Some(label) = &self.fill_tooltip_label {
+                    label.set_text(fill_tooltip_text(self.fill_shapes));
+                }
+            }
+            StyleToolbarInput::ToggleFill => {
+                // Flip local state so the icon refreshes via #[watch],
+                // and broadcast upstream so sketch_board applies the
+                // new fill flag to current style + any selection.
+                self.fill_shapes = !self.fill_shapes;
+                if let Some(label) = &self.fill_tooltip_label {
+                    label.set_text(fill_tooltip_text(self.fill_shapes));
+                }
+                sender.output_sender().emit(ToolbarEvent::ToggleFill);
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             }
         }
     }
@@ -1505,35 +2591,129 @@ impl Component for StyleToolbar {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // Size Action for selecting sizes
-        let sender_tmp = sender.clone();
-        let size_action: RelmAction<SizeAction> =
-            RelmAction::new_stateful_with_target_value(&Size::Medium, move |_, state, value| {
-                *state = value;
-                sender_tmp
-                    .output_sender()
-                    .emit(ToolbarEvent::SizeSelected(*state));
-            });
+        // (Size selection is now driven by `current_size` + the
+        // SizeChanged input message — see the `gtk::Scale` in the
+        // view! block. The old `SizeAction` for the 6-button radio
+        // bank is no longer needed.)
+
+        // Captured by the annotation-pill GestureDrag closures so they
+        // can carry the "did the pointer move far enough to count as a
+        // drag?" bit across begin/update/end without poking model state
+        // (which would force a view rebuild on every update).
+        let dragged = std::rc::Rc::new(std::cell::Cell::new(false));
 
         // create model
-        let model = StyleToolbar {
+        let initial_tool = APP_CONFIG.read().initial_tool();
+        let initial_size =
+            crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
+        let mut model = StyleToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             annotation_size: APP_CONFIG.read().annotation_size_factor(),
-            annotation_size_formatted: format!(
-                "{0:.2}",
-                APP_CONFIG.read().annotation_size_factor()
+            annotation_size_formatted: format_annotation(
+                APP_CONFIG.read().annotation_size_factor(),
             ),
             annotation_dialog_controller: None,
-            output_dimensions: String::new(),
-            current_tool: APP_CONFIG.read().initial_tool(),
+            current_tool: initial_tool,
+            spotlight_darkness: crate::state::load_spotlight_darkness().unwrap_or(0.50),
+            highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
+            has_crop: false,
+            current_size: initial_size,
+            fill_shapes: APP_CONFIG.read().default_fill_shapes(),
+            annotation_drag_origin: None,
+            editing_annotation: false,
+            annotation_entry: None,
+            annotation_stack: None,
+            fill_tooltip_label: None,
         };
 
         // create widgets
         let widgets = view_output!();
 
-        let mut group = RelmActionGroup::<StyleToolbarActionGroup>::new();
-        group.add_action(size_action);
+        // Center-align the inline entry's text — done here rather than
+        // in the view! block because both `EntryExt::set_alignment` and
+        // `EditableExt::set_alignment` resolve to the same name and the
+        // relm4 macro can't disambiguate. They do the same thing; call
+        // the Editable one explicitly.
+        gtk::prelude::EditableExt::set_alignment(&widgets.annotation_entry, 0.5);
 
+        // Stash the inline Entry + Stack so update() can drive focus +
+        // select on edit-mode entry, and flip the visible child without
+        // going through `#[watch]` (which would warn about missing
+        // children if it ran before add_named).
+        model.annotation_entry = Some(widgets.annotation_entry.clone());
+        model.annotation_stack = Some(widgets.annotation_stack.clone());
+        widgets.annotation_stack.set_visible_child_name("display");
+
+        // Sync the arrow / blur style dropdowns to the persisted
+        // value. Done imperatively here (rather than via #[watch])
+        // because the connect_selected_notify handler emits a
+        // ToolbarEvent on every selection change — using #[watch]
+        // would risk a feedback loop with state.toml on init.
+        if let Some(style) = crate::state::load_arrow_style() {
+            let idx = match style {
+                ArrowStyle::Standard => 0,
+                ArrowStyle::Fancy => 1,
+                ArrowStyle::Curved => 2,
+                ArrowStyle::Double => 3,
+            };
+            widgets.arrow_style_dropdown.set_selected(idx);
+        }
+        if let Some(style) = crate::state::load_blur_style() {
+            let idx = match style {
+                BlurStyle::Gaussian => 0,
+                BlurStyle::Pixelate => 1,
+            };
+            widgets.blur_style_dropdown.set_selected(idx);
+        }
+
+        // Right-click → "Save as default" on the controls users
+        // tweak in the central / right cluster. The multiplier pill
+        // and size slider each persist their value through a
+        // StyleToolbar internal input (the toolbar owns the live
+        // value); the opacity / darkness sliders' live values live
+        // in sketch_board, so they go out as ToolbarEvents and the
+        // sketch_board handler writes to state.toml.
+        {
+            let s = sender.clone();
+            attach_save_default_popover(&widgets.annotation_pill, move || {
+                s.input(StyleToolbarInput::SaveAnnotationAsDefault);
+            });
+        }
+        {
+            let s = sender.clone();
+            attach_save_default_popover(&widgets.size_slider, move || {
+                s.input(StyleToolbarInput::SaveSizeAsDefault);
+            });
+        }
+        {
+            let s = sender.clone();
+            attach_save_default_popover(&widgets.spotlight_slider, move || {
+                s.output_sender()
+                    .emit(ToolbarEvent::SaveSpotlightDarknessAsDefault);
+            });
+        }
+        {
+            let s = sender.clone();
+            attach_save_default_popover(&widgets.highlighter_slider, move || {
+                s.output_sender()
+                    .emit(ToolbarEvent::SaveHighlighterOpacityAsDefault);
+            });
+        }
+
+        // Attach the custom hover-tooltip to the Fill button (using
+        // the same 750 ms-delay system the other toolbar buttons use)
+        // and stash its inner Label so `ToggleFill` can update the
+        // wording when the filled/outline state flips.
+        let fill_label = install_dynamic_tooltip(
+            &widgets.fill_button,
+            fill_tooltip_text(model.fill_shapes),
+            gtk::PositionType::Top,
+        );
+        model.fill_tooltip_label = Some(fill_label);
+
+        // The color picker still uses RelmActions for its swatch row;
+        // keep the group registered even though SizeAction was retired.
+        let group = RelmActionGroup::<StyleToolbarActionGroup>::new();
         group.register_for_widget(&widgets.root);
 
         ComponentParts { model, widgets }
@@ -1629,7 +2809,14 @@ impl Component for AnnotationSizeDialog {
                     set_hexpand: false,
 
                     set_tooltip_text: Some("Reset Annotation Size Factor"),
-                    set_icon_name: "edit-reset-symbolic",
+                    // `edit-reset-symbolic` is a freedesktop standard
+                    // icon and renders as GTK's red 🚫 missing-icon
+                    // fallback on themes that don't ship it (which is
+                    // most non-GNOME setups). Use a bundled icon from
+                    // `relm4-icons` instead — the curved back-arrow
+                    // reads as "revert" and matches the toolbar's
+                    // visual vocabulary.
+                    set_icon_name: "arrow-undo-filled",
                     connect_clicked[sender] => move |_| {
                         sender.input(AnnotationSizeDialogInput::Reset);
                     },

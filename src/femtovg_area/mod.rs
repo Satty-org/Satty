@@ -7,7 +7,11 @@ use gtk::glib;
 use relm4::gtk::gdk_pixbuf::{Pixbuf, glib::subclass::types::ObjectSubclassIsExt};
 use relm4::{
     Sender,
-    gtk::{self, prelude::WidgetExt, subclass::prelude::GLAreaImpl},
+    gtk::{
+        self,
+        prelude::{GLAreaExt, WidgetExt},
+        subclass::prelude::GLAreaImpl,
+    },
 };
 
 use crate::{
@@ -25,6 +29,47 @@ pub fn set_font_stack(fonts: Vec<FontId>) {
 
 pub fn font_stack() -> &'static [FontId] {
     FONT_STACK.get().map(Vec::as_slice).unwrap_or(&[])
+}
+
+thread_local! {
+    /// Device pixel ratio published by the renderer at the start of
+    /// every frame. Drawables consult this to size UI affordances
+    /// (handles, outlines) in CSS pixels — `Drawable::draw` doesn't
+    /// receive DPR as a parameter, and threading it through every
+    /// impl just for the text/cursor case would be noisy. The
+    /// thread-local is set in `imp::FemtoVgAreaMut::render_*` and
+    /// read by drawables that need CSS-pixel sizing inside `draw`.
+    static CURRENT_DPR: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+/// Read the most recently-published device pixel ratio. Used inside
+/// `Drawable::draw` impls to size handles/outlines in CSS pixels.
+pub fn current_device_pixel_ratio() -> f32 {
+    CURRENT_DPR.with(|c| c.get())
+}
+
+/// Publish the device pixel ratio for the current frame. Called by
+/// the renderer's `render_framebuffer` / `render_native_resolution`.
+pub fn set_current_device_pixel_ratio(dpr: f32) {
+    CURRENT_DPR.with(|c| c.set(dpr));
+}
+
+thread_local! {
+    /// True while the renderer is drawing a selected drawable. Read
+    /// inside `Drawable::draw` impls that want to render selection
+    /// decorations themselves (e.g. text's blue outline) at the
+    /// fresh geometry computed during the same draw — bypassing
+    /// the `render_glow` path which fires BEFORE draw and so sees
+    /// stale layout caches during a handle drag.
+    static CURRENT_SELECTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub fn current_drawable_is_selected() -> bool {
+    CURRENT_SELECTED.with(|c| c.get())
+}
+
+pub fn set_current_drawable_is_selected(selected: bool) {
+    CURRENT_SELECTED.with(|c| c.set(selected));
 }
 
 glib::wrapper! {
@@ -139,6 +184,18 @@ impl FemtoVGArea {
             .reset()
     }
 
+    /// Current image-to-canvas scale factor — image-space lengths
+    /// multiplied by this give canvas-pixel sizes. Used by callers
+    /// that need to size on-screen UI (cursors, hit-test halos) to
+    /// match the rendered geometry.
+    pub fn current_render_scale(&self) -> f32 {
+        self.imp()
+            .inner()
+            .as_ref()
+            .map(|i| i.effective_scale_or_fallback())
+            .unwrap_or(1.0)
+    }
+
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D) -> Vec2D {
         self.imp()
             .inner()
@@ -200,6 +257,78 @@ impl FemtoVGArea {
         self.imp().resize(0, 0);
     }
 
+    /// Pan by a canvas-space delta — wheel-scroll handler entry point.
+    /// `dx`, `dy` are already in canvas pixels (the scroll handler
+    /// multiplies wheel ticks by a per-tick step). Triggers a resize
+    /// so `update_transformation` clamps the accumulated offset.
+    pub fn pan_by(&self, dx: f32, dy: f32) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .pan_by(dx, dy);
+        self.imp().resize(0, 0);
+        self.start_spring_back_if_needed();
+    }
+
+    /// Spring-back driver: while the pan drag-offset is past its
+    /// hard limit, tick `~60 fps` so `update_transformation` can
+    /// lerp the offset back inside the limit. The timer self-stops
+    /// once the offset is within limits — i.e. the rubber band has
+    /// fully recovered.
+    fn start_spring_back_if_needed(&self) {
+        if self.imp().spring_back_timer.borrow().is_some() {
+            return;
+        }
+        let outside = self
+            .imp()
+            .inner()
+            .as_ref()
+            .map(|i| i.drag_offset_overshoots())
+            .unwrap_or(false);
+        if !outside {
+            return;
+        }
+        let widget = self.clone();
+        let id = gtk::glib::timeout_add_local(
+            std::time::Duration::from_millis(imp::SPRING_BACK_TICK_MS),
+            move || {
+                // Each tick: trigger update_transformation (does the
+                // spring-back lerp) + queue a fresh draw.
+                widget.imp().resize(0, 0);
+                widget.queue_render();
+                let still_outside = widget
+                    .imp()
+                    .inner()
+                    .as_ref()
+                    .map(|i| i.drag_offset_overshoots())
+                    .unwrap_or(false);
+                if still_outside {
+                    gtk::glib::ControlFlow::Continue
+                } else {
+                    // Once we're back within the hard limit, drop the
+                    // stored source id so the next pan can re-arm.
+                    *widget.imp().spring_back_timer.borrow_mut() = None;
+                    gtk::glib::ControlFlow::Break
+                }
+            },
+        );
+        *self.imp().spring_back_timer.borrow_mut() = Some(id);
+    }
+
+    /// Apply a scrollbar drag — convert the scrollbar's adjustment
+    /// value (offset from the top/left of the scaled image, in
+    /// canvas pixels) into our centered drag_offset and rerun the
+    /// transform. `is_horizontal` picks which axis.
+    pub fn set_pan_from_scrollbar(&self, is_horizontal: bool, value: f32) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_pan_from_scrollbar(is_horizontal, value);
+        self.imp().resize(0, 0);
+    }
+
     pub fn store_last_offset(&self) {
         self.imp()
             .inner()
@@ -233,6 +362,17 @@ impl FemtoVGArea {
 
     pub fn resize(&self, width: i32, height: i32) {
         self.imp().resize(width, height);
+    }
+
+    /// Push the current global spotlight darkness into the renderer
+    /// so the next frame uses it. Caller is sketch_board, on every
+    /// slider change.
+    pub fn set_spotlight_darkness(&self, value: f32) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_spotlight_darkness(value);
     }
 }
 

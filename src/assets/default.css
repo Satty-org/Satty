@@ -30,13 +30,118 @@
     background-color: @headerbar_bg_color;
 }
 .zoom-indicator {
-    color: @headerbar_fg_color;
+    /* Dimmed by default so the chrome reads as ambient state, not
+     * a primary control. Brightens to full foreground on hover,
+     * focus, or while the popover is open (`:checked` is set by
+     * GtkMenuButton while the popover is showing). No CSS
+     * `transition` here — GTK4 keeps issuing draw frames for the
+     * duration of any declared transition (even when the value
+     * happens to match the start), and we saw that show up as
+     * sustained UI lag on every mouse pass over the indicator. */
+    color: alpha(@headerbar_fg_color, 0.55);
     padding: 2px 8px;
     min-width: 48px;
     font-size: 0.9em;
 }
+.zoom-indicator:hover,
+.zoom-indicator:focus,
+.zoom-indicator:active,
+.zoom-indicator:checked {
+    color: @headerbar_fg_color;
+}
+
+/* Shared "narrow" sizing for the bottom-row dropdowns + buttons
+ * (annotation-size button, tool-specific dropdowns like Arrow
+ * Style / Blur / Text Background). The Adwaita button theme sets
+ * `min-height` and `padding` with high specificity, so we use
+ * `!important` to make sure our values land. Earlier versions
+ * cascaded `!important` over every descendant via `.compact-control *`
+ * which showed up as visible UI stutter on every relayout — keep
+ * the rule pinned to the specific node names that actually need it. */
+.compact-control,
+.compact-control > button,
+.compact-control > button.combo {
+    min-height: 32px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 0.9em;
+}
+/* GtkDropDown wraps its visible chip in an inner button.combo. With
+ * only `min-height: 0` the chip collapses to Adwaita's small-button
+ * baseline (~32 px) regardless of the outer `set_height_request: 34`.
+ * Pinning a 32 px min-height on the combo button makes the visible
+ * dropdown chip match the regular compact buttons in the same row. */
+dropdown.compact-control > button.combo {
+    min-height: 32px;
+}
+.compact-control label,
+.compact-control button label {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Companion class for the size slider so it doesn't tower over the
+ * compact buttons. Targets only the specific GTK Scale node names
+ * (trough/slider/marks/mark/indicator/label) — earlier versions
+ * used a `.compact-slider *` blast that cascaded `!important`
+ * across hundreds of descendant CSS nodes per relayout and showed
+ * up as UI stutter. */
+.compact-slider {
+    min-height: 0;
+}
+.compact-slider trough {
+    min-height: 3px;
+}
+.compact-slider slider {
+    min-width: 10px;
+    min-height: 10px;
+    margin: -4px;
+}
+.compact-slider marks {
+    min-height: 0;
+}
+.compact-slider mark {
+    min-height: 0;
+}
+.compact-slider mark indicator {
+    min-height: 3px;
+}
+.compact-slider mark label {
+    font-size: 12px;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
+}
+.compact-slider contents,
+.compact-slider value {
+    min-height: 0;
+}
 .zoom-indicator-popover contents {
     padding: 4px;
+}
+
+/* Crop-tool "Snap to edges" controls. The checkbox + accompanying hint
+ * label sit in the bottom-row alongside the zoom indicator while the
+ * Crop tool is active; defaults read as oversized next to the slim
+ * compact-control chrome. We only trim the label/hint font sizes here
+ * and let the `check` indicator keep its native Adwaita rendering —
+ * forcing `min-width`/`min-height` on the check node distorts the
+ * circular Adwaita indicator into a chunky blob (and `-gtk-icon-size`
+ * has no effect on a `check` node, only on icons). */
+.snap-toggle {
+    font-size: 0.9em;
+    min-height: 0;
+}
+.snap-toggle > check {
+    margin: 0 4px 0 0;
+}
+.snap-toggle > label {
+    margin: 0;
+}
+.snap-hint {
+    font-size: 0.9em;
 }
 .zoom-indicator-row {
     padding: 6px 12px;
@@ -56,7 +161,7 @@
     outline: none;
 }
 .color-picker-popover contents {
-    padding: 4px;
+    padding: 6px;
 }
 /* The colored swatch itself is drawn into the pixbuf with rounded
  * corners (see `create_icon_pixbuf` in src/ui/toolbars.rs) — CSS
@@ -73,16 +178,20 @@
     box-shadow: none;
     outline: none;
 }
-/* Hover/checked feedback shows as an inset ring rather than a tinted
- * background — leaves the colored swatch untouched and keeps the
- * button's footprint identical to the dashed `.color-slot-empty`
- * placeholders (both 20×20, both 4px radius). */
+/* Hover/checked feedback is an OUTSET ring rather than an inset one —
+ * the swatch's pixbuf child fully covers the button's content area, so
+ * an inset shadow renders BEHIND the colored square and never shows
+ * through. An outset shadow draws outside the button border instead,
+ * extending into the surrounding cell gap (which is why row/column
+ * spacing is bumped to 8/14 px in `build_color_popover_grid`). The
+ * literal color is used in case `@accent_color` is missing or matches
+ * a swatch's color (e.g. blue palette entry under a blue accent theme). */
 .color-swatch:hover {
-    box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.55);
+    box-shadow: 0 0 0 2px alpha(#3584e4, 0.55);
     border-radius: 4px;
 }
 .color-swatch:checked {
-    box-shadow: inset 0 0 0 2px @accent_color;
+    box-shadow: 0 0 0 2px #ffffff;
     border-radius: 4px;
 }
 /* Empty custom-color slots — dashed outline that visually indicates
@@ -92,6 +201,15 @@
 .color-slot-empty {
     border: 1px dashed alpha(@headerbar_fg_color, 0.35);
     border-radius: 4px;
+}
+/* Drag-preview ghost slot — drawn at `dragging_preview_slot` while a
+ * saved-custom swatch is in flight. Brighter solid outline (vs. the
+ * dashed empty slots) so the user sees exactly where the swatch will
+ * land if they release now. */
+.color-slot-ghost {
+    border: 2px solid alpha(@headerbar_fg_color, 0.75);
+    border-radius: 4px;
+    background-color: alpha(@headerbar_fg_color, 0.08);
 }
 /* Color-wheel button at the bottom of the popover keeps a subtle
  * background so it reads as a separate action from the swatches. */

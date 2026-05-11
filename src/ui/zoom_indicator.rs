@@ -4,6 +4,7 @@ use relm4::{
 };
 
 use crate::sketch_board::ZoomCommand;
+use crate::ui::toolbars::RobustTooltipExt;
 
 /// Compact zoom dropdown that lives in the lower-left of the canvas.
 ///
@@ -47,6 +48,11 @@ impl SimpleComponent for ZoomIndicator {
             set_margin_start: 8,
             set_margin_top: 4,
             set_margin_bottom: 4,
+            // Hover tooltip uses the same 750 ms custom-popover system
+            // as the rest of the toolbar buttons — GTK's built-in
+            // tooltip takes too long to surface and doesn't match the
+            // chrome.
+            install_tooltip_above: "Zoom · click for presets, Super + scroll to zoom",
 
             #[watch]
             set_label: &format_zoom(model.current_scale),

@@ -124,7 +124,7 @@ impl Keybinds {
         self.update_keybind(file_keybinds.text, Tools::Text);
         self.update_keybind(file_keybinds.marker, Tools::Marker);
         self.update_keybind(file_keybinds.blur, Tools::Blur);
-        self.update_keybind(file_keybinds.highlight, Tools::Highlight);
+        self.update_keybind(file_keybinds.highlight, Tools::Highlighter);
     }
 }
 
@@ -141,7 +141,8 @@ impl Default for Keybinds {
         shortcuts.insert('t', Tools::Text);
         shortcuts.insert('m', Tools::Marker);
         shortcuts.insert('u', Tools::Blur);
-        shortcuts.insert('g', Tools::Highlight);
+        shortcuts.insert('h', Tools::Highlighter);
+        shortcuts.insert('s', Tools::Spotlight);
 
         Self { shortcuts }
     }
@@ -244,6 +245,16 @@ impl From<CommandLineAction> for Action {
             CommandLineAction::Exit => Self::Exit,
         }
     }
+}
+
+/// Search `$PATH` for the `wl-copy` binary. Returns true if found.
+/// Standalone helper so the auto-fallback in `merge` stays a
+/// single readable conditional.
+fn wl_copy_in_path() -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path_var).any(|dir| dir.join("wl-copy").is_file())
 }
 
 impl Configuration {
@@ -510,6 +521,24 @@ impl Configuration {
             self.actions_on_enter.insert(0, v.into());
         }
         // ---
+
+        // Wayland clipboard persistence fallback. GTK4 sets clipboard
+        // contents via a `wl_data_source` that satty itself must
+        // serve from — when satty exits the offer dies and the
+        // pasted content disappears (unless a clipboard manager is
+        // running and grabbed it in time, which isn't guaranteed).
+        // `wl-copy` forks a tiny daemon that holds the data
+        // independently, so the clipboard survives satty's exit.
+        // Only auto-applied when (a) we're on Wayland, (b) the user
+        // hasn't already set a copy_command, and (c) wl-copy is
+        // somewhere on PATH. Image MIME type is set explicitly so
+        // paste targets see image/png.
+        if self.copy_command.is_none()
+            && std::env::var_os("WAYLAND_DISPLAY").is_some()
+            && wl_copy_in_path()
+        {
+            self.copy_command = Some("wl-copy --type image/png".to_string());
+        }
     }
 
     pub fn man(&self) -> bool {
@@ -565,6 +594,14 @@ impl Configuration {
 
     pub fn annotation_size_factor(&self) -> f32 {
         self.annotation_size_factor
+    }
+
+    /// Override the in-memory annotation size factor. Used at startup to
+    /// fold a previously-saved value from `state.toml` into the live
+    /// config so widgets reading from `APP_CONFIG` see the persisted
+    /// factor without having to consult state separately.
+    pub fn set_annotation_size_factor(&mut self, value: f32) {
+        self.annotation_size_factor = value;
     }
 
     pub fn save_after_copy(&self) -> bool {
@@ -702,10 +739,11 @@ impl Default for ColorPalette {
     fn default() -> Self {
         // 10-color curated palette. Order matches the keyboard
         // shortcuts (1..9, 0) so users can pick any palette color from
-        // the keyboard without thinking.
+        // the keyboard without thinking. Red leads (the most-reached-for
+        // annotation color); black + white anchor the tail since they
+        // are picked least often.
         Self {
             palette: vec![
-                Color::black(),
                 Color::red(),
                 Color::orange(),
                 Color::yellow(),
@@ -714,6 +752,7 @@ impl Default for ColorPalette {
                 Color::royal_blue(),
                 Color::purple(),
                 Color::pink(),
+                Color::black(),
                 Color::white(),
             ],
             custom: vec![],

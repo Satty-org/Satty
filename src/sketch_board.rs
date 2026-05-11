@@ -25,7 +25,8 @@ use crate::math::Vec2D;
 use crate::notification::log_result;
 use crate::style::Style;
 use crate::tools::{
-    DrawableStore, HandleId, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager,
+    Drawable, DrawableId, DrawableStore, HandleId, Tool, ToolEvent, ToolUpdateResult, Tools,
+    ToolsManager,
 };
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
@@ -48,12 +49,34 @@ pub enum SketchBoardInput {
     /// changes. We forward this as a `ZoomChanged` output so the
     /// zoom-indicator widget can stay in sync with scroll-wheel zooms.
     ZoomDisplayChanged(f32),
+    /// Renderer reports its current pan state after every
+    /// `update_transformation` so the visible scrollbars can sync
+    /// (visibility + position).
+    PanDisplayChanged(PanInfo),
+    /// User dragged one of the canvas scrollbars. The bool is true
+    /// for the horizontal scrollbar, false for vertical. The f32 is
+    /// the new adjustment value (canvas pixels of scroll offset
+    /// from the top/left of the scaled image).
+    ScrollbarSet(bool, f32),
+    /// Trackpad pinch (`GestureZoom`) per-frame multiplicative zoom
+    /// factor (1.0 = no change, >1 = spread/zoom-in, <1 = pinch/
+    /// zoom-out). Computed by the gesture closure from the
+    /// absolute scale GTK reports, divided by the last observed
+    /// gesture scale, so we feed `set_zoom_scale` its expected
+    /// multiplicative delta.
+    PinchZoom(f32),
     /// User interaction with the zoom-indicator dropdown.
     ZoomCommand(ZoomCommand),
     /// Force keyboard focus back onto the canvas. Sent from App at
     /// startup and after popovers/dialogs close so single-key shortcuts
     /// work without the user having to click on the canvas first.
     FocusCanvas,
+    /// Sent by the CropTool on Esc when the user wants to leave Crop
+    /// mode entirely. SketchBoard translates this to a
+    /// `ToolSelected(tool_before_crop or Pointer)` dispatch so the
+    /// CropTool itself doesn't have to know which tool was active
+    /// before the user switched into Crop.
+    ExitCropToPreviousTool,
     Output(SketchBoardOutput),
 }
 
@@ -69,6 +92,20 @@ pub enum ZoomCommand {
     Abs(f32),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PanInfo {
+    /// Current accumulated pan offset in canvas pixels (signed:
+    /// positive moves the image down/right within the canvas).
+    pub drag_x: f32,
+    pub drag_y: f32,
+    /// Image dimensions multiplied by the current scale_factor.
+    /// Comparing against canvas_* tells the scrollbar whether to show.
+    pub image_w_scaled: f32,
+    pub image_h_scaled: f32,
+    pub canvas_w: f32,
+    pub canvas_h: f32,
+}
+
 #[derive(Debug, Clone)]
 pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
@@ -78,6 +115,21 @@ pub enum SketchBoardOutput {
     /// Current rendered scale factor (1.0 = 100%, 0.5 = 50%, etc.) whenever
     /// it changes — driven by the renderer after every `update_transformation`.
     ZoomChanged(f32),
+    /// Reports whether a crop is currently present on the canvas
+    /// (in either edit mode or committed/zoomed mode). Drives the
+    /// "Revert to Original" button's visibility in the bottom
+    /// toolbar.
+    CropPresenceChanged(bool),
+    /// Pan state changed — drives the visible scrollbars' adjustment
+    /// values and their show/hide based on whether the image
+    /// currently exceeds the canvas on each axis.
+    PanChanged(PanInfo),
+    /// The single selected drawable changed (or its style mutated) —
+    /// emitted so the StyleToolbar's size slider, color chip, fill
+    /// toggle, etc., follow whatever shape is currently picked.
+    /// `None` means selection has been cleared (multi-select or
+    /// nothing selected) — the toolbar then keeps its last value.
+    SelectionStyleChanged(Option<Style>),
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +172,12 @@ pub enum MouseEventType {
     EndDrag,
     UpdateDrag,
     Click,
+    /// Plain wheel/trackpad scroll — used to PAN the canvas. The
+    /// scroll delta is packed into `MouseEventMsg.pos` (`pos.x = dx`,
+    /// `pos.y = dy`).
+    PanScroll,
+    /// Modified scroll (Super held) — used to ZOOM. Delta in
+    /// `MouseEventMsg.pos.y`.
     Scroll,
     PointerPos,
     Release,
@@ -179,6 +237,21 @@ impl SketchBoardInput {
             pos: Vec2D::new(0.0, delta_y as f32),
             release: false,
         }))
+    }
+
+    pub fn new_pan_scroll_event(delta_x: f64, delta_y: f64) -> SketchBoardInput {
+        SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
+            type_: MouseEventType::PanScroll,
+            button: MouseButton::Middle,
+            n_pressed: 0,
+            modifier: ModifierType::empty(),
+            pos: Vec2D::new(delta_x as f32, delta_y as f32),
+            release: false,
+        }))
+    }
+
+    pub fn new_pinch_zoom_event(factor: f32) -> SketchBoardInput {
+        SketchBoardInput::PinchZoom(factor)
     }
 }
 
@@ -255,6 +328,27 @@ impl InputEvent {
                     renderer.request_render(&[]);
                     None
                 }
+                MouseEventType::PanScroll => {
+                    // GTK reports scroll deltas pre-corrected for the
+                    // OS's natural-scrolling preference (natural-on
+                    // inverts at the compositor). Apply them directly
+                    // to `drag_offset` so the canvas follows the
+                    // user's finger / wheel motion — for a trackpad
+                    // that means swipe down moves the canvas down,
+                    // matching how every other Wayland app behaves.
+                    const SCROLL_PAN_PIXELS: f32 = 48.0;
+                    renderer.pan_by(
+                        me.pos.x * SCROLL_PAN_PIXELS,
+                        me.pos.y * SCROLL_PAN_PIXELS,
+                    );
+                    // pan_by mutates drag_offset and emits the new
+                    // PanInfo so the scrollbars track, but it doesn't
+                    // queue a redraw on its own. Return Redraw so the
+                    // dispatch loop calls refresh_screen — otherwise
+                    // the scrollbar appears to track but the image
+                    // itself stays put until the next unrelated event.
+                    Some(ToolUpdateResult::Redraw)
+                }
                 MouseEventType::PointerPos => {
                     renderer.set_pointer_offset(me.pos);
                     None
@@ -274,6 +368,20 @@ pub struct SketchBoard {
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    /// Last (selected drawable id, size, size-factor) tuple we pushed
+    /// to the toolbar via `SelectionStyleChanged`. We re-emit when
+    /// any of these change — flips of the active selection AND
+    /// mutations of the currently selected shape's sizing (e.g. the
+    /// scroll-wheel resize gesture) — so the size slider stays in
+    /// sync without re-emitting on every redraw.
+    last_synced_selection: Option<(DrawableId, crate::style::Size, f32)>,
+    /// The tool that was active just before the user switched into
+    /// Crop. Captured in `handle_toolbar_event` and used by the Esc
+    /// path in `CropTool` to return the user to where they were
+    /// rather than dropping them on Pointer. `None` means we haven't
+    /// recorded anything yet (initial app state) — the fallback is
+    /// Pointer in that case.
+    tool_before_crop: Option<Tools>,
 }
 
 impl SketchBoard {
@@ -296,14 +404,23 @@ impl SketchBoard {
     }
 
     fn deactivate_active_tool(&mut self) -> bool {
-        if self.active_tool.borrow().active()
-            && let ToolUpdateResult::Commit(result) =
-                self.active_tool.borrow_mut().handle_deactivated()
-        {
-            self.renderer.commit(result);
-            return true;
+        if !self.active_tool.borrow().active() {
+            return false;
         }
-        false
+        match self.active_tool.borrow_mut().handle_deactivated() {
+            ToolUpdateResult::Commit(result) => {
+                self.renderer.commit(result);
+                true
+            }
+            // TextTool emits ModifyDrawable when handle_deactivated
+            // finalizes a re-edit (edit_target_id set). Replace the
+            // existing drawable in-place rather than appending a new one.
+            ToolUpdateResult::ModifyDrawable(id, result) => {
+                self.renderer.modify(id, result);
+                true
+            }
+            _ => false,
+        }
     }
 
     fn handle_action(&mut self, actions: &[Action]) -> ToolUpdateResult {
@@ -807,6 +924,14 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
+                // Capture the prior non-Crop tool right before we
+                // switch — the Esc handler in `CropTool` uses this to
+                // restore the user to the tool they had before
+                // entering Crop, rather than dropping them on Pointer.
+                let current_tool = self.active_tool_type();
+                if tool == Tools::Crop && current_tool != Tools::Crop {
+                    self.tool_before_crop = Some(current_tool);
+                }
                 // Notify the parent so the style toolbar can re-evaluate
                 // tool-specific controls (e.g. the arrow-style dropdown).
                 sender
@@ -819,13 +944,26 @@ impl SketchBoard {
 
                 old_tool.borrow_mut().set_im_context(None);
 
-                if let ToolUpdateResult::Commit(d) = deactivate_result {
-                    self.renderer.commit(d);
-                    if APP_CONFIG.read().auto_copy() {
-                        self.renderer.request_render(&[Action::SaveToClipboard]);
+                match deactivate_result {
+                    ToolUpdateResult::Commit(d) => {
+                        self.renderer.commit(d);
+                        if APP_CONFIG.read().auto_copy() {
+                            self.renderer.request_render(&[Action::SaveToClipboard]);
+                        }
+                        // we handle commit directly and "downgrade" to a simple redraw result
+                        deactivate_result = ToolUpdateResult::Redraw;
                     }
-                    // we handle commit directly and "downgrade" to a simple redraw result
-                    deactivate_result = ToolUpdateResult::Redraw;
+                    // TextTool emits ModifyDrawable on tool-switch when
+                    // finalizing a re-edit; replace the existing
+                    // drawable in-place.
+                    ToolUpdateResult::ModifyDrawable(id, d) => {
+                        self.renderer.modify(id, d);
+                        if APP_CONFIG.read().auto_copy() {
+                            self.renderer.request_render(&[Action::SaveToClipboard]);
+                        }
+                        deactivate_result = ToolUpdateResult::Redraw;
+                    }
+                    _ => {}
                 }
 
                 // change active tool
@@ -901,7 +1039,98 @@ impl SketchBoard {
                     .get(&Tools::Arrow)
                     .borrow_mut()
                     .set_arrow_style(style);
+                // Auto-persist the last-chosen geometry so re-opening
+                // the Arrow tool (this session or next launch) starts
+                // on the same variant.
+                crate::state::save_arrow_style(style);
                 ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::BlurStyleSelected(style) => {
+                self.tools
+                    .get(&Tools::Blur)
+                    .borrow_mut()
+                    .set_blur_style(style);
+                // Same auto-save semantics as arrow style — last-used
+                // algorithm becomes the new default.
+                crate::state::save_blur_style(style);
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::SnapToEdgesChanged(value) => {
+                self.tools
+                    .get_crop_tool()
+                    .borrow_mut()
+                    .set_snap_to_edges(value);
+                crate::state::save_snap_to_edges(value);
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::SpotlightDarknessChanged(value) => {
+                self.style.spotlight_darkness = value;
+                // Push the new value into the renderer so the next
+                // frame uses it. The dispatch_style_change call also
+                // triggers a redraw via the active spotlight tool's
+                // handle_style_event, which returns Redraw.
+                self.renderer.set_spotlight_darkness(value);
+                // No auto-save: the slider snaps back to the saved
+                // default on each launch. Right-click → "Save as
+                // default" on the slider is the only path that
+                // updates state.toml.
+                self.dispatch_style_change()
+            }
+            ToolbarEvent::HighlighterOpacityChanged(value) => {
+                self.style.highlighter_opacity = value;
+                // Same no-auto-save rule as spotlight darkness.
+                self.dispatch_style_change()
+            }
+            ToolbarEvent::SaveSpotlightDarknessAsDefault => {
+                crate::state::save_spotlight_darkness(self.style.spotlight_darkness);
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::SaveHighlighterOpacityAsDefault => {
+                crate::state::save_highlighter_opacity(self.style.highlighter_opacity);
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::TextBackgroundSelected(bg) => {
+                // Update the TextTool default so subsequent NEW texts
+                // pick up the chosen style.
+                self.tools
+                    .get(&Tools::Text)
+                    .borrow_mut()
+                    .set_text_background(bg);
+
+                // Also apply retroactively to any selected text
+                // drawables — without this the dropdown only takes
+                // effect on creation, not when restyling an existing
+                // text the user has just selected.
+                let selected_ids = self
+                    .tools
+                    .get(&Tools::Pointer)
+                    .borrow()
+                    .selected_drawables();
+                let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+                for id in selected_ids {
+                    if let Some(mut d) = self.renderer.clone_drawable(id) {
+                        d.set_text_background(bg);
+                        updates.push((id, d));
+                    }
+                }
+                match updates.len() {
+                    0 => ToolUpdateResult::Redraw,
+                    1 => {
+                        let (id, d) = updates.pop().unwrap();
+                        ToolUpdateResult::ModifyDrawable(id, d)
+                    }
+                    _ => ToolUpdateResult::ModifyDrawables(updates),
+                }
+            }
+            ToolbarEvent::RevertCrop => {
+                // Drop the crop entirely. Renderer reads the new
+                // (empty) committed_rect on its next frame and
+                // returns to the regular pan/zoom transform.
+                self.tools.get_crop_tool().borrow_mut().revert();
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::CropPresenceChanged(false));
+                ToolUpdateResult::Redraw
             }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
@@ -991,6 +1220,37 @@ impl SketchBoard {
         self.active_tool.borrow().get_tool_type()
     }
 
+    /// If the pointer tool's selection has changed since we last
+    /// synced the toolbar — either the selected drawable id flipped
+    /// or its sizing was mutated (scroll-resize) — emit
+    /// `SelectionStyleChanged` with the new drawable's style. Skips
+    /// re-emit for multi-select or empty selection so the toolbar
+    /// keeps its last value in those cases.
+    fn sync_toolbar_to_selection(&mut self, sender: &ComponentSender<Self>) {
+        let pointer_tool = self.tools.get(&Tools::Pointer);
+        let selected = pointer_tool.borrow().selected_drawables();
+        let new_style = if selected.len() == 1 {
+            self.renderer
+                .clone_drawable(selected[0])
+                .and_then(|d| d.style())
+                .map(|s| (selected[0], s))
+        } else {
+            None
+        };
+        let new_key = new_style
+            .as_ref()
+            .map(|(id, s)| (*id, s.size, s.annotation_size_factor));
+        if new_key == self.last_synced_selection {
+            return;
+        }
+        self.last_synced_selection = new_key;
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::SelectionStyleChanged(
+                new_style.map(|(_, s)| s),
+            ));
+    }
+
     /// Dispatch a StyleChanged event so the toolbar's color/size/fill controls
     /// affect both future drawings (via the active tool) and any current
     /// selection (via the pointer tool's implicit selection state).
@@ -1009,6 +1269,15 @@ impl SketchBoard {
             .borrow_mut()
             .handle_event(ToolEvent::StyleChanged(self.style));
 
+        // Brush/Highlighter cursors are sized from the active style;
+        // a size change must rebuild the cursor immediately so the
+        // user sees the new diameter before they move the mouse. Skip
+        // for tools without a custom cursor — apply_idle_cursor
+        // handles that path correctly.
+        if matches!(active_type, Tools::Brush | Tools::Highlighter) {
+            self.apply_idle_cursor();
+        }
+
         // If the pointer applied the change to a selected drawable, that
         // result is what should land on the undo stack.
         match pointer_result {
@@ -1019,11 +1288,32 @@ impl SketchBoard {
         }
     }
 
+    /// Switch the active tool to Text and resume editing the committed
+    /// drawable identified by `id`. Triggered by a double-click on a
+    /// Text drawable (PointerTool emits `EditTextDrawable`). The
+    /// committed drawable stays in the stack — `TextTool` marks it as
+    /// the edit target via `dragging_drawable_id` so the renderer hides
+    /// the original while the editing copy is shown.
+    fn enter_text_edit_mode(&mut self, id: DrawableId, sender: ComponentSender<Self>) {
+        let Some(drawable) = self.renderer.clone_drawable(id) else {
+            return;
+        };
+        // Reuse the toolbar-switch path so all the side effects (focus,
+        // cursor, output notifications) happen exactly as on a manual
+        // tool change.
+        self.handle_toolbar_event(ToolbarEvent::ToolSelected(Tools::Text), sender);
+        let text_tool = self.tools.get(&Tools::Text);
+        text_tool.borrow_mut().enter_text_edit_mode(id, drawable);
+        self.refresh_screen();
+    }
+
     /// Update the canvas cursor based on what the mouse is hovering over.
     /// Called on PointerPos events so users see "grab" over existing shapes
     /// and resize cursors over handles. Drawing tools (anything except
     /// Pointer / Crop) show "crosshair" when not over an existing shape so
-    /// the canvas hints where new geometry will land.
+    /// the canvas hints where new geometry will land. Brush and Highlighter
+    /// override the crosshair with a custom double-ring cursor sized to
+    /// their stroke width (see `crate::ui::cursor`).
     fn update_hover_cursor(&self, image_pos: Vec2D) {
         let pointer_tool = self.tools.get(&Tools::Pointer);
         let pt = pointer_tool.borrow();
@@ -1031,9 +1321,31 @@ impl SketchBoard {
             return;
         }
 
-        // 1. Hovering a handle of the current selection wins.
+        // 0. Crop tool is the active tool — its overlay sits on top of
+        //    everything else and has its own affordance vocabulary.
+        //    Handle → `pointer` (the link-style hand cursor signaling
+        //    "you can interact with this"); body → `grab` (signaling
+        //    "click and drag to move the crop"). The crop drawable
+        //    isn't in the regular stack so the hit_test below would
+        //    miss it.
         let mut cursor: Option<&'static str> = None;
-        if let Some(id) = pt.selected_drawable()
+        if self.active_tool_type() == Tools::Crop {
+            let crop_tool = self.tools.get_crop_tool();
+            let ct = crop_tool.borrow();
+            if let Some(crop) = ct.get_crop()
+                && !crop.is_committed()
+            {
+                cursor = match crop.hit_kind(image_pos) {
+                    Some(crate::tools::CropHit::Handle) => Some("pointer"),
+                    Some(crate::tools::CropHit::Body) => Some("grab"),
+                    None => None,
+                };
+            }
+        }
+
+        // 1. Hovering a handle of the current selection wins.
+        if cursor.is_none()
+            && let Some(id) = pt.selected_drawable()
             && let Some(drawable) = self.renderer.clone_drawable(id)
         {
             for h in drawable.handles() {
@@ -1045,6 +1357,31 @@ impl SketchBoard {
         }
         drop(pt);
 
+        // 1.5. Editing-mode handles from the active tool (e.g. Text while
+        //      editing). Reuses the same resize-cursor mapping.
+        if cursor.is_none() {
+            let at = self.active_tool.borrow();
+            for h in at.editing_handles() {
+                if h.pos.distance_to(&image_pos) <= h.hit_radius {
+                    cursor = Some(cursor_for_handle(h.id));
+                    break;
+                }
+            }
+        }
+
+        // 1.6. Inside the active tool's editing body (e.g. Text wrap
+        //      area) → i-beam, signaling "click here to place the
+        //      caret". Lives between the handle and drawable checks so
+        //      the resize cursor still wins on handle hover.
+        if cursor.is_none() {
+            let at = self.active_tool.borrow();
+            if let Some(body) = at.editing_body_rect()
+                && body.contains(image_pos)
+            {
+                cursor = Some("text");
+            }
+        }
+
         // 2. Otherwise, any drawable under the pointer → grab.
         if cursor.is_none()
             && self
@@ -1055,8 +1392,14 @@ impl SketchBoard {
             cursor = Some("grab");
         }
 
-        // 3. Tool-specific default for empty canvas.
+        // 3. Tool-specific default for empty canvas. Brush/Highlighter
+        //    take a custom-rendered cursor that previews stroke
+        //    geometry; everything else falls through to a named cursor.
         if cursor.is_none() {
+            if let Some(custom) = self.custom_drawing_cursor() {
+                self.renderer.set_cursor(Some(&custom));
+                return;
+            }
             cursor = self.idle_cursor_for_active_tool();
         }
 
@@ -1073,10 +1416,32 @@ impl SketchBoard {
         }
     }
 
+    /// Build a custom drawing cursor for tools that have one (Brush,
+    /// Highlighter). Returns `None` for tools that should keep a
+    /// stock named cursor.
+    fn custom_drawing_cursor(&self) -> Option<gtk::gdk::Cursor> {
+        let render_scale = self.renderer.current_render_scale() as f64;
+        // GTK4 paints cursor textures at a HiDPI-scaled on-screen size,
+        // so we divide by DPR inside the cursor builders to keep the
+        // cursor visually in lock-step with the stroke that comes out
+        // of it.
+        let dpr = crate::femtovg_area::current_device_pixel_ratio() as f64;
+        crate::ui::cursor::drawing_tool_cursor(
+            self.active_tool_type(),
+            &self.style,
+            render_scale,
+            dpr,
+        )
+    }
+
     /// Apply the idle cursor immediately on a tool switch (so the user sees
-    /// the crosshair as soon as they pick a drawing tool, without needing to
-    /// move the mouse first).
+    /// the crosshair / custom drawing cursor as soon as they pick a tool,
+    /// without needing to move the mouse first).
     fn apply_idle_cursor(&self) {
+        if let Some(custom) = self.custom_drawing_cursor() {
+            self.renderer.set_cursor(Some(&custom));
+            return;
+        }
         self.renderer
             .set_cursor_from_name(self.idle_cursor_for_active_tool());
     }
@@ -1176,26 +1541,99 @@ impl Component for SketchBoard {
                         }
                 },
 
-                add_controller = gtk::EventControllerScroll{
-                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
-                    connect_scroll[sender] => move |controller, _, dy| {
-                        // Only treat scroll as zoom when Ctrl is held — the
-                        // universal browser/editor convention. Super+scroll
-                        // conflicts with Hyprland's workspace switching.
-                        // Plain scroll stays a no-op so trackpad/mouse wheel
-                        // scrolling doesn't fight with normal page-flow.
-                        let modifier = controller.current_event_state();
-                        if modifier.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
-                            sender.input(SketchBoardInput::new_scroll_event(dy));
-                            relm4::gtk::glib::Propagation::Stop
-                        } else {
-                            relm4::gtk::glib::Propagation::Proceed
+                add_controller = gtk::GestureZoom {
+                    // Two-finger trackpad pinch → zoom. GTK reports an
+                    // absolute `scale` relative to the gesture start
+                    // (1.0 at begin, >1 as fingers spread, <1 as they
+                    // pinch). We convert each tick into a multiplicative
+                    // delta (current / previous) so the existing
+                    // `set_zoom_scale` (which is itself multiplicative)
+                    // sees a clean per-frame factor. State lives in an
+                    // `Rc<Cell<f32>>` cloned into both callbacks.
+                    connect_begin[pinch_last] => move |_gesture, _seq| {
+                        pinch_last.set(1.0);
+                    },
+                    connect_scale_changed[sender, pinch_last] => move |_gesture, scale| {
+                        let prev = pinch_last.get();
+                        let scale_f = scale as f32;
+                        if scale_f <= 0.0 || prev <= 0.0 {
+                            return;
                         }
+                        let delta = scale_f / prev;
+                        pinch_last.set(scale_f);
+                        sender.input(SketchBoardInput::new_pinch_zoom_event(delta));
+                    },
+                },
+
+                add_controller = gtk::EventControllerScroll{
+                    // BOTH_AXES — modern trackpads + tiltable mouse
+                    // wheels emit horizontal scroll deltas alongside
+                    // vertical, so we listen for both and pass them
+                    // to the renderer's pan_by.
+                    set_flags: gtk::EventControllerScrollFlags::BOTH_AXES,
+                    connect_scroll[sender] => move |controller, dx, dy| {
+                        let modifier = controller.current_event_state();
+                        if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
+                            // Super + wheel → zoom. Returning Stop here
+                            // is our best-effort attempt to override
+                            // Hyprland's workspace-switch binding while
+                            // the cursor is inside Satty; Hyprland may
+                            // still grab the event at the compositor
+                            // level (its `bind = SUPER, mouse_*` rules
+                            // fire before GTK sees the event). If
+                            // workspace-switching wins, the user can
+                            // configure a `windowrulev2 = ...` to
+                            // exempt `class:com.gabm.satty` from the
+                            // Super+scroll binding.
+                            sender.input(SketchBoardInput::new_scroll_event(dy));
+                        } else {
+                            // Plain wheel / trackpad pan → move the
+                            // canvas. GTK reports the delta already
+                            // sign-corrected for the OS's natural-
+                            // scrolling preference (natural-on inverts
+                            // dy at the compositor layer), so we just
+                            // pass the deltas straight through to the
+                            // panner. The PanScroll handler scales
+                            // them into pixels.
+                            //
+                            // Shift + vertical wheel → horizontal pan
+                            // (standard convention for mice that lack
+                            // a horizontal axis). We rebind only when
+                            // the wheel itself reported no horizontal
+                            // delta, so trackpads / MX-style horizontal
+                            // wheels still pan two-axes normally.
+                            let (pan_dx, pan_dy) = if modifier
+                                .contains(gtk::gdk::ModifierType::SHIFT_MASK)
+                                && dx == 0.0
+                            {
+                                (dy, 0.0)
+                            } else {
+                                (dx, dy)
+                            };
+                            sender.input(SketchBoardInput::new_pan_scroll_event(pan_dx, pan_dy));
+                        }
+                        relm4::gtk::glib::Propagation::Stop
                     },
                 },
 
                 add_controller = gtk::EventControllerKey {
                     connect_key_pressed[sender] => move |controller, key, code, modifier | {
+                        // Any chord that involves the Super modifier
+                        // belongs to the window manager — Hyprland uses
+                        // it as a global prefix (Super+W to close,
+                        // Super+1..0 to switch workspaces, etc.) and
+                        // satty has no keyboard bindings on Super.
+                        // Returning Proceed lets GTK forward the event
+                        // to the WM instead of swallowing it at the
+                        // canvas. We don't even emit it as a
+                        // SketchBoardInput so it can't get
+                        // misinterpreted as a single-key tool shortcut.
+                        // Mouse-side Super gestures (Super+scroll =
+                        // zoom) are handled separately in the scroll
+                        // controller and are unaffected.
+                        if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
+                            return relm4::gtk::glib::Propagation::Proceed;
+                        }
                         if let Some(im_context) = controller.im_context() {
                             im_context.focus_in();
                             if !im_context.filter_keypress(controller.current_event().unwrap()) {
@@ -1208,6 +1646,11 @@ impl Component for SketchBoard {
                     },
 
                     connect_key_released[sender] => move |controller, key, code, modifier | {
+                        // Mirror the press handler: don't process Super
+                        // chord releases either.
+                        if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
+                            return;
+                        }
                         if let Some(im_context) = controller.im_context() {
                             im_context.focus_in();
                             if !im_context.filter_keypress(controller.current_event().unwrap()) {
@@ -1237,6 +1680,10 @@ impl Component for SketchBoard {
     }
 
     fn update(&mut self, msg: SketchBoardInput, sender: ComponentSender<Self>, _root: &Self::Root) {
+        // `sender` is consumed by individual arms below; clone once so
+        // the result-processing match at the bottom can still use it
+        // (e.g. for `EditTextDrawable` which triggers a tool switch).
+        let outer_sender = sender.clone();
         // handle resize ourselves, pass everything else to tool
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
@@ -1416,6 +1863,70 @@ impl Component for SketchBoard {
                         self.update_hover_cursor(image_pos);
                     }
 
+                    // Scroll-resize hijack: with a selection active,
+                    // the wheel changes the size of the selected
+                    // shape(s) instead of panning the canvas. dy is
+                    // packed into `me.pos.y` (negative = scroll up =
+                    // bigger). Lets the user tweak sizes anywhere on
+                    // the canvas without aiming for the toolbar slider.
+                    if let InputEvent::Mouse(me) = &ie
+                        && me.type_ == MouseEventType::PanScroll
+                        && me.pos.y.abs() > 0.0
+                    {
+                        let selected = self
+                            .tools
+                            .get(&Tools::Pointer)
+                            .borrow()
+                            .selected_drawables();
+                        if !selected.is_empty() {
+                            let step_up = me.pos.y < 0.0;
+                            let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> =
+                                Vec::with_capacity(selected.len());
+                            for id in &selected {
+                                let Some(mut d) = self.renderer.clone_drawable(*id) else {
+                                    continue;
+                                };
+                                let Some(mut s) = d.style() else {
+                                    continue;
+                                };
+                                let new_size = if step_up {
+                                    s.size.step_up()
+                                } else {
+                                    s.size.step_down()
+                                };
+                                if new_size == s.size {
+                                    continue;
+                                }
+                                s.size = new_size;
+                                d.set_style(s);
+                                updates.push((*id, d));
+                            }
+                            let result = match updates.len() {
+                                0 => ToolUpdateResult::Unmodified,
+                                1 => {
+                                    let (id, d) = updates.pop().unwrap();
+                                    ToolUpdateResult::ModifyDrawable(id, d)
+                                }
+                                _ => ToolUpdateResult::ModifyDrawables(updates),
+                            };
+                            // Skip the rest of the dispatch (which
+                            // would otherwise pan the canvas).
+                            match result {
+                                ToolUpdateResult::ModifyDrawable(id, d) => {
+                                    self.renderer.modify(id, d);
+                                    self.refresh_screen();
+                                }
+                                ToolUpdateResult::ModifyDrawables(updates) => {
+                                    self.renderer.modify_many(updates);
+                                    self.refresh_screen();
+                                }
+                                _ => {}
+                            }
+                            self.sync_toolbar_to_selection(&outer_sender);
+                            return;
+                        }
+                    }
+
                     // Implicit selection: when a non-Pointer tool is active,
                     // give the pointer tool first crack at mouse events so
                     // clicks on existing drawables select/manipulate them
@@ -1425,7 +1936,32 @@ impl Component for SketchBoard {
                     // it falls through (Unmodified/Redraw) so the active
                     // drawing tool can start a new shape.
                     let active_type = self.active_tool_type();
-                    let pointer_consumed = if active_type != Tools::Pointer {
+
+                    // BUT — when the active tool is editing a body (e.g.
+                    // TextTool while a text is in edit mode), gestures
+                    // that *land inside that body* belong to the active
+                    // tool: clicking to place the caret, dragging to
+                    // select text. Without this gate the PointerTool's
+                    // hit-test on the committed stack would steal the
+                    // click and select whatever drawable sits behind the
+                    // edited text (e.g. another text box overlapping it).
+                    let in_active_editing_body = if let InputEvent::Mouse(me) = &ie {
+                        matches!(
+                            me.type_,
+                            MouseEventType::Click | MouseEventType::BeginDrag
+                        ) && self
+                            .active_tool
+                            .borrow()
+                            .editing_body_rect()
+                            .map(|r| r.contains(me.pos))
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+
+                    let pointer_consumed = if active_type != Tools::Pointer
+                        && !in_active_editing_body
+                    {
                         let r = self
                             .tools
                             .get(&Tools::Pointer)
@@ -1437,7 +1973,8 @@ impl Component for SketchBoard {
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
                             | ToolUpdateResult::DeleteDrawable(_)
-                            | ToolUpdateResult::DeleteDrawables(_) => Some(r),
+                            | ToolUpdateResult::DeleteDrawables(_)
+                            | ToolUpdateResult::EditTextDrawable(_) => Some(r),
                             _ => None,
                         }
                     } else {
@@ -1459,6 +1996,7 @@ impl Component for SketchBoard {
                             | ToolUpdateResult::DeleteDrawables(_)
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::EditTextDrawable(_)
                             | ToolUpdateResult::Commit(_) => active_tool_result,
                             _ => {
                                 if let Some(result) = ie.handle_mouse_event(&self.renderer) {
@@ -1502,7 +2040,36 @@ impl Component for SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::ZoomChanged(scale));
+                // Drawing cursors (Brush, Highlighter) are sized to the
+                // rendered stroke at the current zoom — rebuild so the
+                // double-ring matches the on-screen geometry after the
+                // user zooms in or out.
+                if matches!(self.active_tool_type(), Tools::Brush | Tools::Highlighter) {
+                    self.apply_idle_cursor();
+                }
                 ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanDisplayChanged(info) => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::PanChanged(info));
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::ScrollbarSet(is_horizontal, value) => {
+                self.renderer.set_pan_from_scrollbar(is_horizontal, value);
+                ToolUpdateResult::Redraw
+            }
+            SketchBoardInput::PinchZoom(factor) => {
+                // Each pinch tick is already a multiplicative delta
+                // (relative to the previous gesture position), so
+                // route it through the multiplicative zoom path —
+                // accumulating across ticks produces the absolute
+                // gesture scale.
+                if factor > 0.0 && (factor - 1.0).abs() > f32::EPSILON {
+                    self.renderer.set_zoom_scale(factor);
+                    self.renderer.request_render(&[]);
+                }
+                ToolUpdateResult::Redraw
             }
             SketchBoardInput::ZoomCommand(cmd) => {
                 self.handle_zoom_command(cmd);
@@ -1511,6 +2078,17 @@ impl Component for SketchBoard {
             SketchBoardInput::FocusCanvas => {
                 self.renderer.grab_focus();
                 ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::ExitCropToPreviousTool => {
+                // Restore whatever non-Crop tool the user had active
+                // before they switched into Crop, falling back to
+                // Pointer if we never recorded one (initial app state
+                // where Crop is somehow the first tool picked).
+                let target = self.tool_before_crop.unwrap_or(Tools::Pointer);
+                self.handle_toolbar_event(
+                    ToolbarEvent::ToolSelected(target),
+                    sender,
+                )
             }
             SketchBoardInput::Output(output) => {
                 sender.output_sender().emit(output);
@@ -1555,11 +2133,19 @@ impl Component for SketchBoard {
                 }
                 self.refresh_screen();
             }
+            ToolUpdateResult::EditTextDrawable(id) => {
+                self.enter_text_edit_mode(id, outer_sender.clone());
+            }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
             ToolUpdateResult::Redraw | ToolUpdateResult::RedrawAndStopPropagation => {
                 self.refresh_screen()
             }
         };
+
+        // After every update, push the selected drawable's style to
+        // the StyleToolbar so the size slider, color chip, etc. track
+        // whatever shape the user currently has picked.
+        self.sync_toolbar_to_selection(&outer_sender);
     }
 
     fn init(
@@ -1572,16 +2158,59 @@ impl Component for SketchBoard {
 
         let im_context = gtk::IMMulticontext::new();
 
+        // Seed `style.size` from the initial tool's saved per-tool
+        // default so the very first drag-to-draw is at the user's
+        // preferred size for that tool. Falls back to Style::default()
+        // (Medium) when nothing has been saved yet.
+        let initial_tool = config.initial_tool();
+        let initial_size = crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
         let mut model = Self {
             renderer: FemtoVGArea::default(),
-            active_tool: tools.get(&config.initial_tool()),
-            style: Style::default(),
+            active_tool: tools.get(&initial_tool),
+            style: Style {
+                color: crate::state::initial_color(),
+                size: initial_size,
+                ..Style::default()
+            },
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            last_synced_selection: None,
+            tool_before_crop: None,
         };
 
         let pointer_tool = model.tools.get(&Tools::Pointer);
+        // Seed the crop tool with the image dimensions + persisted
+        // snap-to-edges preference BEFORE the renderer consumes `image`
+        // — `CropTool::set_image_bounds` needs the raw pixel size to
+        // know what edges to snap to.
+        let image_bounds =
+            crate::math::Vec2D::new(image.width() as f32, image.height() as f32);
+        {
+            let crop_tool = model.tools.get_crop_tool();
+            let mut ct = crop_tool.borrow_mut();
+            ct.set_image_bounds(image_bounds);
+            ct.set_snap_to_edges(crate::state::load_snap_to_edges().unwrap_or(true));
+        }
+        // Re-hydrate per-tool variant preferences from persisted state.
+        // Arrow geometry and blur algorithm auto-save on every change
+        // (see the ToolbarEvent handlers above), so re-loading them
+        // here means the next launch opens each tool on the variant
+        // the user last picked.
+        if let Some(style) = crate::state::load_arrow_style() {
+            model
+                .tools
+                .get(&Tools::Arrow)
+                .borrow_mut()
+                .set_arrow_style(style);
+        }
+        if let Some(style) = crate::state::load_blur_style() {
+            model
+                .tools
+                .get(&Tools::Blur)
+                .borrow_mut()
+                .set_blur_style(style);
+        }
         let area = &mut model.renderer;
         area.init(
             sender.input_sender().clone(),
@@ -1590,6 +2219,20 @@ impl Component for SketchBoard {
             pointer_tool,
             image,
         );
+        // Push the initial spotlight darkness so the renderer agrees
+        // with the toolbar slider on the very first frame (otherwise
+        // an existing-spotlight image rendered before the user has
+        // touched the slider would use the renderer's hard-coded
+        // default rather than the persisted slider value).
+        area.set_spotlight_darkness(model.style.spotlight_darkness);
+
+        // Shared state for the trackpad-pinch gesture. `begin` resets
+        // it to 1.0 (the gesture-start scale); `scale-changed` reads
+        // the previous value to compute the per-frame multiplicative
+        // delta before storing the new absolute scale. Lives outside
+        // the model because both callbacks need cheap concurrent
+        // access and a `Cell<f32>` is plenty.
+        let pinch_last = std::rc::Rc::new(std::cell::Cell::new(1.0_f32));
 
         let widgets = view_output!();
 

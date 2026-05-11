@@ -30,6 +30,10 @@ pub struct Marker {
 }
 
 impl Drawable for Marker {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -114,6 +118,10 @@ impl Drawable for Marker {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
     }
 
     fn render_glow(

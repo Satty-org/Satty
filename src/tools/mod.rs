@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     borrow::Cow,
     cell::RefCell,
     collections::HashMap,
@@ -34,6 +35,7 @@ mod brush;
 mod crop;
 mod ellipse;
 mod highlight;
+mod spotlight;
 mod line;
 mod marker;
 mod pointer;
@@ -169,6 +171,46 @@ pub trait Tool {
     /// Switch the arrow geometry (only meaningful for `ArrowTool`). Default
     /// no-op so the toolbar can broadcast without checking tool type.
     fn set_arrow_style(&mut self, _style: ArrowStyle) {}
+
+    /// Switch the blur algorithm (only meaningful for `BlurTool`).
+    /// Default no-op for the same reason as `set_arrow_style`.
+    fn set_blur_style(&mut self, _style: BlurStyle) {}
+
+    /// Switch the background style for new text drawables (only
+    /// meaningful for `TextTool`). Default no-op so the toolbar can
+    /// broadcast without checking tool type.
+    fn set_text_background(&mut self, _bg: TextBackground) {}
+
+    /// Resume editing an existing committed text drawable. Only `TextTool`
+    /// implements this; the default no-op lets sketch_board dispatch
+    /// uniformly. Returns true if the tool accepted the request.
+    fn enter_text_edit_mode(
+        &mut self,
+        _id: DrawableId,
+        _drawable: Box<dyn Drawable>,
+    ) -> bool {
+        false
+    }
+
+    /// Handles attached to the tool's in-progress drawable that should
+    /// participate in cursor hit-testing (resize cursors on hover).
+    /// Used by sketch_board's `update_hover_cursor` so editing-mode
+    /// handles light up the same way committed-selection handles do.
+    /// Default empty — only `TextTool` currently exposes editing
+    /// handles outside the committed `Drawable::handles()` path.
+    fn editing_handles(&self) -> Vec<Handle> {
+        Vec::new()
+    }
+
+    /// Image-space rect covering the tool's in-progress editable body,
+    /// used by sketch_board's `update_hover_cursor` to swap to an
+    /// i-beam when the pointer is over an actively-editing region
+    /// (currently only `TextTool` populates this). `None` means "no
+    /// active editing body" and the cursor falls through to the
+    /// default tool cursor.
+    fn editing_body_rect(&self) -> Option<Rect> {
+        None
+    }
 }
 
 /// Read-only view of the committed-drawable stack, exposed to tools that need
@@ -210,6 +252,30 @@ pub trait Drawable: DrawableClone + Debug {
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
 
+    /// Marker for spotlight drawables. The renderer skips these in the
+    /// main draw pass and applies them as a single inverse-mask overlay
+    /// at the end (so multiple spotlight shapes union correctly into one
+    /// dark layer, with the global slider value controlling its alpha).
+    /// Default false; only `spotlight::SpotlightKind` overrides.
+    fn is_spotlight(&self) -> bool {
+        false
+    }
+
+    /// Add this drawable's silhouette to `path` in image-space units.
+    /// Used by the renderer's spotlight pass to build the punch-out mask
+    /// — the renderer fills `path` with composite=DestinationOut, so
+    /// each spotlight's shape erases the dark overlay where the user
+    /// drew it. Default no-op; only spotlight drawables implement it.
+    fn append_spotlight_path(&self, _path: &mut FemtoPath) {}
+
+    /// Type-erased downcast hook. Returns `&self` typed as `&dyn Any` so
+    /// callers that need concrete-type access (e.g. PointerTool's
+    /// double-click-to-edit-text path) can `downcast_ref::<ConcreteType>()`.
+    /// Each impl provides the one-line override; the trait itself can't
+    /// default this because `&self` is type-erased at the trait-object
+    /// boundary.
+    fn as_any(&self) -> &dyn Any;
+
     /// Axis-aligned bounding box in image coordinates. `None` means "not selectable"
     /// (e.g. an in-progress drawable still being drawn).
     fn bounds(&self) -> Option<Rect> {
@@ -248,6 +314,22 @@ pub trait Drawable: DrawableClone + Debug {
     /// future shapes. Default is a no-op for drawables that don't carry a
     /// mutable style.
     fn set_style(&mut self, _style: Style) {}
+
+    /// Current style of the drawable, when it has one. Used by the
+    /// sketch board to sync toolbar controls (size slider, color
+    /// chip, fill toggle) to whichever shape is currently selected —
+    /// so the user sees the *current* shape's size in the slider
+    /// rather than the last-typed value. Default `None` for drawables
+    /// that don't carry a mutable style.
+    fn style(&self) -> Option<Style> {
+        None
+    }
+
+    /// Apply the text-pill background style (Plain vs Rounded) to a
+    /// committed Text drawable. Default no-op — only Text overrides
+    /// this so the dropdown in the StyleToolbar can restyle a
+    /// selected text after the fact, not just at creation time.
+    fn set_text_background(&mut self, _bg: TextBackground) {}
 
     /// Render a Selection "glow" — a semi-transparent blue
     /// trace of the shape, drawn under the original. Each shape's impl
@@ -317,6 +399,17 @@ pub const GLOW_COLOR: femtovg::Color = femtovg::Color {
 /// regardless of zoom or DPR.
 pub const HALO_PAD: f32 = 4.0;
 
+/// Visual shape used by the SelectionOverlay to render a handle.
+/// Round is the standard "resize a side/corner" affordance;
+/// Square signals a different semantic (e.g. text's bottom-right
+/// corner scales font size + width together, not just resize).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HandleKind {
+    #[default]
+    Round,
+    Square,
+}
+
 /// A handle exposed by a drawable for direct manipulation.
 #[derive(Debug, Clone, Copy)]
 pub struct Handle {
@@ -326,6 +419,10 @@ pub struct Handle {
     /// drawables can opt into a bigger target (e.g. Curved/Double arrows
     /// where the midpoint handle sits on a wide shaft) via `with_hit_radius`.
     pub hit_radius: f32,
+    /// Visual style — Round (default) or Square. Per-handle so a single
+    /// drawable can mix shapes (e.g. text uses Round side handles + a
+    /// Square bottom-right corner).
+    pub kind: HandleKind,
 }
 
 impl Handle {
@@ -334,11 +431,17 @@ impl Handle {
             id,
             pos,
             hit_radius: pointer::HANDLE_HIT_RADIUS,
+            kind: HandleKind::Round,
         }
     }
 
     pub fn with_hit_radius(mut self, r: f32) -> Self {
         self.hit_radius = r;
+        self
+    }
+
+    pub fn with_kind(mut self, kind: HandleKind) -> Self {
+        self.kind = kind;
         self
     }
 }
@@ -428,6 +531,11 @@ pub enum ToolUpdateResult {
     /// Remove a set of drawables atomically. Recorded as a single Batch undo
     /// action so one Ctrl+Z restores them all.
     DeleteDrawables(Vec<DrawableId>),
+    /// Request that sketch_board switch to the Text tool and resume
+    /// editing the drawable with this id. Emitted by `PointerTool` on
+    /// double-click of a Text drawable. The drawable itself is not
+    /// passed — sketch_board fetches it via the renderer.
+    EditTextDrawable(DrawableId),
     Redraw,
     Unmodified,
     StopPropagation,
@@ -463,13 +571,14 @@ pub enum UndoAction {
 }
 
 pub use arrow::{ArrowStyle, ArrowTool};
-pub use blur::BlurTool;
-pub use crop::CropTool;
+pub use blur::{BlurStyle, BlurTool};
+pub use crop::{CropHit, CropTool};
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;
 pub use rectangle::RectangleTool;
-pub use text::TextTool;
+pub use spotlight::SpotlightTool;
+pub use text::{Text, TextBackground, TextTool};
 
 use self::{brush::BrushTool, marker::MarkerTool, pointer::PointerTool};
 
@@ -477,7 +586,18 @@ use self::{brush::BrushTool, marker::MarkerTool, pointer::PointerTool};
 // hover cursor) want to share.
 pub use self::pointer::{HANDLE_HIT_RADIUS, HIT_TOLERANCE};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    Hash,
+    Deserialize,
+    serde::Serialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Tools {
     Pointer = 0,
@@ -489,8 +609,9 @@ pub enum Tools {
     Text = 6,
     Marker = 7,
     Blur = 8,
-    Highlight = 9,
+    Highlighter = 9,
     Brush = 10,
+    Spotlight = 11,
 }
 
 impl Tools {
@@ -506,7 +627,8 @@ impl Tools {
             Tools::Text => "Text",
             Tools::Marker => "Numbered Marker",
             Tools::Blur => "Blur",
-            Tools::Highlight => "Highlight",
+            Tools::Highlighter => "Highlighter",
+            Tools::Spotlight => "Spotlight",
         }
     }
 }
@@ -524,8 +646,9 @@ impl Display for Tools {
             Self::Text => write!(f, "text"),
             Self::Marker => write!(f, "marker"),
             Self::Blur => write!(f, "blur"),
-            Self::Highlight => write!(f, "highlight"),
+            Self::Highlighter => write!(f, "highlighter"),
             Self::Brush => write!(f, "brush"),
+            Self::Spotlight => write!(f, "spotlight"),
         }
     }
 }
@@ -556,11 +679,15 @@ impl ToolsManager {
         tools.insert(Tools::Text, Rc::new(RefCell::new(TextTool::default())));
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
-            Tools::Highlight,
+            Tools::Highlighter,
             Rc::new(RefCell::new(HighlightTool::default())),
         );
         tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
+        tools.insert(
+            Tools::Spotlight,
+            Rc::new(RefCell::new(SpotlightTool::default())),
+        );
 
         let crop_tool = Rc::new(RefCell::new(CropTool::default()));
         Self { tools, crop_tool }
@@ -608,8 +735,9 @@ impl FromVariant for Tools {
             6 => Some(Tools::Text),
             7 => Some(Tools::Marker),
             8 => Some(Tools::Blur),
-            9 => Some(Tools::Highlight),
+            9 => Some(Tools::Highlighter),
             10 => Some(Tools::Brush),
+            11 => Some(Tools::Spotlight),
             _ => None,
         })
     }
@@ -627,7 +755,7 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Text => Self::Text,
             command_line::Tools::Marker => Self::Marker,
             command_line::Tools::Blur => Self::Blur,
-            command_line::Tools::Highlight => Self::Highlight,
+            command_line::Tools::Highlight => Self::Highlighter,
             command_line::Tools::Brush => Self::Brush,
         }
     }

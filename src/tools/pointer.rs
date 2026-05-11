@@ -13,8 +13,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableId, DrawableStore, Handle, HandleId, SELECTION_BLUE, Tool, ToolUpdateResult,
-    Tools,
+    Drawable, DrawableId, DrawableStore, Handle, HandleId, SELECTION_BLUE, Text, Tool,
+    ToolUpdateResult, Tools,
 };
 
 pub const HIT_TOLERANCE: f32 = 6.0;
@@ -29,7 +29,11 @@ const HANDLE_RING: f32 = 2.0;
 /// Hit-test radius (image units) for grabbing a handle. Kept in image
 /// units because hit-tests run against image-space pointer positions;
 /// scaled up a bit so the cursor doesn't have to be pixel-perfect.
-pub const HANDLE_HIT_RADIUS: f32 = 12.0;
+/// Generous radius (image units) for grabbing a selection handle.
+/// Larger than the visible 12 px disc so users don't need
+/// pixel-precise aim — matches convention's "comfortably grabbable
+/// from anywhere within ~20 px of the dot" feel.
+pub const HANDLE_HIT_RADIUS: f32 = 20.0;
 /// Marquee fill / stroke color (accent blue, faded).
 const MARQUEE_FILL: Color = Color {
     r: 0.18,
@@ -112,6 +116,10 @@ impl Clone for SelectionOverlay {
 }
 
 impl Drawable for SelectionOverlay {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -141,16 +149,48 @@ impl Drawable for SelectionOverlay {
         let css_to_image = self.device_pixel_ratio / img_to_canvas;
         let inner_r = (HANDLE_INNER_DIAMETER / 2.0) * css_to_image;
         let outer_r = (HANDLE_INNER_DIAMETER / 2.0 + HANDLE_RING) * css_to_image;
+        // Square handles are HALF the size of round ones per the
+        // standard text-tool reference — small visually distinct
+        // marker for "this handle has a special semantic." 6 px inner
+        // blue + 2 px white ring = 10 px total square.
+        let sq_inner_half = (HANDLE_INNER_DIAMETER / 4.0) * css_to_image;
+        let sq_outer_half = (HANDLE_INNER_DIAMETER / 4.0 + HANDLE_RING) * css_to_image;
+        let sq_corner = 1.5 * css_to_image;
         let white_fill = Paint::color(Color::white());
         let blue_fill = Paint::color(SELECTION_BLUE);
         for h in &self.handles {
-            let mut outer = Path::new();
-            outer.circle(h.pos.x, h.pos.y, outer_r);
-            canvas.fill_path(&outer, &white_fill);
+            match h.kind {
+                super::HandleKind::Round => {
+                    let mut outer = Path::new();
+                    outer.circle(h.pos.x, h.pos.y, outer_r);
+                    canvas.fill_path(&outer, &white_fill);
 
-            let mut inner = Path::new();
-            inner.circle(h.pos.x, h.pos.y, inner_r);
-            canvas.fill_path(&inner, &blue_fill);
+                    let mut inner = Path::new();
+                    inner.circle(h.pos.x, h.pos.y, inner_r);
+                    canvas.fill_path(&inner, &blue_fill);
+                }
+                super::HandleKind::Square => {
+                    let mut outer = Path::new();
+                    outer.rounded_rect(
+                        h.pos.x - sq_outer_half,
+                        h.pos.y - sq_outer_half,
+                        sq_outer_half * 2.0,
+                        sq_outer_half * 2.0,
+                        sq_corner,
+                    );
+                    canvas.fill_path(&outer, &white_fill);
+
+                    let mut inner = Path::new();
+                    inner.rounded_rect(
+                        h.pos.x - sq_inner_half,
+                        h.pos.y - sq_inner_half,
+                        sq_inner_half * 2.0,
+                        sq_inner_half * 2.0,
+                        sq_corner,
+                    );
+                    canvas.fill_path(&inner, &blue_fill);
+                }
+            }
         }
         canvas.restore();
         Ok(())
@@ -357,6 +397,31 @@ impl Tool for PointerTool {
                 if let Some(id) = store.hit_test(event.pos, HIT_TOLERANCE)
                     && let Some(drawable) = store.clone_drawable(id)
                 {
+                    // BEFORE setting up a body-drag, check whether the
+                    // click is on one of THIS drawable's handles. Lets
+                    // the user start a Handle drag on an unselected
+                    // drawable in a single click+drag gesture, instead
+                    // of needing one click to select and a second to
+                    // grab the handle. Without this, dragging a text's
+                    // resize handle would either body-drag the text
+                    // (wrong) or fall through to TextTool (creates a
+                    // ghost text box).
+                    if let Some(handle) = drawable
+                        .handles()
+                        .into_iter()
+                        .find(|h| h.pos.distance_to(&event.pos) <= h.hit_radius)
+                    {
+                        self.selected = vec![id];
+                        self.drag = Some(DragState {
+                            id,
+                            mode: DragMode::Handle(handle.id),
+                            original: drawable.clone_box(),
+                            working: drawable,
+                            handle_anchor: handle.pos,
+                        });
+                        return ToolUpdateResult::RedrawAndStopPropagation;
+                    }
+
                     self.selected = vec![id];
                     self.drag = Some(DragState {
                         id,
@@ -443,13 +508,40 @@ impl Tool for PointerTool {
                     self.consume_next_click = false;
                     return ToolUpdateResult::RedrawAndStopPropagation;
                 }
-                // Suppress the post-drag Click so drawing tools don't ALSO
-                // act on it when the pointer just selected something.
-                if store.hit_test(event.pos, HIT_TOLERANCE).is_some() {
-                    ToolUpdateResult::RedrawAndStopPropagation
-                } else {
-                    ToolUpdateResult::Unmodified
+                let hit = store.hit_test(event.pos, HIT_TOLERANCE);
+                // Double-click on a Text drawable: switch to TextTool and
+                // resume editing. sketch_board catches the variant and
+                // wires up the tool transition. Clearing drag/marquee is
+                // safe here because we're abandoning this gesture entirely
+                // in favor of the tool switch.
+                if event.n_pressed == 2
+                    && let Some(id) = hit
+                    && let Some(d) = store.clone_drawable(id)
+                    && d.as_any().is::<Text>()
+                {
+                    self.selected.clear();
+                    self.drag = None;
+                    self.marquee = None;
+                    return ToolUpdateResult::EditTextDrawable(id);
                 }
+                // GTK fires events in order: BeginDrag → Click → UpdateDrag
+                // → EndDrag. BeginDrag has already set up `self.selected`
+                // and `self.drag` if this click hit an existing drawable;
+                // touching them here would clobber the body-drag state
+                // before UpdateDrag/EndDrag can use it, breaking move
+                // entirely. We only need to consume the Click so it doesn't
+                // propagate to the active drawing tool. As a safety net,
+                // populate `selected` when `drag` is `None` (the rare path
+                // where BeginDrag didn't fire — e.g. a release-only event
+                // synthesized by GTK in some edge cases) so Delete-after-tap
+                // still works.
+                if let Some(id) = hit {
+                    if self.drag.is_none() && self.marquee.is_none() {
+                        self.selected = vec![id];
+                    }
+                    return ToolUpdateResult::RedrawAndStopPropagation;
+                }
+                ToolUpdateResult::Unmodified
             }
             _ => ToolUpdateResult::Unmodified,
         }

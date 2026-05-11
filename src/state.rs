@@ -2,6 +2,7 @@
 //! from the read-only user config in `configuration.rs`. Lives in the
 //! XDG state dir (`~/.local/state/satty/state.toml` on Linux).
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -9,7 +10,8 @@ use hex_color::HexColor;
 use serde::{Deserialize, Serialize};
 use xdg::BaseDirectories;
 
-use crate::style::Color;
+use crate::style::{Color, Size};
+use crate::tools::{ArrowStyle, BlurStyle, Tools};
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -17,6 +19,41 @@ pub struct PersistedState {
     pub last_color: Option<HexColor>,
     #[serde(default)]
     pub saved_custom_colors: Vec<HexColor>,
+    /// Spotlight overlay darkness (0.10–0.90). None = use the
+    /// 50% default (detent value).
+    #[serde(default)]
+    pub spotlight_darkness: Option<f32>,
+    /// Highlighter stroke opacity (0.10–1.00). None = use the
+    /// 40% default.
+    #[serde(default)]
+    pub highlighter_opacity: Option<f32>,
+    /// Annotation size factor (multiplier applied to all Size-based
+    /// metrics — text size, line width, etc.). `None` triggers the
+    /// first-run welcome dialog so the user picks a value matching
+    /// their display scale before they can use the app. Once saved,
+    /// the dialog never reappears unless the user clears their state.
+    #[serde(default)]
+    pub annotation_size_factor: Option<f32>,
+    /// Crop tool's "Snap to edges" preference (the bottom-left
+    /// checkbox while cropping). `None` means "use default" — true.
+    #[serde(default)]
+    pub snap_to_edges: Option<bool>,
+    /// Saved-default size per tool. Keyed by `Tools` (serializes to
+    /// the lowercase tool name); `None` for a missing entry means
+    /// "use the global Size::Medium default". Updated only by the
+    /// size slider's right-click → "Save as default" — the slider's
+    /// live value isn't persisted on every drag.
+    #[serde(default)]
+    pub size_per_tool: HashMap<Tools, Size>,
+    /// Last-chosen arrow geometry (Standard / Fancy / Curved / Double).
+    /// Auto-saved on every selection so re-opening the Arrow tool
+    /// picks up where the user left off.
+    #[serde(default)]
+    pub arrow_style: Option<ArrowStyle>,
+    /// Last-chosen blur algorithm (Gaussian / Pixelate). Same
+    /// auto-save semantics as `arrow_style`.
+    #[serde(default)]
+    pub blur_style: Option<BlurStyle>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -50,6 +87,17 @@ pub fn load_last_color() -> Option<Color> {
     load().last_color.map(Color::from)
 }
 
+/// Resolve the startup annotation color. Persisted last-color wins;
+/// otherwise red. Shared between the toolbar (swatch preview) and
+/// sketch_board (drawing style) so the very first stroke after launch
+/// matches the swatch the user sees — `Style::default()` would
+/// otherwise resolve color to whatever the palette's first entry is,
+/// which is independent of (and can disagree with) the user's
+/// previously-chosen color.
+pub fn initial_color() -> Color {
+    load_last_color().unwrap_or_else(Color::red)
+}
+
 pub fn load_custom_colors() -> Vec<Color> {
     load()
         .saved_custom_colors
@@ -75,6 +123,85 @@ pub fn append_custom_color(color: Color) -> Vec<Color> {
         .into_iter()
         .map(Color::from)
         .collect()
+}
+
+pub fn load_spotlight_darkness() -> Option<f32> {
+    load().spotlight_darkness
+}
+
+pub fn save_spotlight_darkness(value: f32) {
+    let mut state = load();
+    state.spotlight_darkness = Some(value);
+    save(&state);
+}
+
+pub fn load_highlighter_opacity() -> Option<f32> {
+    load().highlighter_opacity
+}
+
+pub fn save_highlighter_opacity(value: f32) {
+    let mut state = load();
+    state.highlighter_opacity = Some(value);
+    save(&state);
+}
+
+/// Persisted annotation size factor. `None` means "never been set" —
+/// triggers the welcome dialog at next launch.
+pub fn load_annotation_size_factor() -> Option<f32> {
+    load().annotation_size_factor
+}
+
+pub fn save_annotation_size_factor(value: f32) {
+    let mut state = load();
+    state.annotation_size_factor = Some(value);
+    save(&state);
+}
+
+/// "Snap to edges" toggle for the crop tool. `None` falls back to
+/// the default (true) — callers handle the unwrap to keep the
+/// reader honest about the missing-state case.
+pub fn load_snap_to_edges() -> Option<bool> {
+    load().snap_to_edges
+}
+
+pub fn save_snap_to_edges(value: bool) {
+    let mut state = load();
+    state.snap_to_edges = Some(value);
+    save(&state);
+}
+
+/// Read this tool's saved-default size, if the user has explicitly
+/// saved one via the size slider's right-click → "Save as default".
+pub fn load_size_for_tool(tool: Tools) -> Option<Size> {
+    load().size_per_tool.get(&tool).copied()
+}
+
+/// Persist `size` as the default for `tool`. Future launches and
+/// future tool switches into `tool` will start at this size.
+pub fn save_size_for_tool(tool: Tools, size: Size) {
+    let mut state = load();
+    state.size_per_tool.insert(tool, size);
+    save(&state);
+}
+
+pub fn load_arrow_style() -> Option<ArrowStyle> {
+    load().arrow_style
+}
+
+pub fn save_arrow_style(style: ArrowStyle) {
+    let mut state = load();
+    state.arrow_style = Some(style);
+    save(&state);
+}
+
+pub fn load_blur_style() -> Option<BlurStyle> {
+    load().blur_style
+}
+
+pub fn save_blur_style(style: BlurStyle) {
+    let mut state = load();
+    state.blur_style = Some(style);
+    save(&state);
 }
 
 /// Replace the persisted saved-custom list wholesale. Used by

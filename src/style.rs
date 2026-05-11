@@ -17,6 +17,17 @@ pub struct Style {
     pub size: Size,
     pub fill: bool,
     pub annotation_size_factor: f32,
+    /// Spotlight darkness for the inverse-mask overlay outside spotlight
+    /// shapes. 0.0 = no overlay, 1.0 = pitch black. Sliding this value
+    /// updates ALL spotlight shapes globally — the value is intentionally
+    /// NOT captured into committed Spotlight drawables, so the renderer
+    /// reads the current value at render time. UI clamps to 0.10–0.90.
+    pub spotlight_darkness: f32,
+    /// Highlighter stroke opacity. 0.0 = invisible, 1.0 = fully opaque.
+    /// Captured into each committed Highlighter drawable at draw time
+    /// (per-stroke), unlike spotlight_darkness which is global. UI clamps
+    /// to 0.10–1.00.
+    pub highlighter_opacity: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,7 +38,19 @@ pub struct Color {
     pub a: u8,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
 pub enum Size {
     XSmall = 0,
     Small = 1,
@@ -69,6 +92,8 @@ impl Default for Style {
             size: Size::default(),
             fill: APP_CONFIG.read().default_fill_shapes(),
             annotation_size_factor: APP_CONFIG.read().annotation_size_factor(),
+            spotlight_darkness: crate::state::load_spotlight_darkness().unwrap_or(0.50),
+            highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
         }
     }
 }
@@ -280,6 +305,30 @@ impl FromVariant for Size {
 }
 
 impl Size {
+    /// Move one step toward `XXLarge`, clamping at the top. Used by
+    /// the scroll-resize gesture so wheel-up always bumps the size
+    /// without wrapping back around to `XSmall`.
+    pub fn step_up(self) -> Self {
+        match self {
+            Size::XSmall => Size::Small,
+            Size::Small => Size::Medium,
+            Size::Medium => Size::Large,
+            Size::Large => Size::XLarge,
+            Size::XLarge | Size::XXLarge => Size::XXLarge,
+        }
+    }
+
+    /// Mirror of `step_up` clamped at `XSmall`.
+    pub fn step_down(self) -> Self {
+        match self {
+            Size::XSmall | Size::Small => Size::XSmall,
+            Size::Medium => Size::Small,
+            Size::Large => Size::Medium,
+            Size::XLarge => Size::Large,
+            Size::XXLarge => Size::XLarge,
+        }
+    }
+
     pub fn to_text_size(self, size_factor: f32) -> i32 {
         match self {
             Size::XSmall => (24.0 * size_factor) as i32,
@@ -465,6 +514,22 @@ impl Size {
             Size::Large => 30.0 * size_factor,
             Size::XLarge => 45.0 * size_factor,
             Size::XXLarge => 65.0 * size_factor,
+        }
+    }
+
+    /// Pixelation cell size (image-space pixels) for the `Pixelate`
+    /// blur style. Calibrated to roughly match the perceived "obscurity"
+    /// of the Gaussian sigma at the same size step but biased toward
+    /// larger cells — coarser blocks destroy more information per
+    /// pixel and improve resistance to ML depixelation attacks.
+    pub fn to_pixelate_cell_size(self, size_factor: f32) -> f32 {
+        match self {
+            Size::XSmall => 6.0 * size_factor,
+            Size::Small => 12.0 * size_factor,
+            Size::Medium => 22.0 * size_factor,
+            Size::Large => 34.0 * size_factor,
+            Size::XLarge => 50.0 * size_factor,
+            Size::XXLarge => 72.0 * size_factor,
         }
     }
 

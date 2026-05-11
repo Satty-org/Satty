@@ -1,15 +1,17 @@
-use std::f32::consts::PI;
-
 use crate::{
     math::{self, Vec2D},
     sketch_board::{
         KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
         SketchBoardOutput,
     },
+    ui::toolbars::ToolbarEvent,
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::{
+    Sender,
+    gtk::gdk::{Key, ModifierType},
+};
 
 use super::{Drawable, Tool, ToolUpdateResult, Tools};
 
@@ -17,50 +19,178 @@ use super::{Drawable, Tool, ToolUpdateResult, Tools};
 pub struct Crop {
     pos: Vec2D,
     size: Vec2D,
+    /// True while the crop tool is the current editing focus
+    /// — handles + grid + dim overlay are visible.
     active: bool,
+    /// True after the user has pressed Enter to "apply" the crop.
+    /// In this state the canvas zooms in to fit only the cropped
+    /// region; switching back to the crop tool sets this back to
+    /// false so the user can adjust against the full original
+    /// image.
+    committed: bool,
+    /// Sticky — once Enter has been pressed at least once, this
+    /// stays true even after re-entering edit mode. Lets Esc do
+    /// the right thing: a fresh first-edit Esc deletes the crop
+    /// (cancel), but Esc on an adjustment-of-already-committed
+    /// crop restores the committed view (matches convention).
+    ever_committed: bool,
 }
 
-#[derive(Default)]
 pub struct CropTool {
     crop: Option<Crop>,
     action: Option<CropToolAction>,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
+    /// Snap crop edges to image edges during drag. Toggled from the
+    /// bottom-left checkbox , persisted via
+    /// `state::save_snap_to_edges`. Defaults to true. Holding Ctrl
+    /// during a drag temporarily bypasses snap regardless of this
+    /// flag — matching the standard "Hold ⌘ to disable snapping".
+    snap_to_edges: bool,
+    /// Image dimensions in image-space pixels. Set once at app
+    /// startup; snap targets are derived from this (image edges +
+    /// the four "edge" lines bounding it). `None` while the tool
+    /// hasn't been told the dimensions yet — snap is a no-op then.
+    image_bounds: Option<Vec2D>,
+}
+
+impl Default for CropTool {
+    fn default() -> Self {
+        Self {
+            crop: None,
+            action: None,
+            input_enabled: false,
+            sender: None,
+            snap_to_edges: true,
+            image_bounds: None,
+        }
+    }
 }
 
 impl Crop {
-    const HANDLE_RADIUS: f32 = 5.0;
-    const HANDLE_BORDER: f32 = 2.0;
+    /// Visual size of corner L-brackets and edge handle marks, in CSS
+    /// pixels — divided by the canvas-to-image scale at draw time so
+    /// the on-screen size stays constant regardless of zoom.
+    const BRACKET_LENGTH: f32 = 28.0;
+    /// Edge handles are drawn as fat parallel segments overlapping the
+    /// edge line itself, so they need to be longer than the old
+    /// perpendicular ticks to read as a "drag bar". A short third of
+    /// the crop's edge length is the natural read, but at a fixed
+    /// CSS-pixel size for predictability across zoom levels.
+    const EDGE_HANDLE_LENGTH: f32 = 36.0;
+    /// Stroke thickness for both the corner L-brackets and the edge
+    /// bars. The edge bars overlay the 2px dark crop border, so they
+    /// need a few extra pixels of white on each side to read as a
+    /// solid bar (instead of a thin halo around the border). Bumping
+    /// the corners by the same amount keeps the two handle styles
+    /// visually matched.
+    const HANDLE_STROKE_WIDTH: f32 = 5.0;
+    /// Grid lines separating the crop area into thirds (rule-of-thirds).
+    const GRID_STROKE_WIDTH: f32 = 1.0;
+    /// Hit-test radius around each corner / edge-midpoint anchor, in
+    /// CSS pixels. Big enough that grabbing anywhere along a bracket
+    /// arm or near an edge handle lands the right handle without
+    /// pixel-precise aim. Scales with the visual size bump above.
+    const HANDLE_HIT_RADIUS: f32 = 20.0;
 
     fn new(pos: Vec2D) -> Self {
         Self {
             pos,
             size: Vec2D::zero(),
             active: true,
+            committed: false,
+            ever_committed: false,
         }
     }
 
-    fn draw_single_handle(
+    pub fn is_committed(&self) -> bool {
+        self.committed
+    }
+
+    fn handle_paint(scale: f32) -> Paint {
+        // White strokes, slightly hot, with a subtle dark drop is
+        // overkill — femtovg doesn't do shadows cheaply. The white
+        // stroke alone reads cleanly against the dark overlay used
+        // outside the crop area.
+        Paint::color(Color::rgbf(1.0, 1.0, 1.0))
+            .with_line_width(Self::HANDLE_STROKE_WIDTH / scale)
+            .with_line_cap(femtovg::LineCap::Square)
+            .with_line_join(femtovg::LineJoin::Miter)
+    }
+
+    /// Draw the L-bracket at one corner. `dx`/`dy` are ±1 indicating
+    /// which direction the bracket arms extend from the corner point.
+    fn draw_corner_bracket(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
-        center: Vec2D,
+        corner: Vec2D,
+        dx: f32,
+        dy: f32,
+        scale: f32,
+        paint: &Paint,
+    ) {
+        let len = Self::BRACKET_LENGTH / scale;
+        let mut path = Path::new();
+        path.move_to(corner.x + dx * len, corner.y);
+        path.line_to(corner.x, corner.y);
+        path.line_to(corner.x, corner.y + dy * len);
+        canvas.stroke_path(&path, paint);
+    }
+
+    /// Draw the edge-midpoint handle as a fat segment lying ALONG the
+    /// edge (parallel to it, centered on the midpoint). The thicker
+    /// stroke + parallel orientation visually overlay the crop border
+    /// line, signaling "grab this and drag the edge." Replaces the
+    /// older perpendicular-tick design which read as a divider mark
+    /// instead of a draggable bar.
+    ///
+    /// `edge_dir` is a unit vector pointing along the edge — the
+    /// segment is drawn from `midpoint - edge_dir * half` to
+    /// `midpoint + edge_dir * half`.
+    fn draw_edge_handle(
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        midpoint: Vec2D,
+        edge_dir: Vec2D,
+        scale: f32,
+        paint: &Paint,
+    ) {
+        let half = (Self::EDGE_HANDLE_LENGTH / 2.0) / scale;
+        let mut path = Path::new();
+        path.move_to(
+            midpoint.x - edge_dir.x * half,
+            midpoint.y - edge_dir.y * half,
+        );
+        path.line_to(
+            midpoint.x + edge_dir.x * half,
+            midpoint.y + edge_dir.y * half,
+        );
+        canvas.stroke_path(&path, paint);
+    }
+
+    /// Draw the rule-of-thirds grid lines inside the crop rect.
+    /// Subtle white at low opacity so the grid hints at composition
+    /// without dominating the framed content.
+    fn draw_thirds_grid(
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        pos: Vec2D,
+        size: Vec2D,
         scale: f32,
     ) {
+        let paint = Paint::color(Color::rgbaf(1.0, 1.0, 1.0, 0.35))
+            .with_line_width(Self::GRID_STROKE_WIDTH / scale);
         let mut path = Path::new();
-        path.arc(
-            center.x,
-            center.y,
-            Crop::HANDLE_RADIUS / scale,
-            0.0,
-            2.0 * PI,
-            femtovg::Solidity::Solid,
-        );
-
-        let border_paint =
-            Paint::color(Color::rgbf(0.9, 0.9, 0.9)).with_line_width(Crop::HANDLE_BORDER / scale);
-        let fill_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.4));
-
-        canvas.fill_path(&path, &fill_paint);
-        canvas.stroke_path(&path, &border_paint);
+        let third_x = size.x / 3.0;
+        let third_y = size.y / 3.0;
+        // Two vertical lines
+        path.move_to(pos.x + third_x, pos.y);
+        path.line_to(pos.x + third_x, pos.y + size.y);
+        path.move_to(pos.x + 2.0 * third_x, pos.y);
+        path.line_to(pos.x + 2.0 * third_x, pos.y + size.y);
+        // Two horizontal lines
+        path.move_to(pos.x, pos.y + third_y);
+        path.line_to(pos.x + size.x, pos.y + third_y);
+        path.move_to(pos.x, pos.y + 2.0 * third_y);
+        path.line_to(pos.x + size.x, pos.y + 2.0 * third_y);
+        canvas.stroke_path(&path, &paint);
     }
 
     pub fn get_rectangle(&self) -> (Vec2D, Vec2D) {
@@ -93,9 +223,8 @@ impl Crop {
         (closest_handle, min_distance_squared)
     }
     fn test_handle_hit(&self, mouse_pos: Vec2D, margin2: f32) -> Option<CropHandle> {
-        const HANDLE_SIZE: f32 = Crop::HANDLE_RADIUS + Crop::HANDLE_BORDER;
-        const HANDLE_SIZE2: f32 = HANDLE_SIZE * HANDLE_SIZE;
-        let allowed_distance2 = HANDLE_SIZE2 + margin2;
+        const HANDLE_HIT2: f32 = Crop::HANDLE_HIT_RADIUS * Crop::HANDLE_HIT_RADIUS;
+        let allowed_distance2 = HANDLE_HIT2 + margin2;
 
         let (handle, distance2) = self.get_closest_handle(mouse_pos);
         if distance2 < allowed_distance2 {
@@ -104,45 +233,169 @@ impl Crop {
             None
         }
     }
+
+    /// Hit-test classification used by the hover-cursor logic. Reports
+    /// `Handle` when the pointer is over any of the 8 corner / edge
+    /// anchors, `Body` when inside the crop rectangle, and `None` for
+    /// the surrounding dim region. Returns `None` while the crop
+    /// hasn't been drawn yet (zero size) so an unset crop doesn't
+    /// flip the cursor under the user.
+    pub fn hit_kind(&self, point: Vec2D) -> Option<CropHit> {
+        if self.size.x.abs() < 1.0 || self.size.y.abs() < 1.0 {
+            return None;
+        }
+        if self.test_handle_hit(point, 0.0).is_some() {
+            return Some(CropHit::Handle);
+        }
+        let (pos, size) = self.get_rectangle();
+        if point.x >= pos.x
+            && point.x <= pos.x + size.x
+            && point.y >= pos.y
+            && point.y <= pos.y + size.y
+        {
+            return Some(CropHit::Body);
+        }
+        None
+    }
+}
+
+/// Where on the crop overlay the pointer currently is. Used by
+/// `sketch_board`'s hover-cursor logic to pick between the "grab" body
+/// cursor and the "pointer" handle cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CropHit {
+    Handle,
+    Body,
 }
 
 impl Drawable for Crop {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
+        // When the crop is committed (Enter pressed, viewing zoomed
+        // crop), skip our overlay entirely — the renderer scales the
+        // canvas so only the crop region is visible, and the dim
+        // outside is no longer meaningful (it would either lie
+        // off-canvas or visibly cover the zoomed image).
+        if self.committed {
+            return Ok(());
+        }
+
         let size = self.size;
-        let scale = canvas.transform().average_scale();
-        let dimensions = Vec2D::new(
-            canvas.width() as f32 / scale,
-            canvas.height() as f32 / scale,
-        );
+        let saved_transform = canvas.transform();
+        let scale = saved_transform.average_scale();
+
+        // Crop rect in CANVAS-PIXEL space. Earlier this was drawn in
+        // image-space as `(0,0)→(canvas_w/scale, canvas_h/scale)`,
+        // which doesn't account for the renderer's centering offset:
+        // the dim rect slid right/down by that offset, leaving the
+        // top/left of the canvas uncovered and bleeding past the
+        // bottom/right edges. Computing the crop rect in canvas pixels
+        // and resetting the transform for the dim fill lets us anchor
+        // the outer dim to the literal canvas (0,0)→(canvas_w,canvas_h)
+        // rectangle, which is what the user can actually see.
+        let crop_canvas_x = saved_transform[0] * self.pos.x
+            + saved_transform[2] * self.pos.y
+            + saved_transform[4];
+        let crop_canvas_y = saved_transform[1] * self.pos.x
+            + saved_transform[3] * self.pos.y
+            + saved_transform[5];
+        let crop_canvas_w = size.x * scale;
+        let crop_canvas_h = size.y * scale;
 
         let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
             .with_fill_rule(femtovg::FillRule::EvenOdd);
         let mut shadow_path = Path::new();
-        shadow_path.rect(0.0, 0.0, dimensions.x, dimensions.y);
-        shadow_path.rect(self.pos.x, self.pos.y, size.x, size.y);
+        shadow_path.rect(0.0, 0.0, canvas.width() as f32, canvas.height() as f32);
+        shadow_path.rect(crop_canvas_x, crop_canvas_y, crop_canvas_w, crop_canvas_h);
+
+        canvas.save();
+        canvas.reset_transform();
+        canvas.fill_path(&shadow_path, &shadow_paint);
+        canvas.reset_transform();
+        canvas.set_transform(&saved_transform);
 
         let border_paint = Paint::color(Color::rgbf(0.1, 0.1, 0.1)).with_line_width(2.0);
         let mut border_path = Path::new();
         border_path.rect(self.pos.x, self.pos.y, size.x, size.y);
 
-        canvas.save();
-        canvas.fill_path(&shadow_path, &shadow_paint);
         canvas.stroke_path(&border_path, &border_paint);
 
         if self.active {
-            Self::draw_single_handle(canvas, self.pos, scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x / 2.0, 0.0), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x, 0.0), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(0.0, size.y / 2.0), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(0.0, size.y), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x / 2.0, size.y), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x, size.y), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x, size.y / 2.0), scale);
+            // Rule-of-thirds grid sits below the brackets so the
+            // stronger white outlines stay on top.
+            Self::draw_thirds_grid(canvas, self.pos, size, scale);
+
+            let paint = Self::handle_paint(scale);
+            // Corners — L-brackets pointing inward from each corner.
+            // For each corner, dx/dy are ±1 indicating which axis
+            // the arms extend along (always toward the rect interior).
+            Self::draw_corner_bracket(canvas, self.pos, 1.0, 1.0, scale, &paint);
+            Self::draw_corner_bracket(
+                canvas,
+                self.pos + Vec2D::new(size.x, 0.0),
+                -1.0,
+                1.0,
+                scale,
+                &paint,
+            );
+            Self::draw_corner_bracket(
+                canvas,
+                self.pos + Vec2D::new(0.0, size.y),
+                1.0,
+                -1.0,
+                scale,
+                &paint,
+            );
+            Self::draw_corner_bracket(
+                canvas,
+                self.pos + size,
+                -1.0,
+                -1.0,
+                scale,
+                &paint,
+            );
+
+            // Edge midpoints — fat segments lying ALONG each edge so
+            // they overlay the border line and read as a draggable
+            // bar. Top + bottom edges run horizontally, so the handle
+            // direction is (1,0); left + right edges run vertically,
+            // so the handle direction is (0,1).
+            Self::draw_edge_handle(
+                canvas,
+                self.pos + Vec2D::new(size.x / 2.0, 0.0),
+                Vec2D::new(1.0, 0.0),
+                scale,
+                &paint,
+            );
+            Self::draw_edge_handle(
+                canvas,
+                self.pos + Vec2D::new(size.x / 2.0, size.y),
+                Vec2D::new(1.0, 0.0),
+                scale,
+                &paint,
+            );
+            Self::draw_edge_handle(
+                canvas,
+                self.pos + Vec2D::new(0.0, size.y / 2.0),
+                Vec2D::new(0.0, 1.0),
+                scale,
+                &paint,
+            );
+            Self::draw_edge_handle(
+                canvas,
+                self.pos + Vec2D::new(size.x, size.y / 2.0),
+                Vec2D::new(0.0, 1.0),
+                scale,
+                &paint,
+            );
         }
 
         canvas.restore();
@@ -184,6 +437,72 @@ impl CropTool {
             Some(c) => Some(c),
             None => None,
         }
+    }
+
+    /// Bounds of the committed crop region in image coordinates,
+    /// canonicalized to a positive-size rectangle. Returns `None`
+    /// when there's no crop or when the crop isn't committed (i.e.,
+    /// the user is still editing it). The renderer reads this to
+    /// decide whether to apply zoom-fit transformation.
+    pub fn get_committed_rect(&self) -> Option<(Vec2D, Vec2D)> {
+        let crop = self.crop.as_ref()?;
+        if !crop.committed {
+            return None;
+        }
+        let (pos, size) = crop.get_rectangle();
+        if size.x <= 0.0 || size.y <= 0.0 {
+            return None;
+        }
+        Some((pos, size))
+    }
+
+    /// Drop the crop entirely — used by the toolbar's "Revert to
+    /// Original" button. After this, the renderer renders the
+    /// full image at normal scale and saving exports the entire
+    /// image again.
+    pub fn revert(&mut self) {
+        self.crop = None;
+        self.action = None;
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::DimensionsUpdate(None),
+                ))
+                .ok();
+        }
+        self.emit_crop_presence(false);
+    }
+
+    /// Toggle whether crop edges snap to image edges during drag.
+    /// Wired from the toolbar checkbox; persists via state.
+    pub fn set_snap_to_edges(&mut self, value: bool) {
+        self.snap_to_edges = value;
+    }
+
+    pub fn snap_to_edges(&self) -> bool {
+        self.snap_to_edges
+    }
+
+    /// Provide the image dimensions so snap-to-edges has targets to
+    /// snap to. Called once from `sketch_board::init` with the
+    /// loaded screenshot's pixel dimensions.
+    pub fn set_image_bounds(&mut self, bounds: Vec2D) {
+        self.image_bounds = Some(bounds);
+    }
+
+    /// Threshold within which an edge "sticks" to the image boundary,
+    /// in image-space pixels. Stays in image units because all snap
+    /// math is in image-space; we don't try to compensate for zoom
+    /// (a tighter pixel threshold at high zoom is acceptable since
+    /// the user is also more precise then).
+    const SNAP_PIXELS: f32 = 8.0;
+
+    fn snap_active(&self, modifier: ModifierType) -> bool {
+        // Mirror typical "snap on, hold the modifier to defeat"
+        // semantic. Ctrl is the natural Linux equivalent of macOS Cmd
+        // (and our other tools already treat Shift as "snap-to-angle"
+        // so reusing Shift here would be a conflict).
+        self.snap_to_edges && !modifier.contains(ModifierType::CONTROL_MASK)
     }
 }
 
@@ -233,37 +552,44 @@ impl CropTool {
         crop: &mut Crop,
         state: &DragHandleState,
         direction: Vec2D,
+        snap_x: impl Fn(f32) -> f32,
+        snap_y: impl Fn(f32) -> f32,
     ) {
         let mut tl = state.top_left_start;
         let mut br = state.bottom_right_start;
 
-        // apply transformation
+        // Apply the per-handle transformation, then snap each dragged
+        // coordinate through the caller's snap closures. Handles that
+        // only move along one axis only snap that axis — e.g. the
+        // top edge doesn't try to snap left/right.
         match state.handle {
             CropHandle::TopLeftCorner => {
-                tl += direction;
+                tl.x = snap_x(tl.x + direction.x);
+                tl.y = snap_y(tl.y + direction.y);
             }
             CropHandle::TopEdge => {
-                tl += Vec2D::new(0.0, direction.y);
+                tl.y = snap_y(tl.y + direction.y);
             }
             CropHandle::TopRightCorner => {
-                tl += Vec2D::new(0.0, direction.y);
-                br += Vec2D::new(direction.x, 0.0);
+                tl.y = snap_y(tl.y + direction.y);
+                br.x = snap_x(br.x + direction.x);
             }
             CropHandle::RightEdge => {
-                br += Vec2D::new(direction.x, 0.0);
+                br.x = snap_x(br.x + direction.x);
             }
             CropHandle::BottomRightCorner => {
-                br += direction;
+                br.x = snap_x(br.x + direction.x);
+                br.y = snap_y(br.y + direction.y);
             }
             CropHandle::BottomEdge => {
-                br += Vec2D::new(0.0, direction.y);
+                br.y = snap_y(br.y + direction.y);
             }
             CropHandle::BottomLeftCorner => {
-                tl += Vec2D::new(direction.x, 0.0);
-                br += Vec2D::new(0.0, direction.y);
+                tl.x = snap_x(tl.x + direction.x);
+                br.y = snap_y(br.y + direction.y);
             }
             CropHandle::LeftEdge => {
-                tl += Vec2D::new(direction.x, 0.0);
+                tl.x = snap_x(tl.x + direction.x);
             }
         }
 
@@ -285,8 +611,23 @@ impl CropTool {
         }
     }
 
-    fn begin_drag(&mut self, pos: Vec2D) -> ToolUpdateResult {
+    /// Push the current crop-presence state out so the bottom toolbar
+    /// shows/hides the "Revert to Original" button. Crop state is
+    /// "present" when there's any crop at all (edit OR committed) —
+    /// the user gets one button regardless of mode.
+    fn emit_crop_presence(&self, present: bool) {
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::CropPresenceChanged(present),
+                ))
+                .ok();
+        }
+    }
+
+    fn begin_drag(&mut self, pos: Vec2D, _modifier: ModifierType) -> ToolUpdateResult {
         let mut activate = false;
+        let was_present = self.crop.is_some();
         match &self.crop {
             None => {
                 // No crop exists, create a new one
@@ -325,10 +666,52 @@ impl CropTool {
         if activate && let Some(c) = &mut self.crop {
             c.active = true;
         }
+        // First-time crop creation needs to surface to the toolbar so
+        // the Revert button appears immediately. Subsequent drags on
+        // an existing crop don't change presence and skip the emit.
+        if !was_present && self.crop.is_some() {
+            self.emit_crop_presence(true);
+        }
         ToolUpdateResult::Redraw
     }
 
-    fn update_drag(&mut self, direction: Vec2D) -> ToolUpdateResult {
+    fn update_drag(&mut self, direction: Vec2D, modifier: ModifierType) -> ToolUpdateResult {
+        // Build cheap snap closures once and pass them down. Capturing
+        // `snap_active` and `bounds` by value avoids `&mut self` /
+        // `&self.action` overlap during the inner match — the closures
+        // are plain `Fn(f32) -> f32` and don't touch any field after
+        // construction.
+        let snap_active = self.snap_active(modifier);
+        let bounds = self.image_bounds;
+        let snap_x = move |v: f32| -> f32 {
+            if !snap_active {
+                return v;
+            }
+            let Some(b) = bounds else {
+                return v;
+            };
+            for t in [0.0, b.x] {
+                if (v - t).abs() <= Self::SNAP_PIXELS {
+                    return t;
+                }
+            }
+            v
+        };
+        let snap_y = move |v: f32| -> f32 {
+            if !snap_active {
+                return v;
+            }
+            let Some(b) = bounds else {
+                return v;
+            };
+            for t in [0.0, b.y] {
+                if (v - t).abs() <= Self::SNAP_PIXELS {
+                    return t;
+                }
+            }
+            v
+        };
+
         let crop = match &mut self.crop {
             Some(c) => c,
             None => return ToolUpdateResult::Unmodified,
@@ -341,58 +724,80 @@ impl CropTool {
 
         match action {
             CropToolAction::NewCrop => {
-                crop.size = direction;
+                // Drag-to-create: snap the dragged corner (start + dir)
+                // to image edges if applicable. The starting corner
+                // (`crop.pos`) was captured at BeginDrag and isn't
+                // re-snapped here — feels more predictable than having
+                // both ends jump.
+                let ex = snap_x(crop.pos.x + direction.x);
+                let ey = snap_y(crop.pos.y + direction.y);
+                crop.size = Vec2D::new(ex - crop.pos.x, ey - crop.pos.y);
                 self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::DragHandle(state) => {
-                Self::apply_drag_handle_transformation(crop, state, direction);
+                Self::apply_drag_handle_transformation(crop, state, direction, snap_x, snap_y);
                 self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::Move(state) => {
-                crop.pos = state.start + direction;
+                // Move: snap whichever edge of the crop is closest to
+                // an image edge. Try the leading (top/left) edge first;
+                // if neither it nor the trailing edge wants to snap,
+                // the crop moves freely. Keeps the user's chosen size
+                // intact (we only translate, never resize on Move).
+                let new_pos = state.start + direction;
+                let final_x = {
+                    let left = snap_x(new_pos.x);
+                    if left != new_pos.x {
+                        left
+                    } else {
+                        let right = snap_x(new_pos.x + crop.size.x);
+                        if right != new_pos.x + crop.size.x {
+                            right - crop.size.x
+                        } else {
+                            new_pos.x
+                        }
+                    }
+                };
+                let final_y = {
+                    let top = snap_y(new_pos.y);
+                    if top != new_pos.y {
+                        top
+                    } else {
+                        let bottom = snap_y(new_pos.y + crop.size.y);
+                        if bottom != new_pos.y + crop.size.y {
+                            bottom - crop.size.y
+                        } else {
+                            new_pos.y
+                        }
+                    }
+                };
+                crop.pos = Vec2D::new(final_x, final_y);
                 ToolUpdateResult::Redraw
             }
         }
     }
 
-    fn end_drag(&mut self, direction: Vec2D) -> ToolUpdateResult {
-        let Some(crop) = &mut self.crop else {
-            return ToolUpdateResult::Unmodified;
-        };
-
-        let Some(action) = &self.action else {
-            return ToolUpdateResult::Unmodified;
-        };
-
-        match action {
-            // crop never returns "commit" because nothing gets
-            // committed to the drawables stack
-            CropToolAction::NewCrop => {
-                crop.size = direction;
-                self.action = None;
-                self.emit_crop_dimensions_update();
-                ToolUpdateResult::Redraw
-            }
-            CropToolAction::DragHandle(state) => {
-                Self::apply_drag_handle_transformation(crop, state, direction);
-                self.action = None;
-                self.emit_crop_dimensions_update();
-                ToolUpdateResult::Redraw
-            }
-            CropToolAction::Move(state) => {
-                crop.pos = state.start + direction;
-                self.action = None;
-                self.emit_crop_dimensions_update();
-                ToolUpdateResult::Redraw
-            }
+    fn end_drag(&mut self, direction: Vec2D, modifier: ModifierType) -> ToolUpdateResult {
+        // EndDrag finalizes whatever UpdateDrag was producing, so the
+        // snap-aware transform runs once more here and `action` is
+        // cleared. Reusing `update_drag` keeps both code paths
+        // identical and ensures the visible-during-drag position
+        // matches the committed-on-release position (any divergence
+        // would feel like a "jump" when the user releases).
+        let result = self.update_drag(direction, modifier);
+        self.action = None;
+        match result {
+            ToolUpdateResult::Unmodified => ToolUpdateResult::Unmodified,
+            _ => ToolUpdateResult::Redraw,
         }
     }
 
     fn handle_deactivate_and_reset(&mut self) -> ToolUpdateResult {
         self.crop = None;
         self.action = None;
+        self.emit_crop_presence(false);
 
         if let Some(sender) = &self.sender {
             sender
@@ -420,18 +825,53 @@ impl Tool for CropTool {
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
         match event.key {
-            //FIXME: use if let guards as soon as they're stabilized (1.95)
-            Key::Escape if self.crop.is_some() => {
-                if self.crop.as_mut().unwrap().active {
-                    self.handle_deactivate_and_reset()
-                } else {
-                    ToolUpdateResult::Unmodified
+            Key::Escape => {
+                // Esc always exits Crop and returns to the previously
+                // selected tool (Pointer if none was recorded). If
+                // there's an uncommitted in-progress crop we drop it
+                // so the user doesn't come back to a stray dim
+                // overlay; a previously-committed crop is preserved
+                // (the user only "left edit mode", not "removed the
+                // crop").
+                if let Some(crop) = &mut self.crop
+                    && !crop.ever_committed
+                {
+                    crop.active = false;
+                    self.crop = None;
                 }
+                self.action = None;
+                if let Some(sender) = &self.sender {
+                    sender.send(SketchBoardInput::ExitCropToPreviousTool).ok();
+                }
+                ToolUpdateResult::Redraw
             }
             //FIXME: use if let guards as soon as they're stabilized (1.95)
-            Key::Return if self.crop.is_some() => {
-                if self.crop.as_mut().unwrap().active {
-                    self.handle_deactivated()
+            Key::Return | Key::KP_Enter if self.crop.is_some() => {
+                let crop = self.crop.as_mut().unwrap();
+                if crop.active {
+                    // Pressing Enter while editing "applies" the crop:
+                    // mark it committed so the renderer switches to
+                    // zoomed-in view, and deactivate so the dim
+                    // overlay + handles are no longer drawn over the
+                    // zoomed image. `ever_committed` sticks so future
+                    // Esc presses know to restore the committed view.
+                    crop.committed = true;
+                    crop.ever_committed = true;
+                    crop.active = false;
+                    self.action = None;
+                    // Hand the user back to the main view — emit a
+                    // tool switch so the StyleToolbar reappears and
+                    // the crop bottom bar collapses. Pointer is a
+                    // neutral default; user can pick whichever tool
+                    // they want next via the top toolbar.
+                    if let Some(sender) = &self.sender {
+                        sender
+                            .send(SketchBoardInput::ToolbarEvent(
+                                ToolbarEvent::ToolSelected(Tools::Pointer),
+                            ))
+                            .ok();
+                    }
+                    ToolUpdateResult::Redraw
                 } else {
                     ToolUpdateResult::Unmodified
                 }
@@ -441,6 +881,21 @@ impl Tool for CropTool {
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
+        // Once a crop has been committed (Enter pressed and the user is
+        // looking at the zoomed-in view), Primary mouse events are
+        // locked out entirely. Without this guard, BeginDrag→Move would
+        // shift `crop.pos` and the fit-to-canvas transform would render
+        // a different region of the underlying image — the user
+        // perceives it as panning, even though the original is staying
+        // put and what's really happening is the crop is dragging out
+        // from under them. To re-edit, switch tools and switch back —
+        // `handle_activated` flips `active` on and `committed` off.
+        if let Some(crop) = &self.crop
+            && crop.is_committed()
+            && event.button == MouseButton::Primary
+        {
+            return ToolUpdateResult::Unmodified;
+        }
         match event.type_ {
             MouseEventType::Click if event.button == MouseButton::Secondary => {
                 if let Some(crop) = &self.crop
@@ -452,13 +907,13 @@ impl Tool for CropTool {
                 }
             }
             MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
-                self.begin_drag(event.pos)
+                self.begin_drag(event.pos, event.modifier)
             }
             MouseEventType::EndDrag if event.button == MouseButton::Primary => {
-                self.end_drag(event.pos)
+                self.end_drag(event.pos, event.modifier)
             }
             MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
-                self.update_drag(event.pos)
+                self.update_drag(event.pos, event.modifier)
             }
             _ => ToolUpdateResult::Unmodified,
         }
@@ -466,7 +921,27 @@ impl Tool for CropTool {
 
     fn handle_activated(&mut self) -> ToolUpdateResult {
         if let Some(c) = &mut self.crop {
+            // Re-entering the crop tool drops the user back into edit
+            // mode against the original image — we suppress the
+            // committed/zoomed view so the crop tool can render its
+            // overlay against the full bounds. The crop region itself
+            // is preserved so the user adjusts what they had.
             c.active = true;
+            c.committed = false;
+            return ToolUpdateResult::Redraw;
+        }
+        // First time entering Crop with no prior crop on file — seed a
+        // box covering the whole image so the user has corner/edge
+        // handles to drag inward immediately, rather than landing on a
+        // bare canvas and having to draw a rectangle from scratch.
+        if let Some(bounds) = self.image_bounds {
+            self.crop = Some(Crop {
+                pos: Vec2D::zero(),
+                size: bounds,
+                active: true,
+                committed: false,
+                ever_committed: false,
+            });
             return ToolUpdateResult::Redraw;
         }
         ToolUpdateResult::Unmodified

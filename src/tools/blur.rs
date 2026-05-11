@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
+use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img, rgb::RGBA8};
+use serde_derive::Deserialize;
 
 use relm4::{Sender, gtk::gdk::Key};
 
@@ -17,11 +18,41 @@ use super::{
     bbox_handles, bbox_resize, halo_in_image_units,
 };
 
+/// Algorithm used to obscure the region covered by a Blur drawable.
+///
+/// `Gaussian` matches Satty's historical behavior — a `femtovg`
+/// `GaussianBlur` filter applied to a screenshot of the region. It
+/// looks soft and natural but is **reversible** in principle: Gaussian
+/// blur is a linear convolution, and modern AI deblurring models can
+/// recover legible text or faces from blurred regions. Use it for
+/// aesthetic blur, not for redaction.
+///
+/// `Pixelate` is a coarse block-mean mosaic with 4-bit-per-channel
+/// quantization (see `Blur::pixelate`). The information loss makes it
+/// much harder to reverse than Gaussian — both naive deconvolution
+/// and ML depixelation attacks have far less signal to work with.
+/// Still not perfect (no rasterized redaction is), but the right
+/// choice when the user wants to actually hide content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlurStyle {
+    /// Gaussian blur — soft, natural-looking, but reversible.
+    #[default]
+    Gaussian,
+    /// Pixelated mosaic — coarse blocks with quantized colors. Harder
+    /// to reverse than Gaussian; use for redacting sensitive content.
+    Pixelate,
+}
+
 #[derive(Clone, Debug)]
 pub struct Blur {
     top_left: Vec2D,
     size: Option<Vec2D>,
     style: Style,
+    /// Obscuring algorithm baked in at creation. Existing Blur
+    /// drawables keep their original algorithm even if the toolbar
+    /// dropdown is later switched — matches how `arrow_style` works.
+    blur_style: BlurStyle,
     editing: bool,
     cached_image: RefCell<Option<ImageId>>,
 }
@@ -65,9 +96,114 @@ impl Blur {
 
         Ok(dst_image_id)
     }
+
+    /// Build a pixelated (block-mean mosaic) image of the canvas region
+    /// `(pos, size)` for irreversibility-grade redaction.
+    ///
+    /// Implementation:
+    /// 1. Grab the same screenshot sub-image the Gaussian path uses,
+    ///    so the source is the rasterized canvas under the blur region.
+    /// 2. Downsample to `(src_w / cell_px, src_h / cell_px)` by averaging
+    ///    each `cell_px × cell_px` source block's pixels — true mean of
+    ///    the underlying content. Output is one quantized RGBA per cell.
+    /// 3. Quantize each channel to 4 bits (16 levels) by masking the
+    ///    low nibble (`c & 0xF0 | c >> 4`). This destroys the
+    ///    fine-grained mean information that ML depixelation models
+    ///    rely on — recovery degrades from "near-perfect for known
+    ///    content" to "extremely lossy". Visually, the user mostly
+    ///    sees mild palette banding at coarse cell sizes.
+    /// 4. Upload with `ImageFlags::NEAREST` so the GPU upsample back
+    ///    to the destination rect preserves crisp block edges instead
+    ///    of smoothing them via bilinear filtering — the pixelated
+    ///    look the user expects.
+    ///
+    /// `cell_px` is in *canvas* (post-transform) pixels so the visible
+    /// block size stays constant regardless of zoom, matching how the
+    /// Gaussian sigma is interpreted.
+    fn pixelate(
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        pos: Vec2D,
+        size: Vec2D,
+        cell_px: f32,
+    ) -> Result<ImageId> {
+        let img = canvas.screenshot()?;
+
+        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
+        let transformed_size = size * canvas.transform().average_scale();
+        let canvas_cell = (cell_px * canvas.transform().average_scale())
+            .round()
+            .max(2.0) as usize;
+
+        let src_w = (transformed_size.x as usize).max(1);
+        let src_h = (transformed_size.y as usize).max(1);
+
+        let (buf, _, _) = img
+            .sub_image(
+                transformed_pos.0 as usize,
+                transformed_pos.1 as usize,
+                src_w,
+                src_h,
+            )
+            .to_contiguous_buf();
+        let src = buf.as_ref();
+
+        let dst_w = src_w.div_ceil(canvas_cell);
+        let dst_h = src_h.div_ceil(canvas_cell);
+        let mut down: Vec<RGBA8> = Vec::with_capacity(dst_w * dst_h);
+
+        for dy in 0..dst_h {
+            for dx in 0..dst_w {
+                let mut sum_r: u32 = 0;
+                let mut sum_g: u32 = 0;
+                let mut sum_b: u32 = 0;
+                let mut sum_a: u32 = 0;
+                let mut count: u32 = 0;
+                let x0 = dx * canvas_cell;
+                let y0 = dy * canvas_cell;
+                let x1 = (x0 + canvas_cell).min(src_w);
+                let y1 = (y0 + canvas_cell).min(src_h);
+                for sy in y0..y1 {
+                    let row = sy * src_w;
+                    for sx in x0..x1 {
+                        let p = src[row + sx];
+                        sum_r += p.r as u32;
+                        sum_g += p.g as u32;
+                        sum_b += p.b as u32;
+                        sum_a += p.a as u32;
+                        count += 1;
+                    }
+                }
+                let (r, g, b, a) = if count > 0 {
+                    (
+                        (sum_r / count) as u8,
+                        (sum_g / count) as u8,
+                        (sum_b / count) as u8,
+                        (sum_a / count) as u8,
+                    )
+                } else {
+                    (0, 0, 0, 0)
+                };
+                // 4-bit-per-channel quantization. `c & 0xF0` zeroes the
+                // low nibble; `| c >> 4` smears the high nibble into it
+                // so the 16 representable values span 0..=255 evenly
+                // (0x00, 0x11, 0x22, …, 0xFF) instead of clustering at
+                // the low end.
+                let q = |c: u8| (c & 0xF0) | (c >> 4);
+                down.push(RGBA8::new(q(r), q(g), q(b), q(a)));
+            }
+        }
+
+        let down_img = Img::new(down, dst_w, dst_h);
+        let dst_image_id = canvas.create_image(down_img.as_ref(), ImageFlags::NEAREST)?;
+        Ok(dst_image_id)
+    }
 }
 
 impl Drawable for Blur {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -110,14 +246,25 @@ impl Drawable for Blur {
 
             // create new cached image
             if self.cached_image.borrow().is_none() {
-                self.cached_image.borrow_mut().replace(Self::blur(
-                    canvas,
-                    pos,
-                    size,
-                    self.style
-                        .size
-                        .to_blur_factor(self.style.annotation_size_factor),
-                )?);
+                let id = match self.blur_style {
+                    BlurStyle::Gaussian => Self::blur(
+                        canvas,
+                        pos,
+                        size,
+                        self.style
+                            .size
+                            .to_blur_factor(self.style.annotation_size_factor),
+                    )?,
+                    BlurStyle::Pixelate => Self::pixelate(
+                        canvas,
+                        pos,
+                        size,
+                        self.style
+                            .size
+                            .to_pixelate_cell_size(self.style.annotation_size_factor),
+                    )?,
+                };
+                self.cached_image.borrow_mut().replace(id);
             }
 
             let mut path = Path::new();
@@ -174,6 +321,10 @@ impl Drawable for Blur {
         self.cached_image.borrow_mut().take();
     }
 
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -208,6 +359,10 @@ impl Drawable for Blur {
 pub struct BlurTool {
     blur: Option<Blur>,
     style: Style,
+    /// Currently-selected obscuring algorithm. Captured into each new
+    /// `Blur` at creation; committed Blurs keep their original style
+    /// even if the toolbar later switches.
+    blur_style: BlurStyle,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
 }
@@ -237,6 +392,7 @@ impl Tool for BlurTool {
                     top_left: event.pos,
                     size: None,
                     style: self.style,
+                    blur_style: self.blur_style,
                     editing: true,
                     cached_image: RefCell::new(None),
                 });
@@ -309,5 +465,9 @@ impl Tool for BlurTool {
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
         self.sender = Some(sender);
+    }
+
+    fn set_blur_style(&mut self, style: BlurStyle) {
+        self.blur_style = style;
     }
 }

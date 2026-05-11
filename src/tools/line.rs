@@ -32,6 +32,10 @@ pub struct Line {
 }
 
 impl Drawable for Line {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -113,6 +117,10 @@ impl Drawable for Line {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
     }
 
     fn render_glow(

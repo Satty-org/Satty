@@ -9,7 +9,8 @@ use std::{
 };
 
 use femtovg::{
-    Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat, Transform2D,
+    Canvas, CompositeOperation, FontId, ImageFlags, ImageId, ImageSource, Paint, Path,
+    PixelFormat, RenderTarget, Transform2D,
     imgref::{Img, ImgVec},
     renderer,
     rgb::{RGB, RGBA, RGBA8},
@@ -32,6 +33,137 @@ use super::{font_stack, set_font_stack};
 
 const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 
+/// Breathing room (in CSS px) around the rendered screenshot inside
+/// the canvas. Gives the image visual separation from the toolbars
+/// and lets the drop shadow fall outside the image edges. Mirrors
+/// the standard approach. Scaled to canvas pixels at render time via
+/// the device pixel ratio.
+const CANVAS_PADDING_CSS: f32 = 40.0;
+/// macOS-style soft drop shadow: blur radius in CSS px. The shadow
+/// is a box-gradient that fades from semi-transparent black at the
+/// image edge to fully transparent over this distance.
+const SHADOW_BLUR_CSS: f32 = 18.0;
+/// Vertical offset of the shadow (CSS px). A small downward shift
+/// suggests a light source from above — matches macOS window shadow
+/// conventions.
+const SHADOW_OFFSET_Y_CSS: f32 = 4.0;
+/// Peak alpha of the drop shadow at the image edge. Semi-transparent
+/// black; lower values feel insubstantial, higher values look harsh.
+const SHADOW_ALPHA: f32 = 0.30;
+/// Maximum overshoot (CSS px) the rubber-band rendering will display
+/// when the user pans past the image edge. The hyperbolic damping
+/// in `rubber_band` asymptotes to this value, so it's the "elastic
+/// stretch" budget.
+const RUBBER_BAND_MAX_OVERSHOOT_CSS: f32 = 100.0;
+/// Hyperbolic-damping constant. Apple's reference value is 0.55;
+/// lower numbers add more resistance (1 px of drag produces less
+/// visible motion at the limit), higher numbers feel loose. 0.30
+/// gives the canvas a heavier, more deliberate feel when you push
+/// past the edge — less of a flick, more of a tug.
+const RUBBER_BAND_RESISTANCE: f32 = 0.30;
+/// How long the user must be idle before the spring-back animation
+/// kicks in. Short enough that releasing your fingers feels snappy,
+/// long enough that mid-gesture pauses don't trigger a jarring
+/// retreat.
+const SPRING_BACK_IDLE_MS: u128 = 40;
+/// Tick interval for the spring-back timer. ~60 fps so the recovery
+/// looks fluid on standard refresh rates.
+pub const SPRING_BACK_TICK_MS: u64 = 16;
+/// Natural angular frequency of the spring-back animation
+/// (`ω = sqrt(k/m)` with m=1). Settling time for a critically
+/// damped spring is roughly `4/ω`. ω=18 ≈ 220 ms settling — a hair
+/// faster than macOS' overscroll recovery so the long exponential
+/// tail doesn't drag on. Raise it for snappier, lower for softer.
+const SPRING_BACK_OMEGA: f32 = 18.0;
+/// Position-snap threshold (image-space px). Past this proximity to
+/// the limit, force `drag_offset` to exactly the limit so we stop
+/// drifting on subpixel residuals from the long exponential tail.
+const SPRING_BACK_SNAP_EPS: f32 = 0.5;
+/// Fraction of the initial displacement that triggers the snap
+/// (combined with `SPRING_BACK_SNAP_EPS` so we stop the timer once
+/// we're effectively at the target rather than chasing the
+/// asymptotic tail forever).
+const SPRING_BACK_DONE_FRACTION: f32 = 0.004;
+/// Hyperbolic rubber-band damping. Returns the rendered offset for a
+/// given raw `value`: untouched while within `±limit`, then damped
+/// past the limit so the visible offset asymptotes at `limit +
+/// max_overshoot`. Matches the curve used by UIScrollView's elastic
+/// scrolling — the further the user pulls, the more resistance.
+fn rubber_band(value: f32, limit: f32, max_overshoot: f32) -> f32 {
+    if value.abs() <= limit || max_overshoot <= 0.0 {
+        return value;
+    }
+    let sign = value.signum();
+    let beyond = value.abs() - limit;
+    let damped = max_overshoot
+        * (1.0 - 1.0 / (1.0 + beyond * RUBBER_BAND_RESISTANCE / max_overshoot));
+    sign * (limit + damped)
+}
+
+/// Inverse of `rubber_band`: given the desired visible offset, return
+/// the `drag_offset` value that would produce it. Used by the
+/// spring-back animation so we can drive the VISIBLE offset on a
+/// smooth curve and let the renderer's rubber-band map handle the
+/// rest — animating `drag_offset` directly through this non-linear
+/// map produced the "stuck then snap" feel (most of the curve was
+/// spent near the asymptote where visible motion barely changes).
+fn inverse_rubber_band(visible: f32, limit: f32, max_overshoot: f32) -> f32 {
+    if visible.abs() <= limit || max_overshoot <= 0.0 || RUBBER_BAND_RESISTANCE <= 0.0 {
+        return visible;
+    }
+    let sign = visible.signum();
+    let v_over = (visible.abs() - limit).min(max_overshoot - 0.001);
+    let drag_over =
+        max_overshoot * v_over / (RUBBER_BAND_RESISTANCE * (max_overshoot - v_over));
+    sign * (limit + drag_over)
+}
+
+/// Closed-form critically damped spring response. Returns the
+/// fraction of the initial displacement that REMAINS at time `t`
+/// (seconds). At `t = 0` the value is `1` (no movement yet); as `t`
+/// grows the value approaches `0` (fully recovered). The curve has
+/// zero slope at `t = 0` (gentle start), accelerates quickly, then
+/// decelerates into the target via a long exponential tail — same
+/// shape UIScrollView uses for overscroll release.
+fn critically_damped_remaining(t: f32) -> f32 {
+    let wt = SPRING_BACK_OMEGA * t;
+    (1.0 + wt) * (-wt).exp()
+}
+
+/// Compute the spring-back position for a single axis given the
+/// animation's start position and elapsed time. `start` is where
+/// `drag_offset` sat the moment the animation began; the target is
+/// the nearest hard limit (or `start` itself if already inside).
+/// Returns `(new_value, done)` where `done` is true once we're
+/// either snapped to the limit or the spring has decayed enough
+/// that the residual is invisible.
+fn spring_back_progress(start: f32, limit: f32, elapsed_ms: f32) -> (f32, bool) {
+    if start.abs() <= limit {
+        return (start, true);
+    }
+    let target = if start > 0.0 { limit } else { -limit };
+    let t = elapsed_ms / 1000.0;
+    let remaining = critically_damped_remaining(t);
+    let value = target + (start - target) * remaining;
+    let snapped =
+        remaining < SPRING_BACK_DONE_FRACTION || (value - target).abs() < SPRING_BACK_SNAP_EPS;
+    if snapped {
+        (target, true)
+    } else {
+        (value, false)
+    }
+}
+
+/// Dark gray fill behind the screenshot (replaces solid black). Matches
+/// the surrounding toolbar chrome so the canvas reads as part of the
+/// app surface, not a void.
+const CANVAS_BG: femtovg::Color = femtovg::Color {
+    r: 0x24 as f32 / 255.0,
+    g: 0x24 as f32 / 255.0,
+    b: 0x24 as f32 / 255.0,
+    a: 1.0,
+};
+
 #[derive(Default)]
 pub struct FemtoVGArea {
     canvas: RefCell<Option<femtovg::Canvas<femtovg::renderer::OpenGl>>>,
@@ -43,6 +175,17 @@ pub struct FemtoVGArea {
     /// redundant `ZoomDisplayChanged` notifications during steady-state
     /// frame rendering.
     last_emitted_scale: RefCell<f32>,
+    /// Last `PanInfo` we emitted upstream. Stops us forwarding the same
+    /// scrollbar-update payload on every `update_transformation` —
+    /// without dedup, every spring-back / pinch / scroll tick fired a
+    /// fresh PanChanged → sync_scrollbars cycle even when nothing had
+    /// actually moved, which showed up as visible UI stutter.
+    last_emitted_pan: RefCell<Option<crate::sketch_board::PanInfo>>,
+    /// Active spring-back timer source. Started on each pan when the
+    /// drag offset is past its hard limit, cleared once the offset
+    /// has fully recovered — keeps the timer from running forever
+    /// while there's no rubber-band stretch to recover.
+    pub spring_back_timer: RefCell<Option<gtk::glib::SourceId>>,
 }
 
 pub struct FemtoVgAreaMut {
@@ -73,6 +216,51 @@ pub struct FemtoVgAreaMut {
     /// (selection handles) can render at constant CSS-pixel size while
     /// still looking sharp on HiDPI screens.
     device_pixel_ratio: f32,
+    /// Global darkness for the spotlight overlay (0.10–0.90, slider
+    /// range). Sketch_board pushes the toolbar slider value here on
+    /// every change; the renderer's spotlight pass reads it directly
+    /// at render time so the overlay updates live without redrawing
+    /// each spotlight Drawable.
+    spotlight_darkness: f32,
+    /// Scale + offset actually used by the most recent on-screen
+    /// render. Equal to `scale_factor` / `offset` in the normal case,
+    /// but switches to a "fit the committed crop into the canvas"
+    /// transform whenever a committed crop is present. Coordinate
+    /// conversions read these so a click on the zoomed crop lands at
+    /// the right image-space position.
+    effective_scale: f32,
+    effective_offset: Vec2D,
+    /// Canvas pixel dimensions captured at the last
+    /// `update_transformation` call. Used by
+    /// `set_pan_from_scrollbar` to translate a scrollbar adjustment
+    /// value (which is expressed in canvas pixels) into the
+    /// renderer's centered `drag_offset` representation without
+    /// having to thread the canvas reference all the way down.
+    last_canvas_size: Vec2D,
+    /// User-applied zoom multiplier ON TOP of the committed-crop's
+    /// fit-to-canvas scale. 1.0 = exactly fit, 2.0 = 2× the fit.
+    /// Lives separately from `zoom_scale` because committed crop has
+    /// its own base scale (the fit) and we want wheel-zoom inputs to
+    /// scale that base, not the underlying image's full-resolution
+    /// scale. Reset to 1.0 whenever the crop is dropped.
+    crop_zoom: f32,
+    /// Timestamp of the most recent pan input (wheel scroll or
+    /// trackpad swipe). `update_transformation` only applies the
+    /// spring-back lerp when this is older than `SPRING_BACK_IDLE_MS`
+    /// — otherwise we'd fight the user's active gesture.
+    last_pan_input: std::time::Instant,
+    /// In-flight spring-back animation, if any. `Some((start_time,
+    /// start_visible))` once the user has been idle long enough that
+    /// we start easing the canvas back to the limit; cleared on
+    /// `pan_by` and when the animation completes. `start_visible` is
+    /// the **rendered** offset at release (after rubber-band), not
+    /// the raw `drag_offset` — we animate that smoothly to the
+    /// nearest limit and back-solve a `drag_offset` per frame via
+    /// `inverse_rubber_band`. Animating the raw offset directly was
+    /// where the "stuck-then-snap" recovery came from: the
+    /// nonlinear rubber-band map ate most of the visible motion in
+    /// the first half of the curve, then released it in the second.
+    spring_back_anim: Option<(std::time::Instant, Vec2D)>,
 }
 
 #[glib::object_subclass]
@@ -119,17 +307,30 @@ impl GLAreaImpl for FemtoVGArea {
             dpr,
         );
 
-        // update scale factor
-        let scale_factor = {
+        // update scale factor + pan; capture the snapshot we need
+        // for the upstream notifications BEFORE releasing the inner
+        // borrow so the emit paths don't have to re-acquire it.
+        let (scale_factor, pan_info) = {
             let mut inner_ref = self.inner();
             let inner = inner_ref
                 .as_mut()
                 .expect("Did you call init before using FemtoVgArea?");
             inner.device_pixel_ratio = dpr;
             inner.update_transformation(canvas);
-            inner.scale_factor
+            let image_w = inner.background_image.width() as f32;
+            let image_h = inner.background_image.height() as f32;
+            let pan_info = crate::sketch_board::PanInfo {
+                drag_x: inner.drag_offset.x,
+                drag_y: inner.drag_offset.y,
+                image_w_scaled: image_w * inner.scale_factor,
+                image_h_scaled: image_h * inner.scale_factor,
+                canvas_w: canvas.width() as f32,
+                canvas_h: canvas.height() as f32,
+            };
+            (inner.scale_factor, pan_info)
         };
         self.notify_zoom_display(scale_factor);
+        self.notify_pan_display(pan_info);
     }
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
         self.ensure_canvas();
@@ -190,6 +391,25 @@ impl FemtoVGArea {
         }
     }
 
+    /// Forward a `PanDisplayChanged` event so the App's scrollbars
+    /// can sync their visibility + values. Deduped against the last
+    /// emitted value — `update_transformation` runs on every render
+    /// tick (including animation timers), and forwarding identical
+    /// PanInfo through SketchBoard → App → sync_scrollbars on each
+    /// tick was producing measurable UI lag on every relayout.
+    fn notify_pan_display(&self, info: crate::sketch_board::PanInfo) {
+        {
+            let mut last = self.last_emitted_pan.borrow_mut();
+            if last.as_ref() == Some(&info) {
+                return;
+            }
+            *last = Some(info);
+        }
+        if let Some(sender) = self.sender.borrow().as_ref() {
+            sender.emit(SketchBoardInput::PanDisplayChanged(info));
+        }
+    }
+
     pub fn init(
         &self,
         sender: Sender<SketchBoardInput>,
@@ -219,6 +439,13 @@ impl FemtoVGArea {
             is_drag: false,
             is_reset: false,
             device_pixel_ratio: 1.0,
+            spotlight_darkness: 0.50,
+            effective_scale: 1.0,
+            effective_offset: Vec2D::zero(),
+            last_canvas_size: Vec2D::zero(),
+            crop_zoom: 1.0,
+            last_pan_input: std::time::Instant::now(),
+            spring_back_anim: None,
         });
         self.sender.borrow_mut().replace(sender);
     }
@@ -264,21 +491,30 @@ impl FemtoVGArea {
                 .map_err(|e| anyhow::anyhow!("Failed to load font: {}", e))
         };
 
-        match load_font(
-            app_config.font().family().unwrap_or(""),
-            app_config.font().style(),
-        ) {
-            Ok(id) => {
-                loaded_fonts.push(id);
-            }
-            Err(e) => {
-                eprintln!("Primary font: {}", e);
+        // Prefer the user-configured font ONLY when they've explicitly
+        // set `font.family`. With no override we skip straight to the
+        // bundled Inter Display SemiBold below — the previous code's
+        // `unwrap_or("")` flow let fontconfig substitute whatever system
+        // default it picked (often a generic sans-serif that looked
+        // visually unrelated), defeating the point of bundling a
+        // font.
+        if let Some(family) = app_config.font().family() {
+            match load_font(family, app_config.font().style()) {
+                Ok(id) => {
+                    loaded_fonts.push(id);
+                }
+                Err(e) => {
+                    eprintln!("Primary font: {}", e);
+                }
             }
         }
 
         if loaded_fonts.is_empty() {
+            // Bundled Inter Display SemiBold — a clean sans-serif that
+            // reads well at small annotation-label sizes. Ships in
+            // `src/assets/`, license at `Inter-LICENSE.txt`.
             let fallback = text_context
-                .add_font_mem(&resource!("src/assets/Roboto-Regular.ttf"))
+                .add_font_mem(&resource!("src/assets/InterDisplay-SemiBold.ttf"))
                 .expect("Cannot add font");
             loaded_fonts.push(fallback);
         }
@@ -531,9 +767,28 @@ impl FemtoVgAreaMut {
     }
 
     /// Topmost drawable hit by `point` (image coords). Iterates back-to-front so
-    /// the most recently drawn (visually on top) wins.
+    /// the most recently drawn (visually on top) wins. Drawables hidden via
+    /// either tool's `dragging_drawable_id` are skipped — they're effectively
+    /// invisible (working copy renders on top), so they shouldn't be hit-test
+    /// targets either. `try_borrow` falls back to no filter when a tool is
+    /// already mutably borrowed (e.g. when PointerTool itself is calling
+    /// hit_test from inside its own handler), which is the safe direction:
+    /// worst case we hit-test more drawables than strictly necessary.
     pub fn hit_test(&self, point: Vec2D, tolerance: f32) -> Option<DrawableId> {
+        let dragging_active = self
+            .active_tool
+            .try_borrow()
+            .ok()
+            .and_then(|t| t.dragging_drawable_id());
+        let dragging_pointer = self
+            .pointer_tool
+            .try_borrow()
+            .ok()
+            .and_then(|t| t.dragging_drawable_id());
         for s in self.drawables.iter().rev() {
+            if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
+                continue;
+            }
             if s.drawable.hit_test(point, tolerance) {
                 return Some(s.id);
             }
@@ -558,6 +813,9 @@ impl FemtoVgAreaMut {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
     ) -> anyhow::Result<ImgVec<RGBA8>> {
+        // Publish DPR for text/UI sizing during the offscreen render
+        // (used for save/clipboard export).
+        super::set_current_device_pixel_ratio(self.device_pixel_ratio);
         let bounds = (
             Vec2D::zero(),
             Vec2D::new(
@@ -583,7 +841,7 @@ impl FemtoVgAreaMut {
             PixelFormat::Rgba8,
             ImageFlags::empty(),
         )?;
-        canvas.set_render_target(femtovg::RenderTarget::Image(image_id));
+        canvas.set_render_target(RenderTarget::Image(image_id));
 
         // apply offset
         let mut transform = Transform2D::identity();
@@ -597,13 +855,15 @@ impl FemtoVgAreaMut {
             false,
             femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
             false,
+            RenderTarget::Image(image_id),
+            transform,
         )?;
 
         // return screenshot
         let result = canvas.screenshot();
 
         // clean up
-        canvas.set_render_target(femtovg::RenderTarget::Screen);
+        canvas.set_render_target(RenderTarget::Screen);
         canvas.delete_image(image_id);
 
         Ok(result?)
@@ -614,18 +874,108 @@ impl FemtoVgAreaMut {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
     ) -> Result<()> {
-        canvas.set_render_target(femtovg::RenderTarget::Screen);
+        canvas.set_render_target(RenderTarget::Screen);
+        // Publish current DPR so drawables can size CSS-pixel UI
+        // (text editing handles, outlines) inside `Drawable::draw`
+        // without us having to thread it through every impl.
+        super::set_current_device_pixel_ratio(self.device_pixel_ratio);
 
-        // setup transform to image coordinates
-        let mut transform = Transform2D::identity();
-        transform.scale(self.scale_factor, self.scale_factor);
-        transform.translate(self.offset.x, self.offset.y);
+        // Choose between the regular pan/zoom transform and a
+        // committed-crop fit transform. The crop fit centers and
+        // scales the cropped region into the canvas; combined with
+        // a scissor at the same canvas-space rect, anything outside
+        // the crop renders as the canvas's clear color (black) so
+        // the user sees only the cropped image.
+        let canvas_w = canvas.width() as f32;
+        let canvas_h = canvas.height() as f32;
+        let (transform, scissor, eff_scale, eff_offset) = if let Some((crop_pos, crop_size)) =
+            self.crop_tool.borrow().get_committed_rect()
+            && crop_size.x > 0.0
+            && crop_size.y > 0.0
+        {
+            let fit_scale = (canvas_w / crop_size.x).min(canvas_h / crop_size.y);
+            // Apply the user's wheel-zoom on top of the fit. At 1.0
+            // we're exactly fit-to-canvas; above 1.0 the crop
+            // exceeds the canvas on the dominant axis and pan via
+            // `drag_offset` becomes meaningful.
+            let scale = fit_scale * self.crop_zoom;
+            let crop_canvas_w = crop_size.x * scale;
+            let crop_canvas_h = crop_size.y * scale;
+            // pad_* can be negative when crop_zoom > 1; that's fine,
+            // the scissor below clips back to the visible window.
+            let pad_x = (canvas_w - crop_canvas_w) / 2.0;
+            let pad_y = (canvas_h - crop_canvas_h) / 2.0;
+            // Clamp the user's pan to the in-bounds range for the
+            // zoomed crop. If the crop fits entirely (excess ≤ 0)
+            // there's no room to scroll, so the pan is pinned to 0
+            // and the crop stays centered.
+            let excess_x = (crop_canvas_w - canvas_w).max(0.0);
+            let excess_y = (crop_canvas_h - canvas_h).max(0.0);
+            self.drag_offset.x =
+                self.drag_offset.x.clamp(-excess_x / 2.0, excess_x / 2.0);
+            self.drag_offset.y =
+                self.drag_offset.y.clamp(-excess_y / 2.0, excess_y / 2.0);
+            self.last_offset = self.drag_offset;
+            let offset_x = pad_x - scale * crop_pos.x + self.drag_offset.x;
+            let offset_y = pad_y - scale * crop_pos.y + self.drag_offset.y;
+            let mut t = Transform2D::identity();
+            t.scale(scale, scale);
+            t.translate(offset_x, offset_y);
+            // Scissor takes coords in the CURRENT transform's space —
+            // i.e., image space once the crop-fit transform is applied.
+            // Passing canvas-pixel values here would silently mis-clip
+            // every drawable whose geometry extends past the crop edges
+            // (the background image alone clips correctly by virtue of
+            // the transform mapping its non-crop pixels off-canvas;
+            // strokes that crossed the crop boundary leaked through).
+            (
+                t,
+                Some((crop_pos.x, crop_pos.y, crop_size.x, crop_size.y)),
+                scale,
+                Vec2D::new(offset_x, offset_y),
+            )
+        } else {
+            // Leaving committed-crop view (or never entered) — reset
+            // the user's crop-zoom multiplier so the next commit
+            // starts cleanly at fit-to-canvas (1.0). Without this, a
+            // user who zoomed inside a crop, reverted, and re-cropped
+            // would land in the new committed view at the OLD zoom
+            // multiplier (surprising).
+            self.crop_zoom = 1.0;
+            let mut t = Transform2D::identity();
+            t.scale(self.scale_factor, self.scale_factor);
+            t.translate(self.offset.x, self.offset.y);
+            (t, None, self.scale_factor, self.offset)
+        };
+
+        // Cache the effective transform so input-coord conversion
+        // routes through the same scale/offset the user is seeing.
+        self.effective_scale = eff_scale;
+        self.effective_offset = eff_offset;
 
         canvas.reset_transform();
         canvas.set_transform(&transform);
 
-        //TODO: make background color configurable
-        self.render(canvas, font, true, femtovg::Color::black(), true)?;
+        if let Some((sx, sy, sw, sh)) = scissor {
+            canvas.scissor(sx, sy, sw, sh);
+        }
+
+        // Dark-gray fill behind the image (CANVAS_BG) gives the
+        // canvas a standard-like surface tone that matches the
+        // toolbar chrome, rather than a solid black void.
+        self.render(
+            canvas,
+            font,
+            true,
+            CANVAS_BG,
+            true,
+            RenderTarget::Screen,
+            transform,
+        )?;
+
+        if scissor.is_some() {
+            canvas.reset_scissor();
+        }
 
         Ok(())
     }
@@ -637,6 +987,8 @@ impl FemtoVgAreaMut {
         render_crop: bool,
         outside_bg_color: femtovg::Color,
         onscreen: bool,
+        restore_target: RenderTarget,
+        restore_transform: Transform2D,
     ) -> Result<()> {
         // clear canvas
 
@@ -662,14 +1014,27 @@ impl FemtoVgAreaMut {
             if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
                 continue;
             }
+            // Spotlights render in `render_spotlight_pass` after this
+            // loop so the dark overlay sits ABOVE every other annotation
+            // (and so multiple spotlight shapes union into one dark
+            // layer instead of stacking their alpha).
+            if s.drawable.is_spotlight() {
+                continue;
+            }
+            let is_selected = selected_ids.contains(&s.id);
             // Render the selection glow underneath each selected drawable so
             // the wide blue trace is half-clipped by the drawable on top —
             // leaving only an outer halo.
-            if selected_ids.contains(&s.id) {
+            if is_selected {
                 s.drawable
                     .render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
             }
+            // Publish selection state so drawables that draw their
+            // own selection decorations (e.g. text's outline) can
+            // see fresh layout in the same draw call.
+            super::set_current_drawable_is_selected(is_selected);
             s.drawable.draw(canvas, font, bounds)?;
+            super::set_current_drawable_is_selected(false);
         }
 
         let pointer_is_active = Rc::ptr_eq(&self.active_tool, &self.pointer_tool);
@@ -681,10 +1046,14 @@ impl FemtoVgAreaMut {
         {
             let at = self.active_tool.borrow();
             if let Some(d) = at.get_drawable() {
-                if pointer_is_active && at.dragging_drawable_id().is_some() {
+                let is_selected_drag = pointer_is_active
+                    && at.dragging_drawable_id().is_some();
+                if is_selected_drag {
                     d.render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
                 }
+                super::set_current_drawable_is_selected(is_selected_drag);
                 d.draw(canvas, font, bounds)?;
+                super::set_current_drawable_is_selected(false);
             }
         }
 
@@ -694,10 +1063,21 @@ impl FemtoVgAreaMut {
             && let Some(d) = self.pointer_tool.borrow().get_drawable()
         {
             d.render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
+            super::set_current_drawable_is_selected(true);
             d.draw(canvas, font, bounds)?;
+            super::set_current_drawable_is_selected(false);
         }
 
+        // Spotlight pass: dark overlay outside the union of all
+        // spotlight shapes. Drawn BEFORE the selection overlay so the
+        // selection handles render on top at full brightness — without
+        // this order, a spotlight selection's handles would be sitting
+        // beneath their own dark overlay and look dimmed/half-eaten.
+        self.render_spotlight_overlay(canvas, bounds, restore_target, restore_transform)?;
+
         // Selection overlay (marquee + handles for single selection).
+        // Always on top of the spotlight overlay so handles stay
+        // grabbable and visible at the standard standard blue.
         let single_selected_drawable = if selected_ids.len() == 1 {
             self.drawables
                 .iter()
@@ -721,6 +1101,143 @@ impl FemtoVgAreaMut {
 
         canvas.flush();
         Ok(())
+    }
+
+    /// Build the inverse-mask dark overlay and composite it on top of
+    /// the current canvas. No-ops when there are no spotlight shapes
+    /// or when darkness rounds to zero. Multiple spotlight shapes
+    /// union correctly because the punch-out happens against an
+    /// offscreen layer first — doing it directly on the main canvas
+    /// would erase the underlying screenshot in the punched regions.
+    ///
+    /// `restore_target` is the render target the caller had set
+    /// before invoking this pass. We switch to a temporary offscreen
+    /// image to build the punched overlay, then restore to
+    /// `restore_target` and composite back. The caller's transform
+    /// is re-established here too (image-space → canvas-space) so
+    /// callers don't need to re-set their transform afterward.
+    fn render_spotlight_overlay(
+        &self,
+        canvas: &mut Canvas<renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        restore_target: RenderTarget,
+        restore_transform: Transform2D,
+    ) -> Result<()> {
+        let darkness = self.spotlight_darkness.clamp(0.0, 1.0);
+        if darkness < 0.001 {
+            return Ok(());
+        }
+
+        // Collect every spotlight path (committed + the active tool's
+        // in-progress one, if any). Pointer-tool drag previews can
+        // also be spotlights when a user grabs an existing spotlight
+        // to move it — surface those too so the live drag follows.
+        let mut paths: Vec<Path> = Vec::new();
+        let dragging_active = self.active_tool.borrow().dragging_drawable_id();
+        let dragging_pointer = self.pointer_tool.borrow().dragging_drawable_id();
+        for s in &self.drawables {
+            if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
+                continue;
+            }
+            if s.drawable.is_spotlight() {
+                let mut p = Path::new();
+                s.drawable.append_spotlight_path(&mut p);
+                paths.push(p);
+            }
+        }
+        {
+            let at = self.active_tool.borrow();
+            if let Some(d) = at.get_drawable()
+                && d.is_spotlight()
+            {
+                let mut p = Path::new();
+                d.append_spotlight_path(&mut p);
+                paths.push(p);
+            }
+        }
+        if !Rc::ptr_eq(&self.active_tool, &self.pointer_tool)
+            && let Some(d) = self.pointer_tool.borrow().get_drawable()
+            && d.is_spotlight()
+        {
+            let mut p = Path::new();
+            d.append_spotlight_path(&mut p);
+            paths.push(p);
+        }
+        if paths.is_empty() {
+            return Ok(());
+        }
+
+        let img_w = (bounds.1.x - bounds.0.x).max(1.0) as usize;
+        let img_h = (bounds.1.y - bounds.0.y).max(1.0) as usize;
+
+        // Offscreen target for the punched overlay. FLIP_Y because
+        // GL framebuffer-attached textures are bottom-up; without it
+        // the composited image lands upside-down on the screen
+        // target.
+        let overlay_id = canvas.create_image_empty(
+            img_w,
+            img_h,
+            PixelFormat::Rgba8,
+            ImageFlags::FLIP_Y,
+        )?;
+
+        canvas.flush();
+        canvas.set_render_target(RenderTarget::Image(overlay_id));
+        canvas.reset_transform();
+        canvas.clear_rect(
+            0,
+            0,
+            img_w as u32,
+            img_h as u32,
+            femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+        );
+
+        // Lay down the dark fill across the entire overlay.
+        let mut fill = Path::new();
+        fill.rect(0.0, 0.0, img_w as f32, img_h as f32);
+        let dark = Paint::color(femtovg::Color::rgbaf(0.0, 0.0, 0.0, darkness));
+        canvas.fill_path(&fill, &dark);
+
+        // Punch the spotlight shapes out of the dark overlay. The
+        // composite operation only cares about the source's alpha;
+        // any opaque color works.
+        canvas.global_composite_operation(CompositeOperation::DestinationOut);
+        let punch = Paint::color(femtovg::Color::rgbaf(1.0, 1.0, 1.0, 1.0));
+        for p in &paths {
+            canvas.fill_path(p, &punch);
+        }
+        canvas.global_composite_operation(CompositeOperation::SourceOver);
+        canvas.flush();
+
+        // Restore the caller's target + transform and composite the
+        // punched overlay on top.
+        canvas.set_render_target(restore_target);
+        canvas.reset_transform();
+        canvas.set_transform(&restore_transform);
+
+        let mut final_path = Path::new();
+        final_path.rect(0.0, 0.0, img_w as f32, img_h as f32);
+        let composited = Paint::image(
+            overlay_id,
+            0.0,
+            0.0,
+            img_w as f32,
+            img_h as f32,
+            0.0,
+            1.0,
+        );
+        canvas.fill_path(&final_path, &composited);
+        canvas.flush();
+
+        canvas.delete_image(overlay_id);
+        Ok(())
+    }
+
+    /// Update the global spotlight darkness used by the next render.
+    /// Sketch_board calls this on every slider change; the change
+    /// becomes visible after the next `request_render`.
+    pub fn set_spotlight_darkness(&mut self, value: f32) {
+        self.spotlight_darkness = value.clamp(0.0, 1.0);
     }
 
     fn render_background_image(
@@ -750,12 +1267,52 @@ impl FemtoVgAreaMut {
             _ => None,
         };
 
-        // render the image
-        let mut path = Path::new();
-
         let w = self.background_image.width() as f32;
         let h = self.background_image.height() as f32;
 
+        // Soft drop shadow under the screenshot. Only drawn for the
+        // on-screen view — saved exports keep the clean image with no
+        // chrome. We render the shadow in canvas-pixel space (transform
+        // temporarily reset) so the blur radius is a fixed CSS-px
+        // value at every zoom level instead of growing/shrinking with
+        // the scale factor.
+        if onscreen {
+            let saved_transform = canvas.transform();
+            canvas.reset_transform();
+
+            let dpr = self.device_pixel_ratio.max(0.0001);
+            let blur = SHADOW_BLUR_CSS * dpr;
+            let offset_y = SHADOW_OFFSET_Y_CSS * dpr;
+            let img_canvas_x = self.offset.x;
+            let img_canvas_y = self.offset.y + offset_y;
+            let img_canvas_w = w * self.scale_factor;
+            let img_canvas_h = h * self.scale_factor;
+
+            let mut shadow_path = Path::new();
+            shadow_path.rect(
+                img_canvas_x - blur,
+                img_canvas_y - blur,
+                img_canvas_w + 2.0 * blur,
+                img_canvas_h + 2.0 * blur,
+            );
+            let shadow_paint = Paint::box_gradient(
+                img_canvas_x,
+                img_canvas_y,
+                img_canvas_w,
+                img_canvas_h,
+                0.0,
+                blur,
+                femtovg::Color::rgbaf(0.0, 0.0, 0.0, SHADOW_ALPHA),
+                femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+            );
+            canvas.fill_path(&shadow_path, &shadow_paint);
+
+            canvas.reset_transform();
+            canvas.set_transform(&saved_transform);
+        }
+
+        // render the image
+        let mut path = Path::new();
         path.rect(0.0, 0.0, w, h);
 
         if let Some(id) = transparency_bg_id {
@@ -884,13 +1441,10 @@ impl FemtoVgAreaMut {
     ) {
         let image_width = self.background_image.width() as f32;
         let image_height = self.background_image.height() as f32;
-        let aspect_ratio = image_width / image_height;
 
         let canvas_width = canvas.width() as f32;
         let canvas_height = canvas.height() as f32;
-
-        let prev_scale = self.scale_factor;
-        let mut center_offset = Vec2D::zero();
+        self.last_canvas_size = Vec2D::new(canvas_width, canvas_height);
 
         // update scale_factor
         if self.zoom_scale != 0.0 {
@@ -899,42 +1453,139 @@ impl FemtoVgAreaMut {
                 self.scale_factor = self.zoom_scale;
 
                 if !self.is_reset {
-                    // calculate offset from pointer
-                    let pointer_offset = self.pointer_offset;
-                    let zoom_offset = Vec2D::new(
-                        (pointer_offset.x - self.offset.x) / prev_scale,
-                        (pointer_offset.y - self.offset.y) / prev_scale,
-                    );
-
-                    let calculated_offset = pointer_offset - zoom_offset * self.scale_factor;
-
-                    // update drag_offset
-                    center_offset = Vec2D::new(
-                        (canvas_width - image_width * self.scale_factor) / 2.0,
-                        (canvas_height - image_height * self.scale_factor) / 2.0,
-                    );
-
-                    self.drag_offset = calculated_offset - center_offset;
+                    // Keep the image centered on zoom — clear the
+                    // accumulated drag offset so `center_offset`
+                    // (below) places the image at the canvas's
+                    // middle. The old behavior computed a
+                    // cursor-relative offset which made the image
+                    // lurch toward the pointer on every zoom step
+                    // (disorienting for keyboard / button zooms
+                    // where there's no meaningful pointer anchor).
+                    // Wheel-pan still works because the user adjusts
+                    // drag_offset *after* zooming, not during.
+                    self.drag_offset = Vec2D::zero();
                     self.store_last_offset();
                 }
             } else {
                 self.scale_factor = self.zoom_scale;
             }
         } else {
-            self.scale_factor = if canvas_width / aspect_ratio <= canvas_height {
-                canvas_width / aspect_ratio / image_height
+            // Auto-fit branch (no user zoom yet) — pick the largest
+            // scale that lets the image sit inside the canvas with
+            // CANVAS_PADDING_CSS breathing room on every side. If
+            // the image already fits at native size (1:1) we render
+            // at 100%; if it's too large we drop the padding on the
+            // constrained axis so the image touches the canvas edge
+            // there, while the other axis still gets centered with
+            // whatever space is left. Matches the user spec: 100% if
+            // it fits, else scale down and let the constrained axis
+            // go edge-to-edge.
+            let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
+            let inner_w = (canvas_width - 2.0 * pad).max(image_width.min(canvas_width));
+            let inner_h = (canvas_height - 2.0 * pad).max(image_height.min(canvas_height));
+            let scale_with_pad = (inner_w / image_width).min(inner_h / image_height);
+            if scale_with_pad >= 1.0 {
+                self.scale_factor = 1.0;
             } else {
-                canvas_height * aspect_ratio / image_width
-            };
+                // Image is too large for the padded inner area —
+                // shrink to fill whichever canvas dimension is the
+                // tight one. The non-constrained dimension keeps
+                // whatever centering space remains.
+                self.scale_factor = (canvas_width / image_width).min(canvas_height / image_height);
+            }
         }
 
-        // final offset
-        if center_offset.is_zero() {
-            center_offset = Vec2D::new(
-                (canvas_width - image_width * self.scale_factor) / 2.0,
-                (canvas_height - image_height * self.scale_factor) / 2.0,
-            );
+        let center_offset = Vec2D::new(
+            (canvas_width - image_width * self.scale_factor) / 2.0,
+            (canvas_height - image_height * self.scale_factor) / 2.0,
+        );
+
+        // When the image fully fits the canvas on an axis (`excess
+        // == 0`) there's no scroll affordance at all, so we hard-pin
+        // the drag offset to zero on that axis — rubber-banding a
+        // fit-to-canvas image would let the user pull a perfectly
+        // centered screenshot off-center for no reason.
+        //
+        // For axes that DO have excess we let `drag_offset` grow
+        // freely; the rubber-band map below produces an ever-
+        // diminishing visible overshoot so further pulling at the
+        // extreme still translates to a sliver of motion (matches
+        // macOS' bottomless-elastic behavior) instead of slamming
+        // into a hard cap. The clamp at a very large multiple of
+        // `max_overshoot` is purely a guard against runaway float
+        // growth from minutes of held-down scrolling.
+        let excess_x = (image_width * self.scale_factor - canvas_width).max(0.0);
+        let excess_y = (image_height * self.scale_factor - canvas_height).max(0.0);
+        let limit_x = excess_x / 2.0;
+        let limit_y = excess_y / 2.0;
+        let max_overshoot = RUBBER_BAND_MAX_OVERSHOOT_CSS * self.device_pixel_ratio.max(0.0001);
+        let runaway_cap = 100.0 * max_overshoot.max(1.0);
+        if excess_x <= 0.0 {
+            self.drag_offset.x = 0.0;
+        } else {
+            self.drag_offset.x =
+                self.drag_offset.x.clamp(-limit_x - runaway_cap, limit_x + runaway_cap);
         }
+        if excess_y <= 0.0 {
+            self.drag_offset.y = 0.0;
+        } else {
+            self.drag_offset.y =
+                self.drag_offset.y.clamp(-limit_y - runaway_cap, limit_y + runaway_cap);
+        }
+
+        // Spring-back: once the user is idle, ease `drag_offset` back
+        // toward the nearest hard limit so the rubber-band stretch
+        // recovers smoothly. Skipped while a gesture is mid-flight
+        // (we'd fight the user's input) or while a drawable is being
+        // dragged (`is_drag`).
+        let idle_ms = std::time::Instant::now()
+            .duration_since(self.last_pan_input)
+            .as_millis();
+        if idle_ms > SPRING_BACK_IDLE_MS && !self.is_drag {
+            // Lock in the recovery start state — the VISIBLE offset
+            // at release (rubber-banded), not the raw drag_offset.
+            // Subsequent ticks ease this value toward the limit on a
+            // smooth curve, and we back-solve a drag_offset that
+            // reproduces the eased visible offset via the
+            // rubber-band map.
+            let (start_time, start_visible) = match self.spring_back_anim {
+                Some(s) => s,
+                None => {
+                    let visible = Vec2D::new(
+                        rubber_band(self.drag_offset.x, limit_x, max_overshoot),
+                        rubber_band(self.drag_offset.y, limit_y, max_overshoot),
+                    );
+                    let s = (std::time::Instant::now(), visible);
+                    self.spring_back_anim = Some(s);
+                    s
+                }
+            };
+            let elapsed_ms = start_time.elapsed().as_millis() as f32;
+            let (vis_x, done_x) =
+                spring_back_progress(start_visible.x, limit_x, elapsed_ms);
+            let (vis_y, done_y) =
+                spring_back_progress(start_visible.y, limit_y, elapsed_ms);
+            // Back-solve drag_offset so the rubber-band render below
+            // reproduces the eased visible value.
+            self.drag_offset.x = inverse_rubber_band(vis_x, limit_x, max_overshoot);
+            self.drag_offset.y = inverse_rubber_band(vis_y, limit_y, max_overshoot);
+            if done_x && done_y {
+                self.spring_back_anim = None;
+            }
+        } else {
+            // Active gesture (or no overshoot) — drop any pending
+            // animation so the next idle stretch starts a fresh
+            // recovery from the user's release point.
+            self.spring_back_anim = None;
+        }
+        self.last_offset = self.drag_offset;
+
+        // Rubber-band map for rendering: even with `drag_offset` past
+        // the limit, the OFFSET we hand to the canvas is damped via a
+        // hyperbolic curve that asymptotes at `limit + max_overshoot`.
+        // Pulling past the edge feels stretchy instead of slamming.
+        let effective_x = rubber_band(self.drag_offset.x, limit_x, max_overshoot);
+        let effective_y = rubber_band(self.drag_offset.y, limit_y, max_overshoot);
 
         if self.is_reset {
             //centered
@@ -942,25 +1593,110 @@ impl FemtoVgAreaMut {
             self.offset = center_offset;
         } else {
             //dragged
-            self.offset = center_offset + self.drag_offset;
+            self.offset = center_offset + Vec2D::new(effective_x, effective_y);
+        }
+    }
+
+    /// Pan the canvas by `(dx, dy)` canvas-space pixels. Accumulates
+    /// into `drag_offset`; the next `update_transformation` applies
+    /// rubber-band damping to the render side and (once the user is
+    /// idle) drives the ease-in-out recovery back inside the limit.
+    pub fn pan_by(&mut self, dx: f32, dy: f32) {
+        self.drag_offset.x += dx;
+        self.drag_offset.y += dy;
+        self.last_offset = self.drag_offset;
+        self.last_pan_input = std::time::Instant::now();
+        // User took over — abandon any in-flight recovery so the
+        // next idle stretch starts fresh from the new release point.
+        self.spring_back_anim = None;
+    }
+
+    /// True when `drag_offset` is currently outside the hard pan
+    /// limits — i.e. the rubber-band stretch is non-zero and the
+    /// spring-back timer should keep ticking until it's recovered.
+    pub fn drag_offset_overshoots(&self) -> bool {
+        let canvas_w = self.last_canvas_size.x;
+        let canvas_h = self.last_canvas_size.y;
+        if canvas_w <= 0.0 || canvas_h <= 0.0 {
+            return false;
+        }
+        let image_w = self.background_image.width() as f32 * self.scale_factor;
+        let image_h = self.background_image.height() as f32 * self.scale_factor;
+        let limit_x = (image_w - canvas_w).max(0.0) / 2.0;
+        let limit_y = (image_h - canvas_h).max(0.0) / 2.0;
+        self.drag_offset.x.abs() > limit_x + SPRING_BACK_SNAP_EPS
+            || self.drag_offset.y.abs() > limit_y + SPRING_BACK_SNAP_EPS
+    }
+
+    /// Apply a scrollbar value to one axis. Scrollbar values run
+    /// 0..=excess (where excess = image*scale − canvas), counted
+    /// from the top/left of the scaled image. Our `drag_offset` is
+    /// centered: `-excess/2` means the image is fully shifted left
+    /// (right edge visible), `+excess/2` is fully shifted right.
+    /// So `drag = excess/2 − value`. If the canvas size hasn't been
+    /// captured yet (no `update_transformation` has run), this is a
+    /// no-op — there's nothing to scroll on a zero-sized canvas.
+    pub fn set_pan_from_scrollbar(&mut self, is_horizontal: bool, value: f32) {
+        let image_w = self.background_image.width() as f32 * self.scale_factor;
+        let image_h = self.background_image.height() as f32 * self.scale_factor;
+        if is_horizontal {
+            let excess = (image_w - self.last_canvas_size.x).max(0.0);
+            if excess <= 0.0 {
+                return;
+            }
+            self.drag_offset.x = (excess / 2.0 - value).clamp(-excess / 2.0, excess / 2.0);
+        } else {
+            let excess = (image_h - self.last_canvas_size.y).max(0.0);
+            if excess <= 0.0 {
+                return;
+            }
+            self.drag_offset.y = (excess / 2.0 - value).clamp(-excess / 2.0, excess / 2.0);
+        }
+        self.last_offset = self.drag_offset;
+    }
+
+    /// Current image-to-canvas scale used for the most recent render.
+    /// Falls back to `scale_factor` if `update_transformation` hasn't
+    /// run yet (which would leave `effective_scale` at its 1.0 init).
+    pub fn effective_scale_or_fallback(&self) -> f32 {
+        if self.effective_scale > 0.0 {
+            self.effective_scale
+        } else {
+            self.scale_factor.max(1.0)
         }
     }
 
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
         Vec2D::new(
-            (input.x * dpi_scale_factor - self.offset.x) / self.scale_factor,
-            (input.y * dpi_scale_factor - self.offset.y) / self.scale_factor,
+            (input.x * dpi_scale_factor - self.effective_offset.x) / self.effective_scale,
+            (input.y * dpi_scale_factor - self.effective_offset.y) / self.effective_scale,
         )
     }
     pub fn rel_canvas_to_image_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
         Vec2D::new(
-            input.x * dpi_scale_factor / self.scale_factor,
-            input.y * dpi_scale_factor / self.scale_factor,
+            input.x * dpi_scale_factor / self.effective_scale,
+            input.y * dpi_scale_factor / self.effective_scale,
         )
     }
 
     pub fn set_zoom_scale(&mut self, factor: f32, abs: bool) {
         if self.is_drag {
+            return;
+        }
+
+        // In committed-crop mode the base scale is the fit-to-canvas
+        // calculation done at render time, not `scale_factor`. Route
+        // the user's zoom into `crop_zoom` (a multiplier on top of
+        // the fit) so wheel-up makes the crop larger and wheel-down
+        // makes it smaller. Clamp to 0.5×–8× so the user can't lose
+        // the image off-screen at one extreme or zoom out so far it
+        // becomes a dot at the other.
+        if self.crop_tool.borrow().get_committed_rect().is_some() {
+            if abs {
+                self.crop_zoom = factor.clamp(0.5, 8.0);
+            } else {
+                self.crop_zoom = (self.crop_zoom * factor).clamp(0.5, 8.0);
+            }
             return;
         }
 

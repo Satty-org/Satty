@@ -27,6 +27,10 @@ pub struct Ellipse {
 }
 
 impl Drawable for Ellipse {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -76,9 +80,29 @@ impl Drawable for Ellipse {
             .size
             .to_line_width(self.style.annotation_size_factor);
         let pad = stroke / 2.0 + tolerance;
-        let dx = (point.x - self.middle.x) / (rx + pad);
-        let dy = (point.y - self.middle.y) / (ry + pad);
-        dx * dx + dy * dy <= 1.0
+        // Outside the outer ellipse — definite miss.
+        let dx_outer = (point.x - self.middle.x) / (rx + pad);
+        let dy_outer = (point.y - self.middle.y) / (ry + pad);
+        if dx_outer * dx_outer + dy_outer * dy_outer > 1.0 {
+            return false;
+        }
+        // Filled: anywhere inside the silhouette is a hit.
+        if self.style.fill {
+            return true;
+        }
+        // Unfilled: hits only land on the stroke band. The inner
+        // edge is `pad` inside each radius; if either becomes
+        // non-positive the stroke fills the entire interior and
+        // every outer-hit is a real hit.
+        let inner_rx = rx - pad;
+        let inner_ry = ry - pad;
+        if inner_rx <= 0.0 || inner_ry <= 0.0 {
+            return true;
+        }
+        let dx_inner = (point.x - self.middle.x) / inner_rx;
+        let dy_inner = (point.y - self.middle.y) / inner_ry;
+        // Miss if we're INSIDE the inner ellipse (hollow middle).
+        dx_inner * dx_inner + dy_inner * dy_inner > 1.0
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -100,6 +124,10 @@ impl Drawable for Ellipse {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
     }
 
     fn render_glow(

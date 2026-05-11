@@ -1,6 +1,5 @@
 use configuration::{APP_CONFIG, Configuration};
 use std::io::Read;
-use std::ops::Deref;
 use std::process::exit;
 use std::sync::LazyLock;
 use std::{fs, ptr};
@@ -21,12 +20,18 @@ use anyhow::{Context, Result, anyhow};
 use satty_cli::command_line::{Fullscreen, Resize};
 
 use sketch_board::SketchBoardOutput;
-use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
+use ui::toolbars::{
+    RobustTooltipExt, StyleToolbar, StyleToolbarInput, ToolbarEvent, ToolsToolbar,
+    ToolsToolbarInput,
+};
+use ui::welcome::{WelcomeDialog, WelcomeDialogInit, WelcomeDialogOutput};
 use ui::zoom_indicator::{ZoomIndicator, ZoomIndicatorInput, ZoomIndicatorOutput};
 use xdg::BaseDirectories;
 
 mod configuration;
+mod display;
 mod femtovg_area;
+mod hyprland;
 mod icons;
 mod ime;
 mod math;
@@ -64,6 +69,67 @@ struct App {
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
     bottom_row: gtk::CenterBox,
+    /// Set when state has no persisted `annotation_size_factor` and the
+    /// welcome dialog still needs to run. Consumed by the `Realized`
+    /// handler so the dialog appears once the main window is on-screen
+    /// (and clears so it doesn't relaunch on subsequent realizes).
+    welcome_pending: bool,
+    /// Detected display scale to pre-fill the welcome dialog with.
+    /// Falls back to 1.0 if no signal is available.
+    detected_scale: f32,
+    /// Whether `detected_scale` came from an actual probe (currently
+    /// just Hyprland via `hyprctl`) or just the fallback. Controls the
+    /// wording of the dialog's hint text.
+    scale_detected: bool,
+    /// Holds the welcome dialog controller alive while it's showing.
+    /// Cleared on Saved so the window's widgets can be dropped.
+    welcome_controller: Option<Controller<WelcomeDialog>>,
+    /// "Snap to edges" checkbox for the crop tool, mounted in the
+    /// bottom-left cluster alongside the zoom indicator. Visible only
+    /// when the crop tool is active — uses the standard placement.
+    snap_to_edges_check: gtk::CheckButton,
+    /// Hint label that appears next to the snap checkbox while crop
+    /// is active. Keeps the affordance discoverable like a polished desktop tool.
+    snap_to_edges_hint: gtk::Label,
+    /// Horizontal cluster used as `bottom_row.start_widget`: zoom
+    /// indicator + snap checkbox + "Hold Ctrl…" hint. Stored so the
+    /// relm4 view! macro can reference it without re-creating widgets
+    /// on every update.
+    start_cluster: gtk::Box,
+    /// "Revert to Original" button mounted in `bottom_row.end_widget`.
+    /// Outside the StyleToolbar so its visibility toggling doesn't
+    /// shift the centered toolbar's width.
+    revert_button: gtk::Button,
+    /// Output dimensions label (`WIDTHxHEIGHT`) shown in the
+    /// bottom-right corner — opposite the zoom indicator. Lives
+    /// outside the StyleToolbar so it stays visible during Crop
+    /// mode (the StyleToolbar hides while cropping).
+    output_dimensions_label: gtk::Label,
+    /// Container Box for `bottom_row.end_widget`. Wraps the output
+    /// dimensions label + the Revert button so both can occupy the
+    /// CenterBox's single end slot.
+    end_cluster: gtk::Box,
+    /// Active drawing tool. App tracks it locally so revert-button
+    /// visibility can combine "we have a crop" with "we're in crop
+    /// mode" — Revert only appears on the dedicated crop bottom bar.
+    current_tool: Tools,
+    /// Whether a crop region currently exists (committed or in-edit).
+    /// Combined with `current_tool == Crop` to gate the Revert button.
+    has_crop: bool,
+    /// Horizontal scrollbar overlaid on the bottom of the canvas.
+    /// Hidden until the image is zoomed in past the canvas's width;
+    /// otherwise there's nothing to scroll.
+    scrollbar_h: gtk::Scrollbar,
+    /// Vertical scrollbar overlaid on the right side of the canvas.
+    scrollbar_v: gtk::Scrollbar,
+    /// Set true while `sync_scrollbars` is programmatically updating
+    /// the scrollbar adjustments. Read by the `value_changed`
+    /// callbacks so they ignore those changes — otherwise the
+    /// "renderer pans → sync scrollbar → callback → ask renderer to
+    /// pan → renderer pans …" feedback would loop indefinitely.
+    /// `Rc<Cell<bool>>` because the callbacks are independent
+    /// closures captured separately from the App model.
+    applying_scrollbar: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
 #[derive(Debug)]
@@ -76,9 +142,35 @@ enum AppInput {
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
+    /// First-run welcome dialog Save handler. Persists the chosen
+    /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
+    /// notifies the style toolbar so its display matches.
+    WelcomeDialogSaved(f32),
+    /// "Snap to edges" checkbox toggled. Forwards as a toolbar event
+    /// so sketch_board can route it into `CropTool::set_snap_to_edges`
+    /// and persist via `state::save_snap_to_edges`.
+    SnapToEdgesToggled(bool),
+    /// "Revert to Original" clicked. Lives outside the StyleToolbar
+    /// now (in `bottom_row.end_widget`) so its appearance/disappearance
+    /// doesn't shift the centered StyleToolbar's width.
+    RevertCropClicked,
     /// Renderer reports a new effective scale; forwarded to the
     /// zoom-indicator widget so its label stays in sync with scroll-zoom.
     ZoomChanged(f32),
+    /// Crop presence (edit OR committed) — drives the bottom toolbar's
+    /// "Revert to Original" button visibility.
+    CropPresenceChanged(bool),
+    /// Renderer pan state changed (wheel scroll or programmatic
+    /// reset). Updates the overlaid scrollbars' visibility + values.
+    PanChanged(sketch_board::PanInfo),
+    /// User dragged one of the scrollbars. The boolean is true for
+    /// the horizontal axis, false for vertical. The f32 is the new
+    /// adjustment value (canvas pixels of scroll offset).
+    ScrollbarChanged(bool, f32),
+    /// Selected drawable's style — forwarded from sketch_board so
+    /// the StyleToolbar (size slider, etc.) can sync to whatever
+    /// shape the user just selected. `None` means cleared / multi.
+    SelectionStyleChanged(Option<style::Style>),
 }
 
 #[derive(Debug)]
@@ -87,6 +179,66 @@ enum AppCommandOutput {
 }
 
 impl App {
+    /// Revert is shown only on the dedicated crop bottom bar — i.e.
+    /// when there's a crop AND the crop tool is active. Switching to
+    /// any other tool hides it (the crop persists; the user reverts
+    /// by switching back to Crop). Without this, Revert would clutter
+    /// the regular drawing-mode toolbar after the first commit.
+    fn update_revert_visibility(&self) {
+        self.revert_button
+            .set_visible(self.has_crop && self.current_tool == Tools::Crop);
+    }
+
+    /// Sync the canvas scrollbars to the renderer's current pan state.
+    /// Visible only on axes where the scaled image exceeds the
+    /// canvas (`upper > page_size`); otherwise there's nothing to
+    /// scroll, so showing the bar would be pure noise.
+    ///
+    /// We flip `applying_scrollbar` while writing the adjustments so
+    /// the `value_changed` callbacks ignore the programmatic updates
+    /// — without this, the "renderer pans → scrollbar value updates
+    /// → callback asks renderer to pan to that value → renderer
+    /// pans" cycle would loop indefinitely.
+    fn sync_scrollbars(&self, info: sketch_board::PanInfo) {
+        self.applying_scrollbar.set(true);
+        let configure = |bar: &gtk::Scrollbar,
+                         drag: f32,
+                         image_scaled: f32,
+                         canvas: f32| {
+            let needs = image_scaled > canvas + 0.5;
+            bar.set_visible(needs);
+            if !needs {
+                return;
+            }
+            let adj = bar.adjustment();
+            let excess = (image_scaled - canvas).max(0.0);
+            // Scrollbar value = how far we've scrolled from the
+            // top/left of the content. drag is the centered-pan
+            // offset (positive moves image right/down within the
+            // canvas), so value = excess/2 − drag.
+            let value = (excess / 2.0 - drag).clamp(0.0, excess);
+            adj.set_lower(0.0);
+            adj.set_upper(image_scaled as f64);
+            adj.set_page_size(canvas as f64);
+            adj.set_step_increment((canvas as f64 * 0.1).max(1.0));
+            adj.set_page_increment(canvas as f64);
+            adj.set_value(value as f64);
+        };
+        configure(
+            &self.scrollbar_h,
+            info.drag_x,
+            info.image_w_scaled,
+            info.canvas_w,
+        );
+        configure(
+            &self.scrollbar_v,
+            info.drag_y,
+            info.image_h_scaled,
+            info.canvas_h,
+        );
+        self.applying_scrollbar.set(false);
+    }
+
     fn get_monitor_size(root: &Window) -> Option<Rectangle> {
         root.surface().and_then(|surface| {
             DisplayManager::get()
@@ -118,39 +270,55 @@ impl App {
         }
 
         let monitor_size_opt = Self::get_monitor_size(root);
+        // Padding around the image (matches CANVAS_PADDING_CSS in the
+        // renderer) + a generous estimate for the top/bottom toolbar
+        // chrome. The renderer scales the image to fit whatever canvas
+        // size GTK gives it, so an over-estimate just means a little
+        // extra breathing room — under-estimating causes the image to
+        // render at <100% even when it should fit at 1:1.
+        const IMAGE_PAD_CSS: f64 = 40.0;
+        const TOOLBAR_CHROME_CSS: f64 = 120.0;
+        let padded_image_w = image_width + 2.0 * IMAGE_PAD_CSS;
+        let padded_image_h = image_height + 2.0 * IMAGE_PAD_CSS + TOOLBAR_CHROME_CSS;
+
+        let size_with_screen_cap = |max_w: f64, max_h: f64| -> (f64, f64) {
+            // If padded image fits within caps, use it as-is so the
+            // image renders at 1:1 with full padding. Otherwise clamp
+            // to the cap on whichever axis is constrained — the
+            // renderer will drop padding on that axis and scale the
+            // image down to fit.
+            let final_w = padded_image_w.min(max_w);
+            let final_h = padded_image_h.min(max_h);
+            (final_w, final_h)
+        };
+
         match resize {
             Some(Resize::Smart) if monitor_size_opt.is_some() => {
                 let monitor_size = monitor_size_opt.unwrap();
-                let reduced_monitor_width = monitor_size.width() as f64 * 0.8;
-                let reduced_monitor_height = monitor_size.height() as f64 * 0.8;
-
-                // create a window that uses 80% of the available space max
-                // if necessary, scale down image
-                if reduced_monitor_width > image_width && reduced_monitor_height > image_height {
-                    // set window to exact size
-                    root.set_default_size(image_width as i32, image_height as i32);
-                } else {
-                    // scale down and use windowed mode
-                    let aspect_ratio = image_width / image_height;
-
-                    // resize
-                    let mut new_width = reduced_monitor_width;
-                    let mut new_height = new_width / aspect_ratio;
-
-                    // if new_height is still bigger than monitor height, then scale on monitor height
-                    if new_height > reduced_monitor_height {
-                        new_height = reduced_monitor_height;
-                        new_width = new_height * aspect_ratio;
-                    }
-
-                    root.set_default_size(new_width as i32, new_height as i32);
-                }
+                // Cap at 90% of the screen so the window doesn't
+                // dominate the desktop. Match the user-facing spec:
+                // "the satty window should render at 90% of screen
+                // height" when the image doesn't fit at 100%.
+                let max_w = monitor_size.width() as f64 * 0.90;
+                let max_h = monitor_size.height() as f64 * 0.90;
+                let (w, h) = size_with_screen_cap(max_w, max_h);
+                root.set_default_size(w as i32, h as i32);
             }
             Some(Resize::Size { width, height }) => {
                 root.set_default_size(width, height);
             }
             _ => {
-                root.set_default_size(image_width as i32, image_height as i32);
+                // Default path (no `--resize` flag): same 90%-cap +
+                // padded behavior as Smart so users get the
+                // breathing-room layout without an explicit config.
+                if let Some(monitor_size) = monitor_size_opt {
+                    let max_w = monitor_size.width() as f64 * 0.90;
+                    let max_h = monitor_size.height() as f64 * 0.90;
+                    let (w, h) = size_with_screen_cap(max_w, max_h);
+                    root.set_default_size(w as i32, h as i32);
+                } else {
+                    root.set_default_size(padded_image_w as i32, padded_image_h as i32);
+                }
             }
         }
 
@@ -193,9 +361,24 @@ impl App {
 
         match DisplayManager::get().default_display() {
             Some(display) => {
-                gtk::style_context_add_provider_for_display(&display, &css_provider, 1);
+                // Priority `1` was below GTK's default theme (600), so any
+                // rule that conflicted with Adwaita's (e.g. button
+                // `min-height`) silently lost. Use the documented
+                // STYLE_PROVIDER_PRIORITY_APPLICATION (800) so our rules
+                // outrank the theme but stay under user-level overrides.
+                gtk::style_context_add_provider_for_display(
+                    &display,
+                    &css_provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
                 if let Some(css_provider2) = css_provider_override {
-                    gtk::style_context_add_provider_for_display(&display, &css_provider2, 1)
+                    // User overrides win over our defaults — keep the
+                    // ladder at +1.
+                    gtk::style_context_add_provider_for_display(
+                        &display,
+                        &css_provider2,
+                        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+                    );
                 }
             }
             None => println!("Cannot apply style"),
@@ -228,6 +411,8 @@ impl Component for App {
                 overlay_clone -> gtk::Overlay {
                     add_css_class: "overlay",
                     model.sketch_board.widget(),
+                    add_overlay: &model.scrollbar_h,
+                    add_overlay: &model.scrollbar_v,
                 },
                 #[local_ref]
                 bottom_row_clone -> gtk::CenterBox {
@@ -235,8 +420,9 @@ impl Component for App {
                     set_valign: gtk::Align::End,
                     set_halign: gtk::Align::Fill,
                     set_hexpand: true,
-                    set_start_widget: Some(model.zoom_indicator.widget()),
+                    set_start_widget: Some(&model.start_cluster),
                     set_center_widget: Some(model.style_toolbar.widget()),
+                    set_end_widget: Some(&model.end_cluster),
                 },
             },
 
@@ -250,7 +436,7 @@ impl Component for App {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
             AppInput::Realized => {
-                self.resize_window_initial(root, sender);
+                self.resize_window_initial(root, sender.clone());
                 // Make sure the canvas owns keyboard focus on startup —
                 // GTK can otherwise auto-focus a toolbar widget (the
                 // unified color picker MenuButton was a repeat offender),
@@ -259,6 +445,48 @@ impl Component for App {
                 self.sketch_board
                     .sender()
                     .emit(SketchBoardInput::FocusCanvas);
+                // First-run: launch the welcome dialog now that the
+                // main window is on-screen so we have a parent to
+                // attach it to. The dialog re-routes close requests
+                // through Save so the user always exits with a
+                // committed value.
+                if self.welcome_pending {
+                    self.welcome_pending = false;
+                    let connector = WelcomeDialog::builder()
+                        .transient_for(root)
+                        .launch(WelcomeDialogInit {
+                            detected_scale: self.detected_scale,
+                            detected: self.scale_detected,
+                        });
+                    let controller =
+                        connector.forward(sender.input_sender(), |out| match out {
+                            WelcomeDialogOutput::Saved(value) => {
+                                AppInput::WelcomeDialogSaved(value)
+                            }
+                        });
+                    self.welcome_controller = Some(controller);
+                }
+            }
+            AppInput::WelcomeDialogSaved(value) => {
+                state::save_annotation_size_factor(value);
+                APP_CONFIG.write().set_annotation_size_factor(value);
+                // Update the toolbar display + emit the standard
+                // AnnotationSizeChanged event so sketch_board picks it
+                // up (the existing dialog uses the same handler).
+                self.style_toolbar.sender().emit(
+                    StyleToolbarInput::AnnotationDialogFinished(Some(value)),
+                );
+                self.welcome_controller = None;
+            }
+            AppInput::SnapToEdgesToggled(value) => {
+                // Route into the standard ToolbarEvent path so
+                // sketch_board's handler persists state + updates the
+                // CropTool. Keeps the snap state in one place rather
+                // than having the checkbox drive it from main.rs and
+                // ALSO the toolbar (which it isn't part of anyway).
+                self.sketch_board.sender().emit(
+                    SketchBoardInput::ToolbarEvent(ToolbarEvent::SnapToEdgesChanged(value)),
+                );
             }
             AppInput::SetToolbarsDisplay(visible) => {
                 self.tools_toolbar
@@ -285,6 +513,13 @@ impl Component for App {
                 self.style_toolbar
                     .sender()
                     .emit(StyleToolbarInput::ToolChanged(tool));
+                // Show the snap-to-edges checkbox + hint only while
+                // cropping, matching the standard UX.
+                let is_crop = tool == Tools::Crop;
+                self.snap_to_edges_check.set_visible(is_crop);
+                self.snap_to_edges_hint.set_visible(is_crop);
+                self.current_tool = tool;
+                self.update_revert_visibility();
             }
             AppInput::ColorSwitchShortcut(index) => {
                 self.tools_toolbar
@@ -314,14 +549,50 @@ impl Component for App {
             }
             AppInput::DimensionsUpdate(dimensions) => {
                 let d = dimensions.unwrap_or(self.image_dimensions);
-                self.style_toolbar
-                    .sender()
-                    .emit(StyleToolbarInput::DimensionsChanged(d));
+                // Pad spaces around the multiplier so the readout reads
+                // as "WIDTH x HEIGHT" rather than the cramped "WxH"
+                // form (matches the convention standard / image
+                // editors use).
+                self.output_dimensions_label
+                    .set_text(&format!("{} x {}", d.0, d.1));
             }
             AppInput::ZoomChanged(scale) => {
                 self.zoom_indicator
                     .sender()
                     .emit(ZoomIndicatorInput::SetCurrentZoom(scale));
+            }
+            AppInput::CropPresenceChanged(present) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::CropPresenceChanged(present));
+                self.has_crop = present;
+                self.update_revert_visibility();
+            }
+            AppInput::RevertCropClicked => {
+                self.sketch_board.sender().emit(
+                    SketchBoardInput::ToolbarEvent(ToolbarEvent::RevertCrop),
+                );
+            }
+            AppInput::PanChanged(info) => {
+                self.sync_scrollbars(info);
+            }
+            AppInput::ScrollbarChanged(is_horizontal, value) => {
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::ScrollbarSet(is_horizontal, value));
+            }
+            AppInput::SelectionStyleChanged(style) => {
+                if let Some(style) = style {
+                    self.style_toolbar
+                        .sender()
+                        .emit(StyleToolbarInput::SyncFromSelection(style));
+                } else {
+                    // Selection went empty — pop the toolbar back
+                    // to the active tool's saved default size.
+                    self.style_toolbar
+                        .sender()
+                        .emit(StyleToolbarInput::SyncToToolDefault);
+                }
             }
         }
     }
@@ -361,6 +632,13 @@ impl Component for App {
                         AppInput::DimensionsUpdate(dimensions)
                     }
                     SketchBoardOutput::ZoomChanged(scale) => AppInput::ZoomChanged(scale),
+                    SketchBoardOutput::CropPresenceChanged(present) => {
+                        AppInput::CropPresenceChanged(present)
+                    }
+                    SketchBoardOutput::PanChanged(info) => AppInput::PanChanged(info),
+                    SketchBoardOutput::SelectionStyleChanged(style) => {
+                        AppInput::SelectionStyleChanged(style)
+                    }
                 });
 
         // Toolbars
@@ -381,11 +659,172 @@ impl Component for App {
         );
 
         let outer_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        // Hard minimum width for the whole window. Below this the
+        // bottom StyleToolbar's fixed-width slots (mirror spacer,
+        // size slider, tool cluster) start to clip and the top
+        // toolbar's right-side buttons fall off the visible edge.
+        // GTK forwards this to the compositor as the toplevel's
+        // min-size hint.
+        outer_box.set_width_request(1060);
         let outer_box_clone = outer_box.clone();
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
         let bottom_row = gtk::CenterBox::new();
+        // Fixed row height — keeps the bar identical in regular and
+        // crop modes (StyleToolbar gets hidden in Crop, but the row's
+        // height stays put so the canvas doesn't shift). 55 px gives
+        // the compact 34-px buttons a comfortable margin and leaves
+        // room for the size slider's detent labels.
+        bottom_row.set_height_request(55);
         let bottom_row_clone = bottom_row.clone();
+
+        // Canvas scrollbars. The adjustments are managed dynamically
+        // from the `PanChanged` handler (which updates upper /
+        // page_size / value when the zoom or pan changes). We start
+        // them hidden — they reveal themselves automatically the
+        // moment the image's scaled width or height exceeds the
+        // canvas. Both are overlaid on the canvas Overlay (not in the
+        // outer Box) so they sit on top of the drawing surface and
+        // hug its edges rather than carving out vertical space from
+        // the bottom toolbar.
+        let h_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 1.0, 10.0, 1.0);
+        let v_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 1.0, 10.0, 1.0);
+        let scrollbar_h = gtk::Scrollbar::new(gtk::Orientation::Horizontal, Some(&h_adj));
+        scrollbar_h.set_visible(false);
+        scrollbar_h.set_valign(gtk::Align::End);
+        scrollbar_h.set_halign(gtk::Align::Fill);
+        let scrollbar_v = gtk::Scrollbar::new(gtk::Orientation::Vertical, Some(&v_adj));
+        scrollbar_v.set_visible(false);
+        scrollbar_v.set_valign(gtk::Align::Fill);
+        scrollbar_v.set_halign(gtk::Align::End);
+        let applying_scrollbar = std::rc::Rc::new(std::cell::Cell::new(false));
+        {
+            let sender_clone = sender.clone();
+            let applying = applying_scrollbar.clone();
+            h_adj.connect_value_changed(move |adj| {
+                if applying.get() {
+                    return;
+                }
+                sender_clone.input(AppInput::ScrollbarChanged(true, adj.value() as f32));
+            });
+        }
+        {
+            let sender_clone = sender.clone();
+            let applying = applying_scrollbar.clone();
+            v_adj.connect_value_changed(move |adj| {
+                if applying.get() {
+                    return;
+                }
+                sender_clone.input(AppInput::ScrollbarChanged(false, adj.value() as f32));
+            });
+        }
+
+        // Snap-to-edges cluster: lives in bottom_row.start_widget
+        // alongside the zoom indicator. The checkbox + hint label 
+        // only show while the crop tool is active so they don't 
+        // add noise during regular annotation. Initial value pulled 
+        // from state (defaults to true).
+        let snap_initial = state::load_snap_to_edges().unwrap_or(true);
+        let snap_to_edges_check = gtk::CheckButton::builder()
+            .label("Snap to edges")
+            .active(snap_initial)
+            .focusable(false)
+            .visible(false)
+            .build();
+        // Custom CSS class trims the indicator + label down to match the
+        // compact bottom-row chrome — defaults are sized for full-window
+        // dialogs and read as oversized in the slim crop bar.
+        snap_to_edges_check.add_css_class("snap-toggle");
+        let snap_to_edges_hint = gtk::Label::builder()
+            .label("Hold Ctrl to disable snapping.")
+            .visible(false)
+            .margin_start(8)
+            .build();
+        snap_to_edges_hint.add_css_class("dim-label");
+        snap_to_edges_hint.add_css_class("snap-hint");
+        {
+            let sender_clone = sender.clone();
+            snap_to_edges_check.connect_toggled(move |btn| {
+                sender_clone.input(AppInput::SnapToEdgesToggled(btn.is_active()));
+            });
+        }
+        // Single horizontal cluster — zoom indicator, snap checkbox,
+        // and the "Hold Ctrl…" hint sit in one row. The crop tool now
+        // has its own dedicated bottom bar (StyleToolbar hides when
+        // `current_tool == Crop`), so the cluster growing wider on
+        // crop entry can't push the central toolbar around — there's
+        // nothing in the center to push.
+        let start_cluster = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(8)
+            .build();
+        start_cluster.append(zoom_indicator.widget());
+        start_cluster.append(&snap_to_edges_check);
+        start_cluster.append(&snap_to_edges_hint);
+
+        // "Revert to Original" lives outside the centered StyleToolbar
+        // so its visibility toggling doesn't shift the toolbar's
+        // width. Mounted as `bottom_row.end_widget`; CropPresenceChanged
+        // flips visibility from main.rs's update.
+        //
+        // `valign: Center` + margin_top/bottom keeps it from
+        // stretching to the bottom row's full height — without these,
+        // the CenterBox's end-widget slot would expand it vertically.
+        let revert_button = gtk::Button::builder()
+            .label("Revert to Original")
+            .focusable(false)
+            .hexpand(false)
+            .visible(false)
+            .valign(gtk::Align::Center)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_end(8)
+            .tooltip_text("Remove the crop and show the full image")
+            .build();
+
+        // Bottom-right end cluster — output dimensions label sits
+        // opposite the zoom indicator (bottom-left), and the Revert
+        // button tucks alongside it when a crop is present. The
+        // dimensions label stays visible during Crop mode so the
+        // user can see the cropped output size live as they drag.
+        let output_dimensions_label = gtk::Label::builder()
+            .focusable(false)
+            .hexpand(false)
+            // 13 chars fits "WWWW x HHHHH" comfortably (the new spaced
+            // "WxH" form is three chars wider than the prior tight one).
+            .width_chars(13)
+            .margin_end(12)
+            .valign(gtk::Align::Center)
+            .build();
+        output_dimensions_label.add_css_class("dim-label");
+        // Custom hover-tooltip (750 ms delay) instead of GTK's built-in
+        // — matches the rest of the toolbar chrome.
+        output_dimensions_label.install_tooltip_above("Output dimensions (width × height)");
+        let end_cluster = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(8)
+            .valign(gtk::Align::Center)
+            .build();
+        end_cluster.append(&output_dimensions_label);
+        end_cluster.append(&revert_button);
+        {
+            let sender_clone = sender.clone();
+            revert_button.connect_clicked(move |_| {
+                sender_clone.input(AppInput::RevertCropClicked);
+            });
+        }
+
+        // Determine whether the user has already committed an
+        // annotation_size_factor. If not, we'll surface the welcome
+        // dialog on Realized. The detected scale is captured here so
+        // the dialog can pre-fill its SpinButton — we look at Hyprland
+        // first since it's the only Wayland compositor exposing
+        // fractional scales reliably; everything else falls back to
+        // 1.0× and the user picks their own value.
+        let welcome_pending = state::load_annotation_size_factor().is_none();
+        let detected = display::detect_hyprland_scale();
+        let detected_scale = detected.unwrap_or(1.0);
+        let scale_detected = detected.is_some();
 
         // Model
         let model = App {
@@ -397,13 +836,31 @@ impl Component for App {
             outer_box,
             overlay,
             bottom_row,
+            welcome_pending,
+            detected_scale,
+            scale_detected,
+            welcome_controller: None,
+            snap_to_edges_check,
+            snap_to_edges_hint,
+            start_cluster,
+            revert_button,
+            output_dimensions_label,
+            end_cluster,
+            current_tool: APP_CONFIG.read().initial_tool(),
+            has_crop: false,
+            scrollbar_h,
+            scrollbar_v,
+            applying_scrollbar,
         };
 
-        // Initialize style toolbar with full image dimensions
+        // Seed the bottom-right output dimensions label with the
+        // full image size so something's visible immediately —
+        // sketch_board republishes via DimensionsUpdate whenever the
+        // crop changes. Format must match the spaced "W x H" form used
+        // in the DimensionsUpdate handler above.
         model
-            .style_toolbar
-            .sender()
-            .emit(StyleToolbarInput::DimensionsChanged(image_dimensions));
+            .output_dimensions_label
+            .set_text(&format!("{} x {}", image_dimensions.0, image_dimensions.1));
 
         let widgets = view_output!();
 
@@ -440,6 +897,43 @@ impl Component for App {
             } else {
                 sender_clone.input(AppInput::FullscreenChanged(false));
             }
+        });
+
+        // Hyprland Super+wheel override. Omarchy's tiling-v2.conf
+        // binds `SUPER, mouse_up` / `mouse_down` to workspace
+        // switching at the compositor level — those binds fire
+        // before GTK sees the wheel event, so Satty's scroll handler
+        // never gets Super+wheel without an opt-out. We snapshot
+        // those specific binds at app init via `hyprctl binds -j`,
+        // then on focus-in we `hyprctl keyword unbind` them so the
+        // wheel falls through to GTK, and on focus-out / destroy we
+        // re-issue `hyprctl keyword bind ...` from the snapshot so
+        // workspace switching works again everywhere else. The user's
+        // hyprland.conf is never touched — this is purely a runtime
+        // overlay, and the snapshot is empty on non-Hyprland hosts so
+        // every hyprctl call below is a clean no-op. If Satty hard-
+        // crashes mid-focus the user can recover with `hyprctl
+        // reload` (which re-parses their conf and re-installs the
+        // binds we'd unbound).
+        let saved_binds = std::rc::Rc::new(crate::hyprland::read_super_mouse_binds());
+        let focus_controller = gtk::EventControllerFocus::new();
+        focus_controller.connect_enter(|_| {
+            crate::hyprland::unbind_super_mouse();
+        });
+        let binds_for_leave = saved_binds.clone();
+        focus_controller.connect_leave(move |_| {
+            crate::hyprland::rebind_all(&binds_for_leave);
+        });
+        root.add_controller(focus_controller);
+        // Belt and suspenders: rebind on window destroy too. Either
+        // signal alone can miss in some shutdown paths (Wayland
+        // close before focus-leave; SIGTERM bypassing GTK's destroy
+        // chain). Both together cover every normal exit. SIGKILL or
+        // a hard crash can still leave the binds suspended — manual
+        // recovery is `hyprctl reload`.
+        let binds_for_destroy = saved_binds.clone();
+        root.connect_destroy(move |_| {
+            crate::hyprland::rebind_all(&binds_for_destroy);
         });
 
         generate_profile_output!("app init end");
@@ -501,12 +995,31 @@ fn run_satty() -> Result<()> {
     load_gl()?;
     generate_profile_output!("loaded gl");
 
-    // load app config
-    let config = APP_CONFIG.read();
+    // Fold the persisted annotation_size_factor (if any) into
+    // APP_CONFIG before launching the GUI so toolbar / sketch_board
+    // components see the saved value at init time. When nothing is
+    // persisted the welcome dialog runs on first realize and the
+    // user's chosen value flows back here through the same path.
+    if let Some(saved) = state::load_annotation_size_factor() {
+        APP_CONFIG.write().set_annotation_size_factor(saved);
+    }
+
+    // Snapshot the config values we need into owned locals, then
+    // drop the read guard before app.run. `app.run` blocks for the
+    // entire app lifetime; holding the read guard across it would
+    // deadlock any `APP_CONFIG.write()` made during the run (e.g.
+    // the welcome dialog persisting `annotation_size_factor`).
+    let (input_filename, app_id_pref): (String, Option<String>) = {
+        let config = APP_CONFIG.read();
+        (
+            config.input_filename().to_string(),
+            config.app_id().map(|s| s.to_string()),
+        )
+    };
 
     generate_profile_output!("loading image");
     // load input image
-    let image = if config.input_filename() == "-" {
+    let image = if input_filename == "-" {
         let mut buf = Vec::<u8>::new();
         io::stdin().lock().read_to_end(&mut buf)?;
         let pb_loader = PixbufLoader::new();
@@ -516,20 +1029,19 @@ fn run_satty() -> Result<()> {
             .pixbuf()
             .ok_or(anyhow!("Conversion to Pixbuf failed"))?
     } else {
-        Pixbuf::from_file(config.input_filename()).context("couldn't load image")?
+        Pixbuf::from_file(&input_filename).context("couldn't load image")?
     };
 
     generate_profile_output!("image loaded, starting gui");
     // start GUI
     let app = relm4::main_application();
-    let app_id = match config.app_id() {
-        Some(app_id) if Application::id_is_valid(app_id) => Some(app_id.deref()),
-        o => {
-            if let Some(app_id) = o {
-                eprintln!("Invalid app id: {}, using fallback", app_id);
-            }
+    let app_id = match app_id_pref.as_deref() {
+        Some(id) if Application::id_is_valid(id) => Some(id),
+        Some(id) => {
+            eprintln!("Invalid app id: {}, using fallback", id);
             Some("com.gabm.satty")
         }
+        None => Some("com.gabm.satty"),
     };
     app.set_application_id(app_id);
     // set flag to allow to run multiple instances

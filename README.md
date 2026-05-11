@@ -388,6 +388,51 @@ mode $printscreen_mode {
 bindsym $mod+Shift+p mode $printscreen_mode
 ```
 
+## Hyprland integration: Super+scroll zoom
+
+Satty uses **Super + scroll** on its canvas to zoom in and out. On
+Hyprland (especially with Omarchy's defaults) the compositor binds
+that same gesture to workspace switching — and compositor binds fire
+*before* GTK sees the event, so Satty's scroll handler never runs
+unless we explicitly opt out while Satty is focused.
+
+**Nothing to configure.** Satty handles this automatically: at
+startup it snapshots your current `SUPER, mouse_up` and `SUPER,
+mouse_down` binds via `hyprctl binds -j`. On focus-in it issues
+`hyprctl keyword unbind` for those two keys so Super+wheel falls
+through to GTK. On focus-out / window-close / destroy it re-issues
+`hyprctl keyword bind` from the snapshot to restore workspace
+switching. Your `hyprland.conf` is never touched — it's a runtime
+overlay that disappears the moment Satty exits.
+
+Everything else stays alive while Satty is focused:
+Super+left-click to move the window, Super+right-click to resize,
+launchers, app-switching, every other Super-modified bind in your
+config. We only suspend the two wheel binds we directly conflict
+with.
+
+If you'd previously added a `submap = satty` block to your Hyprland
+config for an older version of Satty, you can delete it — it's no
+longer used and just sits in the config as dead text. Run
+`hyprctl reload` after editing.
+
+### Recovery if Satty hard-crashes mid-focus
+
+Normal exits (focus-loss, window close, GTK destroy) all restore
+the binds via Satty's GTK focus / destroy hooks, called
+synchronously so the dispatch can't race the process exit. SIGKILL
+or a hard crash can still leave the two wheel binds suspended —
+workspace-switching with Super+wheel will appear dead globally
+until you run `hyprctl reload` from any terminal (which re-parses
+your `hyprland.conf` and re-installs everything).
+
+### On non-Hyprland compositors
+
+The integration is Hyprland-specific. Satty's focus handler still
+shells out to `hyprctl`, but the calls fail silently on Sway / KDE
+/ GNOME / etc. — other compositors don't typically grab Super+scroll
+for workspace switching, so the override isn't needed there.
+
 ## Build from source
 
 You first need to install the native dependencies of Satty (see below) and then run:

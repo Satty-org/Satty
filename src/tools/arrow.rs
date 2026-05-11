@@ -18,7 +18,7 @@ use super::{
 };
 
 /// Arrow geometry variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArrowStyle {
     /// Solid filled arrow with a tapered tail (point at start, widening to the
@@ -536,6 +536,10 @@ impl Arrow {
 }
 
 impl Drawable for Arrow {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -689,6 +693,10 @@ impl Drawable for Arrow {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
     }
 
     fn render_glow(

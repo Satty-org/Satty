@@ -202,31 +202,44 @@ The renderer's `render` already uses `selected_drawables: Vec<DrawableId>`
 (no further change needed there for the glow loop). It only uses
 singular `dragging_drawable_id` — that's the spot to fan out.
 
-### 4. Text edit UI overhaul
-User wants when text is being created/edited:
-- A blue rectangle outline around the (initially empty) text box.
-- Side handles (left/right midpoints) — drag to change text-box width,
-  triggering text reflow.
-- A square handle in the lower-right corner — drag to change font size
-  dynamically (the actual font size, not a raster scale).
-
-Plan:
-- `Text` struct already has `editing: bool`. While true, in `Text::draw`
-  render a 1.5–2 px blue rectangle around the text bounds.
-- Add a `text_box_width: Option<f32>` field for explicit wrap width.
-  Use it in the layout pass (`text.rs::draw` does manual line layout,
-  starts at `_bounds.1.x - self.pos.x`); replace that with the explicit
-  width when set.
-- For font-size resize: the `Drawable::handles()` impl for Text returns a
-  single corner handle (HandleId::BottomRight). `move_handle` updates
-  `style.annotation_size_factor` such that the text re-flows to fit the
-  dragged corner. Width-resize handles use `Left` / `Right` HandleIds
-  to update `text_box_width`.
-- The Pointer tool's existing handle-drag plumbing handles the rest
-  (move_handle is called every UpdateDrag with the dragged position).
-
-Substantial — `text.rs` is ~1700 lines and the layout code is the gnarly
-part.
+### 4. ~~Text edit UI overhaul~~ — **DONE**
+- Blue rectangle outline around the wrap area during editing, scaled
+  in CSS pixels (constant on-screen thickness regardless of zoom).
+- `Text::text_box_width: Option<f32>` carries the explicit wrap width;
+  new texts default to `DEFAULT_INITIAL_BOX_WIDTH` (220 image-space
+  px) so the empty editing box has a finite outline before any typing.
+- Side handles (`HandleId::Left` / `Right` at vertical midpoints) drag
+  to adjust `text_box_width`, triggering text reflow on the next draw.
+  Left also moves `pos.x` so the right edge stays put.
+- Bottom-right corner handle scales `annotation_size_factor` based on
+  height delta from BeginDrag, so text reflows at the new font size.
+  Width updates independently from the same handle (single-handle
+  resize, two effects).
+- `Drawable::handles()` returns the three handles based on bounds.
+  Bounds during editing report the wrap-area rect; bounds for
+  committed selection inflate the glyph rect to match
+  `text_box_width` when set.
+- Editing-mode handles are also exposed via `Tool::editing_handles()`
+  so `update_hover_cursor` lights up the resize cursors over them,
+  matching committed-selection behavior.
+- Double-click on a committed Text re-enters edit mode. PointerTool
+  detects this in its `Click` handler (n_pressed == 2, hit drawable
+  downcasts to `Text` via the new `Drawable::as_any` method) and
+  emits `ToolUpdateResult::EditTextDrawable(id)`. sketch_board
+  switches to TextTool and calls `Tool::enter_text_edit_mode`, which
+  clones the committed Text into the editing slot and stamps
+  `TextTool::edit_target_id = Some(id)`. The renderer hides the
+  original via `dragging_drawable_id`. On commit/deactivate, TextTool
+  emits `ModifyDrawable(id, …)` instead of `Commit(…)` so the
+  existing drawable is replaced in place (single undo entry).
+- New `Drawable::as_any -> &dyn Any` trait method (one-line override
+  per impl). Enables `downcast_ref::<Text>()` from PointerTool's
+  double-click handler.
+- `FemtoVgAreaMut::hit_test` now skips drawables whose id matches
+  either tool's `dragging_drawable_id`, so re-editing a Text doesn't
+  cause a body-drag of the (hidden) original when the user clicks
+  inside the editing copy. Uses `try_borrow` so a tool calling
+  hit_test while it's already borrowed mutably doesn't panic.
 
 ### 5. Glow polish
 - Currently the Standard arrow's glow uses a 14 px stroke at the path; the

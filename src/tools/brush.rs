@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, Tool, ToolUpdateResult, Tools, halo_in_image_units,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    bbox_handles, bbox_resize, halo_in_image_units,
 };
 use relm4::Sender;
 
@@ -40,6 +41,10 @@ impl BrushDrawable {
 }
 
 impl Drawable for BrushDrawable {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -131,8 +136,53 @@ impl Drawable for BrushDrawable {
         }
     }
 
+    fn handles(&self) -> Vec<Handle> {
+        // Standard 8-handle bbox so the user can clearly see a brush
+        // stroke is selected and resize it. Body-drag (translate) still
+        // works the same when the user clicks anywhere on the stroke
+        // body away from the handles.
+        self.bounds().map(bbox_handles).unwrap_or_default()
+    }
+
+    fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
+        // Uniform scale about the pinned corner/edge. Stroke width is
+        // not scaled — adjust it with the Size selector. Uses the
+        // inflated `bounds()` for both old and new sides of the
+        // transform; the resulting (stroke/2 per side) drift vs. the
+        // dragged handle position is imperceptible at typical widths.
+        let Some(old) = self.bounds() else { return };
+        let new = bbox_resize(old, handle, to);
+        let scale_x = if old.size.x > f32::EPSILON {
+            new.size.x / old.size.x
+        } else {
+            1.0
+        };
+        let scale_y = if old.size.y > f32::EPSILON {
+            new.size.y / old.size.y
+        } else {
+            1.0
+        };
+        if let Some(start) = self.start_point.as_mut() {
+            let new_x = new.pos.x + (start.x - old.pos.x) * scale_x;
+            let new_y = new.pos.y + (start.y - old.pos.y) * scale_y;
+            *start = Vec2D::new(new_x, new_y);
+        }
+        // `points[0]` is the initial raw input, unused by the draw
+        // path (skip(1) below) but kept here for buffer consistency.
+        // `points[1..]` are offsets relative to start_point — scale
+        // each axis independently.
+        for p in self.points.iter_mut().skip(1) {
+            p.x *= scale_x;
+            p.y *= scale_y;
+        }
+    }
+
     fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
     }
 
     fn render_glow(
