@@ -1075,6 +1075,11 @@ pub enum StyleToolbarInput {
     /// the active tool's saved default. Mirror image of
     /// `SyncFromSelection`, which loads the selected object's size.
     SyncToToolDefault,
+    /// Sketch board changed the active tool's size externally
+    /// (Shift+wheel over canvas) — mirror it into `current_size`
+    /// without re-emitting `SizeSelected` (sketch_board already
+    /// pushed the new size to the active tool).
+    SetCurrentSize(crate::style::Size),
     DimensionsChanged((i32, i32)),
     /// The active drawing tool changed; tool-specific controls re-evaluate
     /// their visibility.
@@ -1716,6 +1721,13 @@ impl Component for ToolsToolbar {
                 // the preview slot out of range.
                 self.dragging_preview_slot =
                     Some(slot.min(self.custom_colors.len()));
+                // Mark the popover as dragging so the per-swatch hover
+                // ring is suppressed — the `.color-slot-ghost`
+                // placeholder is the only drop affordance the user
+                // needs to see while the drag is in flight.
+                if let Some(popover) = &self.color_popover {
+                    popover.add_css_class("dragging");
+                }
                 self.sync_color_action();
                 self.refresh_color_popover(&sender);
             }
@@ -1761,6 +1773,10 @@ impl Component for ToolsToolbar {
                 }
                 self.pre_drag_snapshot = None;
                 self.dragging_preview_slot = None;
+                // Drag is over — restore the per-swatch hover ring.
+                if let Some(popover) = &self.color_popover {
+                    popover.remove_css_class("dragging");
+                }
                 self.sync_color_action();
                 self.refresh_color_popover(&sender);
                 // Reap all the popover-grid pages that piled up while
@@ -2532,6 +2548,9 @@ impl Component for StyleToolbar {
                         .emit(ToolbarEvent::SizeSelected(default_size));
                 }
             }
+            StyleToolbarInput::SetCurrentSize(size) => {
+                self.current_size = size;
+            }
             StyleToolbarInput::SyncToToolDefault => {
                 // Fired by main.rs on deselect — slide back to the
                 // active tool's saved default. Same fall-through
@@ -2557,6 +2576,12 @@ impl Component for StyleToolbar {
                     .output_sender()
                     .emit(ToolbarEvent::SizeSelected(size));
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
+            StyleToolbarInput::SetCurrentSize(size) => {
+                // Mirror sketch_board's tool-size change into the
+                // slider without re-broadcasting — sketch_board has
+                // already applied the value via dispatch_style_change.
+                self.current_size = size;
             }
             StyleToolbarInput::SyncFromSelection(style) => {
                 // Reflect the selected shape in the toolbar widgets

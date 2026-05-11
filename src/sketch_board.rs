@@ -130,6 +130,12 @@ pub enum SketchBoardOutput {
     /// `None` means selection has been cleared (multi-select or
     /// nothing selected) — the toolbar then keeps its last value.
     SelectionStyleChanged(Option<Style>),
+    /// Sketch board changed the active tool's size programmatically
+    /// (e.g. Shift+wheel over the canvas with no selection). The
+    /// toolbar mirrors the new value into its slider — no SizeSelected
+    /// re-emit, because sketch_board already pushed the size to the
+    /// active tool via `dispatch_style_change`.
+    ToolSizeChanged(crate::style::Size),
 }
 
 #[derive(Debug, Clone)]
@@ -1869,6 +1875,12 @@ impl Component for SketchBoard {
                     // packed into `me.pos.y` (negative = scroll up =
                     // bigger). Lets the user tweak sizes anywhere on
                     // the canvas without aiming for the toolbar slider.
+                    //
+                    // No selection + Shift held → bump the *active
+                    // tool's* size instead, so the user can grow/shrink
+                    // the next stroke without aiming for the slider
+                    // either. Shift gating keeps a plain wheel free
+                    // for canvas pan when nothing is selected.
                     if let InputEvent::Mouse(me) = &ie
                         && me.type_ == MouseEventType::PanScroll
                         && me.pos.y.abs() > 0.0
@@ -1878,6 +1890,24 @@ impl Component for SketchBoard {
                             .get(&Tools::Pointer)
                             .borrow()
                             .selected_drawables();
+                        if selected.is_empty()
+                            && me.modifier.contains(ModifierType::SHIFT_MASK)
+                        {
+                            let step_up = me.pos.y < 0.0;
+                            let new_size = if step_up {
+                                self.style.size.step_up()
+                            } else {
+                                self.style.size.step_down()
+                            };
+                            if new_size != self.style.size {
+                                self.style.size = new_size;
+                                self.dispatch_style_change();
+                                outer_sender
+                                    .output_sender()
+                                    .emit(SketchBoardOutput::ToolSizeChanged(new_size));
+                            }
+                            return;
+                        }
                         if !selected.is_empty() {
                             let step_up = me.pos.y < 0.0;
                             let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> =

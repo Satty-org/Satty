@@ -142,6 +142,9 @@ enum AppInput {
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
+    /// Sketch board changed the active tool's size — forward to the
+    /// style toolbar so its slider mirrors the new value.
+    ToolSizeChanged(crate::style::Size),
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
@@ -594,6 +597,11 @@ impl Component for App {
                         .emit(StyleToolbarInput::SyncToToolDefault);
                 }
             }
+            AppInput::ToolSizeChanged(size) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetCurrentSize(size));
+            }
         }
     }
 
@@ -638,6 +646,9 @@ impl Component for App {
                     SketchBoardOutput::PanChanged(info) => AppInput::PanChanged(info),
                     SketchBoardOutput::SelectionStyleChanged(style) => {
                         AppInput::SelectionStyleChanged(style)
+                    }
+                    SketchBoardOutput::ToolSizeChanged(size) => {
+                        AppInput::ToolSizeChanged(size)
                     }
                 });
 

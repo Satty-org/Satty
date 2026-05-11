@@ -194,6 +194,13 @@ dropdown.compact-control > button.combo {
     box-shadow: 0 0 0 2px #ffffff;
     border-radius: 4px;
 }
+/* While a reorder drag is in flight the `.dragging` class is set on
+ * the popover; suppress the blue hover ring then so the only on-cursor
+ * affordance is the brighter `.color-slot-ghost` drop preview. Two
+ * rings competing reads as visual noise. */
+.color-picker-popover.dragging .color-swatch:hover {
+    box-shadow: none;
+}
 /* Empty custom-color slots — dashed outline that visually indicates
  * "this slot can hold a color you've saved". Radius matches the
  * MenuButton swatch so the picker reads as a consistent set of slightly
