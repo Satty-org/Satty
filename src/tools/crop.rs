@@ -922,6 +922,7 @@ impl CropTool {
         state: &DragHandleState,
         direction: Vec2D,
         aspect: Option<(f32, f32)>,
+        bounds: Option<Vec2D>,
         snap_x: impl Fn(f32) -> f32,
         snap_y: impl Fn(f32) -> f32,
     ) {
@@ -1064,6 +1065,21 @@ impl CropTool {
                 tl.y = anchor.y - final_h / 2.0;
                 br.y = anchor.y + final_h / 2.0;
             }
+        }
+
+        // Final clamp to image bounds. The aspect-ratio block can
+        // re-grow the rect past the boundary (e.g. dragging a
+        // corner outward with 16:9 locked once the long axis is
+        // already at the image edge), so a per-axis clamp here
+        // catches whatever the snap clamps didn't already pin.
+        // We deliberately clamp coordinates only — preserving the
+        // aspect ratio at the boundary would require shrinking
+        // both dims, which fights against the user still dragging.
+        if let Some(b) = bounds {
+            tl.x = tl.x.clamp(0.0, b.x);
+            tl.y = tl.y.clamp(0.0, b.y);
+            br.x = br.x.clamp(0.0, b.x);
+            br.y = br.y.clamp(0.0, b.y);
         }
 
         // convert back and save
@@ -1282,31 +1298,38 @@ impl CropTool {
         // construction.
         let snap_active = self.snap_active(modifier);
         let bounds = self.image_bounds;
+        // Clamping to image bounds always runs, independent of the
+        // snap-to-edges checkbox / Ctrl bypass — the crop rect can
+        // only ever be a subregion of the source image, so dragging
+        // a handle past the image edge clips at the edge instead of
+        // extending the crop beyond it.
         let snap_x = move |v: f32| -> f32 {
-            if !snap_active {
-                return v;
-            }
-            let Some(b) = bounds else {
-                return v;
-            };
-            for t in [0.0, b.x] {
-                if (v - t).abs() <= Self::SNAP_PIXELS {
-                    return t;
+            let mut v = v;
+            if snap_active && let Some(b) = bounds {
+                for t in [0.0, b.x] {
+                    if (v - t).abs() <= Self::SNAP_PIXELS {
+                        v = t;
+                        break;
+                    }
                 }
+            }
+            if let Some(b) = bounds {
+                v = v.clamp(0.0, b.x);
             }
             v
         };
         let snap_y = move |v: f32| -> f32 {
-            if !snap_active {
-                return v;
-            }
-            let Some(b) = bounds else {
-                return v;
-            };
-            for t in [0.0, b.y] {
-                if (v - t).abs() <= Self::SNAP_PIXELS {
-                    return t;
+            let mut v = v;
+            if snap_active && let Some(b) = bounds {
+                for t in [0.0, b.y] {
+                    if (v - t).abs() <= Self::SNAP_PIXELS {
+                        v = t;
+                        break;
+                    }
                 }
+            }
+            if let Some(b) = bounds {
+                v = v.clamp(0.0, b.y);
             }
             v
         };
@@ -1357,13 +1380,22 @@ impl CropTool {
                         sy = sign_y * abs_h;
                     }
                 }
+                // Clamp the dragged endpoint to image bounds — the
+                // aspect-ratio branch may have re-grown the rect past
+                // an edge that snap_x/snap_y already pinned.
+                if let Some(b) = bounds {
+                    let end_x = (crop.pos.x + sx).clamp(0.0, b.x);
+                    let end_y = (crop.pos.y + sy).clamp(0.0, b.y);
+                    sx = end_x - crop.pos.x;
+                    sy = end_y - crop.pos.y;
+                }
                 crop.size = Vec2D::new(sx, sy);
                 self.emit_crop_edit_dimensions();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::DragHandle(state) => {
                 Self::apply_drag_handle_transformation(
-                    crop, state, direction, aspect, snap_x, snap_y,
+                    crop, state, direction, aspect, bounds, snap_x, snap_y,
                 );
                 self.emit_crop_edit_dimensions();
                 ToolUpdateResult::Redraw

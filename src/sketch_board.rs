@@ -501,7 +501,7 @@ impl SketchBoard {
             return;
         }
         let Some((new_w, new_h)) =
-            self.renderer.auto_extend_for_drawables(ids_to_exclude)
+            self.renderer.auto_resize_for_drawables(ids_to_exclude)
         else {
             return;
         };
@@ -509,6 +509,15 @@ impl SketchBoard {
         crop_tool
             .borrow_mut()
             .set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
+        // Drop any manual zoom + pan so the renderer's auto-fit
+        // branch engages on the next frame. The window is about to
+        // grow via ContentSizeChanged but is capped at 90 % of the
+        // monitor by `window_size_for_content`; once the image
+        // outgrows that cap the auto-fit needs to take over and
+        // scale it down so the full canvas stays in view. With a
+        // non-zero `zoom_scale` the auto-fit branch is skipped, so
+        // the extended image would overflow the window.
+        self.renderer.reset_size(0.0);
         sender
             .output_sender()
             .emit(SketchBoardOutput::ImageDimensionsChanged {
@@ -521,6 +530,13 @@ impl SketchBoard {
                 width: new_w,
                 height: new_h,
             });
+        // The window resize triggered by `ContentSizeChanged` can
+        // bounce focus off the canvas — GTK may reassign focus to
+        // the first focusable child of the toplevel after a relayout.
+        // Pull it back so single-key shortcuts keep working after
+        // (e.g.) committing a text annotation that pushed past the
+        // edge and triggered auto-extend.
+        self.renderer.grab_focus();
     }
 
     fn image_to_pixbuf(image: RenderedImage) -> Pixbuf {
@@ -1375,11 +1391,33 @@ impl SketchBoard {
                     ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
                     ct.revert_to_seed();
                     drop(ct);
+                    // Drop any prior user zoom / drag offset so the
+                    // rotated image re-engages auto-fit against the
+                    // canvas. Without this, a 90 ° turn from landscape
+                    // to portrait leaves the image partially clipped
+                    // by the now-too-narrow canvas — same fit logic
+                    // ResizeImage already applies for the same reason.
+                    self.renderer.reset_size(0.0);
                     sender
                         .output_sender()
                         .emit(SketchBoardOutput::ImageDimensionsChanged {
                             width: new_w as i32,
                             height: new_h as i32,
+                        });
+                    // Ask the window to fit the rotated content (up to
+                    // 90 % of the monitor — `window_size_for_content`
+                    // applies that cap). If the rotated image still
+                    // fits at 1:1 within the cap, the on-screen zoom
+                    // stays the same; only when it can't does auto-fit
+                    // shrink it. `revert_to_seed` already emits this,
+                    // but the crop-tool sender path doesn't seem to
+                    // make it back here, so emit directly on the
+                    // output sender we already have in hand.
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ContentSizeChanged {
+                            width: new_w,
+                            height: new_h,
                         });
                 }
                 ToolUpdateResult::Redraw
@@ -2518,7 +2556,7 @@ impl Component for SketchBoard {
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 let id = self.renderer.commit(drawable);
-                self.auto_extend_canvas(&[id], &outer_sender);
+                self.auto_resize_canvas(&[id], &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -2526,7 +2564,7 @@ impl Component for SketchBoard {
             }
             ToolUpdateResult::ModifyDrawable(id, drawable) => {
                 self.renderer.modify(id, drawable);
-                self.auto_extend_canvas(&[id], &outer_sender);
+                self.auto_resize_canvas(&[id], &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -2536,7 +2574,7 @@ impl Component for SketchBoard {
                 let ids: Vec<crate::tools::DrawableId> =
                     updates.iter().map(|(id, _)| *id).collect();
                 self.renderer.modify_many(updates);
-                self.auto_extend_canvas(&ids, &outer_sender);
+                self.auto_resize_canvas(&ids, &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -2544,6 +2582,7 @@ impl Component for SketchBoard {
             }
             ToolUpdateResult::DeleteDrawable(id) => {
                 self.renderer.delete(id);
+                self.auto_resize_canvas(&[id], &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -2551,6 +2590,7 @@ impl Component for SketchBoard {
             }
             ToolUpdateResult::DeleteDrawables(ids) => {
                 self.renderer.delete_many(&ids);
+                self.auto_resize_canvas(&ids, &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }

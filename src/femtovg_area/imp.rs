@@ -157,6 +157,193 @@ fn spring_back_progress(start: f32, limit: f32, elapsed_ms: f32) -> (f32, bool) 
     }
 }
 
+/// How many pixels deep to sample inward from each edge when picking
+/// the auto-extend strip color. Each side gets ONE solid color
+/// (mode-quantized average over the whole sample area) so we don't
+/// get the "stretched-pixel-row" stripe artifacts that per-row
+/// averaging produced over text-bearing edges.
+const AUTO_EXTEND_EDGE_SAMPLE_DEPTH: i32 = 8;
+
+/// Build a new Pixbuf representing the rectangle `(src_x, src_y,
+/// new_w, new_h)` taken out of `original`'s coordinate space. Where
+/// that rect lies inside `original`, the pixels are copied directly;
+/// where it lies outside (negative src or past edge), the new strip
+/// is painted with the dominant color of the corresponding `original`
+/// edge — preserves the screenshot's edge color when growing.
+/// Handles pure grow, pure shrink, and any mix (e.g. grow-left while
+/// shrink-right in the same operation). Returns `None` if the new
+/// Pixbuf can't be allocated or `new_w`/`new_h` are non-positive.
+fn resize_pixbuf_to_rect(
+    original: &Pixbuf,
+    src_x: i32,
+    src_y: i32,
+    new_w: i32,
+    new_h: i32,
+) -> Option<Pixbuf> {
+    if new_w <= 0 || new_h <= 0 {
+        return None;
+    }
+    let orig_w = original.width();
+    let orig_h = original.height();
+    let new = Pixbuf::new(
+        original.colorspace(),
+        original.has_alpha(),
+        original.bits_per_sample(),
+        new_w,
+        new_h,
+    )?;
+    new.fill(0x000000ff);
+    let depth = AUTO_EXTEND_EDGE_SAMPLE_DEPTH.min(orig_w).min(orig_h).max(1);
+    let has_alpha = original.has_alpha();
+    let left_color = dominant_color(original, 0, 0, depth, orig_h, has_alpha);
+    let right_color =
+        dominant_color(original, orig_w - depth, 0, depth, orig_h, has_alpha);
+    let top_color = dominant_color(original, 0, 0, orig_w, depth, has_alpha);
+    let bottom_color =
+        dominant_color(original, 0, orig_h - depth, orig_w, depth, has_alpha);
+
+    // Grow amounts on each side (0 when that side is shrinking or
+    // unchanged). These delineate the strips of `new` whose source
+    // would be outside `original` and so need an edge-color fill.
+    let grow_left = (-src_x).max(0);
+    let grow_top = (-src_y).max(0);
+    let grow_right = ((src_x + new_w) - orig_w).max(0);
+    let grow_bottom = ((src_y + new_h) - orig_h).max(0);
+
+    if grow_left > 0 {
+        fill_rect(&new, 0, grow_top, grow_left, new_h - grow_top - grow_bottom, left_color);
+    }
+    if grow_right > 0 {
+        fill_rect(
+            &new,
+            new_w - grow_right,
+            grow_top,
+            grow_right,
+            new_h - grow_top - grow_bottom,
+            right_color,
+        );
+    }
+    if grow_top > 0 {
+        fill_rect(&new, grow_left, 0, new_w - grow_left - grow_right, grow_top, top_color);
+    }
+    if grow_bottom > 0 {
+        fill_rect(
+            &new,
+            grow_left,
+            new_h - grow_bottom,
+            new_w - grow_left - grow_right,
+            grow_bottom,
+            bottom_color,
+        );
+    }
+    // Corners (where both axes grew). Pick the adjacent edge color
+    // matching the longer of the two strips so we get a continuous
+    // band along the dominant direction.
+    if grow_top > 0 && grow_left > 0 {
+        let c = if grow_top >= grow_left { top_color } else { left_color };
+        fill_rect(&new, 0, 0, grow_left, grow_top, c);
+    }
+    if grow_top > 0 && grow_right > 0 {
+        let c = if grow_top >= grow_right { top_color } else { right_color };
+        fill_rect(&new, new_w - grow_right, 0, grow_right, grow_top, c);
+    }
+    if grow_bottom > 0 && grow_left > 0 {
+        let c = if grow_bottom >= grow_left { bottom_color } else { left_color };
+        fill_rect(&new, 0, new_h - grow_bottom, grow_left, grow_bottom, c);
+    }
+    if grow_bottom > 0 && grow_right > 0 {
+        let c = if grow_bottom >= grow_right { bottom_color } else { right_color };
+        fill_rect(
+            &new,
+            new_w - grow_right,
+            new_h - grow_bottom,
+            grow_right,
+            grow_bottom,
+            c,
+        );
+    }
+
+    // Copy the intersection of the requested rect with `original`.
+    let isec_src_x = src_x.max(0);
+    let isec_src_y = src_y.max(0);
+    let isec_end_x = (src_x + new_w).min(orig_w);
+    let isec_end_y = (src_y + new_h).min(orig_h);
+    let isec_w = isec_end_x - isec_src_x;
+    let isec_h = isec_end_y - isec_src_y;
+    if isec_w > 0 && isec_h > 0 {
+        let dst_x = isec_src_x - src_x;
+        let dst_y = isec_src_y - src_y;
+        original.copy_area(isec_src_x, isec_src_y, isec_w, isec_h, &new, dst_x, dst_y);
+    }
+    Some(new)
+}
+
+fn read_pixel(p: &Pixbuf, x: i32, y: i32, has_alpha: bool) -> (u8, u8, u8, u8) {
+    let stride = p.rowstride() as usize;
+    let bpp = if has_alpha { 4 } else { 3 };
+    let idx = y as usize * stride + x as usize * bpp;
+    unsafe {
+        let buf = p.pixels();
+        let r = buf[idx];
+        let g = buf[idx + 1];
+        let b = buf[idx + 2];
+        let a = if has_alpha { buf[idx + 3] } else { 255 };
+        (r, g, b, a)
+    }
+}
+
+/// Pick the dominant color of a rectangular sample area by 5-bit
+/// quantization (32 levels per channel ⇒ ~32 K bins). Builds a
+/// histogram, picks the bin with the most samples, then returns the
+/// mean of all pixels that landed in that bin (so we don't snap to
+/// the quantization grid). This filters out antialiased text
+/// pixels at edges — the background dominates the bin count, and
+/// the few stray text pixels fall into different bins.
+fn dominant_color(
+    p: &Pixbuf,
+    x0: i32,
+    y0: i32,
+    w: i32,
+    h: i32,
+    has_alpha: bool,
+) -> (u8, u8, u8, u8) {
+    use std::collections::HashMap;
+    let mut bins: HashMap<u32, (u32, [u64; 4])> = HashMap::new();
+    for y in y0..(y0 + h) {
+        for x in x0..(x0 + w) {
+            let (r, g, b, a) = read_pixel(p, x, y, has_alpha);
+            let key = ((r as u32) >> 3) << 15
+                | ((g as u32) >> 3) << 10
+                | ((b as u32) >> 3) << 5
+                | ((a as u32) >> 3);
+            let entry = bins.entry(key).or_insert((0, [0u64; 4]));
+            entry.0 += 1;
+            entry.1[0] += r as u64;
+            entry.1[1] += g as u64;
+            entry.1[2] += b as u64;
+            entry.1[3] += a as u64;
+        }
+    }
+    let Some((_, top)) = bins.iter().max_by_key(|(_, (count, _))| *count) else {
+        return (0, 0, 0, 255);
+    };
+    let n = top.0.max(1) as u64;
+    (
+        (top.1[0] / n).min(255) as u8,
+        (top.1[1] / n).min(255) as u8,
+        (top.1[2] / n).min(255) as u8,
+        (top.1[3] / n).min(255) as u8,
+    )
+}
+
+fn fill_rect(p: &Pixbuf, x: i32, y: i32, w: i32, h: i32, (r, g, b, a): (u8, u8, u8, u8)) {
+    for yy in y..(y + h) {
+        for xx in x..(x + w) {
+            p.put_pixel(xx as u32, yy as u32, r, g, b, a);
+        }
+    }
+}
+
 /// Dark gray fill behind the screenshot (replaces solid black). Matches
 /// the surrounding toolbar chrome so the canvas reads as part of the
 /// app surface, not a void.
@@ -194,6 +381,14 @@ pub struct FemtoVGArea {
 pub struct FemtoVgAreaMut {
     background_image: Pixbuf,
     background_image_id: Option<femtovg::ImageId>,
+    /// Image-space rect of the original (pre-auto-extension)
+    /// screenshot inside the current `background_image`. Initially
+    /// `(0, 0, orig_w, orig_h)`. When the canvas auto-extends, the
+    /// origin shifts (for left/top extensions) and the size stays
+    /// fixed. `auto_resize_for_drawables` uses this rect as the
+    /// "must keep visible" floor — it never crops away original
+    /// screenshot pixels, even if the user deletes every drawable.
+    original_rect: crate::math::Rect,
     transparent_background_id: Option<femtovg::ImageId>,
     active_tool: Rc<RefCell<dyn Tool>>,
     /// The pointer tool is consulted alongside the active tool so implicit
@@ -432,9 +627,17 @@ impl FemtoVGArea {
         pointer_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
+        let original_rect = crate::math::Rect::new(
+            Vec2D::zero(),
+            Vec2D::new(
+                background_image.width() as f32,
+                background_image.height() as f32,
+            ),
+        );
         self.inner().replace(FemtoVgAreaMut {
             background_image,
             background_image_id: None,
+            original_rect,
             transparent_background_id: None,
             active_tool,
             pointer_tool,
@@ -601,6 +804,89 @@ impl FemtoVgAreaMut {
         self.undo_stack.push(UndoAction::Add(id));
         self.redo_stack.clear();
         id
+    }
+
+    /// After a drawable mutation, re-fit the canvas so it tightly
+    /// contains `original_rect` (the un-extended screenshot) plus the
+    /// union of all current drawable bounds. Grows the background
+    /// Pixbuf (with dominant-color edge fill for new strips) when a
+    /// drawable spills past the current image, and shrinks it back
+    /// toward `original_rect` when no drawable still needs the
+    /// previously-added strips. Translates all drawables EXCEPT those
+    /// in `ids_to_exclude` by the resulting shift, and wraps the most
+    /// recent undo entry with a `ResizeCanvas` action inside a `Batch`
+    /// so one Ctrl+Z reverses both. The excluded ids are the
+    /// drawables whose just-pushed Add/Modify/Remove carries
+    /// pre-resize state (translating them would double-apply on
+    /// redo). Returns the new `(width, height)` if a resize happened,
+    /// else `None`.
+    pub fn auto_resize_for_drawables(
+        &mut self,
+        ids_to_exclude: &[DrawableId],
+    ) -> Option<(f32, f32)> {
+        if self.undo_stack.is_empty() {
+            return None;
+        }
+        // Tight rect we want the new image to cover, in CURRENT image
+        // coordinates. Always includes the original screenshot rect
+        // (we never crop into the user's actual screenshot pixels).
+        let mut tight = self.original_rect;
+        for s in &self.drawables {
+            if let Some(b) = s.drawable.bounds() {
+                tight = tight.union(b);
+            }
+        }
+        let cur_w = self.background_image.width() as f32;
+        let cur_h = self.background_image.height() as f32;
+        let dx_min = tight.pos.x.floor() as i32;
+        let dy_min = tight.pos.y.floor() as i32;
+        let dx_max = (tight.pos.x + tight.size.x).ceil() as i32;
+        let dy_max = (tight.pos.y + tight.size.y).ceil() as i32;
+        if dx_min == 0
+            && dy_min == 0
+            && dx_max == cur_w as i32
+            && dy_max == cur_h as i32
+        {
+            return None;
+        }
+        let new_w = dx_max - dx_min;
+        let new_h = dy_max - dy_min;
+        if new_w <= 0 || new_h <= 0 {
+            return None;
+        }
+        let prev_image = self.background_image.clone();
+        let resized = resize_pixbuf_to_rect(
+            &self.background_image,
+            dx_min,
+            dy_min,
+            new_w,
+            new_h,
+        )?;
+        let translation = Vec2D::new(-dx_min as f32, -dy_min as f32);
+        self.original_rect.pos += translation;
+        let exclude: HashSet<DrawableId> = ids_to_exclude.iter().copied().collect();
+        let mut translated_ids: Vec<DrawableId> = Vec::new();
+        for s in &mut self.drawables {
+            s.drawable.translate(translation);
+            if !exclude.contains(&s.id) {
+                translated_ids.push(s.id);
+            }
+        }
+        self.background_image = resized;
+        self.background_image_id = None;
+
+        let resize = UndoAction::ResizeCanvas {
+            prev_image,
+            applied_offset: translation,
+            translated_ids,
+        };
+        let prior = self
+            .undo_stack
+            .pop()
+            .expect("auto_resize called with empty undo stack");
+        self.undo_stack
+            .push(UndoAction::Batch(vec![resize, prior]));
+        Some((new_w as f32, new_h as f32))
     }
 
     /// Replace the drawable with `id` in-place. Records a Modify undo action.
@@ -774,15 +1060,22 @@ impl FemtoVgAreaMut {
             UndoAction::ResizeCanvas {
                 prev_image,
                 applied_offset,
+                translated_ids,
             } => {
                 let cur_image = std::mem::replace(&mut self.background_image, prev_image);
                 self.background_image_id = None;
+                let translated_set: HashSet<DrawableId> =
+                    translated_ids.iter().copied().collect();
                 for s in &mut self.drawables {
-                    s.drawable.translate(-applied_offset);
+                    if translated_set.contains(&s.id) {
+                        s.drawable.translate(-applied_offset);
+                    }
                 }
+                self.original_rect.pos -= applied_offset;
                 UndoAction::ResizeCanvas {
                     prev_image: cur_image,
                     applied_offset: -applied_offset,
+                    translated_ids,
                 }
             }
         }
@@ -935,14 +1228,10 @@ impl FemtoVgAreaMut {
             // `crop_zoom` still multiplies on top so Super+scroll
             // zooms further once cropped.
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
-            let inner_w = (canvas_w - 2.0 * pad).max(crop_size.x.min(canvas_w));
-            let inner_h = (canvas_h - 2.0 * pad).max(crop_size.y.min(canvas_h));
-            let scale_with_pad = (inner_w / crop_size.x).min(inner_h / crop_size.y);
-            let base_scale = if scale_with_pad >= 1.0 {
-                1.0
-            } else {
-                (canvas_w / crop_size.x).min(canvas_h / crop_size.y)
-            };
+            let inner_w = (canvas_w - 2.0 * pad).max(canvas_w * 0.5).max(1.0);
+            let inner_h = (canvas_h - 2.0 * pad).max(canvas_h * 0.5).max(1.0);
+            let fit_scale = (inner_w / crop_size.x).min(inner_h / crop_size.y);
+            let base_scale = fit_scale.min(1.0);
             let scale = base_scale * self.crop_zoom;
             let crop_canvas_w = crop_size.x * scale;
             let crop_canvas_h = crop_size.y * scale;
@@ -1645,29 +1934,21 @@ impl FemtoVgAreaMut {
                 self.scale_factor = self.zoom_scale;
             }
         } else {
-            // Auto-fit branch (no user zoom yet) — pick the largest
-            // scale that lets the image sit inside the canvas with
-            // CANVAS_PADDING_CSS breathing room on every side. If
-            // the image already fits at native size (1:1) we render
-            // at 100%; if it's too large we drop the padding on the
-            // constrained axis so the image touches the canvas edge
-            // there, while the other axis still gets centered with
-            // whatever space is left. Matches the user spec: 100% if
-            // it fits, else scale down and let the constrained axis
-            // go edge-to-edge.
+            // Auto-fit branch (no user zoom yet): always reserve
+            // `CANVAS_PADDING_CSS` of breathing room on every side.
+            // If the image fits inside that padded area at 1:1, render
+            // at 100 %. Otherwise scale it down so it still fits
+            // inside the padded area — never go edge-to-edge
+            // automatically. The user can pinch / scroll to zoom in
+            // past this if they want. The `.max(canvas * 0.5)` floor
+            // is a degenerate-case guard for canvases smaller than
+            // 2 × pad — keeps the inner area positive so the
+            // computed scale stays finite during initial layout.
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
-            let inner_w = (canvas_width - 2.0 * pad).max(image_width.min(canvas_width));
-            let inner_h = (canvas_height - 2.0 * pad).max(image_height.min(canvas_height));
-            let scale_with_pad = (inner_w / image_width).min(inner_h / image_height);
-            if scale_with_pad >= 1.0 {
-                self.scale_factor = 1.0;
-            } else {
-                // Image is too large for the padded inner area —
-                // shrink to fill whichever canvas dimension is the
-                // tight one. The non-constrained dimension keeps
-                // whatever centering space remains.
-                self.scale_factor = (canvas_width / image_width).min(canvas_height / image_height);
-            }
+            let inner_w = (canvas_width - 2.0 * pad).max(canvas_width * 0.5).max(1.0);
+            let inner_h = (canvas_height - 2.0 * pad).max(canvas_height * 0.5).max(1.0);
+            let fit_scale = (inner_w / image_width).min(inner_h / image_height);
+            self.scale_factor = fit_scale.min(1.0);
         }
 
         // `effective_scale` is what the zoom indicator should show:
@@ -1687,15 +1968,10 @@ impl FemtoVgAreaMut {
             .filter(|(_, s)| s.x > 0.0 && s.y > 0.0);
         self.effective_scale = if let Some((_, crop_size)) = committed_crop {
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
-            let inner_w = (canvas_width - 2.0 * pad).max(crop_size.x.min(canvas_width));
-            let inner_h = (canvas_height - 2.0 * pad).max(crop_size.y.min(canvas_height));
-            let scale_with_pad = (inner_w / crop_size.x).min(inner_h / crop_size.y);
-            let base = if scale_with_pad >= 1.0 {
-                1.0
-            } else {
-                (canvas_width / crop_size.x).min(canvas_height / crop_size.y)
-            };
-            base * self.crop_zoom
+            let inner_w = (canvas_width - 2.0 * pad).max(canvas_width * 0.5).max(1.0);
+            let inner_h = (canvas_height - 2.0 * pad).max(canvas_height * 0.5).max(1.0);
+            let fit_scale = (inner_w / crop_size.x).min(inner_h / crop_size.y);
+            fit_scale.min(1.0) * self.crop_zoom
         } else {
             self.scale_factor
         };

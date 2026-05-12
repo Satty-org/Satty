@@ -184,6 +184,27 @@ impl FemtoVGArea {
             .reset()
     }
 
+    /// Re-fit the background image around the original screenshot
+    /// plus the current drawable bounds. Grows the canvas when a
+    /// drawable spills past the edge (filling new strips with the
+    /// dominant color of the corresponding edge of the existing
+    /// image), shrinks it back toward the original when no drawable
+    /// still needs the extension. Returns the new `(width, height)`
+    /// if a resize happened, `None` otherwise. The `ids_to_exclude`
+    /// list names drawables whose just-pushed Add/Modify/Remove
+    /// carries pre-translation state — the caller passes the ids it
+    /// just touched.
+    pub fn auto_resize_for_drawables(
+        &mut self,
+        ids_to_exclude: &[DrawableId],
+    ) -> Option<(f32, f32)> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .auto_resize_for_drawables(ids_to_exclude)
+    }
+
     pub fn flip_image_horizontal(&mut self) -> bool {
         self.imp()
             .inner()

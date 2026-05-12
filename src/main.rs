@@ -732,6 +732,24 @@ impl Component for App {
                 let (w, h) =
                     Self::window_size_for_content(scaled_w, scaled_h, monitor);
                 root.set_default_size(w, h);
+                // GTK4's `set_default_size` reliably sizes a fresh
+                // window but is mostly a hint once the window is
+                // mapped — most compositors only honor the initial
+                // configure, not later default-size changes. Force a
+                // hard re-allocation by pinning the size via
+                // `set_size_request` so the compositor's next
+                // configure round-trip uses these dimensions, then
+                // clear the request once the resize has settled so
+                // the user can still drag the window's edges to
+                // resize manually afterwards.
+                root.set_size_request(w, h);
+                let root_clone = root.clone();
+                gtk::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(50),
+                    move || {
+                        root_clone.set_size_request(-1, -1);
+                    },
+                );
             }
             AppInput::ImageDimensionsChanged { width, height } => {
                 // Update the underlying image_dimensions field so the

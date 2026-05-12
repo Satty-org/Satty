@@ -614,15 +614,20 @@ pub enum UndoAction {
     /// of drawables at once.
     Batch(Vec<UndoAction>),
     /// Canvas was auto-extended to fit a drawable that spilled past the
-    /// previous image bounds. Holds the pre-extension Pixbuf and the
-    /// `(left, top)` translation that was applied to drawables when the
-    /// strips were prepended. Undoing restores the original background
-    /// and translates drawables back by `(-left, -top)`. Always paired
-    /// with the triggering `Add` / `Modify` inside a `Batch` so a single
-    /// Ctrl+Z reverses both.
+    /// previous image bounds. Holds the pre-extension Pixbuf, the
+    /// `(left, top)` translation applied to the listed drawables when
+    /// the strips were prepended, and the ids of drawables that were
+    /// translated. The triggering Add/Modify's drawable is excluded
+    /// from `translated_ids` because the Add's stored payload or the
+    /// Modify's `prev` were captured pre-translation, so the
+    /// inverse-of-inverse cycle would translate them twice. Always
+    /// paired with the triggering `Add` / `Modify` inside a `Batch`
+    /// so one Ctrl+Z reverses both. Batch order: ResizeCanvas first,
+    /// triggering action second.
     ResizeCanvas {
         prev_image: gtk::gdk_pixbuf::Pixbuf,
         applied_offset: Vec2D,
+        translated_ids: Vec<DrawableId>,
     },
 }
 
