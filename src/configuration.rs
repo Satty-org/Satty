@@ -64,6 +64,12 @@ pub struct Configuration {
     profile_startup: bool,
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
+    /// How many Chaikin corner-cutting passes to run over a brush
+    /// stroke once the user releases. Each pass roughly doubles the
+    /// point count while halving every kink — 0 disables the pass,
+    /// 2 is the default (visibly smooth without exploding point
+    /// counts), 3 is silky for slow careful strokes.
+    brush_post_smooth_iterations: usize,
     keybinds: Keybinds,
     zoom_factor: f32,
     pan_step_size: f32,
@@ -365,6 +371,9 @@ impl Configuration {
         if let Some(v) = general.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
         }
+        if let Some(v) = general.brush_post_smooth_iterations {
+            self.brush_post_smooth_iterations = v;
+        }
         if let Some(v) = general.zoom_factor {
             self.zoom_factor = v;
         }
@@ -500,6 +509,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.brush_smooth_history_size {
             self.brush_smooth_history_size = v;
+        }
+        if let Some(v) = command_line.brush_post_smooth_iterations {
+            self.brush_post_smooth_iterations = v;
         }
         if let Some(v) = command_line.zoom_factor {
             self.zoom_factor = v;
@@ -676,6 +688,10 @@ impl Configuration {
         self.brush_smooth_history_size
     }
 
+    pub fn brush_post_smooth_iterations(&self) -> usize {
+        self.brush_post_smooth_iterations
+    }
+
     pub fn keybinds(&self) -> &Keybinds {
         &self.keybinds
     }
@@ -743,6 +759,9 @@ impl Default for Configuration {
             profile_startup: false,
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
+            // 2 Chaikin passes — visibly smooths typical free-hand
+            // strokes without exploding point counts (~4x).
+            brush_post_smooth_iterations: 2,
             keybinds: Keybinds::default(),
             zoom_factor: 1.1,
             pan_step_size: 50.,
@@ -838,6 +857,7 @@ struct ConfigurationFileGeneral {
     disable_notifications: Option<bool>,
     no_window_decoration: Option<bool>,
     brush_smooth_history_size: Option<usize>,
+    brush_post_smooth_iterations: Option<usize>,
     zoom_factor: Option<f32>,
     pan_step_size: Option<f32>,
     text_move_length: Option<f32>,

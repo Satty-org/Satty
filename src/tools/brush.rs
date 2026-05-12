@@ -38,6 +38,54 @@ impl BrushDrawable {
     fn add_point(&mut self, point: Vec2D) {
         self.points.push(self.smoother.update(point));
     }
+
+    /// Post-stroke smoothing pass . Runs Chaikin's
+    /// corner-cutting `iterations` times over the delta tail. The
+    /// initial anchor `points[0]` is unused by render/bounds/hit-test
+    /// (all skip it), so we leave it alone; only `points[1..]` — the
+    /// per-frame deltas from `start_point` — get smoothed. Endpoints
+    /// of the delta tail stay anchored so the user-visible start and
+    /// release positions don't drift.
+    fn smooth_post_stroke(&mut self, iterations: usize) {
+        if iterations == 0 || self.points.len() < 4 {
+            return;
+        }
+        let smoothed = chaikin_smooth(&self.points[1..], iterations);
+        self.points.truncate(1);
+        self.points.extend(smoothed);
+    }
+}
+
+/// Chaikin's corner-cutting smoothing. Each iteration replaces every
+/// interior segment (P_i, P_{i+1}) with two points at 1/4 and 3/4
+/// along the segment; first and last points stay anchored. One pass
+/// roughly doubles the point count while halving every kink. Two
+/// passes is usually enough to turn a visibly jittery free-hand
+/// polyline into a visibly smooth curve.
+fn chaikin_smooth(points: &[Vec2D], iterations: usize) -> Vec<Vec2D> {
+    if points.len() < 3 || iterations == 0 {
+        return points.to_vec();
+    }
+    let mut current = points.to_vec();
+    for _ in 0..iterations {
+        let mut next = Vec::with_capacity(current.len() * 2);
+        next.push(current[0]);
+        for i in 0..current.len() - 1 {
+            let p = current[i];
+            let q = current[i + 1];
+            next.push(Vec2D {
+                x: 0.75 * p.x + 0.25 * q.x,
+                y: 0.75 * p.y + 0.25 * q.y,
+            });
+            next.push(Vec2D {
+                x: 0.25 * p.x + 0.75 * q.x,
+                y: 0.25 * p.y + 0.75 * q.y,
+            });
+        }
+        next.push(*current.last().unwrap());
+        current = next;
+    }
+    current
 }
 
 impl Drawable for BrushDrawable {
@@ -264,6 +312,7 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 };
                 brush.add_point(event.pos);
+                brush.smooth_post_stroke(APP_CONFIG.read().brush_post_smooth_iterations());
 
                 // commit
                 let result = brush.clone_box();

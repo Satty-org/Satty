@@ -135,6 +135,12 @@ pub struct CommandLine {
     #[arg(long)]
     pub brush_smooth_history_size: Option<usize>,
 
+    /// How many Chaikin corner-cutting passes to run over a brush stroke
+    /// once the user releases (post-stroke smoothing).
+    /// 0 disables. Defaults to 2.
+    #[arg(long)]
+    pub brush_post_smooth_iterations: Option<usize>,
+
     /// Experimental feature (0.20.1): The zoom factor to use for the image.
     /// 1.0 means no zoom.
     /// defaults to 1.1
