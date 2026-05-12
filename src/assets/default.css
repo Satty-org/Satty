@@ -260,28 +260,19 @@ dropdown.compact-control > button.combo {
     min-width: 0;
     min-height: 0;
 }
-/* Inline expanded picker panel — constrain the GtkColorChooserWidget's
- * internal editor nodes (saturation/value square, hue + alpha scales,
- * preview swatch, hex entry) to a compact size. GTK only honors
- * `min-*` (no `max-*`); Rust turns off the chooser's hexpand/vexpand
- * so the natural request determined by these rules is what the
- * popover actually shows. */
-.inline-picker-panel colorplane {
-    min-width: 180px;
-    min-height: 130px;
-}
-.inline-picker-panel colorscale {
-    min-height: 16px;
-}
-.inline-picker-panel colorscale > trough {
-    min-height: 12px;
-}
+/* Inline expanded picker panel — the actual sizing of the
+ * GtkColorChooserWidget's internal nodes (colorplane, colorscale)
+ * is done in Rust by `shrink_color_chooser_internals` since GTK
+ * only honors CSS `min-*` (no `max-*`) and those leaves have
+ * `vexpand=TRUE` baked in by GtkColorEditor. The rules here cover
+ * the surrounding chrome (preview swatch, hex entry padding) that
+ * CSS can shape freely. */
 .inline-picker-panel colorswatch {
-    min-width: 26px;
-    min-height: 26px;
+    min-width: 24px;
+    min-height: 24px;
 }
 .inline-picker-panel entry {
-    min-height: 24px;
+    min-height: 22px;
     padding: 2px 6px;
 }
 /* "+ Add to My Colors" button: pill shape, padding sized to hug the

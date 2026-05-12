@@ -410,6 +410,22 @@ const SLOTS_PER_COLUMN: usize = 10;
 /// shift reads as motion rather than a snap.
 const STACK_FADE_MS: u32 = 120;
 
+/// Inline color-picker panel sizing. Target: the picker's total
+/// vertical extent matches the swatches column (10 rows × swatch
+/// stride) so the popover doesn't grow taller when expanded — only
+/// wider. Width is whatever fits the chooser's natural row layout
+/// (eyedropper + preview + hex entry); height is split between the
+/// chooser, the "+ Add to My Colors" button, panel spacing, and
+/// vertical padding.
+const PICKER_CHOOSER_WIDTH: i32 = 220;
+const PICKER_CHOOSER_HEIGHT: i32 = 250;
+const PICKER_PANEL_VPADDING: i32 = 20;
+/// Saturation/value square — shrunk from the chooser's default 200+
+/// natural so the gradient doesn't dominate. Hue scale on its left
+/// is sized to match this height in `shrink_color_chooser_internals`.
+const PICKER_COLORPLANE_WIDTH: i32 = 150;
+const PICKER_COLORPLANE_HEIGHT: i32 = 100;
+
 /// Handles returned by `build_color_popover` so the caller (`init`)
 /// can stash everything it needs on the model — the popover itself,
 /// the swatch-grid stack (for crossfade rebuilds), the inline picker's
@@ -553,6 +569,54 @@ fn build_color_popover(
     }
 }
 
+/// Walk the chooser's widget tree and resize the leaf nodes that
+/// drive its overall height. The default `colorplane` requests a
+/// 200+ pixel natural size, and the adjacent vertical `colorscale`
+/// (hue) and horizontal `colorscale` (alpha) inherit `vexpand=TRUE`
+/// from `GtkColorEditor`, so CSS `min-*` can't shrink them — we have
+/// to call `set_size_request` + `set_vexpand(false)` on each.
+///
+/// Idempotent: every internal `colorplane` is shrunk to a fixed
+/// width/height; the hue scale gets the same height (so it lines up
+/// alongside the plane); the alpha scale gets a horizontal slim
+/// dimension. Anything else in the tree is left untouched.
+fn shrink_color_chooser_internals(chooser: &gtk::ColorChooserWidget) {
+    let mut stack: Vec<gtk::Widget> = Vec::new();
+    let root: gtk::Widget = chooser.clone().upcast();
+    let mut child = root.first_child();
+    while let Some(c) = child {
+        stack.push(c.clone());
+        child = c.next_sibling();
+    }
+    while let Some(w) = stack.pop() {
+        let name = w.css_name();
+        match name.as_str() {
+            "colorplane" => {
+                w.set_size_request(PICKER_COLORPLANE_WIDTH, PICKER_COLORPLANE_HEIGHT);
+                w.set_hexpand(false);
+                w.set_vexpand(false);
+            }
+            "colorscale" => {
+                if w.has_css_class("opacity") {
+                    // Alpha — horizontal slim slider.
+                    w.set_size_request(-1, 14);
+                    w.set_vexpand(false);
+                } else {
+                    // Hue — vertical, height matches the plane.
+                    w.set_size_request(20, PICKER_COLORPLANE_HEIGHT);
+                    w.set_vexpand(false);
+                }
+            }
+            _ => {}
+        }
+        let mut grand = w.first_child();
+        while let Some(g) = grand {
+            stack.push(g.clone());
+            grand = g.next_sibling();
+        }
+    }
+}
+
 /// Build the inline color-picker panel — a `ColorChooserWidget` in
 /// editor mode plus a "+ Add to My Colors" button below — wrapped in a
 /// `Revealer` that slides in from the right when the user clicks the
@@ -572,14 +636,15 @@ fn build_inline_picker_panel(
 
     let panel = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(8)
+        .spacing(6)
         // Tight on the leading edge so the picker hugs the swatches
-        // column instead of floating in dead space. Trailing/top/bottom
-        // keep modest breathing room.
+        // column. Top/bottom set to PICKER_PANEL_VPADDING so the
+        // picker's total height = chooser + button + 2×vpadding,
+        // chosen to land inside the swatch-column height.
         .margin_start(8)
         .margin_end(12)
-        .margin_top(12)
-        .margin_bottom(12)
+        .margin_top(PICKER_PANEL_VPADDING)
+        .margin_bottom(PICKER_PANEL_VPADDING)
         .build();
     panel.add_css_class("inline-picker-panel");
 
@@ -590,15 +655,20 @@ fn build_inline_picker_panel(
     // popover's left column already serves that role. The editor
     // (saturation/value, hue, alpha, hex/RGB) is the new value-add.
     chooser.set_show_editor(true);
-    // Constrain to a compact natural size so the saturation/value
-    // square + hue/alpha sliders don't tower over the swatches
-    // column. With hexpand/vexpand off the chooser uses its natural
-    // size, which the CSS rules clamp via `min-*` on the inner
-    // `colorplane` / `colorscale` nodes.
     chooser.set_hexpand(false);
     chooser.set_vexpand(false);
     chooser.set_halign(gtk::Align::Fill);
     chooser.set_valign(gtk::Align::Start);
+    // The GtkColorChooserWidget's internal layout requests a tall
+    // natural size (saturation/value square + vertical hue scale +
+    // alpha row + hex entry stack). CSS `min-*` only sets a floor,
+    // so to clamp the TOTAL height we both (a) pin an explicit
+    // size_request on the chooser as a whole and (b) walk the tree
+    // and resize the colorplane / colorscale leaf nodes directly,
+    // since those carry vexpand=TRUE and would otherwise expand
+    // back to fill the allocated space.
+    chooser.set_size_request(PICKER_CHOOSER_WIDTH, PICKER_CHOOSER_HEIGHT);
+    shrink_color_chooser_internals(&chooser);
 
     // Broadcast color changes live. The chooser fires `notify::rgba`
     // on every cursor movement — forward as `InlinePickerColorChanged`
