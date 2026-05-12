@@ -1381,6 +1381,27 @@ impl FemtoVgAreaMut {
         true
     }
 
+    /// Rotate the background image 90° counter-clockwise and
+    /// invalidate the uploaded GL texture. Returns the NEW
+    /// `(width, height)` in image-space pixels (width and height
+    /// swap) so the caller can update the crop tool's bounds and
+    /// emit a `ContentSizeChanged` to resize the window around
+    /// the rotated image.
+    ///
+    /// Drawables don't rotate with the image (same limitation as
+    /// `flip_image_horizontal`). Typical workflow is "rotate first,
+    /// annotate after".
+    pub fn rotate_image_ccw(&mut self) -> Option<(f32, f32)> {
+        let rotated = self
+            .background_image
+            .rotate_simple(gtk::gdk_pixbuf::PixbufRotation::Counterclockwise)?;
+        let new_w = rotated.width() as f32;
+        let new_h = rotated.height() as f32;
+        self.background_image = rotated;
+        self.background_image_id = None;
+        Some((new_w, new_h))
+    }
+
     fn render_background_image(
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

@@ -1221,6 +1221,20 @@ impl SketchBoard {
                 self.renderer.flip_image_horizontal();
                 ToolUpdateResult::Redraw
             }
+            ToolbarEvent::RotateImage => {
+                if let Some((new_w, new_h)) = self.renderer.rotate_image_ccw() {
+                    let crop_tool = self.tools.get_crop_tool();
+                    let mut ct = crop_tool.borrow_mut();
+                    // Update bounds the snap-to-edges + seed paths
+                    // read from, then reseed so the crop rect lands
+                    // fresh on the rotated image (the old rect's
+                    // (pos, size) refer to coordinates that no
+                    // longer exist in the new orientation).
+                    ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
+                    ct.revert_to_seed();
+                }
+                ToolUpdateResult::Redraw
+            }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()

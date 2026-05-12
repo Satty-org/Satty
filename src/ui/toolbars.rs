@@ -1095,6 +1095,11 @@ pub enum ToolbarEvent {
     /// axis; existing drawables stay at their image-space positions
     /// (documented limitation in `FemtoVGArea::flip_image_horizontal`).
     FlipHorizontal,
+    /// User clicked the rotate button in the crop-mode top toolbar.
+    /// Rotates the background image 90° counter-clockwise; the new
+    /// image-bounds (width/height swapped) flow back to update the
+    /// window size and reseed the crop rect.
+    RotateImage,
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -1878,6 +1883,20 @@ impl Component for ToolsToolbar {
 
                     gtk::Separator {
                         set_orientation: gtk::Orientation::Vertical,
+                    },
+
+                    // Rotate 90° CCW — width and height swap so the
+                    // window re-fits around the rotated image. Same
+                    // drawable-positions-stay limitation as flip.
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+                        add_css_class: "flat",
+                        set_icon_name: "arrow-rotate-counterclockwise-regular",
+                        install_tooltip: "Rotate 90° counter-clockwise",
+                        connect_clicked[sender] => move |_| {
+                            sender.output_sender().emit(ToolbarEvent::RotateImage);
+                        },
                     },
 
                     // Flip horizontal — mirrors the background image
