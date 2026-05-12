@@ -88,13 +88,55 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W) {
         .title("Preferences")
         .modal(true)
         .destroy_with_parent(true)
-        .default_width(440)
-        .default_height(480)
+        // Sized to fit the longest tool label + recorder chip
+        // comfortably; anything wider just adds dead space on each
+        // side of the row.
+        .default_width(320)
         .resizable(false)
         .build();
     if let Some(w) = &toplevel {
         dialog.set_transient_for(Some(w));
     }
+
+    // Window-level shortcuts. Esc closes the dialog; Super+W also
+    // closes it (so the user's "close window" muscle memory targets
+    // the dialog instead of falling through to satty's main window,
+    // which would otherwise be Hyprland's natural target). Bubble
+    // phase so the per-row recorder controller — which uses Esc to
+    // cancel a recording — gets first crack at the keystroke while
+    // recording is in progress.
+    {
+        let dialog_for_keys = dialog.clone();
+        let key_controller = gtk::EventControllerKey::new();
+        key_controller.connect_key_pressed(move |_c, key, _code, mods| {
+            if key == gdk::Key::Escape && mods.is_empty() {
+                dialog_for_keys.close();
+                return gtk::glib::Propagation::Stop;
+            }
+            if mods.contains(gdk::ModifierType::SUPER_MASK)
+                && matches!(key, gdk::Key::w | gdk::Key::W)
+            {
+                dialog_for_keys.close();
+                return gtk::glib::Propagation::Stop;
+            }
+            gtk::glib::Propagation::Proceed
+        });
+        dialog.add_controller(key_controller);
+    }
+
+    // Cap the dialog at 95% of the parent canvas height. The entire
+    // dialog content (shortcuts + behavior + buttons) sits inside
+    // ONE outer scroller — if it fits naturally the dialog shrinks
+    // to its content with no scrollbar; if it overflows the parent
+    // height, the whole panel scrolls together instead of just the
+    // shortcuts list scrolling separately from the behavior section
+    // beneath it.
+    let parent_h = toplevel
+        .as_ref()
+        .map(|w| w.height())
+        .filter(|h| *h > 0)
+        .unwrap_or(900);
+    let max_dialog_h = (((parent_h as f64) * 0.95) as i32).max(320);
 
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -290,12 +332,53 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W) {
         });
     }
 
-    let scroller = gtk::ScrolledWindow::builder()
-        .vexpand(true)
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&list_box)
+    outer.append(&list_box);
+
+    // Behavior section sits BELOW the shortcuts list — the keyboard
+    // recorder is the dialog's primary content, the behavior
+    // toggles are secondary preferences. Each toggle applies
+    // immediately and persists to state.toml on click; the dialog's
+    // Save button only commits the keyboard shortcuts.
+    let behavior_heading = gtk::Label::builder()
+        .label("Behavior")
+        .halign(gtk::Align::Start)
+        .margin_top(8)
         .build();
-    outer.append(&scroller);
+    behavior_heading.add_css_class("title-3");
+    outer.append(&behavior_heading);
+
+    let invert_scroll_check = gtk::CheckButton::builder()
+        .label("Invert scrolling direction")
+        .active(APP_CONFIG.read().invert_scrolling())
+        .build();
+    invert_scroll_check.connect_toggled(|btn| {
+        let value = btn.is_active();
+        crate::state::save_invert_scrolling(value);
+        APP_CONFIG.write().set_invert_scrolling(value);
+    });
+    outer.append(&invert_scroll_check);
+
+    let close_on_esc_check = gtk::CheckButton::builder()
+        .label("Close window on Esc")
+        .active(APP_CONFIG.read().close_on_esc())
+        .build();
+    close_on_esc_check.connect_toggled(|btn| {
+        let value = btn.is_active();
+        crate::state::save_close_on_esc(value);
+        APP_CONFIG.write().set_close_on_esc(value);
+    });
+    outer.append(&close_on_esc_check);
+
+    let hide_palette_check = gtk::CheckButton::builder()
+        .label("Hide default palette colors")
+        .active(APP_CONFIG.read().hide_default_palette())
+        .build();
+    hide_palette_check.connect_toggled(|btn| {
+        let value = btn.is_active();
+        crate::state::save_hide_default_palette(value);
+        APP_CONFIG.write().set_hide_default_palette(value);
+    });
+    outer.append(&hide_palette_check);
 
     let button_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -323,6 +406,14 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W) {
     button_row.append(&save_btn);
     outer.append(&button_row);
 
-    dialog.set_child(Some(&outer));
+    let outer_scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .propagate_natural_width(true)
+        .max_content_height(max_dialog_h)
+        .child(&outer)
+        .build();
+    dialog.set_child(Some(&outer_scroller));
     dialog.present();
 }
