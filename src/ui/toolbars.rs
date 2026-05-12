@@ -228,6 +228,15 @@ pub struct ToolsToolbar {
     /// can refresh via `#[watch]` whenever the user picks a new
     /// preset from the popover.
     crop_bg_color: crate::tools::CropBgColor,
+    /// Resize-popover state shared between handler updates and
+    /// the popover's imperative connect_* closures. `Rc<Cell>` so
+    /// the closures (each owns a clone) can read the live values
+    /// without taking `&mut self`. Updated by
+    /// `ImageDimensionsChanged` / `SetDisplayScale`.
+    resize_orig_dims: Option<std::rc::Rc<std::cell::Cell<(i32, i32)>>>,
+    resize_display_scale: Option<std::rc::Rc<std::cell::Cell<i32>>>,
+    resize_aspect_locked: Option<std::rc::Rc<std::cell::Cell<bool>>>,
+    resize_units: Option<std::rc::Rc<std::cell::Cell<ResizeUnits>>>,
     /// Display device-pixel-ratio (matches main.rs's
     /// `display_scale_divisor`). All user-facing pixel values
     /// (crop W/H entries, "Image size: W × H px" label, resize
@@ -1318,6 +1327,16 @@ const SWATCH_PIXBUF_SIZE: i32 = 40;
 /// the displayed swatch matches `.color-slot-empty`'s 4px CSS radius
 /// once scaled to its on-screen size (~20px).
 const SWATCH_PIXBUF_RADIUS: f64 = 8.0;
+
+/// Units used by the image-resize popover. Pixels = the literal
+/// target dimensions; Percent = a multiplier on the current image
+/// dimensions (100 means "no change"). Stored in an `Rc<Cell>` so
+/// the popover's connect_* closures can read the live value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ResizeUnits {
+    Pixels,
+    Percent,
+}
 
 /// Map a crop-mode bg-color preset to the RGBA used to render its
 /// swatch in the picker popover + MenuButton. Auto stays
@@ -2460,6 +2479,12 @@ impl Component for ToolsToolbar {
                 if let Some(e) = &self.resize_height_entry {
                     e.set_text(&(height / s).to_string());
                 }
+                // Mirror into the popover's shared state so
+                // aspect-lock + percent-mode math has the live
+                // original dimensions.
+                if let Some(d) = &self.resize_orig_dims {
+                    d.set((width.max(1), height.max(1)));
+                }
             }
             ToolsToolbarInput::ResizeImageRequested { width, height } => {
                 let s = self.display_scale.max(1);
@@ -2492,6 +2517,9 @@ impl Component for ToolsToolbar {
                 }
                 if let Some(e) = &self.resize_height_entry {
                     e.set_text(&(self.image_height / s).to_string());
+                }
+                if let Some(d) = &self.resize_display_scale {
+                    d.set(s);
                 }
             }
         }
@@ -2575,6 +2603,10 @@ impl Component for ToolsToolbar {
             resize_height_entry: None,
             crop_bg_color: crate::tools::CropBgColor::Auto,
             display_scale: 1,
+            resize_orig_dims: None,
+            resize_display_scale: None,
+            resize_aspect_locked: None,
+            resize_units: None,
             current_color: initial_color,
             current_color_pixbuf: initial_color_pixbuf,
             custom_color,
@@ -2602,9 +2634,25 @@ impl Component for ToolsToolbar {
         // the MenuButton in the crop-mode center cluster. Built here
         // rather than in `view!` because the relm4 inline macro
         // doesn't have a clean syntax for "popover containing a
-        // grid + two entries + two buttons" without spelling out
-        // every connect_*; keeping it imperative keeps the view!
-        // block readable.
+        // grid + two entries + lock toggle + units dropdown + two
+        // buttons" with all the cross-widget connect_* wiring.
+        use std::cell::Cell as StdCell;
+        use std::rc::Rc as StdRc;
+
+        // Shared state — the closures need `Rc<Cell>` access to
+        // (a) the original image pixel dims (for aspect-ratio +
+        // percent calculations), (b) the display DPR (logical →
+        // image pixels at Resize time), (c) whether the aspect
+        // lock is active, and (d) the current units. Updated by
+        // the corresponding ToolsToolbarInput handlers.
+        let resize_orig_dims = StdRc::new(StdCell::new((
+            model.image_width.max(1),
+            model.image_height.max(1),
+        )));
+        let resize_display_scale_state = StdRc::new(StdCell::new(model.display_scale.max(1)));
+        let resize_aspect_locked = StdRc::new(StdCell::new(false));
+        let resize_units = StdRc::new(StdCell::new(ResizeUnits::Pixels));
+
         let resize_popover = gtk::Popover::builder().has_arrow(true).build();
         let popover_box = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -2615,10 +2663,7 @@ impl Component for ToolsToolbar {
             .margin_end(8)
             .build();
 
-        let grid = gtk::Grid::builder()
-            .row_spacing(6)
-            .column_spacing(8)
-            .build();
+        let grid = gtk::Grid::builder().row_spacing(6).column_spacing(8).build();
         let w_label = gtk::Label::builder()
             .label("Width:")
             .halign(gtk::Align::End)
@@ -2627,7 +2672,6 @@ impl Component for ToolsToolbar {
             .input_purpose(gtk::InputPurpose::Digits)
             .width_chars(6)
             .max_length(6)
-            .text(model.image_width.to_string())
             .build();
         let h_label = gtk::Label::builder()
             .label("Height:")
@@ -2637,10 +2681,31 @@ impl Component for ToolsToolbar {
             .input_purpose(gtk::InputPurpose::Digits)
             .width_chars(6)
             .max_length(6)
-            .text(model.image_height.to_string())
             .build();
+
+        // Lock toggle (vertically centered, spans both rows). Icon
+        // flips between locked / unlocked. Active state means
+        // "changing W or H auto-syncs the other to the original
+        // image's aspect ratio".
+        let lock_btn = gtk::ToggleButton::builder()
+            .icon_name("changes-allow-symbolic")
+            .focusable(false)
+            .css_classes(["flat"])
+            .build();
+        lock_btn.set_tooltip_text(Some("Lock aspect ratio"));
+
+        // Units dropdown — pixels vs. percent.
+        let units_model = gtk::StringList::new(&["pixels", "percent"]);
+        let units_dropdown = gtk::DropDown::builder()
+            .model(&units_model)
+            .selected(0)
+            .focusable(false)
+            .build();
+
         grid.attach(&w_label, 0, 0, 1, 1);
         grid.attach(&w_entry, 1, 0, 1, 1);
+        grid.attach(&lock_btn, 2, 0, 1, 2);
+        grid.attach(&units_dropdown, 3, 0, 1, 1);
         grid.attach(&h_label, 0, 1, 1, 1);
         grid.attach(&h_entry, 1, 1, 1, 1);
         popover_box.append(&grid);
@@ -2662,37 +2727,175 @@ impl Component for ToolsToolbar {
         resize_popover.set_child(Some(&popover_box));
         widgets.resize_menu_btn.set_popover(Some(&resize_popover));
 
-        // The entries are refreshed every time
-        // `ImageDimensionsChanged` fires (which happens at startup,
-        // after rotate, and after resize). No popover-show hook
-        // needed — by the time the popover opens, the entries
-        // already show the latest values.
+        // Helper Rc<Cell> to break the W↔H change-feedback loop:
+        // when aspect-lock is on and the W handler updates H (or
+        // vice versa), the recipient's `connect_changed` fires; this
+        // flag tells the recipient to no-op so we don't ping-pong.
+        let is_syncing = StdRc::new(StdCell::new(false));
+
+        // Aspect-lock toggle — flip the Rc<Cell> and refresh the
+        // icon. The lock state only affects future typing; the
+        // entries don't auto-rebalance the moment the lock is
+        // engaged (locking "captures" the
+        // current ratio, leaving values alone until the next edit).
+        let aspect_lock_for_toggle = resize_aspect_locked.clone();
+        lock_btn.connect_toggled(move |btn| {
+            let active = btn.is_active();
+            aspect_lock_for_toggle.set(active);
+            btn.set_icon_name(if active {
+                "changes-prevent-symbolic"
+            } else {
+                "changes-allow-symbolic"
+            });
+        });
+
+        // Units dropdown — refresh the entries with values in the
+        // newly-selected units. Switching to percent shows "100"
+        // (= no change); switching to pixels shows the current
+        // image dims in logical pixels.
+        let units_for_dd = resize_units.clone();
+        let orig_for_dd = resize_orig_dims.clone();
+        let scale_for_dd = resize_display_scale_state.clone();
+        let w_for_dd = w_entry.clone();
+        let h_for_dd = h_entry.clone();
+        let syncing_for_dd = is_syncing.clone();
+        units_dropdown.connect_selected_notify(move |dd| {
+            let new_units = if dd.selected() == 0 {
+                ResizeUnits::Pixels
+            } else {
+                ResizeUnits::Percent
+            };
+            units_for_dd.set(new_units);
+            let (orig_w, orig_h) = orig_for_dd.get();
+            let scale = scale_for_dd.get().max(1);
+            // Mute change handlers while we set programmatic text.
+            syncing_for_dd.set(true);
+            match new_units {
+                ResizeUnits::Pixels => {
+                    w_for_dd.set_text(&(orig_w / scale).to_string());
+                    h_for_dd.set_text(&(orig_h / scale).to_string());
+                }
+                ResizeUnits::Percent => {
+                    w_for_dd.set_text("100");
+                    h_for_dd.set_text("100");
+                }
+            }
+            syncing_for_dd.set(false);
+        });
+
+        // W → H sync when aspect-locked.
+        let h_for_w = h_entry.clone();
+        let orig_for_w = resize_orig_dims.clone();
+        let lock_for_w = resize_aspect_locked.clone();
+        let units_for_w = resize_units.clone();
+        let syncing_for_w = is_syncing.clone();
+        w_entry.connect_changed(move |w| {
+            if syncing_for_w.get() || !lock_for_w.get() {
+                return;
+            }
+            let Some(w_val) = w.text().trim().parse::<f32>().ok() else {
+                return;
+            };
+            if w_val <= 0.0 {
+                return;
+            }
+            let (orig_w, orig_h) = orig_for_w.get();
+            if orig_w <= 0 || orig_h <= 0 {
+                return;
+            }
+            let h_val = match units_for_w.get() {
+                // Percent locked: same percent for both axes.
+                ResizeUnits::Percent => w_val,
+                // Pixels locked: H = W × (orig_h / orig_w).
+                ResizeUnits::Pixels => w_val * (orig_h as f32) / (orig_w as f32),
+            };
+            syncing_for_w.set(true);
+            h_for_w.set_text(&(h_val.round() as i32).to_string());
+            syncing_for_w.set(false);
+        });
+        // H → W sync, mirror image.
+        let w_for_h = w_entry.clone();
+        let orig_for_h = resize_orig_dims.clone();
+        let lock_for_h = resize_aspect_locked.clone();
+        let units_for_h = resize_units.clone();
+        let syncing_for_h = is_syncing.clone();
+        h_entry.connect_changed(move |h| {
+            if syncing_for_h.get() || !lock_for_h.get() {
+                return;
+            }
+            let Some(h_val) = h.text().trim().parse::<f32>().ok() else {
+                return;
+            };
+            if h_val <= 0.0 {
+                return;
+            }
+            let (orig_w, orig_h) = orig_for_h.get();
+            if orig_w <= 0 || orig_h <= 0 {
+                return;
+            }
+            let w_val = match units_for_h.get() {
+                ResizeUnits::Percent => h_val,
+                ResizeUnits::Pixels => h_val * (orig_w as f32) / (orig_h as f32),
+            };
+            syncing_for_h.set(true);
+            w_for_h.set_text(&(w_val.round() as i32).to_string());
+            syncing_for_h.set(false);
+        });
+
         let popover_for_cancel = resize_popover.clone();
         cancel_btn.connect_clicked(move |_| popover_for_cancel.popdown());
+
+        // Resize button: convert the typed values into image-pixel
+        // dimensions based on the current units, then emit
+        // ToolbarEvent::ResizeImage directly (we have all the state
+        // here — display scale, units, orig dims — without needing
+        // an intermediate input message).
         let popover_for_resize = resize_popover.clone();
         let sender_resize = sender.clone();
         let w_entry_resize = w_entry.clone();
         let h_entry_resize = h_entry.clone();
+        let orig_for_resize = resize_orig_dims.clone();
+        let scale_for_resize = resize_display_scale_state.clone();
+        let units_for_resize = resize_units.clone();
         resize_btn.connect_clicked(move |_| {
-            let w = w_entry_resize.text().trim().parse::<i32>().ok();
-            let h = h_entry_resize.text().trim().parse::<i32>().ok();
-            if let (Some(w), Some(h)) = (w, h)
-                && w > 0
-                && h > 0
-            {
-                // Route through the input message so the handler
-                // can apply `display_scale` (logical → image pixels)
-                // before emitting the outbound `ResizeImage` event.
-                sender_resize.input(ToolsToolbarInput::ResizeImageRequested {
-                    width: w,
-                    height: h,
-                });
+            let w_val = w_entry_resize.text().trim().parse::<f32>().ok();
+            let h_val = h_entry_resize.text().trim().parse::<f32>().ok();
+            let (Some(w_val), Some(h_val)) = (w_val, h_val) else {
+                return;
+            };
+            if w_val <= 0.0 || h_val <= 0.0 {
+                return;
+            }
+            let (orig_w, orig_h) = orig_for_resize.get();
+            let scale = scale_for_resize.get().max(1) as f32;
+            let (target_w_px, target_h_px) = match units_for_resize.get() {
+                ResizeUnits::Pixels => (
+                    (w_val * scale).round() as i32,
+                    (h_val * scale).round() as i32,
+                ),
+                ResizeUnits::Percent => (
+                    (w_val / 100.0 * orig_w as f32).round() as i32,
+                    (h_val / 100.0 * orig_h as f32).round() as i32,
+                ),
+            };
+            if target_w_px > 0 && target_h_px > 0 {
+                sender_resize
+                    .output_sender()
+                    .emit(ToolbarEvent::ResizeImage {
+                        width: target_w_px,
+                        height: target_h_px,
+                    });
                 popover_for_resize.popdown();
             }
         });
 
+        // Stash everything for handler access.
         model.resize_width_entry = Some(w_entry);
         model.resize_height_entry = Some(h_entry);
+        model.resize_orig_dims = Some(resize_orig_dims);
+        model.resize_display_scale = Some(resize_display_scale_state);
+        model.resize_aspect_locked = Some(resize_aspect_locked);
+        model.resize_units = Some(resize_units);
 
         // Crop bg-color picker popover — labeled-swatch list mirroring
         // the main color-picker UX (vs the prior text-only DropDown).
