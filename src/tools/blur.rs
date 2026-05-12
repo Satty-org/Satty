@@ -20,28 +20,38 @@ use super::{
 
 /// Algorithm used to obscure the region covered by a Blur drawable.
 ///
-/// `Gaussian` matches Satty's historical behavior — a `femtovg`
-/// `GaussianBlur` filter applied to a screenshot of the region. It
-/// looks soft and natural but is **reversible** in principle: Gaussian
-/// blur is a linear convolution, and modern AI deblurring models can
-/// recover legible text or faces from blurred regions. Use it for
-/// aesthetic blur, not for redaction.
+/// Two reversibility tiers:
 ///
-/// `Pixelate` is a coarse block-mean mosaic with 4-bit-per-channel
-/// quantization (see `Blur::pixelate`). The information loss makes it
-/// much harder to reverse than Gaussian — both naive deconvolution
-/// and ML depixelation attacks have far less signal to work with.
-/// Still not perfect (no rasterized redaction is), but the right
-/// choice when the user wants to actually hide content.
+/// **Reversible (cosmetic).** `Gaussian` is the historical behaviour —
+/// a `femtovg` `GaussianBlur` over a screenshot of the region. Looks
+/// soft, but is a linear convolution; modern AI deblurring can recover
+/// legible text or faces. Use it when the goal is "soften", not "hide".
+///
+/// **Irreversible (redaction-grade).** Three flavours that destroy
+/// enough information that ML attacks have nothing useful to invert:
+///
+/// - `Pixelate` — coarse block-mean mosaic with 4-bit-per-channel
+///   quantisation (see `Blur::pixelate`).
+/// - `SecureBlur` — fills the region with a distance-weighted
+///   interpolation of pixels sampled *outside* the selection, then
+///   Gaussian-blurs the result (see `Blur::secure_blur`). No pixel
+///   from inside the selection contributes to the output, so there
+///   is mathematically nothing to recover.
+/// - `BlackOut` — solid black fill. Trivially irreversible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BlurStyle {
+    /// Pixelated mosaic — coarse blocks with quantized colors.
+    Pixelate,
+    /// Boundary-sampled blur. Irreversible: the region is filled from
+    /// pixels outside the selection and then Gaussian-blurred. Looks
+    /// like a blur, behaves like a redaction.
+    SecureBlur,
     /// Gaussian blur — soft, natural-looking, but reversible.
     #[default]
     Gaussian,
-    /// Pixelated mosaic — coarse blocks with quantized colors. Harder
-    /// to reverse than Gaussian; use for redacting sensitive content.
-    Pixelate,
+    /// Solid black fill. Trivially irreversible.
+    BlackOut,
 }
 
 #[derive(Clone, Debug)]
@@ -94,6 +104,114 @@ impl Blur {
         );
         //canvas.delete_image(src_image_id);
 
+        Ok(dst_image_id)
+    }
+
+    /// Build an irreversible blur of the canvas region `(pos, size)` by
+    /// sampling **only** the four 1-pixel-wide strips immediately
+    /// outside the selection and then Gaussian-blurring the result.
+    ///
+    /// Why: a Gaussian over the original pixels is a linear convolution
+    /// and is therefore invertible in principle — ML deblurring models
+    /// recover legible text from heavily blurred input. By seeding the
+    /// region from out-of-bounds samples and *then* blurring, no pixel
+    /// of the original content reaches the rendered output. There is
+    /// nothing inside to recover.
+    ///
+    /// Algorithm:
+    /// 1. Read four 1-px fringe strips (N/S/E/W) just outside the rect.
+    /// 2. For each interior pixel `(x, y)`, blend the four matching
+    ///    edge pixels with weights proportional to inverse distance:
+    ///    `w_n = (h - y) / h`, etc. Weights sum to 2 (one unit per
+    ///    axis), so we divide the weighted sum by 2.
+    /// 3. Upload as a femtovg image and apply `GaussianBlur` so the
+    ///    result reads as a soft blur rather than a four-corner
+    ///    gradient.
+    ///
+    /// Fallback: if the rect is flush against any canvas edge we can't
+    /// sample a fringe outside the screenshot, so we degrade to solid
+    /// black. The "no interior pixel contributes" contract is preserved.
+    fn secure_blur(
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        pos: Vec2D,
+        size: Vec2D,
+        sigma: f32,
+    ) -> Result<ImageId> {
+        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
+        let transformed_size = size * canvas.transform().average_scale();
+
+        let pos_x = transformed_pos.0 as usize;
+        let pos_y = transformed_pos.1 as usize;
+        let width = (transformed_size.x as usize).max(1);
+        let height = (transformed_size.y as usize).max(1);
+
+        let canvas_w = canvas.width() as usize;
+        let canvas_h = canvas.height() as usize;
+
+        if pos_x < 1
+            || pos_y < 1
+            || pos_x + width + 1 >= canvas_w
+            || pos_y + height + 1 >= canvas_h
+        {
+            let buf = vec![RGBA8::new(0, 0, 0, 255); width * height];
+            let img = Img::new(buf, width, height);
+            return Ok(canvas.create_image(img.as_ref(), ImageFlags::empty())?);
+        }
+
+        let screenshot = canvas.screenshot()?;
+        let (buf_n, _, _) = screenshot
+            .sub_image(pos_x, pos_y - 1, width, 1)
+            .to_contiguous_buf();
+        let (buf_s, _, _) = screenshot
+            .sub_image(pos_x, pos_y + height, width, 1)
+            .to_contiguous_buf();
+        let (buf_w, _, _) = screenshot
+            .sub_image(pos_x - 1, pos_y, 1, height)
+            .to_contiguous_buf();
+        let (buf_e, _, _) = screenshot
+            .sub_image(pos_x + width, pos_y, 1, height)
+            .to_contiguous_buf();
+
+        let mut out: Vec<RGBA8> = Vec::with_capacity(width * height);
+        let w_f = width as f32;
+        let h_f = height as f32;
+        for y in 0..height {
+            for x in 0..width {
+                let pn = buf_n[x];
+                let ps = buf_s[x];
+                let pw = buf_w[y];
+                let pe = buf_e[y];
+
+                let wn = (height - y) as f32 / h_f;
+                let ws = y as f32 / h_f;
+                let ww = (width - x) as f32 / w_f;
+                let we = x as f32 / w_f;
+                let mix = |cn: u8, cs: u8, cww: u8, cee: u8| -> u8 {
+                    ((cn as f32 * wn + cs as f32 * ws + cww as f32 * ww + cee as f32 * we) / 2.0)
+                        as u8
+                };
+                out.push(RGBA8::new(
+                    mix(pn.r, ps.r, pw.r, pe.r),
+                    mix(pn.g, ps.g, pw.g, pe.g),
+                    mix(pn.b, ps.b, pw.b, pe.b),
+                    255,
+                ));
+            }
+        }
+
+        let src_img = Img::new(out, width, height);
+        let src_image_id = canvas.create_image(src_img.as_ref(), ImageFlags::empty())?;
+        let dst_image_id = canvas.create_image_empty(
+            width,
+            height,
+            femtovg::PixelFormat::Rgba8,
+            ImageFlags::empty(),
+        )?;
+        canvas.filter_image(
+            dst_image_id,
+            ImageFilter::GaussianBlur { sigma },
+            src_image_id,
+        );
         Ok(dst_image_id)
     }
 
@@ -244,10 +362,33 @@ impl Drawable for Blur {
             canvas.save();
             canvas.flush();
 
+            // Black Out is a constant fill — no screenshot, no cache.
+            if self.blur_style == BlurStyle::BlackOut {
+                let mut path = Path::new();
+                path.rounded_rect(
+                    pos.x,
+                    pos.y,
+                    size.x,
+                    size.y,
+                    APP_CONFIG.read().corner_roundness(),
+                );
+                canvas.fill_path(&path, &Paint::color(Color::black()));
+                canvas.restore();
+                return Ok(());
+            }
+
             // create new cached image
             if self.cached_image.borrow().is_none() {
                 let id = match self.blur_style {
                     BlurStyle::Gaussian => Self::blur(
+                        canvas,
+                        pos,
+                        size,
+                        self.style
+                            .size
+                            .to_blur_factor(self.style.annotation_size_factor),
+                    )?,
+                    BlurStyle::SecureBlur => Self::secure_blur(
                         canvas,
                         pos,
                         size,
@@ -263,6 +404,7 @@ impl Drawable for Blur {
                             .size
                             .to_pixelate_cell_size(self.style.annotation_size_factor),
                     )?,
+                    BlurStyle::BlackOut => unreachable!("handled above"),
                 };
                 self.cached_image.borrow_mut().replace(id);
             }

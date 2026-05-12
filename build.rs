@@ -82,6 +82,15 @@ fn main() -> Result<(), io::Error> {
             // the framed image" rather than a bare circular arrow.
             "rotate-90-degrees-ccw",
             "flip-horizontal-regular",
+            // Blur-style picker.
+            "tetris-app-regular",
+            "shield-lock-regular",
+            "weather-moon-regular",
+            // Arrow-style picker.
+            "arrow-left-filled",
+            "arrow-left-regular",
+            "arrow-undo-regular",
+            "arrow-bidirectional-left-right-regular",
         ],
     );
 

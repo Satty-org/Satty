@@ -976,6 +976,104 @@ pub struct StyleToolbar {
     /// state flips (filled ↔ outline). Built lazily so a Fill button
     /// that never appears doesn't pay the popover cost.
     fill_tooltip_label: Option<gtk::Label>,
+    /// Currently-selected blur algorithm. Mirrored locally so the
+    /// MenuButton's leading icon can refresh via `#[watch]`. Sourced
+    /// from `state.toml` on init and updated from the popover after.
+    blur_style: BlurStyle,
+    /// Popover hanging off the blur-style MenuButton — stashed so each
+    /// row's click handler can `popdown()` after dispatch.
+    blur_style_popover: Option<gtk::Popover>,
+    /// Currently-selected arrow geometry. Same role as `blur_style`
+    /// for the arrow MenuButton's leading icon.
+    arrow_style: ArrowStyle,
+    /// Popover hanging off the arrow-style MenuButton.
+    arrow_style_popover: Option<gtk::Popover>,
+}
+
+/// Icon name shown on the blur-style MenuButton and on each popover
+/// row. Single source of truth so the chip and the menu can't drift.
+fn blur_style_icon(s: BlurStyle) -> &'static str {
+    match s {
+        BlurStyle::Pixelate => "tetris-app-regular",
+        BlurStyle::SecureBlur => "shield-lock-regular",
+        BlurStyle::Gaussian => "drop-regular",
+        BlurStyle::BlackOut => "weather-moon-regular",
+    }
+}
+
+/// Human label for the blur-style popover rows.
+fn blur_style_label(s: BlurStyle) -> &'static str {
+    match s {
+        BlurStyle::Pixelate => "Pixelate",
+        BlurStyle::SecureBlur => "Blur (secure)",
+        BlurStyle::Gaussian => "Blur (smooth)",
+        BlurStyle::BlackOut => "Black Out",
+    }
+}
+
+/// Icon for the arrow-style MenuButton + popover rows.
+fn arrow_style_icon(s: ArrowStyle) -> &'static str {
+    match s {
+        ArrowStyle::Standard => "arrow-left-filled",
+        ArrowStyle::Fancy => "arrow-left-regular",
+        ArrowStyle::Curved => "arrow-undo-regular",
+        ArrowStyle::Double => "arrow-bidirectional-left-right-regular",
+    }
+}
+
+/// Human label for the arrow-style popover rows.
+fn arrow_style_label(s: ArrowStyle) -> &'static str {
+    match s {
+        ArrowStyle::Standard => "Standard",
+        ArrowStyle::Fancy => "Fancy",
+        ArrowStyle::Curved => "Curved",
+        ArrowStyle::Double => "Double",
+    }
+}
+
+/// Build a popover full of icon+label rows for an enum-style picker,
+/// attach it to `menu`, and wire each row to dispatch the matching
+/// `StyleToolbarInput`. Shared by the arrow and blur menus — they
+/// differ only in the variant list and the icon/label/input mapping
+/// functions, so factoring it out keeps the two pickers structurally
+/// identical (they were drifting in the previous DropDown version).
+fn build_style_popover<S>(
+    menu: &gtk::MenuButton,
+    sender: &ComponentSender<StyleToolbar>,
+    variants: &[S],
+    icon_for: fn(S) -> &'static str,
+    label_for: fn(S) -> &'static str,
+    to_input: fn(S) -> StyleToolbarInput,
+) -> gtk::Popover
+where
+    S: Copy + 'static,
+{
+    let popover = gtk::Popover::new();
+    popover.add_css_class("compact-control-popover");
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    for &style in variants {
+        let row = gtk::Button::new();
+        row.add_css_class("flat");
+        row.set_focus_on_click(false);
+        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let icon = gtk::Image::from_icon_name(icon_for(style));
+        let label = gtk::Label::new(Some(label_for(style)));
+        label.set_xalign(0.0);
+        label.set_hexpand(true);
+        row_box.append(&icon);
+        row_box.append(&label);
+        row.set_child(Some(&row_box));
+        let s = sender.clone();
+        let popover_clone = popover.clone();
+        row.connect_clicked(move |_| {
+            s.input(to_input(style));
+            popover_clone.popdown();
+        });
+        list.append(&row);
+    }
+    popover.set_child(Some(&list));
+    menu.set_popover(Some(&popover));
+    popover
 }
 
 /// Tooltip wording for the Fill button — describes the *current* state
@@ -1318,6 +1416,12 @@ pub enum StyleToolbarInput {
     /// shortcut toggles fill from outside the toolbar so the
     /// button icon + tooltip stay in sync.
     SetFillShapes(bool),
+    /// Blur-algorithm popover picked a style. Mirror locally for the
+    /// MenuButton icon and forward `BlurStyleSelected` upstream so
+    /// sketch_board updates the active BlurTool + persists.
+    SetBlurStyle(BlurStyle),
+    /// Same shape as `SetBlurStyle` for the arrow-geometry picker.
+    SetArrowStyle(ArrowStyle),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -3380,51 +3484,45 @@ impl Component for StyleToolbar {
                     set_visible: !tool_cluster_label(model.current_tool).is_empty(),
                 },
 
-                #[name = "arrow_style_dropdown"]
-                gtk::DropDown {
+                // Arrow geometry picker. MenuButton + popover of
+                // icon+label rows. Leading icon mirrors the active
+                // style via `#[watch]` on `model.arrow_style`.
+                #[name = "arrow_style_menu"]
+                gtk::MenuButton {
                     add_css_class: "compact-control",
                     set_focusable: false,
                     set_focus_on_click: false,
                     set_hexpand: false,
                     set_valign: gtk::Align::Center,
                     set_height_request: 34,
-                    set_model: Some(&gtk::StringList::new(&["Standard", "Fancy", "Curved", "Double"])),
-                    install_tooltip_above: "Arrow style",
+                    set_always_show_arrow: true,
+                    install_tooltip_above: "Arrow style — Standard, Fancy, Curved, Double",
                     #[watch]
                     set_visible: model.current_tool == Tools::Arrow,
-                    connect_selected_notify[sender] => move |dropdown| {
-                        let style = match dropdown.selected() {
-                            0 => ArrowStyle::Standard,
-                            1 => ArrowStyle::Fancy,
-                            2 => ArrowStyle::Curved,
-                            3 => ArrowStyle::Double,
-                            _ => return,
-                        };
-                        sender.output_sender().emit(ToolbarEvent::ArrowStyleSelected(style));
-                        sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                    #[wrap(Some)]
+                    set_child = &gtk::Image {
+                        #[watch]
+                        set_icon_name: Some(arrow_style_icon(model.arrow_style)),
                     },
                 },
 
-                #[name = "blur_style_dropdown"]
-                gtk::DropDown {
+                // Blur algorithm picker, same shape as the arrow menu.
+                #[name = "blur_style_menu"]
+                gtk::MenuButton {
                     add_css_class: "compact-control",
                     set_focusable: false,
                     set_focus_on_click: false,
                     set_hexpand: false,
                     set_valign: gtk::Align::Center,
                     set_height_request: 34,
-                    set_model: Some(&gtk::StringList::new(&["Gaussian", "Pixelate"])),
-                    install_tooltip_above: "Blur algorithm — Pixelate is irreversible-grade for redacting sensitive content",
+                    set_always_show_arrow: true,
+                    install_tooltip_above: "Blur style — Pixelate, Blur (secure), Blur (smooth), Black Out",
                     #[watch]
                     set_visible: model.current_tool == Tools::Blur,
-                    connect_selected_notify[sender] => move |dropdown| {
-                        let style = match dropdown.selected() {
-                            0 => BlurStyle::Gaussian,
-                            1 => BlurStyle::Pixelate,
-                            _ => return,
-                        };
-                        sender.output_sender().emit(ToolbarEvent::BlurStyleSelected(style));
-                        sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                    #[wrap(Some)]
+                    set_child = &gtk::Image {
+                        #[watch]
+                        set_icon_name: Some(blur_style_icon(model.blur_style)),
                     },
                 },
 
@@ -3806,6 +3904,23 @@ impl Component for StyleToolbar {
                     label.set_text(fill_tooltip_text(self.fill_shapes));
                 }
             }
+            StyleToolbarInput::SetBlurStyle(style) => {
+                // Mirror locally for the MenuButton's `#[watch]`ed icon,
+                // then forward upstream so sketch_board updates the
+                // active BlurTool and writes state.toml.
+                self.blur_style = style;
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::BlurStyleSelected(style));
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
+            StyleToolbarInput::SetArrowStyle(style) => {
+                self.arrow_style = style;
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::ArrowStyleSelected(style));
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
         }
     }
 
@@ -3848,6 +3963,10 @@ impl Component for StyleToolbar {
             annotation_entry: None,
             annotation_stack: None,
             fill_tooltip_label: None,
+            blur_style: crate::state::load_blur_style().unwrap_or_default(),
+            blur_style_popover: None,
+            arrow_style: crate::state::load_arrow_style().unwrap_or_default(),
+            arrow_style_popover: None,
         };
 
         // create widgets
@@ -3868,27 +3987,38 @@ impl Component for StyleToolbar {
         model.annotation_stack = Some(widgets.annotation_stack.clone());
         widgets.annotation_stack.set_visible_child_name("display");
 
-        // Sync the arrow / blur style dropdowns to the persisted
-        // value. Done imperatively here (rather than via #[watch])
-        // because the connect_selected_notify handler emits a
-        // ToolbarEvent on every selection change — using #[watch]
-        // would risk a feedback loop with state.toml on init.
-        if let Some(style) = crate::state::load_arrow_style() {
-            let idx = match style {
-                ArrowStyle::Standard => 0,
-                ArrowStyle::Fancy => 1,
-                ArrowStyle::Curved => 2,
-                ArrowStyle::Double => 3,
-            };
-            widgets.arrow_style_dropdown.set_selected(idx);
-        }
-        if let Some(style) = crate::state::load_blur_style() {
-            let idx = match style {
-                BlurStyle::Gaussian => 0,
-                BlurStyle::Pixelate => 1,
-            };
-            widgets.blur_style_dropdown.set_selected(idx);
-        }
+        // Build the arrow- and blur-style popovers programmatically.
+        // relm4's view! macro can't iterate enum variants, and we want
+        // row order + icons to stay anchored to the single source of
+        // truth (`*_style_icon` / `*_style_label`). MenuButton's
+        // leading icon already updates reactively via `#[watch]`, so
+        // each row only needs to push a `Set*Style` input.
+        model.arrow_style_popover = Some(build_style_popover(
+            &widgets.arrow_style_menu,
+            &sender,
+            &[
+                ArrowStyle::Standard,
+                ArrowStyle::Fancy,
+                ArrowStyle::Curved,
+                ArrowStyle::Double,
+            ],
+            arrow_style_icon,
+            arrow_style_label,
+            StyleToolbarInput::SetArrowStyle,
+        ));
+        model.blur_style_popover = Some(build_style_popover(
+            &widgets.blur_style_menu,
+            &sender,
+            &[
+                BlurStyle::Pixelate,
+                BlurStyle::SecureBlur,
+                BlurStyle::Gaussian,
+                BlurStyle::BlackOut,
+            ],
+            blur_style_icon,
+            blur_style_label,
+            StyleToolbarInput::SetBlurStyle,
+        ));
         if let Some(bg) = crate::state::load_text_background() {
             let idx = match bg {
                 crate::tools::TextBackground::Rounded => 0,
