@@ -551,6 +551,64 @@ impl CropTool {
         self.emit_content_size(bounds.x, bounds.y);
     }
 
+    /// Toolbar "Cancel" button (or Esc): exit Crop without applying
+    /// any pending changes. First-time drafts are dropped entirely;
+    /// re-entered crops with a prior commit are restored to that
+    /// commit by `handle_deactivated` once we exit the tool.
+    pub fn cancel(&mut self) -> ToolUpdateResult {
+        let mut cleared = false;
+        if let Some(crop) = &mut self.crop
+            && !crop.ever_committed
+        {
+            crop.active = false;
+            self.crop = None;
+            cleared = true;
+        }
+        self.action = None;
+        if cleared {
+            self.emit_crop_presence(false);
+        }
+        if let Some(sender) = &self.sender {
+            sender.send(SketchBoardInput::ExitCropToPreviousTool).ok();
+        }
+        ToolUpdateResult::Redraw
+    }
+
+    /// Toolbar "Crop" button (or Enter): apply the in-progress crop
+    /// and exit the tool. No-op if there's no active crop edit.
+    pub fn commit(&mut self) -> ToolUpdateResult {
+        let Some(crop) = self.crop.as_mut() else {
+            return ToolUpdateResult::Unmodified;
+        };
+        if !crop.active {
+            return ToolUpdateResult::Unmodified;
+        }
+        // Canonicalize, snapshot, mark committed so the renderer
+        // switches to zoomed-in view. `ever_committed` sticks so a
+        // future re-entry's exit-without-Enter reverts to this rect.
+        let (pos, size) = crop.get_rectangle();
+        crop.pos = pos;
+        crop.size = size;
+        crop.last_committed = Some((pos, size));
+        crop.committed = true;
+        crop.ever_committed = true;
+        crop.active = false;
+        self.action = None;
+        self.emit_content_size(size.x, size.y);
+        // Hand the user back to the main view — emit a tool switch
+        // so the StyleToolbar reappears and the crop bottom bar
+        // collapses. Pointer is a neutral default; the user can
+        // pick whichever tool next via the top toolbar.
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::ToolSelected(Tools::Pointer),
+                ))
+                .ok();
+        }
+        ToolUpdateResult::Redraw
+    }
+
     /// Toggle whether crop edges snap to image edges during drag.
     /// Wired from the toolbar checkbox; persists via state.
     pub fn set_snap_to_edges(&mut self, value: bool) {
@@ -917,69 +975,8 @@ impl Tool for CropTool {
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
         match event.key {
-            Key::Escape => {
-                // Esc always exits Crop and returns to the previously
-                // selected tool (Pointer if none was recorded). If
-                // there's an uncommitted in-progress crop we drop it
-                // so the user doesn't come back to a stray dim
-                // overlay; a previously-committed crop is preserved
-                // (the user only "left edit mode", not "removed the
-                // crop").
-                let mut cleared = false;
-                if let Some(crop) = &mut self.crop
-                    && !crop.ever_committed
-                {
-                    crop.active = false;
-                    self.crop = None;
-                    cleared = true;
-                }
-                self.action = None;
-                if cleared {
-                    self.emit_crop_presence(false);
-                }
-                if let Some(sender) = &self.sender {
-                    sender.send(SketchBoardInput::ExitCropToPreviousTool).ok();
-                }
-                ToolUpdateResult::Redraw
-            }
-            //FIXME: use if let guards as soon as they're stabilized (1.95)
-            Key::Return | Key::KP_Enter if self.crop.is_some() => {
-                let crop = self.crop.as_mut().unwrap();
-                if crop.active {
-                    // Pressing Enter while editing "applies" the crop:
-                    // mark it committed so the renderer switches to
-                    // zoomed-in view, and deactivate so the dim
-                    // overlay + handles are no longer drawn over the
-                    // zoomed image. `ever_committed` sticks so future
-                    // Esc presses know to restore the committed view.
-                    let (pos, size) = crop.get_rectangle();
-                    crop.pos = pos;
-                    crop.size = size;
-                    crop.last_committed = Some((pos, size));
-                    crop.committed = true;
-                    crop.ever_committed = true;
-                    crop.active = false;
-                    self.action = None;
-                    // Push the new content size out so main.rs can
-                    // shrink the window around the cropped region.
-                    self.emit_content_size(size.x, size.y);
-                    // Hand the user back to the main view — emit a
-                    // tool switch so the StyleToolbar reappears and
-                    // the crop bottom bar collapses. Pointer is a
-                    // neutral default; user can pick whichever tool
-                    // they want next via the top toolbar.
-                    if let Some(sender) = &self.sender {
-                        sender
-                            .send(SketchBoardInput::ToolbarEvent(
-                                ToolbarEvent::ToolSelected(Tools::Pointer),
-                            ))
-                            .ok();
-                    }
-                    ToolUpdateResult::Redraw
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
-            }
+            Key::Escape => self.cancel(),
+            Key::Return | Key::KP_Enter if self.crop.is_some() => self.commit(),
             _ => ToolUpdateResult::Unmodified,
         }
     }

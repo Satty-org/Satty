@@ -191,6 +191,13 @@ pub struct ToolsToolbar {
     active_button: Option<ToggleButton>,
     tool_buttons: HashMap<Tools, ToggleButton>,
     tool_action: SimpleAction,
+    /// Mirrors `tool_action`'s state in plain-Tools form. Driven by
+    /// `SwitchSelectedTool` so the view! `#[watch]` rules can swap
+    /// the top toolbar between its normal contents and the
+    /// Crop-mode contents (aspect ratio / W×H / bg / rotate-flip /
+    /// image size / Cancel-Crop). Initial value is `Pointer` —
+    /// reset to the actual starting tool right before view_output!.
+    current_tool: Tools,
     /// Currently-selected color, mirrored on the unified color-picker
     /// MenuButton's swatch. Updated whenever a palette/custom color is
     /// chosen, so the swatch reflects what subsequent annotations will use.
@@ -996,6 +1003,14 @@ pub enum ToolbarEvent {
     /// User clicked "Revert to Original" — drop the committed crop
     /// entirely so the canvas shows the full original image again.
     RevertCrop,
+    /// User clicked "Cancel" on the crop-mode top toolbar — same
+    /// behavior as Esc inside the Crop tool (drop uncommitted edit,
+    /// restore the prior committed crop if any, exit Crop).
+    CancelCrop,
+    /// User clicked "Crop" on the crop-mode top toolbar — same
+    /// behavior as Enter inside the Crop tool (apply the in-progress
+    /// edit and exit Crop).
+    ApplyCrop,
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -1416,55 +1431,93 @@ impl Component for ToolsToolbar {
             #[wrap(Some)]
             set_start_widget = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 2,
 
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
+                // Normal start cluster — view + history ops. Hidden
+                // when the Crop tool is active so the crop-mode top
+                // toolbar can show its own start contents (just the
+                // Crop indicator) without these competing for width.
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 2,
+                    #[watch]
+                    set_visible: model.current_tool != Tools::Crop,
 
-                    set_icon_name: "resize-large-regular",
-                    install_tooltip: "1:1",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "resize-large-regular",
+                        install_tooltip: "1:1",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "page-fit-regular",
+                        install_tooltip: "Fit to window",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "recycling-bin",
+                        install_tooltip: "Reset all annotations (Delete)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
+                    },
+                    gtk::Separator {},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "arrow-undo-filled",
+                        install_tooltip: "Undo (Ctrl-Z)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Undo);},
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "arrow-redo-filled",
+                        install_tooltip: "Redo (Ctrl-Y)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
+                    },
                 },
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
 
-                    set_icon_name: "page-fit-regular",
-                    install_tooltip: "Fit to window",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
-                },
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
+                // Crop-mode start cluster — single "you are here"
+                // indicator showing the Crop icon as a visual anchor.
+                // Inert: it's just a marker; tool switching happens via
+                // the bottom-row Cancel/Crop buttons or keyboard
+                // shortcuts.
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 2,
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Crop,
 
-                    set_icon_name: "recycling-bin",
-                    install_tooltip: "Reset all annotations (Delete)",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
-                },
-                gtk::Separator {},
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
-
-                    set_icon_name: "arrow-undo-filled",
-                    install_tooltip: "Undo (Ctrl-Z)",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Undo);},
-                },
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
-
-                    set_icon_name: "arrow-redo-filled",
-                    install_tooltip: "Redo (Ctrl-Y)",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
+                    gtk::Image {
+                        set_icon_name: Some("crop-filled"),
+                        set_pixel_size: 18,
+                        set_margin_start: 4,
+                        set_margin_end: 4,
+                    },
                 },
             },
 
             #[wrap(Some)]
             set_center_widget = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
+
+                // Normal center cluster — the 12 tool toggle buttons.
+                // Hidden in Crop mode so the crop-options cluster
+                // (next sibling below) takes over the center slot.
+                #[name(normal_center_box)]
+                gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 2,
+                #[watch]
+                set_visible: model.current_tool != Tools::Crop,
 
                 #[name(pointer_button)]
                 gtk::ToggleButton {
@@ -1574,64 +1627,118 @@ impl Component for ToolsToolbar {
                     // tooltip set programmatically
                     ActionablePlus::set_action::<ToolsAction>: Tools::Spotlight,
                 },
+                },
+
+                // Crop-mode center cluster — aspect-ratio picker,
+                // W/H inputs, background-color picker, rotate/flip,
+                // image-size resize. Built up in subsequent
+                // commits — empty shell for now so the visibility
+                // toggle has somewhere to live.
+                #[name(crop_center_box)]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 6,
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Crop,
+                },
             },
 
             #[wrap(Some)]
             set_end_widget = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 2,
 
-                // Unified color picker — single MenuButton showing the current
-                // color; the popover (built in init) holds the palette and a
-                // custom-color picker, mirroring a standard X's compact picker.
-                // `focusable: false` blocks Tab navigation; `focus_on_click:
-                // false` blocks mouse-click focus too — both are needed or
-                // shortcuts stop working until the user tabs focus back to
-                // the canvas.
-                #[name(color_button)]
-                gtk::MenuButton {
-                    set_focusable: false,
-                    set_focus_on_click: false,
-                    set_hexpand: false,
-                    add_css_class: "color-picker-button",
-                    add_css_class: "flat",
-                    install_tooltip: "Color (1–0 picks a palette color)",
-                    set_always_show_arrow: false,
+                // Normal end cluster — color picker + copy/save
+                // actions. Hidden in Crop mode; the Cancel/Crop
+                // buttons take over the right edge instead.
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 2,
+                    #[watch]
+                    set_visible: model.current_tool != Tools::Crop,
 
-                    #[wrap(Some)]
-                    set_child = &gtk::Image {
-                        set_pixel_size: 18,
-                        set_can_target: false,
-                        #[watch]
-                        set_from_pixbuf: Some(&model.current_color_pixbuf),
+                    // Unified color picker — single MenuButton showing the current
+                    // color; the popover (built in init) holds the palette and a
+                    // custom-color picker, mirroring a standard compact picker.
+                    // `focusable: false` blocks Tab navigation; `focus_on_click:
+                    // false` blocks mouse-click focus too — both are needed or
+                    // shortcuts stop working until the user tabs focus back to
+                    // the canvas.
+                    #[name(color_button)]
+                    gtk::MenuButton {
+                        set_focusable: false,
+                        set_focus_on_click: false,
+                        set_hexpand: false,
+                        add_css_class: "color-picker-button",
+                        add_css_class: "flat",
+                        install_tooltip: "Color (1–0 picks a palette color)",
+                        set_always_show_arrow: false,
+
+                        #[wrap(Some)]
+                        set_child = &gtk::Image {
+                            set_pixel_size: 18,
+                            set_can_target: false,
+                            #[watch]
+                            set_from_pixbuf: Some(&model.current_color_pixbuf),
+                        },
+                    },
+                    gtk::Separator {},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "copy-regular",
+                        install_tooltip: "Copy to clipboard (Ctrl+C)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "save-regular",
+                        install_tooltip: "Save (Ctrl+S)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
+
+                        set_visible: APP_CONFIG.read().output_filename().is_some()
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "save-multiple-regular",
+                        install_tooltip: "Save as (Ctrl+Shift+S)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
                     },
                 },
-                gtk::Separator {},
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
 
-                    set_icon_name: "copy-regular",
-                    install_tooltip: "Copy to clipboard (Ctrl+C)",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
-                },
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
+                // Crop-mode end cluster — Cancel + Crop action
+                // buttons. Cancel mirrors Esc (drop pending edit,
+                // restore prior commit if any); Crop mirrors Enter
+                // (apply the in-progress crop and exit the tool).
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 6,
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Crop,
 
-                    set_icon_name: "save-regular",
-                    install_tooltip: "Save (Ctrl+S)",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
-
-                    set_visible: APP_CONFIG.read().output_filename().is_some()
-                },
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
-
-                    set_icon_name: "save-multiple-regular",
-                    install_tooltip: "Save as (Ctrl+Shift+S)",
-                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+                        set_label: "Cancel",
+                        install_tooltip: "Cancel crop (Esc)",
+                        connect_clicked[sender] => move |_| {
+                            sender.output_sender().emit(ToolbarEvent::CancelCrop);
+                        },
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+                        set_label: "Crop",
+                        add_css_class: "suggested-action",
+                        install_tooltip: "Apply crop (Enter)",
+                        connect_clicked[sender] => move |_| {
+                            sender.output_sender().emit(ToolbarEvent::ApplyCrop);
+                        },
+                    },
                 },
             },
         },
@@ -1650,6 +1757,7 @@ impl Component for ToolsToolbar {
                 if let Some(selected_tool_button) = self.tool_buttons.get(&tool) {
                     self.active_button = Some(selected_tool_button.clone());
                 }
+                self.current_tool = tool;
             }
             ToolsToolbarInput::ColorButtonSelected(button) => {
                 let color = self.map_button_to_color(button);
@@ -1897,6 +2005,7 @@ impl Component for ToolsToolbar {
             active_button: None,
             tool_buttons: HashMap::new(),
             tool_action: tool_action.clone().into(),
+            current_tool: Tools::Pointer,
             current_color: initial_color,
             current_color_pixbuf: initial_color_pixbuf,
             custom_color,
@@ -1971,6 +2080,7 @@ impl Component for ToolsToolbar {
 
         // Set initial active button correctly
         let initial_tool = APP_CONFIG.read().initial_tool();
+        model.current_tool = initial_tool;
         if let Some(button) = model.tool_buttons.get(&initial_tool) {
             model.active_button = Some(button.clone());
         }

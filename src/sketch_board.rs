@@ -1197,6 +1197,8 @@ impl SketchBoard {
                 }
                 ToolUpdateResult::Redraw
             }
+            ToolbarEvent::CancelCrop => self.tools.get_crop_tool().borrow_mut().cancel(),
+            ToolbarEvent::ApplyCrop => self.tools.get_crop_tool().borrow_mut().commit(),
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()
