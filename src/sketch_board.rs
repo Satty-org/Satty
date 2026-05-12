@@ -1446,7 +1446,36 @@ impl SketchBoard {
             ToolbarEvent::Redo => self.handle_redo(),
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
+                // Pre-sync `self.style.fill` to the currently-selected
+                // shape's fill state before flipping it. Without this,
+                // if the user clicks a shape whose fill state disagrees
+                // with `self.style.fill` (which may carry a stale
+                // value from an earlier toggle), the first press just
+                // brings the global into sync with the shape and the
+                // visible state doesn't change — the user has to press
+                // again to actually flip. Reading the selection's own
+                // fill makes a single press always produce a visible
+                // flip on the selected shape.
+                let selected = self
+                    .tools
+                    .get(&Tools::Pointer)
+                    .borrow()
+                    .selected_drawables();
+                if let Some(fill) = selected.iter().find_map(|id| {
+                    self.renderer
+                        .clone_drawable(*id)
+                        .and_then(|d| d.style())
+                        .map(|s| s.fill)
+                }) {
+                    self.style.fill = fill;
+                }
                 self.style.fill = !self.style.fill;
+                // Toast announces the new state so a keyboard toggle
+                // (`F`) reads as feedback, not a silent change.
+                let label = if self.style.fill { "Fill shape" } else { "No fill" };
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ShowCycleToast(label.to_string()));
                 self.dispatch_style_change()
             }
             ToolbarEvent::AnnotationSizeChanged(value) => {
