@@ -1213,6 +1213,10 @@ impl SketchBoard {
                     .set_dimensions(width as f32, height as f32);
                 ToolUpdateResult::Redraw
             }
+            ToolbarEvent::CropBgColorChanged(bg) => {
+                self.tools.get_crop_tool().borrow_mut().set_bg_color(bg);
+                ToolUpdateResult::Redraw
+            }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()

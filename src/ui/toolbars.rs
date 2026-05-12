@@ -1086,6 +1086,10 @@ pub enum ToolbarEvent {
     /// Sketch_board recenters the crop rect on the image at the
     /// requested dimensions via `CropTool::set_dimensions`.
     CropDimensionsSet { width: i32, height: i32 },
+    /// User picked a background-color preset for the matte shown
+    /// outside the crop region. Sketch_board forwards to
+    /// `CropTool::set_bg_color`.
+    CropBgColorChanged(crate::tools::CropBgColor),
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -1837,6 +1841,33 @@ impl Component for ToolsToolbar {
                         connect_activate[sender] => move |e| {
                             let v = e.text().trim().parse::<i32>().ok();
                             sender.input(ToolsToolbarInput::CropHeightEntered(v));
+                        },
+                    },
+
+                    // Background-color matte picker. Sets the color
+                    // rendered OUTSIDE the crop rectangle while
+                    // editing (Auto = the legacy semi-transparent
+                    // black dim; Transparent removes the matte
+                    // entirely; the named presets paint a solid
+                    // frame in white / gray / black; Custom Color…
+                    // is a placeholder for a follow-up picker
+                    // dialog and currently maps to a mid-gray).
+                    #[name(crop_bg_color_dropdown)]
+                    gtk::DropDown {
+                        set_focusable: false,
+                        add_css_class: "compact-control",
+                        install_tooltip: "Background color (outside crop)",
+                        set_model: Some(&gtk::StringList::new(
+                            crate::tools::CropBgColor::ALL_LABELS,
+                        )),
+                        set_selected: 0,
+                        connect_selected_notify[sender] => move |dd| {
+                            let bg = crate::tools::CropBgColor::from_index(
+                                dd.selected() as usize,
+                            );
+                            sender
+                                .output_sender()
+                                .emit(ToolbarEvent::CropBgColorChanged(bg));
                         },
                     },
                 },

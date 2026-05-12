@@ -572,7 +572,7 @@ pub enum UndoAction {
 
 pub use arrow::{ArrowStyle, ArrowTool};
 pub use blur::{BlurStyle, BlurTool};
-pub use crop::{AspectRatio, CropHit, CropTool};
+pub use crop::{AspectRatio, CropBgColor, CropHit, CropTool};
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;

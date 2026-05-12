@@ -40,6 +40,10 @@ pub struct Crop {
     /// crop without re-pressing Enter (tool switch OR Esc both flow
     /// through deactivation). `None` until the first commit.
     last_committed: Option<(Vec2D, Vec2D)>,
+    /// Color of the matte rendered OUTSIDE the crop rectangle. Set
+    /// from the top toolbar's background-color dropdown via
+    /// `CropTool::set_bg_color`.
+    bg_color: CropBgColor,
 }
 
 pub struct CropTool {
@@ -66,12 +70,97 @@ pub struct CropTool {
     /// (inscribed, centered) so the visible overlay always matches
     /// the selected ratio.
     aspect_ratio: AspectRatio,
+    /// Currently-selected background-color preset for the matte
+    /// outside the crop rect. Mirrored on each `Crop` instance the
+    /// tool builds (seed, re-seed, etc.) so the drawable sees it
+    /// without a back-reference.
+    bg_color: CropBgColor,
 }
 
-/// Aspect-ratio constraint applied to crop drags. The variants
-/// mirror typical dropdown options minus the user-typed
-/// "Custom Ratio" entry (that one would need a sub-dialog and is
-/// left for a follow-up).
+/// Color shown OUTSIDE the crop rectangle while the tool is active —
+/// the dimmed / opaque "matte" surrounding the framed region. Stored
+/// on each `Crop` so `Drawable::draw` can read it without a back-
+/// reference to `CropTool`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum CropBgColor {
+    /// Default — semi-transparent black, lets the image bleed through
+    /// dimmed.
+    #[default]
+    Auto,
+    /// No matte at all — the area outside the crop renders untouched.
+    /// The crop border / handles still draw so the user can shape it.
+    Transparent,
+    /// Opaque white matte.
+    White,
+    /// Opaque medium gray matte.
+    Gray,
+    /// Opaque black matte (vs. `Auto`'s semi-transparent black).
+    Black,
+    /// User-picked color via the bottom "Custom Color…" entry.
+    /// Stored as `(r, g, b)` floats in 0..1 — alpha is hard-coded to
+    /// fully opaque so the user's pick reads as a solid matte.
+    Custom(f32, f32, f32),
+}
+
+impl CropBgColor {
+    /// Resolve to a femtovg `Color` ready for `Paint::color(...)`.
+    /// `Transparent` reports alpha=0 so the caller can skip drawing
+    /// the matte rect entirely.
+    pub fn paint_color(self) -> Color {
+        match self {
+            // 0.5 alpha black gives the dim that lets the screenshot 
+            // show through. Other "named" colors are fully opaque so 
+            // they read as a solid frame.
+            CropBgColor::Auto => Color::rgbaf(0.0, 0.0, 0.0, 0.5),
+            CropBgColor::Transparent => Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+            CropBgColor::White => Color::rgbaf(1.0, 1.0, 1.0, 1.0),
+            CropBgColor::Gray => Color::rgbaf(0.5, 0.5, 0.5, 1.0),
+            CropBgColor::Black => Color::rgbaf(0.0, 0.0, 0.0, 1.0),
+            CropBgColor::Custom(r, g, b) => Color::rgbaf(r, g, b, 1.0),
+        }
+    }
+
+    /// Dropdown index used by the top toolbar's bg-color picker.
+    /// Order matches `ALL_LABELS`; `Custom(_)` collapses to the last
+    /// "Custom Color…" entry regardless of the stored RGB triple.
+    pub const ALL_LABELS: &'static [&'static str] = &[
+        "Auto",
+        "Transparent",
+        "White",
+        "Gray",
+        "Black",
+        "Custom Color…",
+    ];
+
+    pub fn from_index(i: usize) -> Self {
+        match i {
+            0 => CropBgColor::Auto,
+            1 => CropBgColor::Transparent,
+            2 => CropBgColor::White,
+            3 => CropBgColor::Gray,
+            4 => CropBgColor::Black,
+            // Custom rounds back to a neutral mid-gray on selection;
+            // a "Custom Color…" picker dialog is left for a follow-up.
+            5 => CropBgColor::Custom(0.5, 0.5, 0.5),
+            _ => CropBgColor::default(),
+        }
+    }
+
+    pub fn to_index(self) -> usize {
+        match self {
+            CropBgColor::Auto => 0,
+            CropBgColor::Transparent => 1,
+            CropBgColor::White => 2,
+            CropBgColor::Gray => 3,
+            CropBgColor::Black => 4,
+            CropBgColor::Custom(..) => 5,
+        }
+    }
+}
+
+/// Aspect-ratio constraint applied to crop drags. Common photo /
+/// display ratios; a user-typed "Custom Ratio" entry would need a
+/// sub-dialog and is left for a follow-up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AspectRatio {
     /// No constraint — drag freely (default).
@@ -159,6 +248,7 @@ impl Default for CropTool {
             snap_to_edges: true,
             image_bounds: None,
             aspect_ratio: AspectRatio::Freeform,
+            bg_color: CropBgColor::Auto,
         }
     }
 }
@@ -189,7 +279,7 @@ impl Crop {
     /// pixel-precise aim. Scales with the visual size bump above.
     const HANDLE_HIT_RADIUS: f32 = 20.0;
 
-    fn new(pos: Vec2D) -> Self {
+    fn new(pos: Vec2D, bg_color: CropBgColor) -> Self {
         Self {
             pos,
             size: Vec2D::zero(),
@@ -197,6 +287,7 @@ impl Crop {
             committed: false,
             ever_committed: false,
             last_committed: None,
+            bg_color,
         }
     }
 
@@ -426,15 +517,20 @@ impl Drawable for Crop {
         let crop_canvas_w = size.x * scale;
         let crop_canvas_h = size.y * scale;
 
-        let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
-            .with_fill_rule(femtovg::FillRule::EvenOdd);
-        let mut shadow_path = Path::new();
-        shadow_path.rect(0.0, 0.0, canvas.width() as f32, canvas.height() as f32);
-        shadow_path.rect(crop_canvas_x, crop_canvas_y, crop_canvas_w, crop_canvas_h);
-
+        // Outside-crop matte. `bg_color` picks the color preset; we
+        // skip the fill entirely when the user picked Transparent
+        // (alpha == 0) so the canvas behind shows through unblended.
+        let matte = self.bg_color.paint_color();
         canvas.save();
         canvas.reset_transform();
-        canvas.fill_path(&shadow_path, &shadow_paint);
+        if matte.a > 0.0 {
+            let shadow_paint =
+                Paint::color(matte).with_fill_rule(femtovg::FillRule::EvenOdd);
+            let mut shadow_path = Path::new();
+            shadow_path.rect(0.0, 0.0, canvas.width() as f32, canvas.height() as f32);
+            shadow_path.rect(crop_canvas_x, crop_canvas_y, crop_canvas_w, crop_canvas_h);
+            canvas.fill_path(&shadow_path, &shadow_paint);
+        }
         canvas.reset_transform();
         canvas.set_transform(&saved_transform);
 
@@ -624,6 +720,7 @@ impl CropTool {
             committed: false,
             ever_committed: false,
             last_committed: None,
+            bg_color: self.bg_color,
         });
         self.action = None;
         if let Some(sender) = &self.sender {
@@ -964,6 +1061,20 @@ impl CropTool {
         self.aspect_ratio
     }
 
+    /// Set the matte color shown outside the crop rectangle. Mirrors
+    /// the choice onto the live `Crop` (if any) so the next redraw
+    /// reflects the change immediately.
+    pub fn set_bg_color(&mut self, bg: CropBgColor) {
+        self.bg_color = bg;
+        if let Some(c) = self.crop.as_mut() {
+            c.bg_color = bg;
+        }
+    }
+
+    pub fn bg_color(&self) -> CropBgColor {
+        self.bg_color
+    }
+
     /// Toolbar W/H text inputs: resize (and recenter) the current
     /// crop rect to the explicit pixel dimensions. The new rect is
     /// centered on the current rect's midpoint when one exists, or
@@ -999,6 +1110,7 @@ impl CropTool {
                 committed: false,
                 ever_committed: false,
                 last_committed: None,
+                bg_color: self.bg_color,
             });
             self.emit_crop_presence(true);
         }
@@ -1052,7 +1164,7 @@ impl CropTool {
         match &self.crop {
             None => {
                 // No crop exists, create a new one
-                self.crop = Some(Crop::new(pos));
+                self.crop = Some(Crop::new(pos, self.bg_color));
                 self.action = Some(CropToolAction::NewCrop);
             }
             Some(c) => {
@@ -1079,7 +1191,7 @@ impl CropTool {
                     }));
                 } else {
                     // Crop exists, but we far outside from it, create a new one
-                    self.crop = Some(Crop::new(pos));
+                    self.crop = Some(Crop::new(pos, self.bg_color));
                     self.action = Some(CropToolAction::NewCrop);
                 }
             }
@@ -1354,6 +1466,7 @@ impl Tool for CropTool {
                 committed: false,
                 ever_committed: false,
                 last_committed: None,
+                bg_color: self.bg_color,
             });
             // Seeded crop counts as "crop present" — surface Revert
             // immediately so the user can bail out of crop mode
