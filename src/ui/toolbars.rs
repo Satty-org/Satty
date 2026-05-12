@@ -1105,11 +1105,17 @@ fn arrow_style_label(s: ArrowStyle) -> &'static str {
     }
 }
 
-/// Dimensions for the arrow-style preview shown on the MenuButton and on
-/// each popover row. Tuned so the body and head are recognizably distinct
-/// at this size while still fitting inside the 34 px MenuButton.
+/// Dimensions for the arrow-style preview shown on the MenuButton chip.
+/// Tuned so the body and head are recognizably distinct at this size
+/// while still fitting inside the 34 px MenuButton.
 const ARROW_PREVIEW_W: i32 = 30;
 const ARROW_PREVIEW_H: i32 = 16;
+/// Wider preview for the popover-row variant — same drawing code, just
+/// 2× the chip width so the body has enough room for the user to read
+/// the actual stroke shape. Height stays at the chip's value so the
+/// rows don't tower.
+const ARROW_ROW_PREVIEW_W: i32 = ARROW_PREVIEW_W * 2;
+const ARROW_ROW_PREVIEW_H: i32 = ARROW_PREVIEW_H;
 
 /// Paint a small arrow preview into `ctx` using cairo, matching the shape
 /// language of the actual ArrowStyle renderings in `tools::arrow`. The
@@ -1242,10 +1248,19 @@ fn draw_arrow_preview_cairo(
 /// Build a DrawingArea that renders the given arrow style. The returned
 /// `Rc<Cell<ArrowStyle>>` lets the caller change which variant is drawn
 /// later — update the cell, then call `queue_draw()` on the returned area.
-fn make_arrow_preview(initial: ArrowStyle) -> (gtk::DrawingArea, Rc<std::cell::Cell<ArrowStyle>>) {
+///
+/// `width` / `height` are content-area dimensions; pass the chip
+/// constants (`ARROW_PREVIEW_W` / `_H`) for the MenuButton's leading
+/// preview, or the `ARROW_ROW_PREVIEW_*` pair for the wider popover-row
+/// variant where the user wants to see more of the stroke.
+fn make_arrow_preview(
+    initial: ArrowStyle,
+    width: i32,
+    height: i32,
+) -> (gtk::DrawingArea, Rc<std::cell::Cell<ArrowStyle>>) {
     let area = gtk::DrawingArea::new();
-    area.set_content_width(ARROW_PREVIEW_W);
-    area.set_content_height(ARROW_PREVIEW_H);
+    area.set_content_width(width);
+    area.set_content_height(height);
     area.set_valign(gtk::Align::Center);
     area.set_halign(gtk::Align::Center);
     let cell = Rc::new(std::cell::Cell::new(initial));
@@ -4277,7 +4292,9 @@ impl Component for StyleToolbar {
                 ArrowStyle::Curved,
                 ArrowStyle::Double,
             ],
-            |s| make_arrow_preview(s).0.upcast::<gtk::Widget>(),
+            |s| make_arrow_preview(s, ARROW_ROW_PREVIEW_W, ARROW_ROW_PREVIEW_H)
+                .0
+                .upcast::<gtk::Widget>(),
             arrow_style_label,
             StyleToolbarInput::SetArrowStyle,
         ));
@@ -4299,7 +4316,8 @@ impl Component for StyleToolbar {
         // code as the popover rows, with a Cell driving which variant
         // it renders so we can flip it on SetArrowStyle without
         // rebuilding the widget.
-        let (arrow_preview, arrow_cell) = make_arrow_preview(model.arrow_style);
+        let (arrow_preview, arrow_cell) =
+            make_arrow_preview(model.arrow_style, ARROW_PREVIEW_W, ARROW_PREVIEW_H);
         widgets.arrow_style_menu.set_child(Some(&arrow_preview));
         model.arrow_preview_area = Some(arrow_preview);
         model.arrow_preview_cell = Some(arrow_cell);
