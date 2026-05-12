@@ -86,11 +86,8 @@ fn main() -> Result<(), io::Error> {
             "tetris-app-regular",
             "shield-lock-regular",
             "weather-moon-regular",
-            // Arrow-style picker.
-            "arrow-left-filled",
-            "arrow-left-regular",
-            "arrow-undo-regular",
-            "arrow-bidirectional-left-right-regular",
+            // (The arrow-style picker uses cairo-drawn previews
+            // matching the real arrow shapes; no icons needed.)
         ],
     );
 

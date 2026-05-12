@@ -1058,6 +1058,20 @@ pub struct StyleToolbar {
     arrow_style: ArrowStyle,
     /// Popover hanging off the arrow-style MenuButton.
     arrow_style_popover: Option<gtk::Popover>,
+    /// DrawingArea rendering the live preview on the arrow MenuButton.
+    /// Stashed so `SetArrowStyle` can `queue_draw()` after flipping the
+    /// preview cell.
+    arrow_preview_area: Option<gtk::DrawingArea>,
+    /// Shared cell driving the MenuButton preview — its draw_func reads
+    /// this. Mutated in `SetArrowStyle` to switch which variant the chip
+    /// shows.
+    arrow_preview_cell: Option<Rc<std::cell::Cell<ArrowStyle>>>,
+    /// Inner Label of the arrow MenuButton's custom-tooltip popover so
+    /// `SetArrowStyle` can refresh the wording to name the active style.
+    arrow_style_tooltip_label: Option<gtk::Label>,
+    /// Inner Label of the blur MenuButton's tooltip — same role as the
+    /// arrow one. Updated on `SetBlurStyle`.
+    blur_style_tooltip_label: Option<gtk::Label>,
 }
 
 /// Icon name shown on the blur-style MenuButton and on each popover
@@ -1081,16 +1095,6 @@ fn blur_style_label(s: BlurStyle) -> &'static str {
     }
 }
 
-/// Icon for the arrow-style MenuButton + popover rows.
-fn arrow_style_icon(s: ArrowStyle) -> &'static str {
-    match s {
-        ArrowStyle::Standard => "arrow-left-filled",
-        ArrowStyle::Fancy => "arrow-left-regular",
-        ArrowStyle::Curved => "arrow-undo-regular",
-        ArrowStyle::Double => "arrow-bidirectional-left-right-regular",
-    }
-}
-
 /// Human label for the arrow-style popover rows.
 fn arrow_style_label(s: ArrowStyle) -> &'static str {
     match s {
@@ -1101,22 +1105,207 @@ fn arrow_style_label(s: ArrowStyle) -> &'static str {
     }
 }
 
+/// Dimensions for the arrow-style preview shown on the MenuButton and on
+/// each popover row. Tuned so the body and head are recognizably distinct
+/// at this size while still fitting inside the 34 px MenuButton.
+const ARROW_PREVIEW_W: i32 = 30;
+const ARROW_PREVIEW_H: i32 = 16;
+
+/// Paint a small arrow preview into `ctx` using cairo, matching the shape
+/// language of the actual ArrowStyle renderings in `tools::arrow`. The
+/// constants here are tuned for legibility at preview size rather than
+/// pulled from the per-size calibration tables — at ~30 × 16 px those
+/// tables would either underflow (thin shafts disappear) or overflow.
+fn draw_arrow_preview_cairo(
+    ctx: &relm4::gtk::cairo::Context,
+    style: ArrowStyle,
+    width: f64,
+    height: f64,
+    rgba: (f64, f64, f64, f64),
+) {
+    use relm4::gtk::cairo;
+
+    let pad_x = 1.5;
+    let pad_y = 1.0;
+    let start_x = pad_x;
+    let end_x = width - pad_x;
+    let mid_y = height * 0.5;
+    let length = (end_x - start_x).max(1.0);
+    let usable_h = (height - 2.0 * pad_y).max(1.0);
+
+    ctx.save().ok();
+    ctx.set_source_rgba(rgba.0, rgba.1, rgba.2, rgba.3);
+    ctx.translate(start_x, mid_y);
+
+    match style {
+        ArrowStyle::Standard => {
+            // Solid filled head + tapered body, rounded outline overlay.
+            let head_length = (length * 0.42).min(length - 2.0);
+            let head_half_h = head_length * 0.50;
+            let stroke = (usable_h * 0.16).max(1.4);
+            // body_max half-width before stroke widening; the rounded
+            // stroke adds `stroke/2` on each side, so target visible
+            // half-width is body_max_half + stroke/2.
+            let body_max_half = (usable_h * 0.16).max(0.6);
+            let head_outer_x = length - head_length;
+            let head_inner_x = head_outer_x + head_length * 0.05;
+
+            ctx.set_line_join(cairo::LineJoin::Round);
+            ctx.set_line_cap(cairo::LineCap::Round);
+            ctx.set_line_width(stroke);
+            ctx.move_to(0.0, 0.0);
+            ctx.line_to(head_inner_x, body_max_half);
+            ctx.line_to(head_outer_x, head_half_h);
+            ctx.line_to(length, 0.0);
+            ctx.line_to(head_outer_x, -head_half_h);
+            ctx.line_to(head_inner_x, -body_max_half);
+            ctx.close_path();
+            ctx.fill_preserve().ok();
+            ctx.stroke().ok();
+        }
+        ArrowStyle::Fancy => {
+            // Wider body, swept-back wing ears, flat-back tail. No stroke.
+            let head_length = (length * 0.50).min(length - 2.0);
+            let head_half_h = head_length * 0.46;
+            let body_max_half = (usable_h * 0.22).max(0.8);
+            let back_half = body_max_half * 0.35;
+            let wing_back_ratio = 0.22_f64;
+            let wing_height_ratio = 0.22_f64;
+            let head_outer_x = length - head_length;
+            let wing_x = head_outer_x - head_length * wing_back_ratio;
+            let wing_half_h = head_half_h * (1.0 + wing_height_ratio);
+
+            ctx.set_line_join(cairo::LineJoin::Miter);
+            ctx.move_to(0.0, back_half);
+            ctx.line_to(head_outer_x, body_max_half);
+            ctx.line_to(wing_x, wing_half_h);
+            ctx.line_to(length, 0.0);
+            ctx.line_to(wing_x, -wing_half_h);
+            ctx.line_to(head_outer_x, -body_max_half);
+            ctx.line_to(0.0, -back_half);
+            ctx.close_path();
+            ctx.fill().ok();
+        }
+        ArrowStyle::Curved | ArrowStyle::Double => {
+            // Quadratic bezier shaft + open V tip(s).
+            let shaft_width = (usable_h * 0.14).max(1.2);
+            let head_side = (length * 0.32).max(4.0);
+            let half_angle = 45.0_f64.to_radians();
+            // Arc upward — control point above the chord midpoint.
+            let curve_amount = length * 0.25;
+            let qx = length * 0.5;
+            let qy = -curve_amount;
+
+            ctx.set_line_width(shaft_width);
+            ctx.set_line_cap(cairo::LineCap::Round);
+            ctx.set_line_join(cairo::LineJoin::Round);
+
+            // Quadratic → cubic conversion for cairo's curve_to.
+            let c1x = 2.0 / 3.0 * qx;
+            let c1y = 2.0 / 3.0 * qy;
+            let c2x = length + 2.0 / 3.0 * (qx - length);
+            let c2y = 2.0 / 3.0 * qy;
+            ctx.move_to(0.0, 0.0);
+            ctx.curve_to(c1x, c1y, c2x, c2y, length, 0.0);
+            ctx.stroke().ok();
+
+            let draw_v = |tip_x: f64, tip_y: f64, dx: f64, dy: f64| {
+                let len = (dx * dx + dy * dy).sqrt();
+                if len < 1e-6 {
+                    return;
+                }
+                let angle = dy.atan2(dx);
+                ctx.save().ok();
+                ctx.translate(tip_x, tip_y);
+                ctx.rotate(angle);
+                let bx = -head_side * half_angle.cos();
+                let by = head_side * half_angle.sin();
+                ctx.move_to(bx, -by);
+                ctx.line_to(0.0, 0.0);
+                ctx.line_to(bx, by);
+                ctx.stroke().ok();
+                ctx.restore().ok();
+            };
+
+            // Tangent at end of quadratic is `end - control`.
+            draw_v(length, 0.0, length - qx, -qy);
+            if matches!(style, ArrowStyle::Double) {
+                // Tangent at start is `start - control`.
+                draw_v(0.0, 0.0, -qx, -qy);
+            }
+        }
+    }
+
+    ctx.restore().ok();
+}
+
+/// Build a DrawingArea that renders the given arrow style. The returned
+/// `Rc<Cell<ArrowStyle>>` lets the caller change which variant is drawn
+/// later — update the cell, then call `queue_draw()` on the returned area.
+fn make_arrow_preview(initial: ArrowStyle) -> (gtk::DrawingArea, Rc<std::cell::Cell<ArrowStyle>>) {
+    let area = gtk::DrawingArea::new();
+    area.set_content_width(ARROW_PREVIEW_W);
+    area.set_content_height(ARROW_PREVIEW_H);
+    area.set_valign(gtk::Align::Center);
+    area.set_halign(gtk::Align::Center);
+    let cell = Rc::new(std::cell::Cell::new(initial));
+    let cell_for_draw = cell.clone();
+    area.set_draw_func(move |area, ctx, w, h| {
+        let style = cell_for_draw.get();
+        // Mirror the way `gtk::Image` icons inherit the theme's
+        // foreground color. `widget.color()` is GTK 4.10+ (we're on
+        // 4.6 here), so we fall back to looking the named theme color
+        // up through the (still-supported) style context.
+        #[allow(deprecated)]
+        let fg = area
+            .style_context()
+            .lookup_color("theme_fg_color")
+            .unwrap_or_else(|| gtk::gdk::RGBA::new(0.9, 0.9, 0.9, 1.0));
+        draw_arrow_preview_cairo(
+            ctx,
+            style,
+            w as f64,
+            h as f64,
+            (
+                fg.red() as f64,
+                fg.green() as f64,
+                fg.blue() as f64,
+                fg.alpha() as f64,
+            ),
+        );
+    });
+    (area, cell)
+}
+
+/// Tooltip text for the arrow-style MenuButton — names the active
+/// variant and prompts the user to click for alternatives.
+fn arrow_tooltip_text(s: ArrowStyle) -> String {
+    format!("Arrow style — currently {}. Click to change.", arrow_style_label(s))
+}
+
+/// Tooltip text for the blur-style MenuButton — same shape as
+/// `arrow_tooltip_text`, surfacing the active algorithm.
+fn blur_tooltip_text(s: BlurStyle) -> String {
+    format!("Blur style — currently {}. Click to change.", blur_style_label(s))
+}
+
 /// Build a popover full of icon+label rows for an enum-style picker,
 /// attach it to `menu`, and wire each row to dispatch the matching
 /// `StyleToolbarInput`. Shared by the arrow and blur menus — they
 /// differ only in the variant list and the icon/label/input mapping
 /// functions, so factoring it out keeps the two pickers structurally
 /// identical (they were drifting in the previous DropDown version).
-fn build_style_popover<S>(
+fn build_style_popover<S, FW>(
     menu: &gtk::MenuButton,
     sender: &ComponentSender<StyleToolbar>,
     variants: &[S],
-    icon_for: fn(S) -> &'static str,
+    widget_for: FW,
     label_for: fn(S) -> &'static str,
     to_input: fn(S) -> StyleToolbarInput,
 ) -> gtk::Popover
 where
     S: Copy + 'static,
+    FW: Fn(S) -> gtk::Widget,
 {
     let popover = gtk::Popover::new();
     popover.add_css_class("compact-control-popover");
@@ -1126,7 +1315,7 @@ where
         row.add_css_class("flat");
         row.set_focus_on_click(false);
         let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let icon = gtk::Image::from_icon_name(icon_for(style));
+        let icon = widget_for(style);
         let label = gtk::Label::new(Some(label_for(style)));
         label.set_xalign(0.0);
         label.set_hexpand(true);
@@ -3555,8 +3744,10 @@ impl Component for StyleToolbar {
                 },
 
                 // Arrow geometry picker. MenuButton + popover of
-                // icon+label rows. Leading icon mirrors the active
-                // style via `#[watch]` on `model.arrow_style`.
+                // preview+label rows. The leading widget and tooltip are
+                // wired imperatively in init() so they can re-render
+                // (DrawingArea queue_draw) and re-word (tooltip label)
+                // when `model.arrow_style` changes.
                 #[name = "arrow_style_menu"]
                 gtk::MenuButton {
                     add_css_class: "compact-control",
@@ -3566,17 +3757,13 @@ impl Component for StyleToolbar {
                     set_valign: gtk::Align::Center,
                     set_height_request: 34,
                     set_always_show_arrow: true,
-                    install_tooltip_above: "Arrow style — Standard, Fancy, Curved, Double",
                     #[watch]
                     set_visible: model.current_tool == Tools::Arrow,
-                    #[wrap(Some)]
-                    set_child = &gtk::Image {
-                        #[watch]
-                        set_icon_name: Some(arrow_style_icon(model.arrow_style)),
-                    },
                 },
 
                 // Blur algorithm picker, same shape as the arrow menu.
+                // Leading icon + tooltip are installed in init() so the
+                // tooltip text can name the active variant.
                 #[name = "blur_style_menu"]
                 gtk::MenuButton {
                     add_css_class: "compact-control",
@@ -3586,7 +3773,6 @@ impl Component for StyleToolbar {
                     set_valign: gtk::Align::Center,
                     set_height_request: 34,
                     set_always_show_arrow: true,
-                    install_tooltip_above: "Blur style — Pixelate, Blur (secure), Blur (smooth), Black Out",
                     #[watch]
                     set_visible: model.current_tool == Tools::Blur,
                     #[wrap(Some)]
@@ -3976,9 +4162,13 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::SetBlurStyle(style) => {
                 // Mirror locally for the MenuButton's `#[watch]`ed icon,
-                // then forward upstream so sketch_board updates the
-                // active BlurTool and writes state.toml.
+                // refresh the dynamic tooltip's wording, then forward
+                // upstream so sketch_board updates the active BlurTool
+                // and writes state.toml.
                 self.blur_style = style;
+                if let Some(label) = &self.blur_style_tooltip_label {
+                    label.set_text(&blur_tooltip_text(style));
+                }
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::BlurStyleSelected(style));
@@ -3986,6 +4176,16 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::SetArrowStyle(style) => {
                 self.arrow_style = style;
+                // Flip the MenuButton's preview to the new shape.
+                if let Some(cell) = &self.arrow_preview_cell {
+                    cell.set(style);
+                }
+                if let Some(area) = &self.arrow_preview_area {
+                    area.queue_draw();
+                }
+                if let Some(label) = &self.arrow_style_tooltip_label {
+                    label.set_text(&arrow_tooltip_text(style));
+                }
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ArrowStyleSelected(style));
@@ -4037,6 +4237,10 @@ impl Component for StyleToolbar {
             blur_style_popover: None,
             arrow_style: crate::state::load_arrow_style().unwrap_or_default(),
             arrow_style_popover: None,
+            arrow_preview_area: None,
+            arrow_preview_cell: None,
+            arrow_style_tooltip_label: None,
+            blur_style_tooltip_label: None,
         };
 
         // create widgets
@@ -4059,10 +4263,10 @@ impl Component for StyleToolbar {
 
         // Build the arrow- and blur-style popovers programmatically.
         // relm4's view! macro can't iterate enum variants, and we want
-        // row order + icons to stay anchored to the single source of
-        // truth (`*_style_icon` / `*_style_label`). MenuButton's
-        // leading icon already updates reactively via `#[watch]`, so
-        // each row only needs to push a `Set*Style` input.
+        // row order to stay anchored to a single source of truth.
+        // Arrow rows show a cairo-drawn miniature of the actual arrow
+        // shape; blur rows still use icons (the algorithms don't have
+        // a distinctive silhouette to preview).
         model.arrow_style_popover = Some(build_style_popover(
             &widgets.arrow_style_menu,
             &sender,
@@ -4072,7 +4276,7 @@ impl Component for StyleToolbar {
                 ArrowStyle::Curved,
                 ArrowStyle::Double,
             ],
-            arrow_style_icon,
+            |s| make_arrow_preview(s).0.upcast::<gtk::Widget>(),
             arrow_style_label,
             StyleToolbarInput::SetArrowStyle,
         ));
@@ -4085,10 +4289,36 @@ impl Component for StyleToolbar {
                 BlurStyle::Gaussian,
                 BlurStyle::BlackOut,
             ],
-            blur_style_icon,
+            |s| gtk::Image::from_icon_name(blur_style_icon(s)).upcast::<gtk::Widget>(),
             blur_style_label,
             StyleToolbarInput::SetBlurStyle,
         ));
+
+        // Build the arrow MenuButton's leading preview — same drawing
+        // code as the popover rows, with a Cell driving which variant
+        // it renders so we can flip it on SetArrowStyle without
+        // rebuilding the widget.
+        let (arrow_preview, arrow_cell) = make_arrow_preview(model.arrow_style);
+        widgets.arrow_style_menu.set_child(Some(&arrow_preview));
+        model.arrow_preview_area = Some(arrow_preview);
+        model.arrow_preview_cell = Some(arrow_cell);
+
+        // Custom hover-tooltips on both style MenuButtons. The wording
+        // names the *active* variant; SetArrowStyle / SetBlurStyle (and
+        // their handlers) refresh the label so a second hover reflects
+        // the new selection.
+        let arrow_tooltip = install_dynamic_tooltip(
+            &widgets.arrow_style_menu,
+            &arrow_tooltip_text(model.arrow_style),
+            gtk::PositionType::Top,
+        );
+        model.arrow_style_tooltip_label = Some(arrow_tooltip);
+        let blur_tooltip = install_dynamic_tooltip(
+            &widgets.blur_style_menu,
+            &blur_tooltip_text(model.blur_style),
+            gtk::PositionType::Top,
+        );
+        model.blur_style_tooltip_label = Some(blur_tooltip);
         if let Some(bg) = crate::state::load_text_background() {
             let idx = match bg {
                 crate::tools::TextBackground::Rounded => 0,
