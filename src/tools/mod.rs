@@ -549,6 +549,71 @@ pub fn bbox_resize(rect: Rect, handle: HandleId, to: Vec2D) -> Rect {
     Rect::from_corners(new_tl, new_br)
 }
 
+/// Constrain a corner-handle target so the resulting bbox preserves the
+/// original aspect ratio. Used when Shift is held while dragging a corner.
+///
+/// The dominant axis (whichever the user has scaled more, measured from
+/// the pinned opposite corner) wins; the other axis is snapped to match.
+/// Returns `to` unchanged if `handle` is not a corner or `orig` is degenerate.
+pub fn aspect_lock_corner_target(orig: Rect, handle: HandleId, to: Vec2D) -> Vec2D {
+    let anchor = match handle {
+        HandleId::TopLeft => orig.bottom_right(),
+        HandleId::TopRight => orig.bottom_left(),
+        HandleId::BottomLeft => orig.top_right(),
+        HandleId::BottomRight => orig.top_left(),
+        _ => return to,
+    };
+    if orig.size.x <= f32::EPSILON || orig.size.y <= f32::EPSILON {
+        return to;
+    }
+    let dx = to.x - anchor.x;
+    let dy = to.y - anchor.y;
+    let scale_x = dx.abs() / orig.size.x;
+    let scale_y = dy.abs() / orig.size.y;
+    let scale = scale_x.max(scale_y);
+    let sign_x = if dx >= 0.0 { 1.0 } else { -1.0 };
+    let sign_y = if dy >= 0.0 { 1.0 } else { -1.0 };
+    Vec2D::new(
+        anchor.x + sign_x * scale * orig.size.x,
+        anchor.y + sign_y * scale * orig.size.y,
+    )
+}
+
+/// For a side-handle drag with Shift held, compute the opposite side's
+/// handle id and the mirrored target that produces symmetric resize about
+/// the original bbox's center on the dragged axis.
+///
+/// Returns `None` if `handle` is not a side handle. Callers should apply
+/// `move_handle(handle, to)` first, then `move_handle(opp, mirrored)` so
+/// shapes with vertex-scaling resize (brush, highlight) compose correctly.
+pub fn mirror_side_target(
+    orig: Rect,
+    handle: HandleId,
+    to: Vec2D,
+) -> Option<(HandleId, Vec2D)> {
+    let tl = orig.top_left();
+    let br = orig.bottom_right();
+    match handle {
+        HandleId::Top => {
+            let mirrored_y = br.y - (to.y - tl.y);
+            Some((HandleId::Bottom, Vec2D::new(br.x, mirrored_y)))
+        }
+        HandleId::Bottom => {
+            let mirrored_y = tl.y - (to.y - br.y);
+            Some((HandleId::Top, Vec2D::new(tl.x, mirrored_y)))
+        }
+        HandleId::Left => {
+            let mirrored_x = br.x - (to.x - tl.x);
+            Some((HandleId::Right, Vec2D::new(mirrored_x, br.y)))
+        }
+        HandleId::Right => {
+            let mirrored_x = tl.x - (to.x - br.x);
+            Some((HandleId::Left, Vec2D::new(mirrored_x, tl.y)))
+        }
+        _ => None,
+    }
+}
+
 /// Identifier for a committed drawable on the sketch stack.
 /// Stable across moves, edits, and undo/redo cycles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -826,5 +891,127 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Highlight => Self::Highlighter,
             command_line::Tools::Brush => Self::Brush,
         }
+    }
+}
+
+#[cfg(test)]
+mod resize_constraint_tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect::new(Vec2D::new(x, y), Vec2D::new(w, h))
+    }
+
+    fn vec(x: f32, y: f32) -> Vec2D {
+        Vec2D::new(x, y)
+    }
+
+    fn approx(a: Vec2D, b: Vec2D) {
+        assert!(
+            (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4,
+            "expected {:?}, got {:?}",
+            b,
+            a
+        );
+    }
+
+    #[test]
+    fn aspect_lock_grows_dominant_axis() {
+        // 100×100 square, drag BottomRight from (100,100) to (200,110).
+        // X dominates → both axes scale to 2.0, target → (200, 200).
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let got = aspect_lock_corner_target(r, HandleId::BottomRight, vec(200.0, 110.0));
+        approx(got, vec(200.0, 200.0));
+    }
+
+    #[test]
+    fn aspect_lock_preserves_non_unit_ratio() {
+        // 200×100 (2:1). BottomRight drag to (300, 110): scale_x=0.5,
+        // scale_y=0.1 → scale=0.5 → new = (200 + 0.5*200, 100 + 0.5*100) = (300, 150).
+        let r = rect(0.0, 0.0, 200.0, 100.0);
+        let got = aspect_lock_corner_target(r, HandleId::BottomRight, vec(300.0, 110.0));
+        approx(got, vec(300.0, 150.0));
+    }
+
+    #[test]
+    fn aspect_lock_topleft_handles_negative_signs() {
+        // 100×100 at (50, 50). TopLeft drag to (20, 0): anchor=BottomRight=(150,150).
+        // dx=-130, dy=-150, scale_x=1.3, scale_y=1.5 → scale=1.5.
+        // Result: (150 - 1.5*100, 150 - 1.5*100) = (0, 0).
+        let r = rect(50.0, 50.0, 100.0, 100.0);
+        let got = aspect_lock_corner_target(r, HandleId::TopLeft, vec(20.0, 0.0));
+        approx(got, vec(0.0, 0.0));
+    }
+
+    #[test]
+    fn aspect_lock_passthrough_for_non_corner() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let p = vec(42.0, 17.0);
+        assert_eq!(aspect_lock_corner_target(r, HandleId::Top, p), p);
+        assert_eq!(aspect_lock_corner_target(r, HandleId::Start, p), p);
+    }
+
+    #[test]
+    fn aspect_lock_passthrough_for_degenerate_rect() {
+        let r = rect(0.0, 0.0, 0.0, 100.0);
+        let p = vec(42.0, 17.0);
+        assert_eq!(aspect_lock_corner_target(r, HandleId::BottomRight, p), p);
+    }
+
+    #[test]
+    fn mirror_top_reflects_bottom_across_center() {
+        // Bbox (0,0)-(100,100), center.y=50. Drag Top to y=30 (Δ=30) →
+        // expect opposite Bottom at y=70 (br.y - Δ).
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let (opp, target) = mirror_side_target(r, HandleId::Top, vec(0.0, 30.0)).unwrap();
+        assert_eq!(opp, HandleId::Bottom);
+        approx(target, vec(100.0, 70.0));
+    }
+
+    #[test]
+    fn mirror_bottom_reflects_top_across_center() {
+        // Drag Bottom from y=100 to y=80 (Δ=-20) → Top moves from 0 to 20.
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let (opp, target) = mirror_side_target(r, HandleId::Bottom, vec(0.0, 80.0)).unwrap();
+        assert_eq!(opp, HandleId::Top);
+        approx(target, vec(0.0, 20.0));
+    }
+
+    #[test]
+    fn mirror_left_reflects_right_across_center() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let (opp, target) = mirror_side_target(r, HandleId::Left, vec(15.0, 0.0)).unwrap();
+        assert_eq!(opp, HandleId::Right);
+        approx(target, vec(85.0, 100.0));
+    }
+
+    #[test]
+    fn mirror_right_reflects_left_across_center() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let (opp, target) = mirror_side_target(r, HandleId::Right, vec(80.0, 0.0)).unwrap();
+        assert_eq!(opp, HandleId::Left);
+        approx(target, vec(20.0, 0.0));
+    }
+
+    #[test]
+    fn mirror_returns_none_for_non_side() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        assert!(mirror_side_target(r, HandleId::TopLeft, vec(0.0, 0.0)).is_none());
+        assert!(mirror_side_target(r, HandleId::Start, vec(0.0, 0.0)).is_none());
+    }
+
+    /// Sanity check that the combined operation (move dragged side, then
+    /// move opposite to mirrored target) leaves the bbox symmetric about
+    /// the original center. Mirrors what pointer.rs does for side+shift.
+    #[test]
+    fn side_pair_keeps_bbox_centered() {
+        let orig = rect(0.0, 0.0, 100.0, 100.0);
+        let target = vec(0.0, 30.0); // drag Top down by 30
+        let after_first = bbox_resize(orig, HandleId::Top, target);
+        let (opp, mirrored) = mirror_side_target(orig, HandleId::Top, target).unwrap();
+        let after_second = bbox_resize(after_first, opp, mirrored);
+        // Final: top=30, bottom=70, height=40 — symmetric about y=50.
+        approx(after_second.top_left(), vec(0.0, 30.0));
+        approx(after_second.bottom_right(), vec(100.0, 70.0));
     }
 }

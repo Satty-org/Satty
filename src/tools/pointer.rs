@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     Drawable, DrawableId, DrawableStore, Handle, HandleId, SELECTION_BLUE, Text, Tool,
-    ToolUpdateResult, Tools,
+    ToolUpdateResult, Tools, aspect_lock_corner_target, mirror_side_target,
 };
 
 /// Step (image-space px) for a plain arrow-key nudge.
@@ -557,7 +557,23 @@ impl Tool for PointerTool {
                 match drag.mode {
                     DragMode::Body => working.translate(event.pos),
                     DragMode::Handle(h_id) => {
-                        working.move_handle(h_id, drag.handle_anchor + event.pos)
+                        let target = drag.handle_anchor + event.pos;
+                        let shift = event.modifier.intersects(ModifierType::SHIFT_MASK);
+                        let orig_bounds = drag.original.bounds();
+                        match (shift, orig_bounds) {
+                            (true, Some(orig)) => {
+                                // Shift on corner: lock aspect ratio.
+                                // Shift on side: grow opposite side symmetrically.
+                                let constrained = aspect_lock_corner_target(orig, h_id, target);
+                                working.move_handle(h_id, constrained);
+                                if let Some((opp, mirrored)) =
+                                    mirror_side_target(orig, h_id, target)
+                                {
+                                    working.move_handle(opp, mirrored);
+                                }
+                            }
+                            _ => working.move_handle(h_id, target),
+                        }
                     }
                 }
                 drag.working = working;
