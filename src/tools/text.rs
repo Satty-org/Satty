@@ -1766,6 +1766,13 @@ impl Tool for TextTool {
                         self.text = None;
                         self.input_enabled = false;
                         self.stop_cursor_blink_timer();
+                        // Clear any lingering IM preedit so the next
+                        // keypress lands in the canvas key handler
+                        // (not silently swallowed by `filter_keypress`
+                        // because the IM still thinks we're composing).
+                        if let Some(ctx) = &self.im_context {
+                            ctx.im_context.reset();
+                        }
                         tool_update_result = match edit_id {
                             Some(id) => ToolUpdateResult::ModifyDrawable(id, result),
                             None => ToolUpdateResult::Commit(result),
@@ -2138,6 +2145,9 @@ impl Tool for TextTool {
                             self.text = None;
                             self.set_input_enabled(false);
                             self.stop_cursor_blink_timer();
+                            if let Some(ctx) = &self.im_context {
+                                ctx.im_context.reset();
+                            }
                             return match edit_id {
                                 Some(id) => ToolUpdateResult::ModifyDrawable(id, committed),
                                 None => ToolUpdateResult::Commit(committed),
@@ -2333,6 +2343,9 @@ impl Tool for TextTool {
             let edit_id = self.edit_target_id.take();
             self.text = None;
             self.input_enabled = false;
+            if let Some(ctx) = &self.im_context {
+                ctx.im_context.reset();
+            }
             match edit_id {
                 Some(id) => ToolUpdateResult::ModifyDrawable(id, result),
                 None => ToolUpdateResult::Commit(result),
