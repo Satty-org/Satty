@@ -130,9 +130,18 @@ dropdown.compact-control > button.combo {
 }
 .compact-slider mark label {
     font-size: 12px;
+    /* Reserve enough vertical box height to fit the size-slider's
+     * default-letter highlight (Pango `size="large"` ≈ 14.4px glyph)
+     * without growing the row. Without this, bolding/enlarging a
+     * single mark label inflates the slider's natural height, which
+     * grows the toolbar, which grows the window. min-height pins the
+     * reserved space at 18 px so every label — plain or large/heavy
+     * — fits into the same allocated box. The line-height match
+     * keeps the glyph vertically centered inside that box. */
+    line-height: 18px;
+    min-height: 18px;
     margin: 0;
     padding: 0;
-    min-height: 0;
 }
 .compact-slider contents,
 .compact-slider value {

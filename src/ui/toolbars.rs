@@ -1364,6 +1364,14 @@ pub struct StyleToolbar {
     /// 0–4). Snaps back to the saved default on re-entering the
     /// brush tool; right-click → "Save as default" persists.
     brush_post_smooth_iterations: usize,
+    /// Clone of the size slider widget — held in the model so the
+    /// handlers below can imperatively refresh its mark labels
+    /// (bolding the letter that matches the current tool's saved
+    /// default). The marks are static after construction; relm4's
+    /// `#[watch]` only updates declarative properties, so we do
+    /// `clear_marks` + `add_mark` calls by hand on tool change /
+    /// SaveSizeAsDefault.
+    size_slider: Option<gtk::Scale>,
     /// True iff a crop region currently exists (in either edit or
     /// committed state). Drives the "Revert to Original" button's
     /// visibility — pushed via `CropPresenceChanged` from sketch_board.
@@ -4251,6 +4259,53 @@ pub enum ColorButtons {
 const CUSTOM_SAVED_OFFSET: u64 = 1 << 32;
 
 impl StyleToolbar {
+    /// Rebuild the size slider's six tick marks (XS…XXL), bolding
+    /// the letter that matches the current tool's saved default
+    /// (via Pango markup). Idempotent — clears any existing marks
+    /// first. Called from `init()` for the first paint, on
+    /// `ToolChanged` so the bold letter follows the active tool,
+    /// and on `SaveSizeAsDefault` so the bold updates the moment
+    /// the user persists a new default. Pointer / Crop don't own
+    /// a size default; marks stay all-plain in those modes.
+    fn refresh_size_slider_marks(&self) {
+        let Some(slider) = self.size_slider.as_ref() else {
+            return;
+        };
+        let labels = [
+            (0.0_f64, "XS", Size::XSmall),
+            (1.0, "S", Size::Small),
+            (2.0, "M", Size::Medium),
+            (3.0, "L", Size::Large),
+            (4.0, "XL", Size::XLarge),
+            (5.0, "XXL", Size::XXLarge),
+        ];
+        let default_size: Option<Size> =
+            if matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
+                None
+            } else {
+                crate::state::load_size_for_tool(self.current_tool)
+            };
+        slider.clear_marks();
+        for (pos, letter, size) in labels {
+            let markup = if Some(size) == default_size {
+                // `weight="heavy"` (900) is the densest Pango stop;
+                // falls back to bold on fonts without a heavy face,
+                // but on fonts that have one it's distinctly chunkier
+                // than `<b>`. Paired with `size="large"` (~+20%, the
+                // equivalent of ~+2px on the slider's typical font)
+                // for a visible-at-a-glance pop without overflowing
+                // the tick row's vertical budget.
+                format!(
+                    "<span weight=\"heavy\" size=\"large\">{}</span>",
+                    letter
+                )
+            } else {
+                letter.to_string()
+            };
+            slider.add_mark(pos, gtk::PositionType::Bottom, Some(&markup));
+        }
+    }
+
     fn show_annotation_dialog(
         &mut self,
         sender: ComponentSender<StyleToolbar>,
@@ -4345,12 +4400,9 @@ impl Component for StyleToolbar {
                 set_digits: 0,
                 set_draw_value: false,
                 install_tooltip_above: "Annotation size",
-                add_mark: (0.0, gtk::PositionType::Bottom, Some("XS")),
-                add_mark: (1.0, gtk::PositionType::Bottom, Some("S")),
-                add_mark: (2.0, gtk::PositionType::Bottom, Some("M")),
-                add_mark: (3.0, gtk::PositionType::Bottom, Some("L")),
-                add_mark: (4.0, gtk::PositionType::Bottom, Some("XL")),
-                add_mark: (5.0, gtk::PositionType::Bottom, Some("XXL")),
+                // Marks are added imperatively in init() via
+                // `refresh_size_slider_marks` so the letter for the
+                // current tool's saved default can be bolded.
                 #[watch]
                 #[block_signal(size_changed)]
                 set_value: size_to_slider_value(model.current_size),
@@ -4870,6 +4922,11 @@ impl Component for StyleToolbar {
                 // anyway in case the slider lingers).
                 if !matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
                     crate::state::save_size_for_tool(self.current_tool, self.current_size);
+                    // Re-bold the now-default letter on the slider so
+                    // the user gets immediate visual confirmation that
+                    // the save took effect (no UI lag between the
+                    // popover click and the bold update).
+                    self.refresh_size_slider_marks();
                 }
             }
 
@@ -4898,6 +4955,10 @@ impl Component for StyleToolbar {
                         .output_sender()
                         .emit(ToolbarEvent::SizeSelected(default_size));
                 }
+                // Bold the letter matching the new tool's saved
+                // default (or none, if Pointer / Crop, or if the user
+                // hasn't saved a default for this tool yet).
+                self.refresh_size_slider_marks();
             }
             StyleToolbarInput::SetCurrentSize(size) => {
                 // Mirror sketch_board's tool-size change into the
@@ -5112,6 +5173,7 @@ impl Component for StyleToolbar {
             spotlight_darkness: crate::state::load_spotlight_darkness().unwrap_or(0.50),
             highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
             brush_post_smooth_iterations: APP_CONFIG.read().brush_post_smooth_iterations(),
+            size_slider: None,
             has_crop: false,
             current_size: initial_size,
             fill_shapes: APP_CONFIG.read().default_fill_shapes(),
@@ -5308,6 +5370,13 @@ impl Component for StyleToolbar {
         // keep the group registered even though SizeAction was retired.
         let group = RelmActionGroup::<StyleToolbarActionGroup>::new();
         group.register_for_widget(&widgets.root);
+
+        // Stash the size slider so the SaveSizeAsDefault / ToolChanged
+        // handlers can re-render the mark labels with the saved-default
+        // letter bolded. First refresh after the clone so the initial
+        // paint matches the active tool's stored default.
+        model.size_slider = Some(widgets.size_slider.clone());
+        model.refresh_size_slider_marks();
 
         ComponentParts { model, widgets }
     }
