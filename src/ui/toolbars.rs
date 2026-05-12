@@ -1277,16 +1277,17 @@ fn make_arrow_preview(initial: ArrowStyle) -> (gtk::DrawingArea, Rc<std::cell::C
     (area, cell)
 }
 
-/// Tooltip text for the arrow-style MenuButton — names the active
-/// variant and prompts the user to click for alternatives.
+/// Tooltip text for the arrow-style MenuButton — just the active
+/// variant's name (the icon + the "Arrow" toolbar tool already make
+/// the context clear, so the preamble was visual noise).
 fn arrow_tooltip_text(s: ArrowStyle) -> String {
-    format!("Arrow style — currently {}. Click to change.", arrow_style_label(s))
+    arrow_style_label(s).to_string()
 }
 
 /// Tooltip text for the blur-style MenuButton — same shape as
-/// `arrow_tooltip_text`, surfacing the active algorithm.
+/// `arrow_tooltip_text`, just the active algorithm's name.
 fn blur_tooltip_text(s: BlurStyle) -> String {
-    format!("Blur style — currently {}. Click to change.", blur_style_label(s))
+    blur_style_label(s).to_string()
 }
 
 /// Build a popover full of icon+label rows for an enum-style picker,
