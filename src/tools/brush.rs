@@ -185,6 +185,10 @@ impl Drawable for BrushDrawable {
         Some(self.style)
     }
 
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Brush)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

@@ -130,6 +130,10 @@ impl Drawable for Ellipse {
         Some(self.style)
     }
 
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Ellipse)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

@@ -128,6 +128,10 @@ impl Drawable for Rectangle {
         Some(self.style)
     }
 
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Rectangle)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

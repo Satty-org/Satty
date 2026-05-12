@@ -208,6 +208,16 @@ pub enum TextBackground {
     Rounded,
 }
 
+impl TextBackground {
+    /// Human label for the cycle toast.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            TextBackground::Plain => "Plain",
+            TextBackground::Rounded => "Rounded",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Text {
     pos: Vec2D,
@@ -1065,6 +1075,14 @@ impl Drawable for Text {
 
     fn set_text_background(&mut self, bg: TextBackground) {
         self.background = bg;
+    }
+
+    fn text_background(&self) -> Option<TextBackground> {
+        Some(self.background)
+    }
+
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Text)
     }
 
     fn render_glow(

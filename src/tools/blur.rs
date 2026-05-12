@@ -54,6 +54,19 @@ pub enum BlurStyle {
     BlackOut,
 }
 
+impl BlurStyle {
+    /// Human label for the cycle toast — one word per variant.
+    pub fn display_name(self) -> &'static str {
+        use BlurStyle::*;
+        match self {
+            Pixelate => "Pixelate",
+            SecureBlur => "Secure Blur",
+            Gaussian => "Gaussian",
+            BlackOut => "Black Out",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Blur {
     top_left: Vec2D,
@@ -465,6 +478,20 @@ impl Drawable for Blur {
 
     fn style(&self) -> Option<Style> {
         Some(self.style)
+    }
+
+    fn blur_style(&self) -> Option<BlurStyle> {
+        Some(self.blur_style)
+    }
+
+    fn set_blur_style_on_drawable(&mut self, style: BlurStyle) {
+        self.blur_style = style;
+        // Algorithm change forces a re-blur.
+        self.cached_image.borrow_mut().take();
+    }
+
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Blur)
     }
 
     fn render_glow(

@@ -339,11 +339,48 @@ pub trait Drawable: DrawableClone + Debug {
     /// selected text after the fact, not just at creation time.
     fn set_text_background(&mut self, _bg: TextBackground) {}
 
-    /// Render a Selection "glow" — a semi-transparent blue
-    /// trace of the shape, drawn under the original. Each shape's impl
-    /// chooses how to map `HALO_PAD` (a CSS-pixel target) into image units
-    /// using `glow_scale_image_units` so the halo appears at constant
-    /// on-screen thickness regardless of zoom or DPR.
+    /// Read the text-pill background style (Plain vs Rounded) off a
+    /// Text drawable. `None` for any drawable that doesn't carry a
+    /// text background — the toolbar uses this on selection-sync to
+    /// flip its dropdown to the just-selected drawable's value so
+    /// the on-screen affordance reflects whatever is currently
+    /// clicked.
+    fn text_background(&self) -> Option<TextBackground> {
+        None
+    }
+
+    /// Apply / read the arrow-geometry variant on an Arrow drawable.
+    /// Symmetric with the text-background pair so popover picks,
+    /// double-tap cycles, and selection-driven re-syncs all work
+    /// against the *selected* drawable instead of just the tool's
+    /// default. Default `None` / no-op for non-arrows.
+    fn set_arrow_style_on_drawable(&mut self, _style: ArrowStyle) {}
+    fn arrow_style(&self) -> Option<ArrowStyle> {
+        None
+    }
+
+    /// Apply / read the blur algorithm on a Blur drawable. Same
+    /// shape as `set_arrow_style_on_drawable` / `arrow_style`.
+    fn set_blur_style_on_drawable(&mut self, _style: BlurStyle) {}
+    fn blur_style(&self) -> Option<BlurStyle> {
+        None
+    }
+
+    /// Which tool created this drawable. Used by sketch_board to
+    /// auto-switch the active tool when the user selects an existing
+    /// drawable, so the toolbar's tool-specific controls (arrow
+    /// style chip, blur algorithm, text-background dropdown, etc.)
+    /// match the picked shape. `None` for internal drawables that
+    /// shouldn't trigger a switch (selection overlay).
+    fn tool_type(&self) -> Option<Tools> {
+        None
+    }
+
+    /// Render a selection "glow" — a semi-transparent blue trace of the 
+    /// shape, drawn under the original. Each shape's impl chooses how 
+    /// to map `HALO_PAD` (a CSS-pixel target) into image units using 
+    /// `glow_scale_image_units` so the halo appears at constant on-screen 
+    /// thickness regardless of zoom or DPR.
     fn render_glow(
         &self,
         canvas: &mut Canvas<OpenGl>,

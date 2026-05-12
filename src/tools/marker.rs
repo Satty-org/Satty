@@ -124,6 +124,10 @@ impl Drawable for Marker {
         Some(self.style)
     }
 
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Marker)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

@@ -432,6 +432,10 @@ impl Drawable for HighlightStroke {
         Some(self.style)
     }
 
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Highlighter)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

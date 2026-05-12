@@ -53,6 +53,18 @@ impl ArrowStyle {
             Double => Curved,
         }
     }
+
+    /// Human label for the cycle toast (and anywhere else a one-word
+    /// name fits better than the more verbose tooltip text).
+    pub fn display_name(self) -> &'static str {
+        use ArrowStyle::*;
+        match self {
+            Standard => "Standard",
+            Fancy => "Fancy",
+            Curved => "Curved",
+            Double => "Double",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -697,6 +709,18 @@ impl Drawable for Arrow {
 
     fn style(&self) -> Option<Style> {
         Some(self.style)
+    }
+
+    fn arrow_style(&self) -> Option<ArrowStyle> {
+        Some(self.arrow_style)
+    }
+
+    fn set_arrow_style_on_drawable(&mut self, style: ArrowStyle) {
+        self.arrow_style = style;
+    }
+
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Arrow)
     }
 
     fn render_glow(

@@ -250,6 +250,10 @@ impl Drawable for SpotlightKind {
         })
     }
 
+    fn tool_type(&self) -> Option<Tools> {
+        Some(Tools::Spotlight)
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
