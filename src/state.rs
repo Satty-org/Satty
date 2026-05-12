@@ -135,31 +135,51 @@ pub fn initial_color() -> Color {
     load_last_color().unwrap_or_else(Color::red)
 }
 
-pub fn load_custom_colors() -> Vec<Color> {
+/// Load saved-custom colors as a sparse slot list — `None` entries
+/// represent empty placeholder slots the user has intentionally left
+/// (e.g. by dragging a color away from its position). Empty slots are
+/// encoded on disk as `HexColor::rgba(0, 0, 0, 0)` (fully transparent
+/// black), which is unreachable through the color chooser UI in normal
+/// use; if a user does manage to save a fully-transparent black color,
+/// it'll round-trip as an empty slot — acceptable since that color
+/// would render as nothing visible anyway.
+pub fn load_custom_colors() -> Vec<Option<Color>> {
     load()
         .saved_custom_colors
         .into_iter()
-        .map(Color::from)
+        .map(hex_to_slot)
         .collect()
 }
 
-/// Append `color` to the persisted saved-custom list. Returns the new
-/// list so callers can update their in-memory mirror without a separate
-/// re-load. Duplicates are *not* deduplicated — saving twice produces
-/// two adjacent slots, matching what most users expect ("I clicked save
-/// twice, I should see two swatches"); callers that want dedup should
-/// filter the input first.
-pub fn append_custom_color(color: Color) -> Vec<Color> {
-    let mut state = load();
-    state
-        .saved_custom_colors
-        .push(HexColor::rgba(color.r, color.g, color.b, color.a));
-    save(&state);
-    state
-        .saved_custom_colors
-        .into_iter()
-        .map(Color::from)
-        .collect()
+/// Add `color` to the persisted saved-custom list. Fills the first
+/// `None` slot if one exists (so explicit gaps left by drag-aways get
+/// reused first); otherwise appends a new slot at the end. Returns the
+/// new list so callers can update their in-memory mirror without a
+/// separate re-load.
+pub fn append_custom_color(color: Color) -> Vec<Option<Color>> {
+    let mut slots = load_custom_colors();
+    if let Some(empty_idx) = slots.iter().position(Option::is_none) {
+        slots[empty_idx] = Some(color);
+    } else {
+        slots.push(Some(color));
+    }
+    save_custom_colors(&slots);
+    slots
+}
+
+fn hex_to_slot(hc: HexColor) -> Option<Color> {
+    if hc.r == 0 && hc.g == 0 && hc.b == 0 && hc.a == 0 {
+        None
+    } else {
+        Some(Color::from(hc))
+    }
+}
+
+fn slot_to_hex(slot: Option<Color>) -> HexColor {
+    match slot {
+        Some(c) => HexColor::rgba(c.r, c.g, c.b, c.a),
+        None => HexColor::rgba(0, 0, 0, 0),
+    }
 }
 
 pub fn load_spotlight_darkness() -> Option<f32> {
@@ -337,14 +357,16 @@ pub fn save_keybinds(shortcuts: &HashMap<char, Tools>) {
     save(&state);
 }
 
-/// Replace the persisted saved-custom list wholesale. Used by
-/// reorder + delete flows where the caller has already computed the
-/// final list in memory.
-pub fn save_custom_colors(colors: &[Color]) {
+/// Replace the persisted saved-custom slot list wholesale. Trailing
+/// `None`s are trimmed (they carry no information — the user can
+/// always grow the list again by dragging or saving a new color), but
+/// mid-list `None`s are preserved so explicit gaps survive a restart.
+pub fn save_custom_colors(slots: &[Option<Color>]) {
     let mut state = load();
-    state.saved_custom_colors = colors
-        .iter()
-        .map(|c| HexColor::rgba(c.r, c.g, c.b, c.a))
-        .collect();
+    let mut trimmed: Vec<Option<Color>> = slots.to_vec();
+    while matches!(trimmed.last(), Some(None)) {
+        trimmed.pop();
+    }
+    state.saved_custom_colors = trimmed.into_iter().map(slot_to_hex).collect();
     save(&state);
 }

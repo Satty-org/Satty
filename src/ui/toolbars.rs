@@ -228,6 +228,19 @@ pub struct ToolsToolbar {
     /// can refresh via `#[watch]` whenever the user picks a new
     /// preset from the popover.
     crop_bg_color: crate::tools::CropBgColor,
+    /// The "Custom Color…" row's swatch inside the bg-color popover.
+    /// Stashed so the `CropBgColorSelected(Custom(...))` handler can
+    /// refresh the row to reflect the user's chosen color — without
+    /// this the row always shows the mid-gray placeholder from the
+    /// initial build, which gives the dropdown no visual indication
+    /// of what "Custom" currently means.
+    crop_bg_custom_swatch: Option<gtk::Image>,
+    /// Last picked `Custom(r,g,b)` value (mid-gray default before any
+    /// pick). Shared with the row's click closure so opening the
+    /// chooser dialog re-seeds it with the user's prior choice
+    /// instead of GTK's white default. Updated in lockstep with the
+    /// swatch in `CropBgColorSelected`.
+    crop_bg_custom_rgb: Option<std::rc::Rc<std::cell::Cell<(f32, f32, f32)>>>,
     /// Resize-popover state shared between handler updates and
     /// the popover's imperative connect_* closures. `Rc<Cell>` so
     /// the closures (each owns a clone) can read the live values
@@ -256,11 +269,14 @@ pub struct ToolsToolbar {
     /// stale `CustomSaved` indices; *not* surfaced as a separate slot
     /// in the popover anymore (replaced by `custom_colors`).
     custom_color: Color,
-    /// Persisted "saved custom colors" — rendered as filled swatches
-    /// in the right column of the color picker popover. Each entry
-    /// is addressable via `ColorButtons::CustomSaved(i)` and survives
-    /// across launches via `crate::state`.
-    custom_colors: Vec<Color>,
+    /// Persisted "saved custom colors" — sparse slot list. `Some(color)`
+    /// renders as a filled swatch addressable via
+    /// `ColorButtons::CustomSaved(i)`; `None` renders as a dashed
+    /// placeholder. Empty mid-list slots are intentional (created by
+    /// dragging a swatch away from its slot or by deletion) and survive
+    /// across launches; trailing `None`s are trimmed by `state.rs` on
+    /// save.
+    custom_colors: Vec<Option<Color>>,
     color_action: SimpleAction,
     /// Reference to the popover so `update` can rebuild the right
     /// column when a saved color is appended.
@@ -280,9 +296,14 @@ pub struct ToolsToolbar {
     /// wheel button) is currently open. Drives the arrow icon and the
     /// revealer's `reveal_child`.
     picker_expanded: bool,
-    /// `gtk::Revealer` wrapping the inline picker panel. Stashed so
-    /// `TogglePickerExpansion` can flip its `reveal_child` without
-    /// walking the widget tree.
+    /// `gtk::Revealer` wrapping the inline picker panel. Uses
+    /// `SlideRight` transition because that's the only one that
+    /// keeps the colorplane's gradient cache valid across
+    /// collapse/expand toggles — Crossfade/None both collapse the
+    /// child to 0×0 and the gradient never re-paints. SlideRight
+    /// makes width = 0 when collapsed (so the popover narrows
+    /// horizontally) at the cost of preserving the child's
+    /// vertical extent (so the collapsed popover stays tall).
     picker_revealer: Option<gtk::Revealer>,
     /// The embedded `ColorChooserWidget` inside the inline picker
     /// panel. `AddCurrentPickerToCustoms` reads its `rgba` so the
@@ -293,25 +314,26 @@ pub struct ToolsToolbar {
     /// rebuilding the controls.
     picker_arrow_btn: Option<gtk::Button>,
     /// Color currently being dragged within the saved-custom column,
-    /// captured at drag-begin. While set, `custom_colors` is rendered
-    /// WITHOUT this entry (it's been temporarily pulled out so the
-    /// remaining items shift up to fill the gap); the popover
-    /// instead shows a `.color-slot-ghost` placeholder at
-    /// `dragging_preview_slot`. `None` between drags.
+    /// captured at drag-begin. While set, `custom_colors[origin_slot]`
+    /// is `None` (the slot is logically empty while in transit). On
+    /// drop, the dragged color is inserted at `dragging_preview_slot`
+    /// with subsequent slots shifted down by one (preserving any
+    /// existing mid-list `None`s); the original slot stays `None`,
+    /// so a drag effectively *moves* the color and leaves a gap
+    /// behind. `None` between drags.
     dragging_color: Option<Color>,
     /// Snapshot of `custom_colors` taken at drag-begin so a cancelled
     /// drag (drop outside the popover, Esc, etc.) can fully restore
-    /// the pre-drag list. Both the pull-out and the ghost-position
-    /// changes happen against the live `custom_colors`, so the
-    /// snapshot is the only way back to the original order.
-    pre_drag_snapshot: Option<Vec<Color>>,
-    /// While a drag is in flight, the index in the *post-pullout*
-    /// `custom_colors` list where the ghost placeholder is currently
-    /// drawn — i.e. the slot the dragged color will land in if the
-    /// user drops right now. Updated each time the pointer enters a
-    /// new slot's drop area; rendered by `build_color_popover_grid`
-    /// as a brighter outlined placeholder so the user sees where
-    /// other swatches have shifted aside to make room.
+    /// the pre-drag list. The live `custom_colors` is mutated during
+    /// the drag (origin slot blanked, preview slot moves), so the
+    /// snapshot is the only way back to the original layout.
+    pre_drag_snapshot: Option<Vec<Option<Color>>>,
+    /// While a drag is in flight, the slot index where the ghost
+    /// placeholder is currently drawn — i.e. the slot the dragged
+    /// color will land in if the user drops right now. Updated each
+    /// time the pointer enters a new slot's drop area; rendered by
+    /// `build_color_popover_grid` as a brighter outlined placeholder
+    /// so the user sees where other swatches will shift to make room.
     dragging_preview_slot: Option<usize>,
 }
 
@@ -357,8 +379,40 @@ impl ToolsToolbar {
     /// Re-resolve which swatch in the popover should show as
     /// "checked" given the current `current_color`. Used after
     /// reorder/delete shuffles or removes saved-custom indices.
+    ///
+    /// Preserves the user's explicit pick — if the current action
+    /// state still points to a swatch holding `current_color`, we
+    /// leave it alone. This matters when palette + customs share a
+    /// color (e.g. user clicks a custom swatch whose color also
+    /// appears in the default palette, then toggles "hide default
+    /// palette" off): a naive re-resolve would jump the selection
+    /// over to the palette swatch and the user's intentional choice
+    /// would be lost. We only re-resolve when the existing state has
+    /// become invalid (color at that position changed or the slot was
+    /// emptied), and even then we still prefer the palette as the
+    /// fallback since palette colors are stable across sessions.
     fn sync_color_action(&self) {
         let palette = APP_CONFIG.read().color_palette().palette().to_vec();
+        let current_state: Option<ColorButtons> = self
+            .color_action
+            .state()
+            .and_then(|v| ColorButtons::from_variant(&v));
+        let still_valid = current_state.is_some_and(|btn| match btn {
+            ColorButtons::Palette(i) => {
+                palette.get(i as usize).copied() == Some(self.current_color)
+            }
+            ColorButtons::CustomSaved(i) => {
+                self.custom_colors
+                    .get(i as usize)
+                    .copied()
+                    .flatten()
+                    == Some(self.current_color)
+            }
+            ColorButtons::Custom => false,
+        });
+        if still_valid {
+            return;
+        }
         let button = palette
             .iter()
             .position(|c| *c == self.current_color)
@@ -366,7 +420,7 @@ impl ToolsToolbar {
             .or_else(|| {
                 self.custom_colors
                     .iter()
-                    .position(|c| *c == self.current_color)
+                    .position(|slot| matches!(slot, Some(c) if *c == self.current_color))
                     .map(|i| ColorButtons::CustomSaved(i as u64))
             })
             .unwrap_or(ColorButtons::Custom);
@@ -379,14 +433,15 @@ impl ToolsToolbar {
             ColorButtons::Palette(n) => config.color_palette().palette()[n as usize],
             ColorButtons::Custom => self.custom_color,
             ColorButtons::CustomSaved(n) => {
-                // Out-of-range indices shouldn't be reachable from the
-                // UI (the swatch isn't rendered until the slot exists)
-                // but if a stale action target ever fires after a
-                // refresh, fall back to the legacy custom color rather
-                // than panic.
+                // Out-of-range or now-empty indices shouldn't be reachable
+                // from the UI (empty slots render as dashed placeholders
+                // that don't dispatch this action), but if a stale action
+                // target ever fires after a refresh, fall back to the
+                // legacy custom color rather than panic.
                 self.custom_colors
                     .get(n as usize)
                     .copied()
+                    .flatten()
                     .unwrap_or(self.custom_color)
             }
         }
@@ -410,16 +465,21 @@ const SLOTS_PER_COLUMN: usize = 10;
 /// shift reads as motion rather than a snap.
 const STACK_FADE_MS: u32 = 120;
 
-/// Inline color-picker panel sizing. Target: the picker's total
-/// vertical extent matches the swatches column (10 rows × swatch
-/// stride) so the popover doesn't grow taller when expanded — only
-/// wider. Width is whatever fits the chooser's natural row layout
-/// (eyedropper + preview + hex entry); height is split between the
-/// chooser, the "+ Add to My Colors" button, panel spacing, and
-/// vertical padding.
-const PICKER_CHOOSER_WIDTH: i32 = 220;
+/// Inline color-picker panel sizing. Width is whatever fits the
+/// chooser's natural row layout (eyedropper + preview + hex entry);
+/// height pinned so the chooser doesn't grow taller than the
+/// swatches column it sits next to. The panel itself carries no
+/// outer padding — the popover's CSS `padding: 14px` is the single
+/// source of outer breathing room.
+const PICKER_CHOOSER_WIDTH: i32 = 330;
 const PICKER_CHOOSER_HEIGHT: i32 = 250;
-const PICKER_PANEL_VPADDING: i32 = 20;
+/// Side-by-side sat/val + hue layout — `colorplane` width chosen so
+/// the pair fills `PICKER_CHOOSER_WIDTH` exactly (`COLORPLANE_WIDTH`
+/// + hue_width(20) + internal spacing(~6) ≈ chooser_width). With this
+/// match, the sat/val square's right edge lines up with the
+/// chooser's right edge, so the visible gap from sat/val to popover
+/// edge is just the popover's CSS padding — no chooser-internal
+/// dead space.
 /// Saturation/value square — shrunk from the chooser's default 200+
 /// natural so the gradient doesn't dominate. Hue scale on its left
 /// is sized to match this height in `shrink_color_chooser_internals`.
@@ -464,20 +524,55 @@ fn build_color_popover(
     popover.set_position(gtk::PositionType::Bottom);
     popover.set_has_arrow(true);
 
-    // Outer: horizontal box. Left = swatches+controls column. Right =
-    // revealer for the inline picker.
+    // Outer: horizontal box. Left = swatches+controls column. Right
+    // = stack holding the chooser. No `spacing` — the gutter
+    // between the columns is on `left.margin_end` instead, because
+    // `Box.spacing` only applies between *visible* children: a
+    // popover refresh that briefly toggles `picker_revealer`'s
+    // visibility (or a collapse → re-expand round trip) drops the
+    // gap and the saved-customs `:checked` rings get re-clipped.
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(0)
+        .hexpand(false)
+        .vexpand(false)
+        // Center within the popover's contents node so any
+        // intrinsic min-width from GTK's theme defaults distributes
+        // evenly on both sides — the user perceives the same gap
+        // on the left and right of the swatches column.
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
         .build();
     outer.add_css_class("color-picker-content");
+    outer.set_size_request(0, 0);
+    outer.set_overflow(gtk::Overflow::Visible);
 
-    // Left column. Vertical: swatch_stack + controls_row.
+    // Left column. Vertical: swatch_stack + controls + add-revealer.
+    // Uniform spacing between sections so the column reads as a tidy
+    // stack instead of three siblings with mismatched margins.
     let left = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(0)
+        // 7 px matches the grid's `row_spacing`, so the gap between
+        // the swatches grid and the controls row reads as another
+        // "row gap" of the same palette grid.
+        .spacing(7)
+        .hexpand(false)
+        .vexpand(false)
         .build();
     left.add_css_class("color-picker-left");
+    left.set_size_request(0, 0);
+    // Allow the saved-customs `:checked` outline (which sits OUTSIDE
+    // the swatch widget's bounds) to paint outside LEFT col without
+    // being clipped at the box's right edge. GTK4 widgets default to
+    // `Overflow::Hidden`, which clips descendants to the widget's
+    // allocation; switching to `Visible` lets the ring paint into
+    // the popover's content area beyond LEFT col. We do this on
+    // every ancestor between the swatch and the popover so the
+    // chain of clip regions doesn't trim the ring at any level
+    // (especially important after `refresh_color_popover` rebuilds
+    // the grid — the new grid's clip is freshly tight around its
+    // content, and without overflow-visible the ring gets re-cut).
+    left.set_overflow(gtk::Overflow::Visible);
 
     let swatch_stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
@@ -486,23 +581,23 @@ fn build_color_popover(
         .vhomogeneous(true)
         .build();
     swatch_stack.add_css_class("swatches-area");
+    swatch_stack.set_overflow(gtk::Overflow::Visible);
     let grid = build_color_popover_grid(model, sender, &popover);
     swatch_stack.add_named(&grid, Some("page-0"));
     swatch_stack.set_visible_child(&grid);
     left.append(&swatch_stack);
 
-    // Bottom controls: color-wheel on the left, expand arrow on the
-    // right. Both toggle the inline picker — the wheel as a visual
-    // hint that the expanded view lets you mix any color, the arrow
-    // as the explicit collapse/expand toggle (standard convention).
+    // Bottom controls: color-wheel under the palette column, expand
+    // arrow under the saved-customs column. Both toggle the inline
+    // picker — the wheel hints at "mix any color"; the arrow is the
+    // explicit collapse/expand affordance (standard convention). The
+    // row uses the swatches grid's column_spacing (14) so each
+    // button lines up with its column instead of hugging opposite
+    // edges of the popover.
     let controls = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(0)
-        .hexpand(true)
-        .margin_start(16)
-        .margin_end(16)
-        .margin_top(0)
-        .margin_bottom(12)
+        .spacing(14)
+        .hexpand(false)
         .build();
     controls.add_css_class("color-picker-controls");
 
@@ -510,8 +605,15 @@ fn build_color_popover(
         .focusable(false)
         .focus_on_click(false)
         .hexpand(false)
+        .vexpand(false)
         .icon_name("color-regular")
-        .halign(gtk::Align::Start)
+        // Pin to one swatch cell — width + height match the grid's
+        // SWATCH_DISPLAY_SIZE so the icon visually centers under the
+        // palette column above it.
+        .width_request(SWATCH_DISPLAY_SIZE)
+        .height_request(SWATCH_DISPLAY_SIZE)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
         .build();
     wheel_btn.add_css_class("flat");
     wheel_btn.add_css_class("color-wheel-button");
@@ -521,21 +623,20 @@ fn build_color_popover(
         sender_for_wheel.input(ToolsToolbarInput::TogglePickerExpansion);
     });
 
-    let spacer = gtk::Box::builder()
-        .hexpand(true)
-        .orientation(gtk::Orientation::Horizontal)
-        .build();
-
     let arrow_btn = gtk::Button::builder()
         .focusable(false)
         .focus_on_click(false)
         .hexpand(false)
+        .vexpand(false)
         .icon_name(if model.picker_expanded {
             "pan-start-symbolic"
         } else {
             "pan-end-symbolic"
         })
-        .halign(gtk::Align::End)
+        .width_request(SWATCH_DISPLAY_SIZE)
+        .height_request(SWATCH_DISPLAY_SIZE)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
         .build();
     arrow_btn.add_css_class("flat");
     arrow_btn.add_css_class("picker-expand-arrow");
@@ -546,20 +647,97 @@ fn build_color_popover(
     });
 
     controls.append(&wheel_btn);
-    controls.append(&spacer);
     controls.append(&arrow_btn);
     left.append(&controls);
 
-    outer.append(&left);
-
-    // Right side: revealer holding the inline picker panel. The
+    // Right side: stack holding the inline picker panel. The
     // chooser inside is built once and kept alive — its in-progress
     // state (saturation/value cursor, hex entry text) needs to
-    // survive across saved-customs rebuilds.
+    // survive across saved-customs rebuilds. The panel itself also
+    // owns the "+ Add to My Colors" button now (used to live in the
+    // left column with a separate revealer + a pair of vexpand
+    // spacers around the controls to keep them centered when the
+    // chooser pushed the left column taller). Putting the Add
+    // button inside the same panel means the controls on the left
+    // can sit at their natural position (right below the swatch
+    // grid) regardless of whether the chooser is shown — no more
+    // controls drifting up/down on toggle.
     let (picker_revealer, picker_chooser) = build_inline_picker_panel(model, sender);
+
+    // 4-px transparent gutters on BOTH sides of LEFT col. The right
+    // gutter sits between LEFT col and `picker_revealer` so the
+    // rightmost saved-customs column's `:checked` box-shadow (which
+    // extends 2 logical px past the swatch widget's right edge) has
+    // room to render against the popover's bg without being painted
+    // over by `picker_revealer`. The left gutter mirrors it so the
+    // popover's visible side padding stays symmetric (20 px CSS
+    // padding + 4 px gutter = 24 px on each side). Always-on — the
+    // cost of a reliable ring that doesn't depend on visibility-
+    // conditional layout that GTK can drop on a refresh.
+    let outline_gutter_left = gtk::Box::builder().width_request(4).build();
+    let outline_gutter_right = gtk::Box::builder().width_request(4).build();
+    outer.append(&outline_gutter_left);
+    outer.append(&left);
+    outer.append(&outline_gutter_right);
     outer.append(&picker_revealer);
 
     popover.set_child(Some(&outer));
+
+    // Rebuild the swatch grid every time the popover is shown so
+    // preferences that affect the layout (e.g. "hide default
+    // palette" toggling whether column 0 is the palette or the
+    // first column of saved-customs) take effect on the next open.
+    // Without this, the grid is built once at init and cached in
+    // the `swatch_stack` — a config change wouldn't appear until
+    // the next color-list mutation refreshed the stack anyway.
+    let sender_for_show = sender.clone();
+    popover.connect_show(move |_| {
+        sender_for_show.input(ToolsToolbarInput::RefreshColorPopover);
+    });
+
+    // Keyboard delete on the popover: Backspace / Delete drops the
+    // currently-selected saved-custom color (if any). Bubble phase so
+    // the hex / RGB entries inside the chooser get first crack at the
+    // keystroke — those consume Backspace at target phase, so this
+    // handler only fires when focus is OUTSIDE an entry (i.e., the
+    // user just clicked a swatch). Stays open after deletion so the
+    // user can keep editing the palette.
+    let key_controller = gtk::EventControllerKey::builder()
+        .propagation_phase(gtk::PropagationPhase::Bubble)
+        .build();
+    let sender_for_key = sender.clone();
+    key_controller.connect_key_pressed(move |_c, keyval, _kc, _mods| {
+        use relm4::gtk::gdk::Key;
+        if matches!(keyval, Key::BackSpace | Key::Delete | Key::KP_Delete) {
+            sender_for_key.input(ToolsToolbarInput::DeleteCurrentSavedColor);
+            relm4::gtk::glib::Propagation::Stop
+        } else {
+            relm4::gtk::glib::Propagation::Proceed
+        }
+    });
+    popover.add_controller(key_controller);
+
+    // Separate controller on the Capture phase so we see Escape
+    // *before* GTK's default popover-close handler — the
+    // `EscapePressed` handler can then cancel a drag (keeping the
+    // popover open) or pop down the popover when no drag is
+    // in flight. Without Capture, GTK's autohide closes the popover
+    // first and our drag-cancel path never runs.
+    let esc_controller = gtk::EventControllerKey::builder()
+        .propagation_phase(gtk::PropagationPhase::Capture)
+        .build();
+    let sender_for_esc = sender.clone();
+    esc_controller.connect_key_pressed(move |_c, keyval, _kc, _mods| {
+        use relm4::gtk::gdk::Key;
+        if matches!(keyval, Key::Escape) {
+            sender_for_esc.input(ToolsToolbarInput::EscapePressed);
+            relm4::gtk::glib::Propagation::Stop
+        } else {
+            relm4::gtk::glib::Propagation::Proceed
+        }
+    });
+    popover.add_controller(esc_controller);
+
     ColorPopoverHandles {
         popover,
         swatch_stack,
@@ -592,13 +770,20 @@ fn shrink_color_chooser_internals(chooser: &gtk::ColorChooserWidget) {
         let name = w.css_name();
         match name.as_str() {
             "colorplane" => {
+                // Keep the colorplane's default `hexpand` so it
+                // grows to fill whatever horizontal space the
+                // chooser allocates — that way the sat/val
+                // gradient reaches the chooser's right edge with
+                // no dead band.
                 w.set_size_request(PICKER_COLORPLANE_WIDTH, PICKER_COLORPLANE_HEIGHT);
-                w.set_hexpand(false);
                 w.set_vexpand(false);
             }
             "colorscale" => {
                 if w.has_css_class("opacity") {
-                    // Alpha — horizontal slim slider.
+                    // Alpha — horizontal slim slider. `hexpand`
+                    // stays at default so the alpha bar stretches
+                    // across the chooser width like the sat/val
+                    // gradient above.
                     w.set_size_request(-1, 14);
                     w.set_vexpand(false);
                 } else {
@@ -607,7 +792,17 @@ fn shrink_color_chooser_internals(chooser: &gtk::ColorChooserWidget) {
                     w.set_vexpand(false);
                 }
             }
-            _ => {}
+            _ => {
+                // Every other descendant — top-row preview block,
+                // hex entry, internal Boxes — defaults to
+                // `hexpand: true`, which makes the chooser balloon
+                // wider than the sat/val + hue stack needs.
+                // Forcing `hexpand: false` keeps the chooser's
+                // natural width to just the colorplane + hue
+                // column, so the sat/val ends flush with the
+                // chooser's right edge.
+                w.set_hexpand(false);
+            }
         }
         let mut grand = w.first_child();
         while let Some(g) = grand {
@@ -617,12 +812,26 @@ fn shrink_color_chooser_internals(chooser: &gtk::ColorChooserWidget) {
     }
 }
 
-/// Build the inline color-picker panel — a `ColorChooserWidget` in
-/// editor mode plus a "+ Add to My Colors" button below — wrapped in a
-/// `Revealer` that slides in from the right when the user clicks the
-/// expand arrow / wheel button. The chooser broadcasts color changes
-/// live via `InlinePickerColorChanged` so the picked color is applied
-/// to subsequent annotations without a separate "Apply" step.
+/// Build the inline color-picker panel — chooser + "+ Add" button
+/// inside a panel Box, wrapped in a Revealer that uses SlideRight
+/// transition. SlideRight is the only Revealer transition that
+/// actually scales the child's *horizontal* allocation along with
+/// the animation — Crossfade and None leave the child allocated at
+/// its full natural width (just hidden via alpha or unmap), which
+/// blows the collapsed popover up to chooser-width. The remaining
+/// few px of slack from SlideRight at rest are masked by also
+/// calling `set_visible(false)` on the revealer once the conceal
+/// animation finishes (see the visibility toggle below).
+///
+/// The Add button sits BELOW the chooser (separated by a vexpand
+/// spacer) so it aligns with the controls row at the bottom of the
+/// swatches column on the left — wherever the popover's outer
+/// height settles, the spacer absorbs the slack and the Add button
+/// hugs the bottom of the panel.
+///
+/// Returns the revealer + the chooser. The Add button doesn't need
+/// to be returned because its click handler is wired up inside this
+/// function and there's no callsite-level state to thread through.
 fn build_inline_picker_panel(
     model: &ToolsToolbar,
     sender: &ComponentSender<ToolsToolbar>,
@@ -633,20 +842,44 @@ fn build_inline_picker_panel(
         .reveal_child(model.picker_expanded)
         .build();
     revealer.add_css_class("inline-picker-revealer");
+    revealer.set_overflow(gtk::Overflow::Visible);
+    // Hide the revealer entirely while collapsed so it consumes no
+    // horizontal space at rest. Even with SlideRight a few logical
+    // px of slack would otherwise survive on the right edge of the
+    // collapsed popover. The TogglePickerExpansion handler flips
+    // visibility to `true` before starting the reveal animation;
+    // here we flip it back to `false` once the conceal animation
+    // has fully run (so the animation plays before we hide).
+    revealer.set_visible(model.picker_expanded);
+    revealer.connect_child_revealed_notify(|rev| {
+        if !rev.is_child_revealed() {
+            rev.set_visible(false);
+        }
+    });
 
+    // Panel wraps the chooser + Add button vertically. The 14 px
+    // left/right margins match the swatches' column_spacing — the
+    // chooser reads as "one column over" from the saved-customs
+    // column. `valign: Fill` lets the panel stretch to the outer
+    // Box's height, so the internal vexpand spacer between chooser
+    // and Add button can push the Add button to the bottom of the
+    // panel (aligning it with the bottom of the swatches column on
+    // the left).
     let panel = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(6)
-        // Tight on the leading edge so the picker hugs the swatches
-        // column. Top/bottom set to PICKER_PANEL_VPADDING so the
-        // picker's total height = chooser + button + 2×vpadding,
-        // chosen to land inside the swatch-column height.
-        .margin_start(8)
-        .margin_end(12)
-        .margin_top(PICKER_PANEL_VPADDING)
-        .margin_bottom(PICKER_PANEL_VPADDING)
+        // 11 px matches the visible gap above the alpha slider
+        // (chooser-internal row spacing), so the gap above the Add
+        // button mirrors the gap above the slider on the other
+        // side. Old value was 6 which read as cramped.
+        .spacing(11)
+        .margin_start(14)
+        .margin_end(14)
+        .margin_top(0)
+        .margin_bottom(0)
+        .valign(gtk::Align::Fill)
         .build();
     panel.add_css_class("inline-picker-panel");
+    panel.set_overflow(gtk::Overflow::Visible);
 
     let chooser = gtk::ColorChooserWidget::new();
     chooser.set_use_alpha(true);
@@ -681,23 +914,56 @@ fn build_inline_picker_panel(
 
     panel.append(&chooser);
 
-    let add_btn = gtk::Button::with_label("+ Add to My Colors");
-    add_btn.add_css_class("suggested-action");
-    add_btn.add_css_class("add-to-my-colors-btn");
+    // "+ Add to custom colors" — wrapped in an HBox with a leading
+    // transparent spacer that pushes the button right to align with
+    // the alpha slider's track. The slider doesn't sit flush with
+    // the chooser's left edge — the chooser's internal Grid puts a
+    // hue-scale column (20 logical wide) plus a column gap to the
+    // left of the slider's column, AND there's apparently another
+    // ~36 logical of offset between the panel widget and the
+    // chooser's content (likely GTK theme padding on the chooser
+    // node). The empirical net offset from the panel's left to the
+    // slider's left is 76 logical px (`ALPHA_LEFT_OFFSET`); we
+    // mirror it with a spacer Box. The button width (`254`) keeps
+    // the button effective span at `PICKER_CHOOSER_WIDTH` so the
+    // panel doesn't grow.
+    //
+    // 33 px tall mirrors the chooser's top color-preview chip so
+    // the panel reads as a balanced chooser → preview/slider →
+    // matching-height footer.
+    //
+    // No dynamic background — the swatches above already act as the
+    // "current color" cue, and a footer button that recolors itself
+    // every cursor move was visually noisy.
+    const ALPHA_LEFT_OFFSET: i32 = 76;
+    let button_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .build();
+    let left_spacer = gtk::Box::builder()
+        .width_request(ALPHA_LEFT_OFFSET)
+        .build();
+    button_row.append(&left_spacer);
+
+    let add_btn = gtk::Button::with_label("+ Add to custom colors");
+    add_btn.add_css_class("add-color-btn");
     add_btn.set_focusable(false);
     add_btn.set_focus_on_click(false);
-    // Don't stretch the button to the chooser's full width — it reads
-    // as a giant slab below the gradient. Centered + natural width is
-    // tighter and matches convention's compact CTA.
-    add_btn.set_halign(gtk::Align::Center);
     add_btn.set_hexpand(false);
+    // GTK4's GtkButton has a ~11 px implicit horizontal inset between
+    // its widget allocation and the visible button background (theme
+    // border + internal padding that we can't fully suppress via
+    // `.add-color-btn`). Request 301 to land a visible width of 290.
+    add_btn.set_width_request(301);
+    add_btn.set_height_request(33);
     let chooser_for_add = chooser.clone();
     let sender_for_add = sender.clone();
     add_btn.connect_clicked(move |_| {
         let color = Color::from_gdk(chooser_for_add.rgba());
         sender_for_add.input(ToolsToolbarInput::SaveCustomColor(color));
     });
-    panel.append(&add_btn);
+    button_row.append(&add_btn);
+
+    panel.append(&button_row);
 
     revealer.set_child(Some(&panel));
     (revealer, chooser)
@@ -861,122 +1127,210 @@ fn build_color_popover_grid(
     sender: &ComponentSender<ToolsToolbar>,
     popover: &gtk::Popover,
 ) -> gtk::Grid {
-    // picker breathes more easily than the default
-    // Adwaita popover chrome. The earlier 8-px margins felt cramped
-    // once the saved-custom column landed (right edge sat right
-    // against the dashed placeholders); 16-px outer margins + larger
-    // inter-swatch gaps restore the airy look the user expected.
+    // Color picker grid carries NO outer margins — the popover's
+    // content padding (CSS `.color-picker-popover contents`,
+    // 20 px) is the single source of truth for "distance from
+    // popover edge to content," and the parent `left` Box's spacing
+    // handles the gap between the grid and the controls row below.
+    // `column_spacing` is 14 px to match the controls row below
+    // (wheel + arrow buttons line up under their swatch columns).
+    // `row_spacing` is half that, 7 px — the vertical gap doesn't
+    // need to match the horizontal one, and a tighter row pitch keeps
+    // the popover from running tall with 10 palette swatches stacked.
     let grid = gtk::Grid::builder()
-        .row_spacing(8)
+        .row_spacing(7)
         .column_spacing(14)
-        .margin_start(16)
-        .margin_end(16)
-        .margin_top(14)
-        .margin_bottom(14)
         .build();
+    // Don't clip swatches at the grid's bounds — the `:checked`
+    // outline paints OUTSIDE the swatch widget, and the rightmost
+    // saved-customs column sits flush against the grid's right edge.
+    // See the matching `set_overflow(Visible)` on `left` /
+    // `swatch_stack` in `build_color_popover`.
+    grid.set_overflow(gtk::Overflow::Visible);
 
     // Per-swatch tooltips are attached via `attach_floating_swatch_tooltip`
     // below. See its docstring for why we use a custom shared popover
     // parented to the top-level window rather than GTK's tooltip system.
 
+    // The user can hide the default palette via Preferences, in which
+    // case the saved-customs grid slides over to start at column 0 and
+    // *its* first column inherits the 1–9, 0 shortcut tooltips.
+    let hide_palette = APP_CONFIG.read().hide_default_palette();
+
     // Left column: 10 palette swatches, one per row, with shortcut
-    // keys 1..9, 0 mapped to indexes 0..9.
-    for (i, &color) in APP_CONFIG
-        .read()
-        .color_palette()
-        .palette()
-        .iter()
-        .enumerate()
-        .take(10)
-    {
-        let btn = gtk::ToggleButton::builder()
-            .focusable(false)
-            .focus_on_click(false)
-            .hexpand(false)
-            .vexpand(false)
-            // Pin the toggle button to the same SWATCH_DISPLAY_SIZE
-            // bounds the dashed placeholders use. Without this the
-            // button's natural size includes a few pixels of vertical
-            // chrome that makes the `:checked` outline read as
-            // asymmetric (thicker on the top/bottom than left/right).
-            .width_request(SWATCH_DISPLAY_SIZE)
-            .height_request(SWATCH_DISPLAY_SIZE)
-            .halign(gtk::Align::Center)
-            .valign(gtk::Align::Center)
-            .child(&create_icon(color))
-            .build();
-        btn.add_css_class("flat");
-        btn.add_css_class("color-swatch");
-        btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
-        let shortcut = if i < 9 {
-            format!("{}", i + 1)
-        } else {
-            "0".to_string()
-        };
-        let name = color
-            .name()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("Color {}", i + 1));
-        attach_floating_swatch_tooltip(&btn, &format!("{name} ({shortcut})"));
-        grid.attach(&btn, 0, i as i32, 1, 1);
+    // keys 1..9, 0 mapped to indexes 0..9. Skipped entirely when
+    // the user has hidden the default palette.
+    if !hide_palette {
+        for (i, &color) in APP_CONFIG
+            .read()
+            .color_palette()
+            .palette()
+            .iter()
+            .enumerate()
+            .take(10)
+        {
+            let btn = gtk::ToggleButton::builder()
+                .focusable(false)
+                .focus_on_click(false)
+                .hexpand(false)
+                .vexpand(false)
+                // Pin the toggle button to the same SWATCH_DISPLAY_SIZE
+                // bounds the dashed placeholders use. Without this the
+                // button's natural size includes a few pixels of vertical
+                // chrome that makes the `:checked` outline read as
+                // asymmetric (thicker on the top/bottom than left/right).
+                .width_request(SWATCH_DISPLAY_SIZE)
+                .height_request(SWATCH_DISPLAY_SIZE)
+                .halign(gtk::Align::Center)
+                .valign(gtk::Align::Center)
+                .child(&create_icon(color))
+                .build();
+            btn.add_css_class("flat");
+            btn.add_css_class("color-swatch");
+            btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
+            let shortcut = if i < 9 {
+                format!("{}", i + 1)
+            } else {
+                "0".to_string()
+            };
+            let name = color
+                .name()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("Color {}", i + 1));
+            attach_floating_swatch_tooltip(&btn, &format!("{name} ({shortcut})"));
+            grid.attach(&btn, 0, i as i32, 1, 1);
+        }
     }
 
-    // Right column(s): persisted saved-custom colors, then dashed
-    // placeholders filling out the rest of each column. Every slot
-    // — filled or empty — accepts a drop, so colors can be dragged
-    // into any position including past the current end of the list.
+    // Right column(s): the sparse `custom_colors` slot list. Each
+    // `Some(color)` renders as a filled swatch; each `None` as a
+    // dashed placeholder. Trailing `None`s are trimmed eagerly
+    // (every drag-state mutation, persistence write) so the user
+    // sees a compact view — only the trailing "drop-to-grow" empty
+    // slot shown during drag, no other padding.
     //
-    // During an in-flight drag, the dragged color has already been
-    // pulled out of `custom_colors` by `BeginCustomDrag` and the
-    // ghost preview slot at `dragging_preview_slot` is rendered as
-    // an outlined placeholder. Subsequent items shift down by one
-    // visual position around the ghost so the user sees exactly
-    // where the swatch will land.
+    // During a drag, the dragged color has already been pulled out
+    // of its origin slot by `BeginCustomDrag` (replaced with `None`,
+    // then trailing-trimmed if the origin sat at the end). The ghost
+    // preview is rendered at `dragging_preview_slot`. Subsequent
+    // slots only shift down by one if the preview slot is on a
+    // *filled* swatch (the user is dropping ONTO an existing
+    // color, which needs to make room). If the preview is over an
+    // empty placeholder or past the end of the list, nothing
+    // shifts — the ghost just appears at the position.
     let saved = &model.custom_colors;
     let dragging = model.dragging_color.is_some();
-    // Visual length: when dragging we have the truncated list plus
-    // one ghost slot (so the column doesn't visibly shrink while the
-    // user is mid-drag).
-    let visual_len = if dragging { saved.len() + 1 } else { saved.len() };
-    let n_custom_cols = visual_len.div_ceil(SLOTS_PER_COLUMN).max(1);
-    let total_slots = n_custom_cols * SLOTS_PER_COLUMN;
-    let ghost_at = model.dragging_preview_slot.unwrap_or(usize::MAX);
+    let preview = model.dragging_preview_slot;
+    // Shift only when the preview is sitting on a filled swatch.
+    // Dropping on an empty slot just fills it; dropping past the
+    // list extends the list — neither moves any other swatches.
+    let target_filled = preview
+        .and_then(|p| saved.get(p).copied().flatten())
+        .is_some();
+    let shift_active = dragging && target_filled;
+    // If the shift can land on an existing `None` in the same
+    // column past the target, the shift stops there — items past
+    // that `None` don't move, and the `None` itself is consumed by
+    // the shifted-in tail. Without an in-column gap, the shift
+    // runs all the way to the column's end and the list grows.
+    let absorb_slot = if shift_active {
+        preview.and_then(|p| find_same_column_gap(saved, p))
+    } else {
+        None
+    };
+    // Total visible slots: show the currently-used columns rounded
+    // up to a full column, plus an extra empty "next column" when:
+    //
+    //   - The chooser is expanded — drag can drop past the end of
+    //     the list and grow it (growing requires the chooser
+    //     anyway since new colors come from the inline picker).
+    //
+    //   - The default palette is hidden — the saved-customs are
+    //     the picker's primary content, so we keep a balanced
+    //     2-column layout going: 1 used + 1 empty spillover when
+    //     the list is sparse, N used + 1 empty once a swatch is
+    //     present in the previous spillover column. A "3rd column"
+    //     never appears until the 2nd column gets its first
+    //     swatch, etc.
+    //
+    // Building the baseline the same way for idle and drag prevents
+    // the popover from resizing the moment a drag starts. During
+    // drag the preview / shift extras may push the count further.
+    let used_cols = saved.len().div_ceil(SLOTS_PER_COLUMN);
+    let extra_col = if model.picker_expanded || hide_palette { 1 } else { 0 };
+    let min_cols = if hide_palette { 2 } else { 1 };
+    let base = (used_cols + extra_col).max(min_cols) * SLOTS_PER_COLUMN;
+    let total_slots = if dragging {
+        let shift_extra = if shift_active { 1 } else { 0 };
+        let min_for_list = saved.len() + 1 + shift_extra;
+        let min_for_preview = preview.map(|p| p + 1 + shift_extra).unwrap_or(0);
+        base.max(min_for_list).max(min_for_preview)
+    } else {
+        base
+    };
     for visual_slot in 0..total_slots {
         let col_idx = visual_slot / SLOTS_PER_COLUMN;
         let row_idx = visual_slot % SLOTS_PER_COLUMN;
-        let grid_col = (1 + col_idx) as i32;
+        // Saved-customs sit in grid column 1 normally (column 0 is the
+        // default palette). When the user hides the default palette,
+        // saved-customs slide over to start at grid column 0.
+        let grid_col = if hide_palette {
+            col_idx as i32
+        } else {
+            (1 + col_idx) as i32
+        };
 
-        // Map `visual_slot` back to either a `saved` index, the
-        // ghost, or an empty trailing placeholder.
-        let (widget, tooltip) = if dragging && visual_slot == ghost_at {
-            // Outlined ghost placeholder — drop here on release.
+        let (widget, tooltip) = if dragging && Some(visual_slot) == preview {
             (build_ghost_placeholder(), None)
         } else {
-            // Adjust for the ghost shifting subsequent items by one.
-            let saved_idx = if dragging && visual_slot > ghost_at {
-                visual_slot - 1
-            } else {
-                visual_slot
-            };
-            if let Some(color) = saved.get(saved_idx).copied() {
-                let selected = color == model.current_color;
-                let w = build_saved_custom_swatch(color, saved_idx, selected, sender);
-                let t = match color.name() {
-                    Some(name) => format!("{name} (saved {})", saved_idx + 1),
-                    None => format!("Saved color {}", saved_idx + 1),
+            // When the shift is active, slots strictly past the
+            // preview look up the previous index in `saved` —
+            // they've moved down one row to make room for the
+            // ghost. But the shift stops at `absorb_slot` (a
+            // mid-column `None` that absorbs the tail), so slots
+            // past it map 1:1 to `saved` unchanged. When no
+            // shift is active, every visual slot maps 1:1.
+            let shifted = shift_active
+                && matches!(preview, Some(p) if visual_slot > p)
+                && match absorb_slot {
+                    Some(absorb) => visual_slot <= absorb,
+                    None => true,
                 };
-                (w, Some(t))
-            } else {
-                (build_dashed_placeholder(), None)
+            let saved_idx = if shifted { visual_slot - 1 } else { visual_slot };
+            match saved.get(saved_idx).copied().flatten() {
+                Some(color) => {
+                    let selected = color == model.current_color;
+                    let w = build_saved_custom_swatch(color, saved_idx, selected, sender);
+                    // First-column swatches inherit the 1–9, 0 shortcut
+                    // tooltip when the default palette is hidden — that
+                    // column is the picker's primary set, and main.rs's
+                    // `ColorSwitchShortcut` handler routes the number
+                    // keys to those slots in that mode.
+                    let t = if hide_palette && saved_idx < SLOTS_PER_COLUMN {
+                        let shortcut = if saved_idx == 9 {
+                            "0".to_string()
+                        } else {
+                            (saved_idx + 1).to_string()
+                        };
+                        let name = color
+                            .name()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| format!("Color {}", saved_idx + 1));
+                        format!("{name} ({shortcut})")
+                    } else {
+                        match color.name() {
+                            Some(name) => format!("{name} (saved {})", saved_idx + 1),
+                            None => format!("Saved color {}", saved_idx + 1),
+                        }
+                    };
+                    (w, Some(t))
+                }
+                None => (build_dashed_placeholder(), None),
             }
         };
         if let Some(t) = tooltip {
             attach_floating_swatch_tooltip(&widget, &t);
         }
-        // Every slot — filled, ghost, or empty — accepts a drop so
-        // the user can drag through any position. The drop target's
-        // closure uses `visual_slot` (not `saved_idx`) so the ghost
-        // preview tracks the pointer position directly.
         attach_reorder_drop_target(&widget, visual_slot, sender);
         grid.attach(&widget, grid_col, row_idx as i32, 1, 1);
     }
@@ -1603,6 +1957,12 @@ pub enum ToolsToolbarInput {
     /// Drop the saved-custom color at the given index. Fired by the
     /// per-swatch right-click → "Delete" menu.
     DeleteCustomColor(usize),
+    /// Drop the saved-custom color whose value matches the currently-
+    /// selected color, if any. Fired by Backspace / Delete on the
+    /// popover when focus isn't sitting in an entry — keyboard
+    /// equivalent of the right-click → Delete menu, leaving the
+    /// popover open so the user can keep editing their palette.
+    DeleteCurrentSavedColor,
     /// A drag of a saved-custom swatch is starting at `slot`. The
     /// handler stashes both the color (so the live-reorder path can
     /// keep tracking it as the list mutates) and a snapshot of the
@@ -1618,6 +1978,14 @@ pub enum ToolsToolbarInput {
     /// (drop outside the popover, Esc, etc.) and the handler restores
     /// the pre-drag snapshot.
     EndCustomDrag { success: bool },
+    /// Escape was pressed while the popover had keyboard focus. If a
+    /// drag is in flight, cancel the drag (restore the pre-drag list,
+    /// keep the popover open). Otherwise close the popover.
+    EscapePressed,
+    /// Rebuild the color picker's swatch grid. Fired when the popover
+    /// is shown so preference changes (palette visibility, etc.) take
+    /// effect on the next open without needing a list mutation first.
+    RefreshColorPopover,
     /// Crop tool emitted a new (width, height) for its current rect
     /// (drag tick, ratio snap, or explicit set). The handler updates
     /// `crop_width` / `crop_height` and refreshes the W/H entries
@@ -1804,10 +2172,12 @@ pub enum ResizeUnits {
 
 /// Map a crop-mode bg-color preset to the RGBA used to render its
 /// swatch in the picker popover + MenuButton. Auto stays
-/// semi-transparent black (the legacy dim color); Transparent
-/// renders fully transparent (relies on the row's label text for
-/// recognition); the named presets are solid; Custom keeps the
-/// user's stored RGB at full alpha.
+/// semi-transparent black (the legacy dim color); Transparent is
+/// handled separately via `crop_bg_swatch_pixbuf` (it gets a
+/// Photoshop-style checkerboard chip instead of a solid color), so
+/// the value returned here for that variant is unused; the named
+/// presets are solid; Custom keeps the user's stored RGB at full
+/// alpha.
 fn crop_bg_preset_swatch(bg: crate::tools::CropBgColor) -> Color {
     use crate::tools::CropBgColor;
     match bg {
@@ -1823,6 +2193,87 @@ fn crop_bg_preset_swatch(bg: crate::tools::CropBgColor) -> Color {
             255,
         ),
     }
+}
+
+/// Pixbuf shown in the bg-color MenuButton + each popover row.
+/// `Transparent` gets a checkerboard chip (otherwise the row's
+/// swatch would render invisibly against the popover); everything
+/// else delegates to the regular rounded-rect swatch.
+fn crop_bg_swatch_pixbuf(bg: crate::tools::CropBgColor) -> Pixbuf {
+    use crate::tools::CropBgColor;
+    if matches!(bg, CropBgColor::Transparent) {
+        create_transparent_swatch_pixbuf()
+    } else {
+        create_icon_pixbuf(crop_bg_preset_swatch(bg))
+    }
+}
+
+/// Rounded-rect swatch with a Photoshop-style transparency
+/// checkerboard fill, plus a 1 px outline so the tile reads as a
+/// distinct chip against the popover background. Used for the
+/// "Transparent" crop-bg preset row and MenuButton mirror so the
+/// option actually has a visible chip (a fully-transparent
+/// `create_icon_pixbuf` rendered an invisible blank).
+fn create_transparent_swatch_pixbuf() -> Pixbuf {
+    use relm4::gtk::cairo;
+    use relm4::gtk::gdk;
+
+    let size = SWATCH_PIXBUF_SIZE;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, size, size)
+        .expect("create transparent swatch cairo surface");
+    let ctx = cairo::Context::new(&surface).expect("create transparent swatch cairo context");
+
+    let w = size as f64;
+    let h = size as f64;
+    let r = SWATCH_PIXBUF_RADIUS;
+    let pi = std::f64::consts::PI;
+    ctx.new_sub_path();
+    ctx.arc(w - r, r, r, -pi / 2.0, 0.0);
+    ctx.arc(w - r, h - r, r, 0.0, pi / 2.0);
+    ctx.arc(r, h - r, r, pi / 2.0, pi);
+    ctx.arc(r, r, r, pi, 3.0 * pi / 2.0);
+    ctx.close_path();
+    // Clip subsequent draws to the rounded rect so the checkerboard
+    // doesn't bleed past the corners.
+    ctx.clip_preserve();
+
+    // Light + dark gray, sized so the chip shows ~4 × 4 cells at the
+    // default 40 px pixbuf — enough to read as "checker" without
+    // turning into noise.
+    let cell = (size as f64 / 5.0).max(2.0);
+    let dark = 0.55_f64;
+    let light = 0.85_f64;
+    ctx.set_source_rgba(light, light, light, 1.0);
+    ctx.paint().expect("fill light cells");
+    ctx.set_source_rgba(dark, dark, dark, 1.0);
+    let cells_x = (w / cell).ceil() as i32 + 1;
+    let cells_y = (h / cell).ceil() as i32 + 1;
+    for j in 0..cells_y {
+        for i in 0..cells_x {
+            if (i + j) % 2 == 0 {
+                continue;
+            }
+            ctx.rectangle(i as f64 * cell, j as f64 * cell, cell, cell);
+        }
+    }
+    ctx.fill().expect("fill dark cells");
+
+    // Outline so the chip has a defined edge even against a
+    // light-themed popover background.
+    ctx.reset_clip();
+    ctx.new_sub_path();
+    ctx.arc(w - r, r, r, -pi / 2.0, 0.0);
+    ctx.arc(w - r, h - r, r, 0.0, pi / 2.0);
+    ctx.arc(r, h - r, r, pi / 2.0, pi);
+    ctx.arc(r, r, r, pi, 3.0 * pi / 2.0);
+    ctx.close_path();
+    ctx.set_source_rgba(0.0, 0.0, 0.0, 0.35);
+    ctx.set_line_width(1.0);
+    ctx.stroke().expect("stroke transparent swatch outline");
+    drop(ctx);
+
+    gdk::pixbuf_get_from_surface(&surface, 0, 0, size, size)
+        .expect("transparent swatch surface → pixbuf")
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -1863,12 +2314,14 @@ fn create_icon_pixbuf(color: Color) -> Pixbuf {
     gdk::pixbuf_get_from_surface(&surface, 0, 0, size, size).expect("swatch surface → pixbuf")
 }
 
-/// Displayed size for popover swatches and placeholders — chosen so
-/// the dashed `.color-slot-empty` boxes line up with the filled
-/// swatch buttons on the left column. Bumped from the earlier 20 px
-/// so the palette has more on-screen presence; the source pixbuf is
-/// rendered at 40 px so this scales without softening.
-const SWATCH_DISPLAY_SIZE: i32 = 26;
+/// Displayed size for popover swatches and placeholders. Sized down
+/// so each cell reads as a distinct chip with breathing room
+/// between rows (see `row_spacing` in `build_color_popover_grid`).
+/// The Add-button footer is pinned to the bottom of the left column
+/// via a `vexpand` spacer, so the column ends flush with the
+/// chooser's alpha-slider bottom regardless of how tall the chooser
+/// grows.
+const SWATCH_DISPLAY_SIZE: i32 = 24;
 
 fn create_icon(color: Color) -> gtk::Image {
     let img = gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)));
@@ -1990,38 +2443,52 @@ fn build_saved_custom_swatch(
     });
     btn.add_controller(right_click);
 
-    if !selected {
-        return btn.upcast::<gtk::Widget>();
+    // Delete affordances live elsewhere: right-click for the "Delete"
+    // popover, Backspace / Delete on the popover for the currently-
+    // selected swatch. Previously the selected swatch wore an "×"
+    // overlay badge; dropped to keep the palette visually quiet.
+    let _ = selected;
+    btn.upcast::<gtk::Widget>()
+}
+
+/// Pop entire trailing empty columns off `custom_colors`. A
+/// "trailing empty column" is the rightmost saved-customs column
+/// when *every* slot in that column is `None` — those columns
+/// carry no information and just add visual noise. Mid-column
+/// `None`s (gaps the user left intentionally by dragging a swatch
+/// away) are preserved, as are columns whose last few slots are
+/// `None` but earlier ones are filled. Only ever called on user-
+/// terminated actions (drop, delete) — never on drag start, so a
+/// user can drag the last swatch in a column out and still drop
+/// it further to the right.
+fn trim_trailing_empty_columns(slots: &mut Vec<Option<Color>>) {
+    loop {
+        let len = slots.len();
+        if len == 0 {
+            break;
+        }
+        let last_col_start = ((len - 1) / SLOTS_PER_COLUMN) * SLOTS_PER_COLUMN;
+        let all_empty = slots[last_col_start..].iter().all(Option::is_none);
+        if all_empty {
+            slots.truncate(last_col_start);
+        } else {
+            break;
+        }
     }
+}
 
-    // The currently-selected saved-custom swatch gets a small X badge
-    // pinned to its top-left corner — single-click deletes the swatch
-    // (faster than the right-click → Delete fallback). Wrap the swatch
-    // in a `gtk::Overlay` and add the X as an overlay child; halign /
-    // valign Start pins it to the corner, and `set_measure_overlay`
-    // keeps the X out of the overlay's natural-size calculation so
-    // adjacent grid cells don't reflow.
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&btn));
-
-    let x_btn = gtk::Button::builder()
-        .focusable(false)
-        .focus_on_click(false)
-        .halign(gtk::Align::Start)
-        .valign(gtk::Align::Start)
-        .build();
-    x_btn.add_css_class("swatch-delete-x");
-    let x_label = gtk::Label::new(Some("×"));
-    x_label.add_css_class("swatch-delete-glyph");
-    x_btn.set_child(Some(&x_label));
-    attach_floating_swatch_tooltip(&x_btn, "Delete this saved color");
-    let sender_for_x = sender.clone();
-    x_btn.connect_clicked(move |_| {
-        sender_for_x.input(ToolsToolbarInput::DeleteCustomColor(slot));
-    });
-    overlay.add_overlay(&x_btn);
-
-    overlay.upcast::<gtk::Widget>()
+/// When dropping ONTO a filled swatch in column `target_col`,
+/// finds the first `None` slot strictly after `target` and still
+/// within the same column. The shift-down can stop at that `None`
+/// (the `None` is consumed by the shift, and slots past it stay
+/// put), so dropping into a column with mid-column gaps doesn't
+/// uselessly push the rest of the column further. Returns `None`
+/// when no gap exists in the same column past the target — in
+/// which case callers fall back to a list-growing standard insert.
+fn find_same_column_gap(slots: &[Option<Color>], target: usize) -> Option<usize> {
+    let target_col = target / SLOTS_PER_COLUMN;
+    let col_end = ((target_col + 1) * SLOTS_PER_COLUMN).min(slots.len());
+    (target + 1..col_end).find(|&i| slots[i].is_none())
 }
 
 /// Build the dashed empty-slot placeholder. Inert by itself —
@@ -2470,9 +2937,7 @@ impl Component for ToolsToolbar {
                             set_pixel_size: 18,
                             set_can_target: false,
                             #[watch]
-                            set_from_pixbuf: Some(&create_icon_pixbuf(
-                                crop_bg_preset_swatch(model.crop_bg_color),
-                            )),
+                            set_from_pixbuf: Some(&crop_bg_swatch_pixbuf(model.crop_bg_color)),
                         },
                     },
 
@@ -2721,7 +3186,7 @@ impl Component for ToolsToolbar {
                     .or_else(|| {
                         self.custom_colors
                             .iter()
-                            .position(|c| *c == color)
+                            .position(|slot| matches!(slot, Some(c) if *c == color))
                             .map(|i| ColorButtons::CustomSaved(i as u64))
                     })
                     .unwrap_or(ColorButtons::Custom);
@@ -2736,7 +3201,18 @@ impl Component for ToolsToolbar {
             }
             ToolsToolbarInput::TogglePickerExpansion => {
                 self.picker_expanded = !self.picker_expanded;
+                // SlideRight Revealer + panel wrapper — known-good
+                // structure from HEAD that preserves the
+                // colorplane's gradient across toggle cycles.
                 if let Some(rev) = &self.picker_revealer {
+                    if self.picker_expanded {
+                        // Must be visible BEFORE starting the reveal
+                        // animation; otherwise GTK skips it. The
+                        // matching set_visible(false) on collapse
+                        // happens in `connect_child_revealed_notify`
+                        // after the conceal animation completes.
+                        rev.set_visible(true);
+                    }
                     rev.set_reveal_child(self.picker_expanded);
                 }
                 if let Some(btn) = &self.picker_arrow_btn {
@@ -2754,61 +3230,105 @@ impl Component for ToolsToolbar {
                         chooser.set_rgba(&RGBA::from(self.current_color));
                     }
                 }
+                // Grid rendering depends on `picker_expanded` (the
+                // "next column" empty placeholders only show when
+                // the chooser is open, since growing the saved list
+                // requires the chooser anyway). Refresh so the
+                // extra column shows/hides with the toggle.
+                self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::SaveCustomColor(color) => {
                 self.custom_colors = crate::state::append_custom_color(color);
                 self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::ReorderCustomColor { from, to } => {
-                // Drag-drop reorder. `from` is the source slot index;
-                // `to` is the target slot. If `to` is past the end of
-                // the saved list, clamp to the last position so the
-                // color isn't dropped into thin air.
+                // Programmatic reorder (currently unused — drag-and-drop
+                // goes through Begin/Live/End directly). Treat as a
+                // move with shift-down: blank the source slot, then
+                // insert the color at the target. Trailing Nones are
+                // trimmed by `save_custom_colors` on disk.
                 if from >= self.custom_colors.len() || from == to {
                     return;
                 }
-                let color = self.custom_colors.remove(from);
-                let insert_at = std::cmp::min(to, self.custom_colors.len());
-                // When dragging downward, the removal above shifts
-                // every subsequent index left by one, so a target
-                // that originally lived past `from` lands one slot
-                // earlier than the user's drop coordinate suggests.
-                // Compensate by *not* subtracting here — `to` was
-                // already the post-removal position the user picked.
-                self.custom_colors.insert(insert_at, color);
+                let Some(color) = self.custom_colors[from].take() else {
+                    return;
+                };
+                let insert_at = to.min(self.custom_colors.len());
+                self.custom_colors.insert(insert_at, Some(color));
                 crate::state::save_custom_colors(&self.custom_colors);
                 self.sync_color_action();
                 self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::DeleteCustomColor(index) => {
+                // Delete blanks the slot, preserving the layout the
+                // user has built up via drag-and-drop. Trailing
+                // empties get trimmed eagerly afterward so the
+                // column doesn't end on a hanging placeholder.
                 if index >= self.custom_colors.len() {
                     return;
                 }
-                self.custom_colors.remove(index);
+                if self.custom_colors[index].is_none() {
+                    return;
+                }
+                self.custom_colors[index] = None;
+                trim_trailing_empty_columns(&mut self.custom_colors);
                 crate::state::save_custom_colors(&self.custom_colors);
                 self.sync_color_action();
                 self.refresh_color_popover(&sender);
             }
+            ToolsToolbarInput::DeleteCurrentSavedColor => {
+                // Only saved-custom colors are deletable — palette
+                // entries are config-driven and stay put. Match by
+                // value against the first `Some` whose color equals
+                // `current_color`; blank that slot, then trim.
+                let target = self
+                    .custom_colors
+                    .iter()
+                    .position(|slot| matches!(slot, Some(c) if *c == self.current_color));
+                if let Some(idx) = target {
+                    self.custom_colors[idx] = None;
+                    trim_trailing_empty_columns(&mut self.custom_colors);
+                    crate::state::save_custom_colors(&self.custom_colors);
+                    self.sync_color_action();
+                    self.refresh_color_popover(&sender);
+                }
+            }
             ToolsToolbarInput::BeginCustomDrag(slot) => {
-                // Pull the dragged color out of the live list so the
-                // remaining saved customs shift up to fill the gap
-                // (the user sees the dragged item "lifted off" the
-                // grid). The pre-drag snapshot is the only way back
-                // if the user cancels the drag; on a successful drop
-                // we reinsert at `dragging_preview_slot`.
+                // Blank the origin slot so it renders as a gap during
+                // the drag; the dragged color is held in
+                // `dragging_color` until drop. On a successful drop
+                // we re-insert at `dragging_preview_slot` with
+                // shift-down (existing slots from there onward move
+                // one position later), leaving the origin slot empty
+                // — i.e. a drag effectively *moves* the color and
+                // creates a gap behind it. The pre-drag snapshot is
+                // the only way back if the user cancels.
                 if slot >= self.custom_colors.len() {
                     return;
                 }
-                let snapshot = self.custom_colors.clone();
-                let color = self.custom_colors.remove(slot);
+                let Some(color) = self.custom_colors[slot] else {
+                    // Trying to drag an empty slot — nothing to do.
+                    return;
+                };
+                // Snapshot BEFORE blanking the origin — a cancelled
+                // drag (drop outside any target) restores from this
+                // snapshot, and the snapshot must include the dragged
+                // color in its original slot for the restore to put it
+                // back.
+                self.pre_drag_snapshot = Some(self.custom_colors.clone());
+                self.custom_colors[slot] = None;
                 self.dragging_color = Some(color);
-                self.pre_drag_snapshot = Some(snapshot);
-                // Ghost lands at the same logical position as the
-                // pulled item — clamped to the new (shorter) list
-                // length so dragging from the last slot doesn't put
-                // the preview slot out of range.
-                self.dragging_preview_slot =
-                    Some(slot.min(self.custom_colors.len()));
+                // Ghost lands at the origin slot initially — the
+                // user hasn't moved the pointer yet, and rendering
+                // a ghost at the origin shows the swatch is "lifted
+                // off" without immediately shifting anything else.
+                // We DO NOT trim trailing empty columns here even
+                // if the origin was the only filled slot in its
+                // column: the user might be lifting that swatch
+                // specifically to move it further to the right,
+                // and removing the column would collapse the drop
+                // targets they intended to use.
+                self.dragging_preview_slot = Some(slot);
                 // Mark the popover as dragging so the per-swatch hover
                 // ring is suppressed — the `.color-slot-ghost`
                 // placeholder is the only drop affordance the user
@@ -2822,18 +3342,26 @@ impl Component for ToolsToolbar {
             ToolsToolbarInput::LiveReorderCustomColor { target } => {
                 // Move the ghost preview slot to wherever the pointer
                 // is currently hovering. The actual color list is
-                // *not* touched here — `custom_colors` already had
-                // the dragged entry pulled out at drag-begin, so the
-                // surrounding swatches stay in their current order;
-                // only the ghost placeholder moves through them.
+                // *not* touched here — the origin slot is already
+                // `None` from drag-begin, and the rendering layer
+                // visualises the post-drop layout by shifting slots
+                // at/after the ghost down by one.
+                //
+                // Target is NOT clamped to `custom_colors.len()` —
+                // the user can drop past the current end of the list
+                // (anywhere in the grid's "next row" empty slots) and
+                // `EndCustomDrag` pads the list with `None`s up to
+                // that slot before inserting. Without this, dropping
+                // anywhere in the trailing empties always landed at
+                // `len()`, so the user couldn't position past the
+                // first empty slot of a new column.
                 if self.dragging_color.is_none() {
                     return;
                 }
-                let clamped = target.min(self.custom_colors.len());
-                if self.dragging_preview_slot == Some(clamped) {
+                if self.dragging_preview_slot == Some(target) {
                     return;
                 }
-                self.dragging_preview_slot = Some(clamped);
+                self.dragging_preview_slot = Some(target);
                 self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::EndCustomDrag { success } => {
@@ -2846,14 +3374,44 @@ impl Component for ToolsToolbar {
                     return;
                 };
                 if success {
-                    // Reinsert at the slot the ghost preview was
-                    // sitting in. The snapshot is discarded — the
-                    // post-insert list is the new canonical order.
-                    let insert_at = self
+                    let target = self
                         .dragging_preview_slot
-                        .unwrap_or(self.custom_colors.len())
-                        .min(self.custom_colors.len());
-                    self.custom_colors.insert(insert_at, color);
+                        .unwrap_or(self.custom_colors.len());
+                    // Pad with `None`s up to the target so the user
+                    // can drop past the end of the list (any
+                    // leading gap they create gets preserved as
+                    // mid-list empties).
+                    while self.custom_colors.len() < target {
+                        self.custom_colors.push(None);
+                    }
+                    if target >= self.custom_colors.len() {
+                        // Drop landed at or past the current end —
+                        // push the color and keep the list compact.
+                        self.custom_colors.push(Some(color));
+                    } else if self.custom_colors[target].is_none() {
+                        // REPLACE an empty slot — no shift.
+                        self.custom_colors[target] = Some(color);
+                    } else if let Some(absorb) =
+                        find_same_column_gap(&self.custom_colors, target)
+                    {
+                        // INSERT-with-shift, but stop at the first
+                        // `None` in the same column past the target.
+                        // Items at [target..absorb] each move one
+                        // slot later; the `None` at `absorb` is
+                        // consumed by the shifted-in tail; items
+                        // past `absorb` stay in place. List length
+                        // unchanged.
+                        for i in (target + 1..=absorb).rev() {
+                            self.custom_colors[i] = self.custom_colors[i - 1];
+                        }
+                        self.custom_colors[target] = Some(color);
+                    } else {
+                        // No in-column gap to absorb — standard
+                        // insert. List grows by one as everything
+                        // from `target` onward shifts down.
+                        self.custom_colors.insert(target, Some(color));
+                    }
+                    trim_trailing_empty_columns(&mut self.custom_colors);
                     crate::state::save_custom_colors(&self.custom_colors);
                 } else if let Some(snapshot) = self.pre_drag_snapshot.take() {
                     // Cancel: full revert to the snapshot.
@@ -2880,6 +3438,40 @@ impl Component for ToolsToolbar {
                         },
                     );
                 }
+            }
+            ToolsToolbarInput::EscapePressed => {
+                // First Esc during a drag cancels the drag and keeps
+                // the popover open. GTK4's popover has an internal
+                // `GtkShortcutController` that binds Escape to
+                // `popover.close` at a higher priority than our
+                // `EventControllerKey`, so we can't suppress the
+                // close — we let GTK close the popover (which also
+                // triggers `drag_end`, but our drag-cancel logic
+                // here runs first and clears the state before
+                // `EndCustomDrag` sees it as already-handled), then
+                // immediately re-popup so the user keeps the picker
+                // open. There's a single-frame flicker on cancel —
+                // acceptable tradeoff vs. fighting GTK's internal
+                // shortcut binding.
+                //
+                // Esc with no drag in flight just lets GTK close the
+                // popover normally.
+                if self.dragging_color.is_some() {
+                    self.dragging_color = None;
+                    if let Some(snapshot) = self.pre_drag_snapshot.take() {
+                        self.custom_colors = snapshot;
+                    }
+                    self.dragging_preview_slot = None;
+                    if let Some(popover) = &self.color_popover {
+                        popover.remove_css_class("dragging");
+                        popover.popup();
+                    }
+                    self.sync_color_action();
+                    self.refresh_color_popover(&sender);
+                }
+            }
+            ToolsToolbarInput::RefreshColorPopover => {
+                self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::CropDimensionsChanged { width, height } => {
                 self.crop_width = width;
@@ -2944,6 +3536,21 @@ impl Component for ToolsToolbar {
             }
             ToolsToolbarInput::CropBgColorSelected(bg) => {
                 self.crop_bg_color = bg;
+                // Refresh the popover's "Custom Color…" row so it
+                // reflects the user's actual choice. Only update on
+                // Custom selections — switching to a named preset
+                // shouldn't wipe the previously-picked Custom value
+                // (the user might want to flip back to it).
+                if let crate::tools::CropBgColor::Custom(r, g, b) = bg {
+                    if let Some(cell) = &self.crop_bg_custom_rgb {
+                        cell.set((r, g, b));
+                    }
+                    if let Some(swatch) = &self.crop_bg_custom_swatch {
+                        swatch.set_from_pixbuf(Some(&create_icon_pixbuf(
+                            crop_bg_preset_swatch(bg),
+                        )));
+                    }
+                }
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::CropBgColorChanged(bg));
@@ -3051,7 +3658,7 @@ impl Component for ToolsToolbar {
             .or_else(|| {
                 saved_customs
                     .iter()
-                    .position(|c| *c == initial_color)
+                    .position(|slot| matches!(slot, Some(c) if *c == initial_color))
                     .map(|i| ColorButtons::CustomSaved(i as u64))
             })
             .unwrap_or(ColorButtons::Custom);
@@ -3088,6 +3695,8 @@ impl Component for ToolsToolbar {
             resize_width_entry: None,
             resize_height_entry: None,
             crop_bg_color: crate::tools::CropBgColor::Auto,
+            crop_bg_custom_swatch: None,
+            crop_bg_custom_rgb: None,
             display_scale: 1,
             resize_orig_dims: None,
             resize_display_scale: None,
@@ -3156,8 +3765,11 @@ impl Component for ToolsToolbar {
             .build();
         let w_entry = gtk::Entry::builder()
             .input_purpose(gtk::InputPurpose::Digits)
-            .width_chars(6)
+            .width_chars(3)
+            .max_width_chars(6)
             .max_length(6)
+            .hexpand(false)
+            .halign(gtk::Align::Start)
             .build();
         let h_label = gtk::Label::builder()
             .label("Height:")
@@ -3165,8 +3777,11 @@ impl Component for ToolsToolbar {
             .build();
         let h_entry = gtk::Entry::builder()
             .input_purpose(gtk::InputPurpose::Digits)
-            .width_chars(6)
+            .width_chars(3)
+            .max_width_chars(6)
             .max_length(6)
+            .hexpand(false)
+            .halign(gtk::Align::Start)
             .build();
 
         // Lock toggle (vertically centered, spans both rows). Icon
@@ -3180,32 +3795,41 @@ impl Component for ToolsToolbar {
             .build();
         lock_btn.set_tooltip_text(Some("Lock aspect ratio"));
 
-        // Units dropdown — pixels vs. percent.
+        // Units dropdown — pixels vs. percent. Spans both rows so
+        // it sits vertically centered next to the lock toggle,
+        // matching the lock's "between W and H" placement.
         let units_model = gtk::StringList::new(&["pixels", "percent"]);
         let units_dropdown = gtk::DropDown::builder()
             .model(&units_model)
             .selected(0)
             .focusable(false)
+            .valign(gtk::Align::Center)
             .build();
 
         grid.attach(&w_label, 0, 0, 1, 1);
         grid.attach(&w_entry, 1, 0, 1, 1);
         grid.attach(&lock_btn, 2, 0, 1, 2);
-        grid.attach(&units_dropdown, 3, 0, 1, 1);
+        grid.attach(&units_dropdown, 3, 0, 1, 2);
         grid.attach(&h_label, 0, 1, 1, 1);
         grid.attach(&h_entry, 1, 1, 1, 1);
         popover_box.append(&grid);
 
+        // Buttons split the popover width 50/50 so the row reads
+        // as a balanced footer even after the W/H entries shrink.
         let button_row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(8)
-            .halign(gtk::Align::End)
+            .homogeneous(true)
             .margin_top(4)
             .build();
-        let cancel_btn = gtk::Button::builder().label("Cancel").build();
+        let cancel_btn = gtk::Button::builder()
+            .label("Cancel")
+            .hexpand(true)
+            .build();
         let resize_btn = gtk::Button::builder()
             .label("Resize")
             .css_classes(["suggested-action"])
+            .hexpand(true)
             .build();
         button_row.append(&cancel_btn);
         button_row.append(&resize_btn);
@@ -3384,6 +4008,19 @@ impl Component for ToolsToolbar {
             }
         });
 
+        // Enter in either entry submits the popover. `emit_clicked`
+        // re-uses the same handler (with all its validation /
+        // unit-conversion / popdown behavior) instead of duplicating
+        // the logic per-entry.
+        let resize_btn_for_w = resize_btn.clone();
+        w_entry.connect_activate(move |_| {
+            resize_btn_for_w.emit_clicked();
+        });
+        let resize_btn_for_h = resize_btn.clone();
+        h_entry.connect_activate(move |_| {
+            resize_btn_for_h.emit_clicked();
+        });
+
         // Stash everything for handler access.
         model.resize_width_entry = Some(w_entry);
         model.resize_height_entry = Some(h_entry);
@@ -3409,13 +4046,29 @@ impl Component for ToolsToolbar {
             .margin_end(4)
             .spacing(0)
             .build();
+        // Seed the Custom row's swatch from the live `crop_bg_color`
+        // so the popover already reflects a previously-picked color
+        // (or mid-gray as the default placeholder before the user
+        // has picked anything). Stashed below so the
+        // `CropBgColorSelected` handler can refresh it on the fly.
+        let custom_seed_rgb = match model.crop_bg_color {
+            CropBgColor::Custom(r, g, b) => (r, g, b),
+            _ => (0.5, 0.5, 0.5),
+        };
+        let custom_seed = CropBgColor::Custom(
+            custom_seed_rgb.0,
+            custom_seed_rgb.1,
+            custom_seed_rgb.2,
+        );
+        let custom_rgb_cell = std::rc::Rc::new(std::cell::Cell::new(custom_seed_rgb));
+        let mut custom_swatch_handle: Option<gtk::Image> = None;
         for (bg, label_text) in [
             (CropBgColor::Transparent, "Transparent"),
             (CropBgColor::Auto, "Auto"),
             (CropBgColor::White, "White"),
             (CropBgColor::Gray, "Gray"),
             (CropBgColor::Black, "Black"),
-            (CropBgColor::Custom(0.5, 0.5, 0.5), "Custom Color\u{2026}"),
+            (custom_seed, "Custom Color\u{2026}"),
         ] {
             let row_btn = gtk::Button::builder()
                 .css_classes(["flat"])
@@ -3425,9 +4078,7 @@ impl Component for ToolsToolbar {
                 .orientation(gtk::Orientation::Horizontal)
                 .spacing(8)
                 .build();
-            let swatch = gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(
-                crop_bg_preset_swatch(bg),
-            )));
+            let swatch = gtk::Image::from_pixbuf(Some(&crop_bg_swatch_pixbuf(bg)));
             swatch.set_pixel_size(SWATCH_DISPLAY_SIZE);
             let lbl = gtk::Label::new(Some(label_text));
             lbl.set_xalign(0.0);
@@ -3439,6 +4090,13 @@ impl Component for ToolsToolbar {
             let popover_for_row = bg_popover.clone();
             let sender_for_row = sender.clone();
             let is_custom_row = matches!(bg, CropBgColor::Custom(..));
+            if is_custom_row {
+                custom_swatch_handle = Some(swatch.clone());
+            }
+            // Cloned per-row so each closure owns its handle; only
+            // the custom row actually reads from it but every row
+            // captures one to keep the closure signatures uniform.
+            let custom_rgb_for_row = custom_rgb_cell.clone();
             row_btn.connect_clicked(move |btn| {
                 popover_for_row.popdown();
                 if is_custom_row {
@@ -3457,6 +4115,8 @@ impl Component for ToolsToolbar {
                         builder = builder.transient_for(w);
                     }
                     let dialog = builder.build();
+                    let (r, g, b) = custom_rgb_for_row.get();
+                    dialog.set_rgba(&gtk::gdk::RGBA::new(r, g, b, 1.0));
                     let sender_for_dialog = sender_for_row.clone();
                     dialog.connect_response(move |dlg, response| {
                         if response == gtk::ResponseType::Ok {
@@ -3478,6 +4138,8 @@ impl Component for ToolsToolbar {
             });
             bg_box.append(&row_btn);
         }
+        model.crop_bg_custom_swatch = custom_swatch_handle;
+        model.crop_bg_custom_rgb = Some(custom_rgb_cell);
         bg_popover.set_child(Some(&bg_box));
         widgets.crop_bg_color_menu_btn.set_popover(Some(&bg_popover));
 
@@ -4001,13 +4663,15 @@ impl Component for StyleToolbar {
                 },
 
                 // Brush post-stroke smoothing slider — only visible
-                // while the Brush tool is active. Integer step 0..=8.
+                // while the Brush tool is active. Integer step 0..=6.
                 // 0 disables smoothing entirely (raw polyline as the
                 // user drew it). 1–2 are pure Chaikin corner-cutting.
                 // 3+ adds Ramer–Douglas–Peucker simplification (with
                 // tolerance scaling per level) before Chaikin's, so
                 // the upper half of the range produces genuinely
-                // progressive smoothing instead of plateauing.
+                // progressive smoothing. Capped at 6 (RDP @ 9px) —
+                // higher tolerances collapse strokes too aggressively
+                // to be useful for the annotation use case.
                 // Detent mark at 2 matches the built-in default.
                 #[name(brush_smooth_slider)]
                 gtk::Scale {
@@ -4017,7 +4681,7 @@ impl Component for StyleToolbar {
                     set_hexpand: false,
                     set_width_request: CLUSTER_SLIDER_WIDTH,
                     set_valign: gtk::Align::Center,
-                    set_range: (0.0, 8.0),
+                    set_range: (0.0, 6.0),
                     set_increments: (1.0, 1.0),
                     set_round_digits: 0,
                     set_draw_value: false,
@@ -4028,7 +4692,7 @@ impl Component for StyleToolbar {
                     #[watch]
                     set_visible: model.current_tool == Tools::Brush,
                     connect_value_changed[sender] => move |scale| {
-                        let v = scale.value().round().clamp(0.0, 8.0) as usize;
+                        let v = scale.value().round().clamp(0.0, 6.0) as usize;
                         sender.output_sender().emit(ToolbarEvent::BrushPostSmoothChanged(v));
                     } @brush_smooth_value_changed,
                 },

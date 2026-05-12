@@ -1,3 +1,16 @@
+/* ============================================================
+ * IMPORTANT: GTK4 CSS does NOT support the `!important` keyword.
+ * Adding it to any property triggers a "Junk at end of value"
+ * parser warning at app startup and the property declaration is
+ * silently dropped, falling back to the GTK theme default.
+ *
+ * Our CssProvider runs at `STYLE_PROVIDER_PRIORITY_APPLICATION`
+ * (800) which already outranks the Adwaita theme (600), so plain
+ * rules win without needing `!important`. Do not add `!important`
+ * here — write a more specific selector instead if a theme rule
+ * is winning.
+ * ============================================================ */
+
 .root {
     /* No explicit min-width — GTK already takes the natural size of
        the toolbars into account, and a hard min was forcing the
@@ -190,8 +203,34 @@ dropdown.compact-control > button.combo {
     box-shadow: none;
     outline: none;
 }
-.color-picker-popover contents {
-    padding: 6px;
+.color-picker-popover,
+.color-picker-popover > arrow,
+.color-picker-popover > contents {
+    min-width: 0;
+    min-height: 0;
+}
+.color-picker-popover {
+    padding: 0;
+    margin: 0;
+}
+.color-picker-popover > contents {
+    /* 20 px symmetric padding on every side of the contents node.
+     * With the grid's 14 px column-spacing the two columns measure
+     * 24 + 14 + 24 = 62 px wide naturally; the popover hugs that
+     * content and the 20 px padding is what reads as the gap from
+     * popover edge to first swatch. */
+    padding: 20px;
+}
+.inline-picker-stack,
+.color-picker-content,
+.color-picker-left {
+    /* Strip Stack/Box default theme padding + min-sizes so the
+     * collapsed popover shrinks to exactly its visible content
+     * width (left column + 14 px CSS padding on each side). */
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+    min-height: 0;
 }
 /* The colored swatch itself is drawn into the pixbuf with rounded
  * corners (see `create_icon_pixbuf` in src/ui/toolbars.rs) — CSS
@@ -207,37 +246,51 @@ dropdown.compact-control > button.combo {
     border: none;
     box-shadow: none;
     outline: none;
+    /* Disable the GTK theme's inherited transitions on the outline /
+     * box-shadow / background so the hover/:checked ring appears
+     * instantly. The default Adwaita transition animates outline
+     * from `outline-offset: 0` toward `outline-offset: -2px` on
+     * hover-in, which briefly draws the ring outside the swatch's
+     * bounds — that intermediate frame gets clipped by the parent
+     * widgets the same way the static outset shadow did. */
+    transition: none;
 }
-/* Hover/checked feedback is an OUTSET ring rather than an inset one —
- * the swatch's pixbuf child fully covers the button's content area, so
- * an inset shadow renders BEHIND the colored square and never shows
- * through. An outset shadow draws outside the button border instead,
- * extending into the surrounding cell gap (which is why row/column
- * spacing is bumped to 8/14 px in `build_color_popover_grid`). The
- * literal color is used in case `@accent_color` is missing or matches
- * a swatch's color (e.g. blue palette entry under a blue accent theme). */
+/* Hover/checked feedback uses CSS `outline` with negative
+ * `outline-offset` — the outline is drawn INSIDE the swatch's
+ * widget bounds (2 px in from the edge), so it's never clipped
+ * by any ancestor widget AND it's painted ABOVE the swatch's
+ * pixbuf content (unlike `inset box-shadow`, which renders below
+ * the content and would be hidden by the image). The previous
+ * outset `box-shadow` ring extended outside the swatch and got
+ * covered by `picker_revealer`'s paint pass on the right side of
+ * the rightmost saved-customs column — no amount of ancestor
+ * `Overflow::Visible` or gutter widgets could move the swatch's
+ * paint above its sibling's paint in tree order.
+ * `border-radius: 5px` matches the pixbuf's baked corner radius. */
 .color-swatch:hover {
-    box-shadow: 0 0 0 2px alpha(#3584e4, 0.55);
-    border-radius: 4px;
+    outline: 2px solid alpha(#3584e4, 0.55);
+    outline-offset: -2px;
+    border-radius: 5px;
 }
 .color-swatch:checked {
-    box-shadow: 0 0 0 2px #ffffff;
-    border-radius: 4px;
+    outline: 2px solid #ffffff;
+    outline-offset: -2px;
+    border-radius: 5px;
 }
 /* While a reorder drag is in flight the `.dragging` class is set on
  * the popover; suppress the blue hover ring then so the only on-cursor
  * affordance is the brighter `.color-slot-ghost` drop preview. Two
  * rings competing reads as visual noise. */
 .color-picker-popover.dragging .color-swatch:hover {
-    box-shadow: none;
+    outline: none;
 }
 /* Empty custom-color slots — dashed outline that visually indicates
  * "this slot can hold a color you've saved". Radius matches the
- * MenuButton swatch so the picker reads as a consistent set of slightly
- * rounded squares. Inert until Phase 2 wires up "+ Add to My Colors". */
+ * swatches (pixbuf-baked at 5 logical) so the picker reads as a
+ * consistent set of slightly rounded squares. */
 .color-slot-empty {
     border: 1px dashed alpha(@headerbar_fg_color, 0.35);
-    border-radius: 4px;
+    border-radius: 5px;
 }
 /* Drag-preview ghost slot — drawn at `dragging_preview_slot` while a
  * saved-custom swatch is in flight. Brighter solid outline (vs. the
@@ -245,18 +298,18 @@ dropdown.compact-control > button.combo {
  * land if they release now. */
 .color-slot-ghost {
     border: 2px solid alpha(@headerbar_fg_color, 0.75);
-    border-radius: 4px;
+    border-radius: 5px;
     background-color: alpha(@headerbar_fg_color, 0.08);
 }
 /* Color-wheel button at the bottom of the popover keeps a subtle
  * background so it reads as a separate action from the swatches. */
 .color-wheel-button {
-    padding: 4px;
+    padding: 2px;
     min-width: 0;
     min-height: 0;
 }
 .picker-expand-arrow {
-    padding: 4px;
+    padding: 2px;
     min-width: 0;
     min-height: 0;
 }
@@ -275,37 +328,30 @@ dropdown.compact-control > button.combo {
     min-height: 22px;
     padding: 2px 6px;
 }
-/* "+ Add to My Colors" button: pill shape, padding sized to hug the
- * label. The actual width comes from `halign: Center + hexpand: false`
- * in Rust — without those the button would still stretch even with
- * tight padding here. */
-.add-to-my-colors-btn {
-    margin-top: 4px;
-    padding: 6px 18px;
-    border-radius: 16px;
+/* "+ Add" button: same border-radius and visual weight as the
+ * swatches above it, height set in Rust to SWATCH_DISPLAY_SIZE, so
+ * the button reads as a sibling of the palette grid. Background /
+ * foreground colors are written from Rust via a per-popover
+ * CssProvider that tracks the inline picker's current rgba — see
+ * `add_btn_css_for` in toolbars.rs. */
+.add-color-btn {
+    padding: 0 12px;
+    border-radius: 4px;
     font-weight: 600;
+    min-height: 0;
 }
-/* X-to-delete badge on the currently-selected saved swatch. The
- * positioning (top-left corner, overlapping the swatch) is set in
- * Rust via negative margins on the overlay child; this rule paints
- * the circular dark pill. */
-.swatch-delete-x {
-    min-width: 14px;
-    min-height: 14px;
-    padding: 0;
-    background: alpha(@theme_bg_color, 0.92);
-    color: @theme_fg_color;
-    border: 1px solid alpha(@borders, 0.6);
-    border-radius: 50%;
-    box-shadow: 0 1px 2px alpha(black, 0.4);
-}
-.swatch-delete-x:hover {
-    background: @theme_bg_color;
-    border-color: alpha(@borders, 0.9);
-}
-.swatch-delete-glyph {
-    font-size: 11px;
-    font-weight: bold;
-    margin: 0;
-    padding: 0;
+
+/* Center-of-canvas toast that announces the new variant after a
+ * double-tap cycle (Arrow / Blur / Text). Sits on top of the canvas
+ * via the App's overlay; the Revealer parent handles the fade and
+ * the label inside takes the pill shape via these rules. The toast
+ * is non-interactive (can_target=false in Rust) so it never steals
+ * clicks during a quick mid-stroke cycle. */
+.cycle-toast-label {
+    padding: 8px 18px;
+    background: alpha(black, 0.75);
+    color: white;
+    border-radius: 16px;
+    font-size: 1.1em;
+    font-weight: 600;
 }
