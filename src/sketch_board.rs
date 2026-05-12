@@ -464,11 +464,63 @@ pub struct SketchBoard {
     /// portion. Reset on direction reversal so a flick the other way
     /// doesn't have to chew through the previous direction's leftover.
     scroll_resize_accum: f32,
+    /// Last tool-shortcut keypress (the single char + when it fired).
+    /// Used to detect a double-tap of the same tool key within
+    /// `TOOL_CYCLE_MS` so the press cycles the tool's style instead
+    /// of just re-selecting the same tool. The first press always
+    /// behaves as a normal select; only the SECOND quick press
+    /// cycles, so the user can't accidentally change variants by
+    /// pressing the same key once.
+    last_tool_press: Option<(char, std::time::Instant)>,
 }
+
+/// Max gap (ms) between two presses of the same tool-shortcut key
+/// for the second press to register as a "cycle" instead of a
+/// re-selection. Tuned tight so an inadvertent double-press still
+/// reads as the user intentionally drumming.
+const TOOL_CYCLE_MS: u64 = 300;
 
 impl SketchBoard {
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
+    }
+
+    /// Hook called after `commit / modify / modify_many` so the canvas
+    /// grows around any drawable that spilled past the previous image
+    /// edge. Skipped while the Crop tool is active (crop is for
+    /// shrinking — auto-extending against the crop edit would fight
+    /// the user). If the renderer reports an extension, refresh the
+    /// crop tool's bounds and emit `ImageDimensionsChanged` so the
+    /// main window resizes around the new content.
+    fn auto_extend_canvas(
+        &mut self,
+        ids_to_exclude: &[crate::tools::DrawableId],
+        sender: &ComponentSender<Self>,
+    ) {
+        if self.active_tool_type() == Tools::Crop {
+            return;
+        }
+        let Some((new_w, new_h)) =
+            self.renderer.auto_extend_for_drawables(ids_to_exclude)
+        else {
+            return;
+        };
+        let crop_tool = self.tools.get_crop_tool();
+        crop_tool
+            .borrow_mut()
+            .set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::ImageDimensionsChanged {
+                width: new_w as i32,
+                height: new_h as i32,
+            });
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::ContentSizeChanged {
+                width: new_w,
+                height: new_h,
+            });
     }
 
     fn image_to_pixbuf(image: RenderedImage) -> Pixbuf {
@@ -999,6 +1051,61 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
+    /// Advance the active tool's style variant by one. Triggered by a
+    /// double-press of the tool's shortcut key (see the
+    /// `TextEventMsg::Commit` handler). Tools without per-tool style
+    /// variants (Pointer, Crop, Brush, etc.) are no-ops; the
+    /// double-press still gets consumed (no visible change) which is
+    /// the desired behavior — re-selecting is harmless.
+    fn cycle_tool_style(&mut self, tool: Tools) {
+        use crate::tools::{ArrowStyle, BlurStyle, TextBackground};
+        match tool {
+            Tools::Arrow => {
+                let next = match crate::state::load_arrow_style().unwrap_or_default() {
+                    ArrowStyle::Standard => ArrowStyle::Fancy,
+                    ArrowStyle::Fancy => ArrowStyle::Curved,
+                    ArrowStyle::Curved => ArrowStyle::Double,
+                    ArrowStyle::Double => ArrowStyle::Standard,
+                };
+                self.tools
+                    .get(&Tools::Arrow)
+                    .borrow_mut()
+                    .set_arrow_style(next);
+                crate::state::save_arrow_style(next);
+            }
+            Tools::Blur => {
+                let next = match crate::state::load_blur_style().unwrap_or_default() {
+                    BlurStyle::Pixelate => BlurStyle::SecureBlur,
+                    BlurStyle::SecureBlur => BlurStyle::Gaussian,
+                    BlurStyle::Gaussian => BlurStyle::BlackOut,
+                    BlurStyle::BlackOut => BlurStyle::Pixelate,
+                };
+                self.tools
+                    .get(&Tools::Blur)
+                    .borrow_mut()
+                    .set_blur_style(next);
+                crate::state::save_blur_style(next);
+            }
+            Tools::Text => {
+                let next = match crate::state::load_text_background().unwrap_or_default() {
+                    TextBackground::Plain => TextBackground::Rounded,
+                    TextBackground::Rounded => TextBackground::Plain,
+                };
+                self.tools
+                    .get(&Tools::Text)
+                    .borrow_mut()
+                    .set_text_background(next);
+                crate::state::save_text_background(next);
+            }
+            _ => {
+                // Tools without per-tool variants — pointer, crop,
+                // brush, line, rectangle, ellipse, marker, highlighter,
+                // spotlight. Nothing to cycle; the double-tap just
+                // gets absorbed.
+            }
+        }
+    }
+
     fn handle_toolbar_event(
         &mut self,
         toolbar_event: ToolbarEvent,
@@ -1284,6 +1391,14 @@ impl SketchBoard {
                     ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
                     ct.revert_to_seed();
                     drop(ct);
+                    // Drop any prior user zoom so the renderer's
+                    // auto-fit-with-padding cascade re-engages for the
+                    // new image size — same fit-to-screen treatment a
+                    // fresh screenshot gets. `revert_to_seed` already
+                    // emitted ContentSizeChanged to grow the window to
+                    // 90 % viewport; auto-fit handles the case where
+                    // the resized image still exceeds the window.
+                    self.renderer.reset_size(0.0);
                     sender
                         .output_sender()
                         .emit(SketchBoardOutput::ImageDimensionsChanged {
@@ -1303,7 +1418,7 @@ impl SketchBoard {
     }
 
     fn handle_text_commit(
-        &self,
+        &mut self,
         event: TextEventMsg,
         sender: ComponentSender<Self>,
     ) -> ToolUpdateResult {
@@ -1340,17 +1455,43 @@ impl SketchBoard {
                         ToolbarEvent::ToggleFill,
                     ));
                     sender.input(SketchBoardInput::SyncFillToToolbar);
-                } else if let Some(tool) = txt
-                    .chars()
-                    .next()
-                    .and_then(|char| APP_CONFIG.read().keybinds().get_tool(char))
+                } else if let Some(ch) = txt.chars().next()
+                    && let Some(tool) = APP_CONFIG.read().keybinds().get_tool(ch)
                 {
-                    sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToolSelected(
-                        tool,
-                    )));
-                    sender
-                        .output_sender()
-                        .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
+                    // Double-press cycle: if the user presses the
+                    // SAME tool key twice within TOOL_CYCLE_MS AND
+                    // the tool was already active when the second
+                    // press fired, advance the tool's style variant
+                    // instead of re-selecting. First press always
+                    // behaves as a normal select — guards against
+                    // accidental cycling from a single tap.
+                    let now = std::time::Instant::now();
+                    let is_cycle = match self.last_tool_press {
+                        Some((prev_ch, prev_t))
+                            if prev_ch == ch
+                                && now.duration_since(prev_t).as_millis()
+                                    <= TOOL_CYCLE_MS as u128
+                                && self.active_tool_type() == tool =>
+                        {
+                            true
+                        }
+                        _ => false,
+                    };
+                    self.last_tool_press = Some((ch, now));
+                    if is_cycle {
+                        self.cycle_tool_style(tool);
+                        // Clear the press history so a THIRD quick
+                        // press doesn't double-cycle — each cycle
+                        // needs a fresh double-tap.
+                        self.last_tool_press = None;
+                    } else {
+                        sender.input(SketchBoardInput::ToolbarEvent(
+                            ToolbarEvent::ToolSelected(tool),
+                        ));
+                        sender
+                            .output_sender()
+                            .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
+                    }
                 } else if let Some(hotkey_digit) =
                     txt.chars().next().and_then(|char| char.to_digit(10))
                 {
@@ -2376,7 +2517,8 @@ impl Component for SketchBoard {
         // println!(" Result={:?}", result);
         match result {
             ToolUpdateResult::Commit(drawable) => {
-                self.renderer.commit(drawable);
+                let id = self.renderer.commit(drawable);
+                self.auto_extend_canvas(&[id], &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -2384,13 +2526,17 @@ impl Component for SketchBoard {
             }
             ToolUpdateResult::ModifyDrawable(id, drawable) => {
                 self.renderer.modify(id, drawable);
+                self.auto_extend_canvas(&[id], &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
                 self.refresh_screen();
             }
             ToolUpdateResult::ModifyDrawables(updates) => {
+                let ids: Vec<crate::tools::DrawableId> =
+                    updates.iter().map(|(id, _)| *id).collect();
                 self.renderer.modify_many(updates);
+                self.auto_extend_canvas(&ids, &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -2455,6 +2601,7 @@ impl Component for SketchBoard {
             last_synced_selection: None,
             tool_before_crop: None,
             scroll_resize_accum: 0.0,
+            last_tool_press: None,
         };
 
         let pointer_tool = model.tools.get(&Tools::Pointer);
