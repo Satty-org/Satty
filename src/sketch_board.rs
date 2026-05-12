@@ -172,6 +172,40 @@ pub enum SketchBoardOutput {
     /// Ctrl+,). The dialog isn't a child of sketch_board, so we
     /// just forward the intent up to App.
     OpenPreferences,
+    /// Tool-specific style cycled (double-tap of the tool's
+    /// shortcut). Drives the matching StyleToolbar menu/dropdown
+    /// so the on-screen affordance keeps up with the variant that
+    /// was just promoted in state.toml.
+    ArrowStyleCycled(crate::tools::ArrowStyle),
+    BlurStyleCycled(crate::tools::BlurStyle),
+    TextBackgroundCycled(crate::tools::TextBackground),
+    /// Announce the just-cycled variant by name (e.g. "Arrow:
+    /// Curved"). Caller renders it as a centered toast on the
+    /// canvas — separate from the structured style events so the
+    /// presentation lives in main.rs / the overlay alongside the
+    /// rest of the chrome.
+    ShowCycleToast(String),
+    /// The selected text drawable's background style — used to
+    /// re-seed the StyleToolbar's TextBackground dropdown when the
+    /// user clicks between texts with different backgrounds. Silent
+    /// path (doesn't re-apply or re-toast); pure UI sync.
+    SelectionTextBackgroundChanged(crate::tools::TextBackground),
+    /// Same shape for Arrow / Blur — sync the toolbar's
+    /// MenuButton preview to the selected drawable's variant so
+    /// double-tap / popover-click cycles operate from the
+    /// just-selected state.
+    SelectionArrowStyleChanged(crate::tools::ArrowStyle),
+    SelectionBlurStyleChanged(crate::tools::BlurStyle),
+    /// Tool switch snapped the spotlight-darkness / highlighter-
+    /// opacity slider back to the saved default. Toolbar updates
+    /// its slider so the on-screen value matches the now-active
+    /// style state instead of the previous session's drag.
+    SpotlightDarknessReset(f32),
+    HighlighterOpacityReset(f32),
+    /// Tool switch into Brush snapped the post-stroke smoothing slider
+    /// back to the saved default; toolbar updates the slider position
+    /// so it matches the now-active APP_CONFIG value.
+    BrushPostSmoothReset(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -478,21 +512,24 @@ pub struct SketchBoard {
 /// for the second press to register as a "cycle" instead of a
 /// re-selection. Tuned tight so an inadvertent double-press still
 /// reads as the user intentionally drumming.
-const TOOL_CYCLE_MS: u64 = 300;
+const TOOL_CYCLE_MS: u64 = 500;
 
 impl SketchBoard {
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
     }
 
-    /// Hook called after `commit / modify / modify_many` so the canvas
-    /// grows around any drawable that spilled past the previous image
-    /// edge. Skipped while the Crop tool is active (crop is for
-    /// shrinking — auto-extending against the crop edit would fight
-    /// the user). If the renderer reports an extension, refresh the
-    /// crop tool's bounds and emit `ImageDimensionsChanged` so the
-    /// main window resizes around the new content.
-    fn auto_extend_canvas(
+    /// Hook called after `commit / modify / modify_many / delete /
+    /// delete_many` so the canvas re-fits around the original
+    /// screenshot plus the current drawable bounds — grows when a
+    /// drawable spills past, shrinks back toward the original when
+    /// the last spilling drawable is gone. Skipped while the Crop
+    /// tool is active (crop is for shrinking — auto-extending
+    /// against the crop edit would fight the user). When the renderer
+    /// reports a resize, refresh the crop tool's bounds and emit the
+    /// dimensions-changed events so the toolbar label and main
+    /// window resize around the new content.
+    fn auto_resize_canvas(
         &mut self,
         ids_to_exclude: &[crate::tools::DrawableId],
         sender: &ComponentSender<Self>,
@@ -1068,16 +1105,144 @@ impl SketchBoard {
     }
 
     /// Advance the active tool's style variant by one. Triggered by a
+    /// Re-shape every currently-selected Arrow drawable to the given
+    /// style. Wired into `ArrowStyleSelected` (popover-click and
+    /// double-tap cycle paths both flow through it) so the picker
+    /// retroactively edits the canvas instead of only affecting
+    /// future strokes. Mirrors the existing TextBackground path.
+    fn apply_arrow_style_to_selection(
+        &mut self,
+        style: crate::tools::ArrowStyle,
+    ) -> ToolUpdateResult {
+        let selected_ids = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+        for id in selected_ids {
+            if let Some(mut d) = self.renderer.clone_drawable(id)
+                && d.arrow_style().is_some()
+            {
+                d.set_arrow_style_on_drawable(style);
+                updates.push((id, d));
+            }
+        }
+        match updates.len() {
+            0 => ToolUpdateResult::Unmodified,
+            1 => {
+                let (id, d) = updates.pop().unwrap();
+                ToolUpdateResult::ModifyDrawable(id, d)
+            }
+            _ => ToolUpdateResult::ModifyDrawables(updates),
+        }
+    }
+
+    /// Same as `apply_arrow_style_to_selection` for Blur drawables.
+    fn apply_blur_style_to_selection(
+        &mut self,
+        style: crate::tools::BlurStyle,
+    ) -> ToolUpdateResult {
+        let selected_ids = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+        for id in selected_ids {
+            if let Some(mut d) = self.renderer.clone_drawable(id)
+                && d.blur_style().is_some()
+            {
+                d.set_blur_style_on_drawable(style);
+                updates.push((id, d));
+            }
+        }
+        match updates.len() {
+            0 => ToolUpdateResult::Unmodified,
+            1 => {
+                let (id, d) = updates.pop().unwrap();
+                ToolUpdateResult::ModifyDrawable(id, d)
+            }
+            _ => ToolUpdateResult::ModifyDrawables(updates),
+        }
+    }
+
+    /// Read the current variant for the tool's cycle. When a single
+    /// drawable of the matching type is selected, prefer its style
+    /// over the global default — so cycling operates on the thing
+    /// the user has on screen, not the stale tool default. Falls
+    /// back to the persisted default when nothing relevant is
+    /// selected.
+    fn cycle_seed_arrow(&self) -> crate::tools::ArrowStyle {
+        let selected = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        if selected.len() == 1
+            && let Some(s) = self
+                .renderer
+                .clone_drawable(selected[0])
+                .and_then(|d| d.arrow_style())
+        {
+            return s;
+        }
+        crate::state::load_arrow_style().unwrap_or_default()
+    }
+    fn cycle_seed_blur(&self) -> crate::tools::BlurStyle {
+        let selected = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        if selected.len() == 1
+            && let Some(s) = self
+                .renderer
+                .clone_drawable(selected[0])
+                .and_then(|d| d.blur_style())
+        {
+            return s;
+        }
+        crate::state::load_blur_style().unwrap_or_default()
+    }
+    fn cycle_seed_text(&self) -> crate::tools::TextBackground {
+        let selected = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        if selected.len() == 1
+            && let Some(s) = self
+                .renderer
+                .clone_drawable(selected[0])
+                .and_then(|d| d.text_background())
+        {
+            return s;
+        }
+        crate::state::load_text_background().unwrap_or_default()
+    }
+
     /// double-press of the tool's shortcut key (see the
     /// `TextEventMsg::Commit` handler). Tools without per-tool style
     /// variants (Pointer, Crop, Brush, etc.) are no-ops; the
     /// double-press still gets consumed (no visible change) which is
     /// the desired behavior — re-selecting is harmless.
-    fn cycle_tool_style(&mut self, tool: Tools) {
+    fn cycle_tool_style(&mut self, tool: Tools, sender: &ComponentSender<Self>) {
+        // The cycle path is intentionally toast-free: emitting the
+        // `*Cycled` output below routes through the StyleToolbar's
+        // `Set*Style`/`SetTextBackground` arms, which fan back out
+        // as the regular `*Selected` toolbar events. Those handlers
+        // own the toast emission, so a single user action shows a
+        // single toast regardless of whether the trigger was the
+        // double-tap, the popover row, or the dropdown.
         use crate::tools::{ArrowStyle, BlurStyle, TextBackground};
         match tool {
             Tools::Arrow => {
-                let next = match crate::state::load_arrow_style().unwrap_or_default() {
+                // Seed off the selected arrow (if any) so cycling
+                // operates on what the user is actually editing.
+                // Falls back to the persisted default when nothing
+                // matching is selected.
+                let next = match self.cycle_seed_arrow() {
                     ArrowStyle::Standard => ArrowStyle::Fancy,
                     ArrowStyle::Fancy => ArrowStyle::Curved,
                     ArrowStyle::Curved => ArrowStyle::Double,
@@ -1088,9 +1253,12 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_arrow_style(next);
                 crate::state::save_arrow_style(next);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ArrowStyleCycled(next));
             }
             Tools::Blur => {
-                let next = match crate::state::load_blur_style().unwrap_or_default() {
+                let next = match self.cycle_seed_blur() {
                     BlurStyle::Pixelate => BlurStyle::SecureBlur,
                     BlurStyle::SecureBlur => BlurStyle::Gaussian,
                     BlurStyle::Gaussian => BlurStyle::BlackOut,
@@ -1101,9 +1269,12 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_blur_style(next);
                 crate::state::save_blur_style(next);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::BlurStyleCycled(next));
             }
             Tools::Text => {
-                let next = match crate::state::load_text_background().unwrap_or_default() {
+                let next = match self.cycle_seed_text() {
                     TextBackground::Plain => TextBackground::Rounded,
                     TextBackground::Rounded => TextBackground::Plain,
                 };
@@ -1112,6 +1283,9 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_text_background(next);
                 crate::state::save_text_background(next);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::TextBackgroundCycled(next));
             }
             _ => {
                 // Tools without per-tool variants — pointer, crop,
@@ -1136,6 +1310,53 @@ impl SketchBoard {
                 let current_tool = self.active_tool_type();
                 if tool == Tools::Crop && current_tool != Tools::Crop {
                     self.tool_before_crop = Some(current_tool);
+                }
+                // Re-entering Spotlight or Highlighter snaps the
+                // slider back to the saved default (or the system
+                // detent if no save). In-session edits during a
+                // single tool stretch persist across multiple new
+                // shapes; switching away wipes them so the next
+                // entry starts from a known baseline.
+                if tool != current_tool {
+                    match tool {
+                        Tools::Spotlight => {
+                            let saved =
+                                crate::state::load_spotlight_darkness().unwrap_or(0.50);
+                            self.style.spotlight_darkness = saved;
+                            self.renderer.set_spotlight_darkness(saved);
+                            sender
+                                .output_sender()
+                                .emit(SketchBoardOutput::SpotlightDarknessReset(saved));
+                        }
+                        Tools::Highlighter => {
+                            let saved = crate::state::load_highlighter_opacity()
+                                .unwrap_or(0.40);
+                            self.style.highlighter_opacity = saved;
+                            sender
+                                .output_sender()
+                                .emit(SketchBoardOutput::HighlighterOpacityReset(saved));
+                        }
+                        Tools::Brush => {
+                            // Same snapback semantics as the other
+                            // tool-specific sliders: re-entering Brush
+                            // pulls the saved default off state.toml
+                            // (falling back to the config / built-in
+                            // 2) and pushes it into APP_CONFIG so the
+                            // next stroke uses it.
+                            let saved =
+                                crate::state::load_brush_post_smooth_iterations()
+                                    .unwrap_or_else(|| {
+                                        APP_CONFIG.read().brush_post_smooth_iterations()
+                                    });
+                            APP_CONFIG
+                                .write()
+                                .set_brush_post_smooth_iterations(saved);
+                            sender
+                                .output_sender()
+                                .emit(SketchBoardOutput::BrushPostSmoothReset(saved));
+                        }
+                        _ => {}
+                    }
                 }
                 // Notify the parent so the style toolbar can re-evaluate
                 // tool-specific controls (e.g. the arrow-style dropdown).
@@ -1254,7 +1475,21 @@ impl SketchBoard {
                 // the Arrow tool (this session or next launch) starts
                 // on the same variant.
                 crate::state::save_arrow_style(style);
-                ToolUpdateResult::Unmodified
+                // Toast fires here so the popover-click path and the
+                // double-tap cycle (which routes through the
+                // StyleToolbar → SetArrowStyle → upstream emit chain)
+                // both end up showing a single, consistent toast.
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ShowCycleToast(format!(
+                        "Arrow: {}",
+                        style.display_name()
+                    )));
+                // Also re-style any currently-selected arrow drawables.
+                // Mirrors the `TextBackgroundSelected` retroactive
+                // path: changing the picker should re-shape what's
+                // already on the canvas, not only future strokes.
+                self.apply_arrow_style_to_selection(style)
             }
             ToolbarEvent::BlurStyleSelected(style) => {
                 self.tools
@@ -1264,7 +1499,13 @@ impl SketchBoard {
                 // Same auto-save semantics as arrow style — last-used
                 // algorithm becomes the new default.
                 crate::state::save_blur_style(style);
-                ToolUpdateResult::Unmodified
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ShowCycleToast(format!(
+                        "Blur: {}",
+                        style.display_name()
+                    )));
+                self.apply_blur_style_to_selection(style)
             }
             ToolbarEvent::SnapToEdgesChanged(value) => {
                 self.tools
@@ -1300,6 +1541,20 @@ impl SketchBoard {
                 crate::state::save_highlighter_opacity(self.style.highlighter_opacity);
                 ToolUpdateResult::Unmodified
             }
+            ToolbarEvent::BrushPostSmoothChanged(value) => {
+                // Live-update APP_CONFIG so the brush tool's
+                // EndDrag handler sees the new iteration count on
+                // the next stroke. No persist on every nudge — the
+                // right-click popover is the persist gate.
+                APP_CONFIG.write().set_brush_post_smooth_iterations(value);
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::SaveBrushPostSmoothAsDefault => {
+                crate::state::save_brush_post_smooth_iterations(
+                    APP_CONFIG.read().brush_post_smooth_iterations(),
+                );
+                ToolUpdateResult::Unmodified
+            }
             ToolbarEvent::TextBackgroundSelected(bg) => {
                 // Update the TextTool default so subsequent NEW texts
                 // pick up the chosen style.
@@ -1311,6 +1566,18 @@ impl SketchBoard {
                 // default for the next launch. Same pattern as arrow
                 // and blur style.
                 crate::state::save_text_background(bg);
+                // Toast — fires for BOTH the dropdown path and the
+                // double-tap cycle so the user gets consistent
+                // feedback regardless of which affordance changed
+                // the value. (Cycle's own emit path is suppressed
+                // because the cycle handler already emits the same
+                // toast text; doing it here would double-show.)
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ShowCycleToast(format!(
+                        "Text: {}",
+                        bg.display_name()
+                    )));
 
                 // Also apply retroactively to any selected text
                 // drawables — without this the dropdown only takes
@@ -1517,7 +1784,7 @@ impl SketchBoard {
                     };
                     self.last_tool_press = Some((ch, now));
                     if is_cycle {
-                        self.cycle_tool_style(tool);
+                        self.cycle_tool_style(tool, &sender);
                         // Clear the press history so a THIRD quick
                         // press doesn't double-cycle — each cycle
                         // needs a fresh double-tap.
@@ -1606,6 +1873,47 @@ impl SketchBoard {
             .emit(SketchBoardOutput::SelectionStyleChanged(
                 new_style.map(|(_, s)| s),
             ));
+        // If the just-selected drawable carries a variant (text
+        // background, arrow geometry, blur algorithm), push that
+        // value into the toolbar so its menu / dropdown reflects
+        // the selected drawable. Lets the user click between two
+        // arrows / blurs / texts and have the toolbar agree, then
+        // double-tap or click the picker to cycle from there.
+        // Silent path — no toast, no re-apply.
+        if selected.len() == 1
+            && let Some(d) = self.renderer.clone_drawable(selected[0])
+        {
+            if let Some(bg) = d.text_background() {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SelectionTextBackgroundChanged(bg));
+            }
+            if let Some(s) = d.arrow_style() {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SelectionArrowStyleChanged(s));
+            }
+            if let Some(s) = d.blur_style() {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SelectionBlurStyleChanged(s));
+            }
+            // Auto-switch the active tool to whatever created the
+            // selected drawable so the StyleToolbar's tool-specific
+            // controls (arrow style chip, blur algorithm dropdown,
+            // text-background DropDown, etc.) become visible.
+            // Crop is excluded because entering Crop is a dedicated,
+            // user-initiated mode, not something a selection should
+            // trigger.
+            if let Some(target) = d.tool_type()
+                && target != Tools::Crop
+                && target != self.active_tool_type()
+            {
+                sender.input(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::ToolSelected(target),
+                ));
+            }
+        }
     }
 
     /// Convert an accumulated scroll-delta into N discrete +1 (smaller)

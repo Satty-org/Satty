@@ -1006,6 +1006,10 @@ pub struct StyleToolbar {
     spotlight_darkness: f32,
     /// Highlighter stroke opacity (0.10–1.00). Persisted likewise.
     highlighter_opacity: f32,
+    /// Brush post-stroke smoothing iterations (Chaikin passes,
+    /// 0–4). Snaps back to the saved default on re-entering the
+    /// brush tool; right-click → "Save as default" persists.
+    brush_post_smooth_iterations: usize,
     /// True iff a crop region currently exists (in either edit or
     /// committed state). Drives the "Revert to Original" button's
     /// visibility — pushed via `CropPresenceChanged` from sketch_board.
@@ -1072,6 +1076,19 @@ pub struct StyleToolbar {
     /// Inner Label of the blur MenuButton's tooltip — same role as the
     /// arrow one. Updated on `SetBlurStyle`.
     blur_style_tooltip_label: Option<gtk::Label>,
+    /// Text-background DropDown widget, stashed so `SetTextBackground`
+    /// can flip its `selected` index when sketch_board cycles the
+    /// variant via the double-tap shortcut (the view! macro only sets
+    /// the initial value in `init`).
+    text_background_dropdown: Option<gtk::DropDown>,
+    /// Flag set by the `SetTextBackgroundSilently` handler around its
+    /// programmatic `set_selected` call so the dropdown's
+    /// `connect_selected_notify` skips its upstream emit. Without
+    /// this, syncing the dropdown to a freshly-selected drawable's
+    /// background would re-fire `TextBackgroundSelected` and toast +
+    /// re-apply pointlessly. Rc<Cell<bool>> because the notify
+    /// closure captures it independently from the model.
+    text_background_silent: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
 /// Icon name shown on the blur-style MenuButton and on each popover
@@ -1442,6 +1459,7 @@ fn tool_cluster_label(tool: Tools) -> &'static str {
         Tools::Text => "Background",
         Tools::Spotlight => "Darkness",
         Tools::Highlighter => "Opacity",
+        Tools::Brush => "Smoothing",
         Tools::Rectangle | Tools::Ellipse => "Fill Shape",
         _ => "",
     }
@@ -1506,6 +1524,13 @@ pub enum ToolbarEvent {
     /// User picked "Save as default" from the opacity slider's
     /// right-click menu — write the live value to state.toml.
     SaveHighlighterOpacityAsDefault,
+    /// Brush post-stroke smoothing iterations (0–4 Chaikin passes).
+    /// Applies on the very next stroke; in-flight stroke isn't
+    /// re-smoothed.
+    BrushPostSmoothChanged(usize),
+    /// User picked "Save as default" from the brush smoothing
+    /// slider's right-click menu — write the live value to state.toml.
+    SaveBrushPostSmoothAsDefault,
     /// User clicked "Revert to Original" — drop the committed crop
     /// entirely so the canvas shows the full original image again.
     RevertCrop,
@@ -1714,6 +1739,34 @@ pub enum StyleToolbarInput {
     SetBlurStyle(BlurStyle),
     /// Same shape as `SetBlurStyle` for the arrow-geometry picker.
     SetArrowStyle(ArrowStyle),
+    /// Sync the text-background DropDown to the variant sketch_board
+    /// just promoted (currently only fired from the double-tap cycle).
+    /// The handler flips `selected` on the stashed dropdown widget;
+    /// the dropdown's own `connect_selected_notify` then re-emits
+    /// `TextBackgroundSelected` upstream, so sketch_board re-applies
+    /// the (already-applied) value — idempotent, no feedback loop.
+    SetTextBackground(crate::tools::TextBackground),
+    /// Same as `SetTextBackground`, but suppress the dropdown's
+    /// `notify::selected` so no upstream `TextBackgroundSelected`
+    /// fires. Used by the selection-sync path: when the user clicks
+    /// between text drawables, the toolbar reflects the freshly-
+    /// selected drawable's background WITHOUT re-applying it (it's
+    /// already that way) or showing a toast.
+    SetTextBackgroundSilently(crate::tools::TextBackground),
+    /// Selection-sync variants for Arrow / Blur. Update local state
+    /// + the MenuButton's preview without emitting upstream — used
+    /// when the user clicks between drawables with different variants
+    /// so the picker reflects each one as it's selected.
+    SetArrowStyleSilently(ArrowStyle),
+    SetBlurStyleSilently(BlurStyle),
+    /// Snap the Spotlight / Highlighter slider widgets to the given
+    /// values without re-emitting upstream. Fired by sketch_board
+    /// when the user re-enters those tools so the slider always
+    /// reflects the saved default (or the user's overridden default)
+    /// instead of the previous session's drag.
+    SetSpotlightDarkness(f32),
+    SetHighlighterOpacity(f32),
+    SetBrushPostSmooth(usize),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -3837,7 +3890,16 @@ impl Component for StyleToolbar {
                     install_tooltip_above: "Text background",
                     #[watch]
                     set_visible: model.current_tool == Tools::Text,
-                    connect_selected_notify[sender] => move |dropdown| {
+                    connect_selected_notify[sender, text_background_silent]
+                        => move |dropdown| {
+                        // Silent flag: when the selection-sync path
+                        // programmatically flips `selected`, this
+                        // notify still fires — short-circuit so the
+                        // sync stays a pure UI update (no toast, no
+                        // re-apply on the already-applied drawable).
+                        if text_background_silent.get() {
+                            return;
+                        }
                         let bg = match dropdown.selected() {
                             0 => crate::tools::TextBackground::Rounded,
                             1 => crate::tools::TextBackground::Plain,
@@ -3889,6 +3951,8 @@ impl Component for StyleToolbar {
                     set_range: (0.10, 0.90),
                     set_increments: (0.01, 0.10),
                     set_draw_value: false,
+                    #[watch]
+                    #[block_signal(spotlight_value_changed)]
                     set_value: model.spotlight_darkness as f64,
                     add_mark: (0.50, gtk::PositionType::Bottom, None),
                     #[watch]
@@ -3905,7 +3969,7 @@ impl Component for StyleToolbar {
                             scale.set_value(0.50);
                         }
                         sender.output_sender().emit(ToolbarEvent::SpotlightDarknessChanged(v));
-                    },
+                    } @spotlight_value_changed,
                 },
 
                 #[name(highlighter_slider)]
@@ -3919,6 +3983,8 @@ impl Component for StyleToolbar {
                     set_range: (0.10, 1.00),
                     set_increments: (0.01, 0.10),
                     set_draw_value: false,
+                    #[watch]
+                    #[block_signal(highlighter_value_changed)]
                     set_value: model.highlighter_opacity as f64,
                     // Visual parity with the spotlight darkness slider:
                     // a single midpoint mark gives both sliders the same
@@ -3931,7 +3997,40 @@ impl Component for StyleToolbar {
                     connect_value_changed[sender] => move |scale| {
                         let v = scale.value() as f32;
                         sender.output_sender().emit(ToolbarEvent::HighlighterOpacityChanged(v));
-                    },
+                    } @highlighter_value_changed,
+                },
+
+                // Brush post-stroke smoothing slider — only visible
+                // while the Brush tool is active. Integer step 0..=8.
+                // 0 disables smoothing entirely (raw polyline as the
+                // user drew it). 1–2 are pure Chaikin corner-cutting.
+                // 3+ adds Ramer–Douglas–Peucker simplification (with
+                // tolerance scaling per level) before Chaikin's, so
+                // the upper half of the range produces genuinely
+                // progressive smoothing instead of plateauing.
+                // Detent mark at 2 matches the built-in default.
+                #[name(brush_smooth_slider)]
+                gtk::Scale {
+                    add_css_class: "compact-slider",
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_focusable: false,
+                    set_hexpand: false,
+                    set_width_request: CLUSTER_SLIDER_WIDTH,
+                    set_valign: gtk::Align::Center,
+                    set_range: (0.0, 8.0),
+                    set_increments: (1.0, 1.0),
+                    set_round_digits: 0,
+                    set_draw_value: false,
+                    #[watch]
+                    #[block_signal(brush_smooth_value_changed)]
+                    set_value: model.brush_post_smooth_iterations as f64,
+                    add_mark: (2.0, gtk::PositionType::Bottom, None),
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Brush,
+                    connect_value_changed[sender] => move |scale| {
+                        let v = scale.value().round().clamp(0.0, 8.0) as usize;
+                        sender.output_sender().emit(ToolbarEvent::BrushPostSmoothChanged(v));
+                    } @brush_smooth_value_changed,
                 },
             },
             // ("Revert to Original" lives in `bottom_row.end_widget`
@@ -4234,6 +4333,79 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::ArrowStyleSelected(style));
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             }
+            StyleToolbarInput::SetTextBackground(bg) => {
+                // Match the popover-list / init mapping for the
+                // dropdown's index.
+                if let Some(dd) = &self.text_background_dropdown {
+                    let idx = match bg {
+                        crate::tools::TextBackground::Rounded => 0,
+                        crate::tools::TextBackground::Plain => 1,
+                    };
+                    if dd.selected() != idx {
+                        dd.set_selected(idx);
+                    }
+                }
+            }
+            StyleToolbarInput::SetTextBackgroundSilently(bg) => {
+                // Selection-sync path: programmatically flip the
+                // dropdown's selected index with the notify-handler
+                // short-circuited so no upstream `TextBackgroundSelected`
+                // fires (would re-apply to the just-selected drawable
+                // and toast — both redundant).
+                if let Some(dd) = &self.text_background_dropdown {
+                    let idx = match bg {
+                        crate::tools::TextBackground::Rounded => 0,
+                        crate::tools::TextBackground::Plain => 1,
+                    };
+                    if dd.selected() != idx {
+                        self.text_background_silent.set(true);
+                        dd.set_selected(idx);
+                        self.text_background_silent.set(false);
+                    }
+                }
+            }
+            StyleToolbarInput::SetArrowStyleSilently(style) => {
+                // Mirror `SetArrowStyle`'s local-state updates without
+                // the upstream emit. The MenuButton's preview chip
+                // is driven by the `arrow_preview_cell` so flipping
+                // that + queue_draw is all we need.
+                self.arrow_style = style;
+                if let Some(cell) = &self.arrow_preview_cell {
+                    cell.set(style);
+                }
+                if let Some(area) = &self.arrow_preview_area {
+                    area.queue_draw();
+                }
+                if let Some(label) = &self.arrow_style_tooltip_label {
+                    label.set_text(&arrow_tooltip_text(style));
+                }
+            }
+            StyleToolbarInput::SetBlurStyleSilently(style) => {
+                // Blur's MenuButton icon is `#[watch]`ed off
+                // `model.blur_style`, so updating the field is enough
+                // for the icon to refresh; tooltip label flips the
+                // wording.
+                self.blur_style = style;
+                if let Some(label) = &self.blur_style_tooltip_label {
+                    label.set_text(&blur_tooltip_text(style));
+                }
+            }
+            StyleToolbarInput::SetSpotlightDarkness(value) => {
+                // Slider widget's `set_value` is `#[watch]`ed on this
+                // field with the upstream signal blocked, so the
+                // assignment alone drives the snapback.
+                self.spotlight_darkness = value;
+            }
+            StyleToolbarInput::SetHighlighterOpacity(value) => {
+                self.highlighter_opacity = value;
+            }
+            StyleToolbarInput::SetBrushPostSmooth(value) => {
+                // Same pattern as the spotlight / highlighter sliders:
+                // the `#[watch]`ed value drives the visible position
+                // with the upstream connect_value_changed signal
+                // suppressed, so we don't bounce back to sketch_board.
+                self.brush_post_smooth_iterations = value;
+            }
         }
     }
 
@@ -4253,6 +4425,14 @@ impl Component for StyleToolbar {
         // (which would force a view rebuild on every update).
         let dragged = std::rc::Rc::new(std::cell::Cell::new(false));
 
+        // Captured by the text-background DropDown's `connect_selected_notify`
+        // so the selection-sync path (`SetTextBackgroundSilently`) can
+        // suppress the upstream emit. Lives outside the model field
+        // because relm4's view! macro captures plain identifiers from
+        // the enclosing scope, not model paths.
+        let text_background_silent =
+            std::rc::Rc::new(std::cell::Cell::new(false));
+
         // create model
         let initial_tool = APP_CONFIG.read().initial_tool();
         let initial_size =
@@ -4267,6 +4447,7 @@ impl Component for StyleToolbar {
             current_tool: initial_tool,
             spotlight_darkness: crate::state::load_spotlight_darkness().unwrap_or(0.50),
             highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
+            brush_post_smooth_iterations: APP_CONFIG.read().brush_post_smooth_iterations(),
             has_crop: false,
             current_size: initial_size,
             fill_shapes: APP_CONFIG.read().default_fill_shapes(),
@@ -4284,6 +4465,8 @@ impl Component for StyleToolbar {
             arrow_preview_cell: None,
             arrow_style_tooltip_label: None,
             blur_style_tooltip_label: None,
+            text_background_dropdown: None,
+            text_background_silent: text_background_silent.clone(),
         };
 
         // create widgets
@@ -4372,6 +4555,12 @@ impl Component for StyleToolbar {
             };
             widgets.text_background_dropdown.set_selected(idx);
         }
+        // Stash the DropDown so `SetTextBackground` can drive its
+        // selected index when sketch_board cycles the variant via the
+        // double-tap shortcut. The view! macro only fires on widget
+        // creation, so without this handle the update() arm has no
+        // way to reach the dropdown.
+        model.text_background_dropdown = Some(widgets.text_background_dropdown.clone());
 
         // Right-click → "Save as default" on the controls users
         // tweak in the central / right cluster. The multiplier pill
@@ -4422,6 +4611,13 @@ impl Component for StyleToolbar {
             attach_save_default_popover(&widgets.highlighter_slider, move || {
                 s.output_sender()
                     .emit(ToolbarEvent::SaveHighlighterOpacityAsDefault);
+            });
+        }
+        {
+            let s = sender.clone();
+            attach_save_default_popover(&widgets.brush_smooth_slider, move || {
+                s.output_sender()
+                    .emit(ToolbarEvent::SaveBrushPostSmoothAsDefault);
             });
         }
 

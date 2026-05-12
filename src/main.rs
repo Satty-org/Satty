@@ -130,6 +130,15 @@ struct App {
     /// `Rc<Cell<bool>>` because the callbacks are independent
     /// closures captured separately from the App model.
     applying_scrollbar: std::rc::Rc<std::cell::Cell<bool>>,
+    /// Center-of-canvas toast surfaced when the user double-taps a
+    /// tool shortcut and the cycle promotes a new variant (e.g.
+    /// "Arrow: Curved"). The label sits inside a Revealer so it
+    /// fades in/out; the SourceId tracks the live hide-timer so
+    /// rapid-fire cycles restart the countdown instead of stacking
+    /// callbacks.
+    cycle_toast_label: gtk::Label,
+    cycle_toast_revealer: gtk::Revealer,
+    cycle_toast_timer: std::rc::Rc<std::cell::RefCell<Option<gtk::glib::SourceId>>>,
 }
 
 #[derive(Debug)]
@@ -194,6 +203,32 @@ enum AppInput {
     /// the StyleToolbar (size slider, etc.) can sync to whatever
     /// shape the user just selected. `None` means cleared / multi.
     SelectionStyleChanged(Option<style::Style>),
+    /// Tool-specific style was cycled in sketch_board via the
+    /// double-tap keyboard shortcut. The StyleToolbar's menu /
+    /// dropdown for that tool follows so the on-screen affordance
+    /// agrees with the variant now in use.
+    ArrowStyleCycled(crate::tools::ArrowStyle),
+    BlurStyleCycled(crate::tools::BlurStyle),
+    TextBackgroundCycled(crate::tools::TextBackground),
+    /// Show a transient toast announcing the just-cycled variant.
+    /// Drives `cycle_toast_revealer` and (re)schedules the hide
+    /// timer. Independent of the structured `*Cycled` events so
+    /// other UI surfaces don't have to know about presentation.
+    ShowCycleToast(String),
+    /// Selected text drawable's background style — forwarded into
+    /// the StyleToolbar so its dropdown re-seeds. Distinct from
+    /// `TextBackgroundCycled` (which fires a toast + reapplies)
+    /// because this is a UI-sync-only event.
+    SelectionTextBackgroundChanged(crate::tools::TextBackground),
+    SelectionArrowStyleChanged(crate::tools::ArrowStyle),
+    SelectionBlurStyleChanged(crate::tools::BlurStyle),
+    /// Slider snapback events fired by sketch_board's ToolSelected
+    /// handler when re-entering Spotlight or Highlighter — discard
+    /// the previous session's in-flight slider value and read the
+    /// saved default off `state.toml`.
+    SpotlightDarknessReset(f32),
+    HighlighterOpacityReset(f32),
+    BrushPostSmoothReset(usize),
 }
 
 #[derive(Debug)]
@@ -766,6 +801,83 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetFillShapes(fill));
             }
+            AppInput::ArrowStyleCycled(style) => {
+                // Update the toolbar's local mirror + MenuButton
+                // preview. The handler also re-emits ArrowStyleSelected
+                // upstream, which lands back in sketch_board and
+                // idempotently re-applies the same style — the cost
+                // is a redundant state.toml write, never an infinite
+                // loop (sketch_board doesn't re-emit on apply).
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetArrowStyle(style));
+            }
+            AppInput::BlurStyleCycled(style) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetBlurStyle(style));
+            }
+            AppInput::TextBackgroundCycled(bg) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetTextBackground(bg));
+            }
+            AppInput::SelectionTextBackgroundChanged(bg) => {
+                // Silent dropdown update — no toast, no reapply.
+                // Just push the value into the StyleToolbar so its
+                // dropdown shows the selected drawable's current
+                // background.
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetTextBackgroundSilently(bg));
+            }
+            AppInput::SelectionArrowStyleChanged(style) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetArrowStyleSilently(style));
+            }
+            AppInput::SelectionBlurStyleChanged(style) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetBlurStyleSilently(style));
+            }
+            AppInput::SpotlightDarknessReset(value) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetSpotlightDarkness(value));
+            }
+            AppInput::HighlighterOpacityReset(value) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetHighlighterOpacity(value));
+            }
+            AppInput::BrushPostSmoothReset(value) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetBrushPostSmooth(value));
+            }
+            AppInput::ShowCycleToast(text) => {
+                // Refresh the label, reveal, and reset the hide timer
+                // so rapid-fire cycles slide the deadline forward
+                // instead of stacking callbacks. `timeout_add_local_once`
+                // returns a `SourceId` that's `Drop`-cancelled on
+                // remove, so the new timer cleanly replaces the old.
+                self.cycle_toast_label.set_text(&text);
+                self.cycle_toast_revealer.set_reveal_child(true);
+                if let Some(id) = self.cycle_toast_timer.borrow_mut().take() {
+                    id.remove();
+                }
+                let revealer = self.cycle_toast_revealer.clone();
+                let timer_slot = self.cycle_toast_timer.clone();
+                let id = gtk::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(1200),
+                    move || {
+                        revealer.set_reveal_child(false);
+                        *timer_slot.borrow_mut() = None;
+                    },
+                );
+                *self.cycle_toast_timer.borrow_mut() = Some(id);
+            }
         }
     }
 
@@ -827,6 +939,36 @@ impl Component for App {
                         AppInput::CropEditDimensions { width, height }
                     }
                     SketchBoardOutput::OpenPreferences => AppInput::OpenPreferences,
+                    SketchBoardOutput::ArrowStyleCycled(style) => {
+                        AppInput::ArrowStyleCycled(style)
+                    }
+                    SketchBoardOutput::BlurStyleCycled(style) => {
+                        AppInput::BlurStyleCycled(style)
+                    }
+                    SketchBoardOutput::TextBackgroundCycled(bg) => {
+                        AppInput::TextBackgroundCycled(bg)
+                    }
+                    SketchBoardOutput::ShowCycleToast(text) => {
+                        AppInput::ShowCycleToast(text)
+                    }
+                    SketchBoardOutput::SelectionTextBackgroundChanged(bg) => {
+                        AppInput::SelectionTextBackgroundChanged(bg)
+                    }
+                    SketchBoardOutput::SelectionArrowStyleChanged(s) => {
+                        AppInput::SelectionArrowStyleChanged(s)
+                    }
+                    SketchBoardOutput::SelectionBlurStyleChanged(s) => {
+                        AppInput::SelectionBlurStyleChanged(s)
+                    }
+                    SketchBoardOutput::SpotlightDarknessReset(v) => {
+                        AppInput::SpotlightDarknessReset(v)
+                    }
+                    SketchBoardOutput::HighlighterOpacityReset(v) => {
+                        AppInput::HighlighterOpacityReset(v)
+                    }
+                    SketchBoardOutput::BrushPostSmoothReset(v) => {
+                        AppInput::BrushPostSmoothReset(v)
+                    }
                 });
 
         // Toolbars
@@ -1018,6 +1160,32 @@ impl Component for App {
         let detected_scale = detected.unwrap_or(1.0);
         let scale_detected = detected.is_some();
 
+        // Center-of-canvas toast for cycle announcements. Built once,
+        // added to the canvas overlay below the scrollbars so they
+        // still hit-test on top. Label text is set per-event; the
+        // Revealer fades the label in/out via Crossfade.
+        let cycle_toast_label = gtk::Label::builder()
+            .label("")
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build();
+        cycle_toast_label.add_css_class("cycle-toast-label");
+        let cycle_toast_revealer = gtk::Revealer::builder()
+            .transition_type(gtk::RevealerTransitionType::Crossfade)
+            .transition_duration(150)
+            .reveal_child(false)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            // The Revealer steals pointer events when it sits on top
+            // of the canvas, which would block click-to-draw mid-toast.
+            // Pass-through everything so the toast is purely visual.
+            .can_target(false)
+            .build();
+        cycle_toast_revealer.set_child(Some(&cycle_toast_label));
+        overlay.add_overlay(&cycle_toast_revealer);
+        let cycle_toast_timer =
+            std::rc::Rc::new(std::cell::RefCell::new(None::<gtk::glib::SourceId>));
+
         // Model
         let model = App {
             sketch_board,
@@ -1043,6 +1211,9 @@ impl Component for App {
             scrollbar_h,
             scrollbar_v,
             applying_scrollbar,
+            cycle_toast_label,
+            cycle_toast_revealer,
+            cycle_toast_timer,
         };
 
         // Seed the bottom-right output dimensions label with the
