@@ -2372,6 +2372,17 @@ impl Component for SketchBoard {
                     set_flags: gtk::EventControllerScrollFlags::BOTH_AXES,
                     connect_scroll[sender] => move |controller, dx, dy| {
                         let modifier = controller.current_event_state();
+                        // Single inversion site for the canvas. Flips both
+                        // axes so zoom (Super+wheel), pan (plain wheel),
+                        // and the scroll-resize gestures (Shift / selection
+                        // + wheel) all reverse together — keeps the
+                        // preference's polarity consistent across every
+                        // downstream consumer.
+                        let (dx, dy) = if APP_CONFIG.read().invert_scrolling() {
+                            (-dx, -dy)
+                        } else {
+                            (dx, dy)
+                        };
                         if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
                             // Super + wheel → zoom. Returning Stop here
                             // is our best-effort attempt to override
@@ -2643,7 +2654,21 @@ impl Component for SketchBoard {
                                 // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
                                 if let ToolUpdateResult::Unmodified = active_tool_result {
                                     let actions = if ke.key == Key::Escape {
-                                        APP_CONFIG.read().actions_on_escape()
+                                        // Start with whatever the user
+                                        // configured for Esc, then add the
+                                        // implicit Exit only when the
+                                        // "Close on Esc" preference is on.
+                                        // Defaults to off so a stray Esc
+                                        // doesn't kill the window mid-
+                                        // annotation.
+                                        let mut a =
+                                            APP_CONFIG.read().actions_on_escape();
+                                        if APP_CONFIG.read().close_on_esc()
+                                            && !a.contains(&Action::Exit)
+                                        {
+                                            a.push(Action::Exit);
+                                        }
+                                        a
                                     } else {
                                         APP_CONFIG.read().actions_on_enter()
                                     };

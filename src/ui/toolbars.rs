@@ -4587,6 +4587,14 @@ impl Component for StyleToolbar {
             );
             let sender_for_scroll = sender.clone();
             scroll.connect_scroll(move |_c, _dx, dy| {
+                // Apply the global invert-scrolling preference at the
+                // entry point so the pill's bump direction agrees with
+                // the canvas's zoom / pan / resize after a flip.
+                let dy = if APP_CONFIG.read().invert_scrolling() {
+                    -dy
+                } else {
+                    dy
+                };
                 sender_for_scroll
                     .input(StyleToolbarInput::AnnotationScrollBump(dy));
                 relm4::gtk::glib::Propagation::Stop
