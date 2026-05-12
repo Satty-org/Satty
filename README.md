@@ -433,6 +433,47 @@ shells out to `hyprctl`, but the calls fail silently on Sway / KDE
 / GNOME / etc. — other compositors don't typically grab Super+scroll
 for workspace switching, so the override isn't needed there.
 
+## Hyprland integration: floating-window size rule
+
+Satty sizes its own window around the captured image at startup, on
+crop commit, and on revert. For that to work the window has to be
+**floating** with **no hard-coded size rule**. The tiling layout
+will otherwise stretch / squash the window to whatever the tile
+gives it, and a `windowrule = size <X> <Y>` will pin it to that
+size regardless of what Satty asks for — which shows up as the
+image rendered shrunk inside a fixed-size window, and (with
+animations on) as a visible width-bounce when you Super+drag the
+window mid-flight while the size rule is re-asserted against the
+drag.
+
+Notably, **Omarchy ships with such a rule by default** via its
+`floating-window` tag:
+
+```hypr
+# ~/.local/share/omarchy/default/hypr/apps/system.conf (default)
+windowrule = float on,         match:tag floating-window
+windowrule = center on,        match:tag floating-window
+windowrule = size 875 600,     match:tag floating-window   # ← pins window size
+windowrule = tag +floating-window, match:class (... com.gabm.satty ...)
+```
+
+If you're on Omarchy (or anywhere else with a similar `size`
+rule), drop the tag for `com.gabm.satty` in your local
+`~/.config/hypr/hyprland.conf` and re-apply float + center
+directly:
+
+```hypr
+# Let Satty size its own window around the captured image.
+windowrule = tag -floating-window, match:class com.gabm.satty
+windowrule = float on,             match:class com.gabm.satty
+windowrule = center on,            match:class com.gabm.satty
+```
+
+Then `hyprctl reload`. The next screenshot will open at the right
+size; if you previously added `windowrule = animation none` for the
+drag-bounce workaround, you can remove it — the bounce was caused
+by the size rule fighting the drag, not by the animation itself.
+
 ## Build from source
 
 You first need to install the native dependencies of Satty (see below) and then run:
