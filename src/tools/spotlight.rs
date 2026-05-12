@@ -183,10 +183,43 @@ impl Drawable for SpotlightKind {
 
     fn hit_test(&self, point: Vec2D, tolerance: f32) -> bool {
         match self {
-            SpotlightKind::Block(_) => self
-                .bounds()
-                .map(|b| b.inflated(tolerance).contains(point))
-                .unwrap_or(false),
+            SpotlightKind::Block(_) => {
+                // Edge-only hit test: the spotlight's interior is
+                // meant to stay clickable so the user can keep
+                // drawing annotations INSIDE a framed region. The
+                // pickable zone is a band on either side of the
+                // rectangle's boundary — wide enough to grab
+                // without precise aim, narrow enough that a click
+                // a few pixels in still lands on whatever tool is
+                // active. Matches the non-filled-rectangle hit
+                // semantics in `rectangle.rs`.
+                let Some(rect) = self.bounds() else {
+                    return false;
+                };
+                // Spotlight has no rendered stroke; pick a band
+                // wide enough to feel like a real edge target. The
+                // selection halo (`halo_in_image_units`) draws at a
+                // similar width, so this also aligns visually with
+                // the glow ring that appears on selection.
+                const EDGE_BAND: f32 = 8.0;
+                let half = EDGE_BAND + tolerance;
+                if !rect.inflated(half).contains(point) {
+                    return false;
+                }
+                let inner_w = rect.size.x - 2.0 * half;
+                let inner_h = rect.size.y - 2.0 * half;
+                // Tiny rect with no hollow interior — the band fills
+                // the whole footprint, so any point in the outer
+                // counts.
+                if inner_w <= 0.0 || inner_h <= 0.0 {
+                    return true;
+                }
+                let inner = Rect {
+                    pos: Vec2D::new(rect.pos.x + half, rect.pos.y + half),
+                    size: Vec2D::new(inner_w, inner_h),
+                };
+                !inner.contains(point)
+            }
             SpotlightKind::Freehand(s) => {
                 let Some(first) = s.data.points.first().copied() else {
                     return false;
