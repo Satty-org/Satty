@@ -1143,10 +1143,18 @@ fn draw_arrow_preview_cairo(
     ctx.set_source_rgba(rgba.0, rgba.1, rgba.2, rgba.3);
     ctx.translate(start_x, mid_y);
 
+    // Head / tip geometry is intentionally tied to HEIGHT (or fixed
+    // ratios off it) rather than overall length, so widening the
+    // preview (chip 30 px → row 60 px) extends the BODY of the arrow
+    // without enlarging the head. Earlier sizing used `length * X`
+    // which stretched the head linearly with the preview width and
+    // made the wider previews look like a different glyph rather
+    // than the same arrow with more shaft visible.
     match style {
         ArrowStyle::Standard => {
             // Solid filled head + tapered body, rounded outline overlay.
-            let head_length = (length * 0.42).min(length - 2.0);
+            // Head is roughly square (length ≈ height of usable area).
+            let head_length = (usable_h * 0.85).min(length - 2.0);
             let head_half_h = head_length * 0.50;
             let stroke = (usable_h * 0.16).max(1.4);
             // body_max half-width before stroke widening; the rounded
@@ -1171,7 +1179,8 @@ fn draw_arrow_preview_cairo(
         }
         ArrowStyle::Fancy => {
             // Wider body, swept-back wing ears, flat-back tail. No stroke.
-            let head_length = (length * 0.50).min(length - 2.0);
+            // Head is a touch wider than tall; body fills the rest.
+            let head_length = (usable_h * 1.05).min(length - 2.0);
             let head_half_h = head_length * 0.46;
             let body_max_half = (usable_h * 0.22).max(0.8);
             let back_half = body_max_half * 0.35;
@@ -1193,12 +1202,17 @@ fn draw_arrow_preview_cairo(
             ctx.fill().ok();
         }
         ArrowStyle::Curved | ArrowStyle::Double => {
-            // Quadratic bezier shaft + open V tip(s).
+            // Quadratic bezier shaft + open V tip(s). V-arm length
+            // is tied to height so wider previews don't grow taller
+            // tips. The curve amount is also clamped against height
+            // so the bow stays inside the preview vertically.
             let shaft_width = (usable_h * 0.14).max(1.2);
-            let head_side = (length * 0.32).max(4.0);
+            let head_side = (usable_h * 0.70).max(4.0);
             let half_angle = 45.0_f64.to_radians();
             // Arc upward — control point above the chord midpoint.
-            let curve_amount = length * 0.25;
+            // Scale with length so longer previews bow more, but
+            // cap so we don't overflow the preview's vertical bounds.
+            let curve_amount = (length * 0.18).min(usable_h * 0.55);
             let qx = length * 0.5;
             let qy = -curve_amount;
 
