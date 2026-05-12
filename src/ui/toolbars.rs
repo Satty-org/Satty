@@ -950,9 +950,9 @@ pub struct StyleToolbar {
 /// the `ToggleFill` handler (refresh on toggle).
 fn fill_tooltip_text(fill_shapes: bool) -> &'static str {
     if fill_shapes {
-        "Currently filling shapes — click to switch to outline only"
+        "Currently filling shapes — click to switch to outline only (F)"
     } else {
-        "Currently outlining shapes — click to switch to filled"
+        "Currently outlining shapes — click to switch to filled (F)"
     }
 }
 
@@ -1271,6 +1271,11 @@ pub enum StyleToolbarInput {
     /// upstream and flips the local `fill_shapes` flag so the icon +
     /// tooltip in the right cluster update reactively.
     ToggleFill,
+    /// Set the local `fill_shapes` mirror to the given value without
+    /// emitting outbound `ToggleFill`. Used when the `F` keyboard
+    /// shortcut toggles fill from outside the toolbar so the
+    /// button icon + tooltip stay in sync.
+    SetFillShapes(bool),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -3428,6 +3433,16 @@ impl Component for StyleToolbar {
                 }
                 sender.output_sender().emit(ToolbarEvent::ToggleFill);
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
+            StyleToolbarInput::SetFillShapes(fill) => {
+                // Mirror sketch_board's flipped `style.fill` (driven
+                // by the `F` keyboard shortcut) without broadcasting
+                // back upstream — sketch_board has already applied
+                // the change everywhere it needs to land.
+                self.fill_shapes = fill;
+                if let Some(label) = &self.fill_tooltip_label {
+                    label.set_text(fill_tooltip_text(self.fill_shapes));
+                }
             }
         }
     }

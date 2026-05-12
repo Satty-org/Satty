@@ -154,6 +154,10 @@ enum AppInput {
     /// Forwarded to ToolsToolbar so the "Image size: W × H px"
     /// MenuButton label and resize-popover entries stay in sync.
     ImageDimensionsChanged { width: i32, height: i32 },
+    /// Fill-Shape toggled from outside the StyleToolbar (`F`
+    /// keyboard shortcut). Forwarded so the toolbar's button
+    /// state updates in lockstep with sketch_board's `style.fill`.
+    FillShapesChanged(bool),
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
@@ -728,6 +732,11 @@ impl Component for App {
                     ToolsToolbarInput::ImageDimensionsChanged { width, height },
                 );
             }
+            AppInput::FillShapesChanged(fill) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetFillShapes(fill));
+            }
         }
     }
 
@@ -781,6 +790,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::ImageDimensionsChanged { width, height } => {
                         AppInput::ImageDimensionsChanged { width, height }
+                    }
+                    SketchBoardOutput::FillShapesChanged(fill) => {
+                        AppInput::FillShapesChanged(fill)
                     }
                 });
 

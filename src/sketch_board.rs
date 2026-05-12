@@ -149,6 +149,12 @@ pub enum SketchBoardOutput {
     /// "Image size: W × H px" label and resize-popover entries
     /// reflect the live value.
     ImageDimensionsChanged { width: i32, height: i32 },
+    /// The global Fill-Shape state was toggled from outside the
+    /// StyleToolbar (currently: the `F` keyboard shortcut).
+    /// Routed through to the toolbar so its icon + tooltip
+    /// reflect the new value without the user clicking the
+    /// button manually.
+    FillShapesChanged(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -2054,6 +2060,26 @@ impl Component for SketchBoard {
                                 ToolUpdateResult::Unmodified
                             } else if ke.modifier.is_empty() && ke.key == Key::Delete {
                                 self.handle_reset()
+                            } else if ke.modifier.is_empty()
+                                && ke.is_one_of(Key::f, KeyMappingId::UsF)
+                            {
+                                // `f` shortcut → toggle Fill Shape.
+                                // Mirrors the toolbar button's
+                                // `ToolbarEvent::ToggleFill` so any
+                                // newly-drawn rectangles/ellipses
+                                // pick up the new fill state, and
+                                // emit a sync-back signal so the
+                                // toolbar's button icon / tooltip
+                                // tracks the new state (the toolbar
+                                // is the source of truth for its UI
+                                // and only flips on button click
+                                // otherwise).
+                                self.style.fill = !self.style.fill;
+                                let result = self.dispatch_style_change();
+                                sender
+                                    .output_sender()
+                                    .emit(SketchBoardOutput::FillShapesChanged(self.style.fill));
+                                result
                             } else if ke.modifier.is_empty()
                                 && (ke.key == Key::Escape
                                     || ke.key == Key::Return
