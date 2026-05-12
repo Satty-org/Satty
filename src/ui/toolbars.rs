@@ -1011,6 +1011,11 @@ pub enum ToolbarEvent {
     /// behavior as Enter inside the Crop tool (apply the in-progress
     /// edit and exit Crop).
     ApplyCrop,
+    /// User picked an aspect-ratio constraint from the crop-mode
+    /// top toolbar's dropdown. Sketch_board forwards to
+    /// `CropTool::set_aspect_ratio`, which both snaps the existing
+    /// rect to the new ratio and enforces it on subsequent drags.
+    CropAspectRatioChanged(crate::tools::AspectRatio),
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -1631,15 +1636,40 @@ impl Component for ToolsToolbar {
 
                 // Crop-mode center cluster — aspect-ratio picker,
                 // W/H inputs, background-color picker, rotate/flip,
-                // image-size resize. Built up in subsequent
-                // commits — empty shell for now so the visibility
-                // toggle has somewhere to live.
+                // image-size resize. Built up across subsequent
+                // commits; this commit lands the aspect-ratio
+                // dropdown.
                 #[name(crop_center_box)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 6,
                     #[watch]
                     set_visible: model.current_tool == Tools::Crop,
+
+                    // Aspect-ratio picker. Built off
+                    // `AspectRatio::ALL_LABELS` so adding a variant
+                    // there auto-extends the menu. Selecting a
+                    // non-Freeform option snaps the current crop to
+                    // the new ratio and enforces it on subsequent
+                    // drags (see `CropTool::set_aspect_ratio`).
+                    #[name(crop_aspect_dropdown)]
+                    gtk::DropDown {
+                        set_focusable: false,
+                        add_css_class: "compact-control",
+                        install_tooltip: "Aspect ratio",
+                        set_model: Some(&gtk::StringList::new(
+                            crate::tools::AspectRatio::ALL_LABELS,
+                        )),
+                        set_selected: 0,
+                        connect_selected_notify[sender] => move |dd| {
+                            let ratio = crate::tools::AspectRatio::from_index(
+                                dd.selected() as usize,
+                            );
+                            sender
+                                .output_sender()
+                                .emit(ToolbarEvent::CropAspectRatioChanged(ratio));
+                        },
+                    },
                 },
             },
 

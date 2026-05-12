@@ -58,6 +58,95 @@ pub struct CropTool {
     /// the four "edge" lines bounding it). `None` while the tool
     /// hasn't been told the dimensions yet — snap is a no-op then.
     image_bounds: Option<Vec2D>,
+    /// Constrain the crop rectangle's width-to-height ratio while
+    /// the user is dragging handles. `Freeform` lets the rectangle
+    /// take any shape (legacy behavior); the other variants project
+    /// each drag onto the nearest rectangle matching the configured
+    /// ratio. Switching the ratio also snaps the *current* rect
+    /// (inscribed, centered) so the visible overlay always matches
+    /// the selected ratio.
+    aspect_ratio: AspectRatio,
+}
+
+/// Aspect-ratio constraint applied to crop drags. The variants
+/// mirror typical dropdown options minus the user-typed
+/// "Custom Ratio" entry (that one would need a sub-dialog and is
+/// left for a follow-up).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AspectRatio {
+    /// No constraint — drag freely (default).
+    #[default]
+    Freeform,
+    /// Match the source image's W:H — useful when you want a
+    /// scaled-down copy of the full screenshot.
+    Original,
+    /// 1 : 1 (square).
+    Square,
+    /// 5 : 4 (matches "10 : 8").
+    FiveFour,
+    /// 7 : 5.
+    SevenFive,
+    /// 4 : 3.
+    FourThree,
+    /// 3 : 2 (matches "6 : 4").
+    ThreeTwo,
+    /// 16 : 9.
+    SixteenNine,
+}
+
+impl AspectRatio {
+    /// Returns `Some((w, h))` as a pair of components defining the
+    /// constraint, or `None` for `Freeform`. For `Original`, the
+    /// caller supplies the image bounds — since `Self` is `Copy`
+    /// and can't carry the bounds with it, the lookup happens at
+    /// enforcement time.
+    pub fn ratio_components(self, image_bounds: Option<Vec2D>) -> Option<(f32, f32)> {
+        match self {
+            AspectRatio::Freeform => None,
+            AspectRatio::Original => image_bounds.map(|b| (b.x.abs(), b.y.abs())),
+            AspectRatio::Square => Some((1.0, 1.0)),
+            AspectRatio::FiveFour => Some((5.0, 4.0)),
+            AspectRatio::SevenFive => Some((7.0, 5.0)),
+            AspectRatio::FourThree => Some((4.0, 3.0)),
+            AspectRatio::ThreeTwo => Some((3.0, 2.0)),
+            AspectRatio::SixteenNine => Some((16.0, 9.0)),
+        }
+    }
+
+    /// Mapping to / from the dropdown index used in the top toolbar.
+    /// Keep this in sync with the labels array in
+    /// `ui::toolbars` (the dropdown is built from
+    /// `ALL_LABELS`). Layout: Freeform first so a fresh launch
+    /// keeps the legacy "any shape" behavior.
+    pub const ALL: &'static [AspectRatio] = &[
+        AspectRatio::Freeform,
+        AspectRatio::Original,
+        AspectRatio::Square,
+        AspectRatio::FiveFour,
+        AspectRatio::SevenFive,
+        AspectRatio::FourThree,
+        AspectRatio::ThreeTwo,
+        AspectRatio::SixteenNine,
+    ];
+
+    pub const ALL_LABELS: &'static [&'static str] = &[
+        "Freeform",
+        "Original Ratio",
+        "1 : 1 (Square)",
+        "5 : 4 (10 : 8)",
+        "7 : 5",
+        "4 : 3",
+        "3 : 2 (6 : 4)",
+        "16 : 9",
+    ];
+
+    pub fn from_index(i: usize) -> Self {
+        Self::ALL.get(i).copied().unwrap_or_default()
+    }
+
+    pub fn to_index(self) -> usize {
+        Self::ALL.iter().position(|r| *r == self).unwrap_or(0)
+    }
 }
 
 impl Default for CropTool {
@@ -69,6 +158,7 @@ impl Default for CropTool {
             sender: None,
             snap_to_edges: true,
             image_bounds: None,
+            aspect_ratio: AspectRatio::Freeform,
         }
     }
 }
@@ -688,11 +778,14 @@ impl CropTool {
         crop: &mut Crop,
         state: &DragHandleState,
         direction: Vec2D,
+        aspect: Option<(f32, f32)>,
         snap_x: impl Fn(f32) -> f32,
         snap_y: impl Fn(f32) -> f32,
     ) {
-        let mut tl = state.top_left_start;
-        let mut br = state.bottom_right_start;
+        let tl0 = state.top_left_start;
+        let br0 = state.bottom_right_start;
+        let mut tl = tl0;
+        let mut br = br0;
 
         // Apply the per-handle transformation, then snap each dragged
         // coordinate through the caller's snap closures. Handles that
@@ -700,38 +793,175 @@ impl CropTool {
         // top edge doesn't try to snap left/right.
         match state.handle {
             CropHandle::TopLeftCorner => {
-                tl.x = snap_x(tl.x + direction.x);
-                tl.y = snap_y(tl.y + direction.y);
+                tl.x = snap_x(tl0.x + direction.x);
+                tl.y = snap_y(tl0.y + direction.y);
             }
             CropHandle::TopEdge => {
-                tl.y = snap_y(tl.y + direction.y);
+                tl.y = snap_y(tl0.y + direction.y);
             }
             CropHandle::TopRightCorner => {
-                tl.y = snap_y(tl.y + direction.y);
-                br.x = snap_x(br.x + direction.x);
+                tl.y = snap_y(tl0.y + direction.y);
+                br.x = snap_x(br0.x + direction.x);
             }
             CropHandle::RightEdge => {
-                br.x = snap_x(br.x + direction.x);
+                br.x = snap_x(br0.x + direction.x);
             }
             CropHandle::BottomRightCorner => {
-                br.x = snap_x(br.x + direction.x);
-                br.y = snap_y(br.y + direction.y);
+                br.x = snap_x(br0.x + direction.x);
+                br.y = snap_y(br0.y + direction.y);
             }
             CropHandle::BottomEdge => {
-                br.y = snap_y(br.y + direction.y);
+                br.y = snap_y(br0.y + direction.y);
             }
             CropHandle::BottomLeftCorner => {
-                tl.x = snap_x(tl.x + direction.x);
-                br.y = snap_y(br.y + direction.y);
+                tl.x = snap_x(tl0.x + direction.x);
+                br.y = snap_y(br0.y + direction.y);
             }
             CropHandle::LeftEdge => {
-                tl.x = snap_x(tl.x + direction.x);
+                tl.x = snap_x(tl0.x + direction.x);
+            }
+        }
+
+        // Aspect-ratio enforcement: project the (possibly snapped) rect
+        // onto the constrained-ratio shape, anchored to the corner /
+        // edge midpoint opposite the one the user is dragging. Edges
+        // grow the perpendicular dimension symmetrically (centered on
+        // the anchor's midpoint); corners use the dominant drag axis
+        // (whichever produces the bigger box) and recompute the other.
+        if let Some((rw, rh)) = aspect
+            && rh > 0.0
+        {
+            let r = rw / rh; // target width / height
+
+            // The anchor is the point that DIDN'T move. For corners,
+            // it's the opposite corner; for edges, the midpoint of
+            // the opposite edge.
+            let anchor = match state.handle {
+                CropHandle::TopLeftCorner => br0,
+                CropHandle::TopRightCorner => Vec2D::new(tl0.x, br0.y),
+                CropHandle::BottomLeftCorner => Vec2D::new(br0.x, tl0.y),
+                CropHandle::BottomRightCorner => tl0,
+                CropHandle::TopEdge => Vec2D::new((tl0.x + br0.x) / 2.0, br0.y),
+                CropHandle::BottomEdge => Vec2D::new((tl0.x + br0.x) / 2.0, tl0.y),
+                CropHandle::LeftEdge => Vec2D::new(br0.x, (tl0.y + br0.y) / 2.0),
+                CropHandle::RightEdge => Vec2D::new(tl0.x, (tl0.y + br0.y) / 2.0),
+            };
+
+            let cur_w = (br.x - tl.x).abs();
+            let cur_h = (br.y - tl.y).abs();
+
+            let (final_w, final_h) = match state.handle {
+                CropHandle::TopLeftCorner
+                | CropHandle::TopRightCorner
+                | CropHandle::BottomLeftCorner
+                | CropHandle::BottomRightCorner => {
+                    // Corner: pick the dimension that produces the
+                    // larger ratio-matched rect so the dragged corner
+                    // tracks the user's pointer along its dominant
+                    // axis. Result: dragging "out" never shrinks the
+                    // rect, dragging "in" never grows it.
+                    if cur_w / r >= cur_h {
+                        (cur_w, cur_w / r)
+                    } else {
+                        (cur_h * r, cur_h)
+                    }
+                }
+                CropHandle::TopEdge | CropHandle::BottomEdge => {
+                    // Edge: height changed; width follows from ratio,
+                    // centered horizontally on the anchor.
+                    (cur_h * r, cur_h)
+                }
+                CropHandle::LeftEdge | CropHandle::RightEdge => {
+                    // Edge: width changed; height follows from ratio,
+                    // centered vertically on the anchor.
+                    (cur_w, cur_w / r)
+                }
+            };
+
+            // Place the rectangle relative to the anchor — `sign_*`
+            // says which side of the anchor the rect extends along
+            // each axis. 0 means "centered on anchor" (edge drags
+            // where the parallel axis is symmetric).
+            let sign_x = match state.handle {
+                CropHandle::TopLeftCorner
+                | CropHandle::BottomLeftCorner
+                | CropHandle::LeftEdge => -1.0,
+                CropHandle::TopRightCorner
+                | CropHandle::BottomRightCorner
+                | CropHandle::RightEdge => 1.0,
+                CropHandle::TopEdge | CropHandle::BottomEdge => 0.0,
+            };
+            let sign_y = match state.handle {
+                CropHandle::TopLeftCorner
+                | CropHandle::TopRightCorner
+                | CropHandle::TopEdge => -1.0,
+                CropHandle::BottomLeftCorner
+                | CropHandle::BottomRightCorner
+                | CropHandle::BottomEdge => 1.0,
+                CropHandle::LeftEdge | CropHandle::RightEdge => 0.0,
+            };
+
+            if sign_x > 0.0 {
+                tl.x = anchor.x;
+                br.x = anchor.x + final_w;
+            } else if sign_x < 0.0 {
+                br.x = anchor.x;
+                tl.x = anchor.x - final_w;
+            } else {
+                tl.x = anchor.x - final_w / 2.0;
+                br.x = anchor.x + final_w / 2.0;
+            }
+            if sign_y > 0.0 {
+                tl.y = anchor.y;
+                br.y = anchor.y + final_h;
+            } else if sign_y < 0.0 {
+                br.y = anchor.y;
+                tl.y = anchor.y - final_h;
+            } else {
+                tl.y = anchor.y - final_h / 2.0;
+                br.y = anchor.y + final_h / 2.0;
             }
         }
 
         // convert back and save
         crop.pos = tl;
         crop.size = br - tl;
+    }
+
+    /// Set the active aspect-ratio constraint and snap the existing
+    /// crop rect (if any) to that ratio — inscribed in the current
+    /// rect, centered. Future drags apply the constraint via
+    /// `apply_drag_handle_transformation`'s aspect branch.
+    pub fn set_aspect_ratio(&mut self, ratio: AspectRatio) {
+        self.aspect_ratio = ratio;
+        let Some(crop) = self.crop.as_mut() else {
+            return;
+        };
+        let Some((rw, rh)) = ratio.ratio_components(self.image_bounds) else {
+            return; // Freeform — no snap.
+        };
+        let r = rw / rh;
+        let (cur_pos, cur_size) = crop.get_rectangle();
+        if cur_size.x <= 0.0 || cur_size.y <= 0.0 || r <= 0.0 {
+            return;
+        }
+        // Inscribe: shrink whichever dimension is too big so the
+        // rect fits the ratio inside the current bounds, centered on
+        // the current rect's midpoint.
+        let center_x = cur_pos.x + cur_size.x / 2.0;
+        let center_y = cur_pos.y + cur_size.y / 2.0;
+        let (new_w, new_h) = if cur_size.x / r > cur_size.y {
+            (cur_size.y * r, cur_size.y)
+        } else {
+            (cur_size.x, cur_size.x / r)
+        };
+        crop.pos = Vec2D::new(center_x - new_w / 2.0, center_y - new_h / 2.0);
+        crop.size = Vec2D::new(new_w, new_h);
+        self.emit_crop_dimensions_update();
+    }
+
+    pub fn aspect_ratio(&self) -> AspectRatio {
+        self.aspect_ratio
     }
 
     fn emit_crop_dimensions_update(&self) {
@@ -862,6 +1092,11 @@ impl CropTool {
             v
         };
 
+        // Materialize the aspect-ratio constraint once for this drag
+        // tick. `None` is the freeform path; otherwise both NewCrop
+        // and DragHandle project their results onto the constraint.
+        let aspect = self.aspect_ratio.ratio_components(self.image_bounds);
+
         let crop = match &mut self.crop {
             Some(c) => c,
             None => return ToolUpdateResult::Unmodified,
@@ -881,12 +1116,36 @@ impl CropTool {
                 // both ends jump.
                 let ex = snap_x(crop.pos.x + direction.x);
                 let ey = snap_y(crop.pos.y + direction.y);
-                crop.size = Vec2D::new(ex - crop.pos.x, ey - crop.pos.y);
+                let mut sx = ex - crop.pos.x;
+                let mut sy = ey - crop.pos.y;
+                if let Some((rw, rh)) = aspect
+                    && rh > 0.0
+                {
+                    let r = rw / rh;
+                    let abs_w = sx.abs();
+                    let abs_h = sy.abs();
+                    // Pure-horizontal / pure-vertical drags get
+                    // signed: default down/right when the user
+                    // hasn't moved perpendicular yet so the rect
+                    // grows in a predictable direction.
+                    let sign_x = if sx < 0.0 { -1.0 } else { 1.0 };
+                    let sign_y = if sy < 0.0 { -1.0 } else { 1.0 };
+                    if abs_w / r >= abs_h {
+                        sx = sign_x * abs_w;
+                        sy = sign_y * (abs_w / r);
+                    } else {
+                        sx = sign_x * (abs_h * r);
+                        sy = sign_y * abs_h;
+                    }
+                }
+                crop.size = Vec2D::new(sx, sy);
                 self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::DragHandle(state) => {
-                Self::apply_drag_handle_transformation(crop, state, direction, snap_x, snap_y);
+                Self::apply_drag_handle_transformation(
+                    crop, state, direction, aspect, snap_x, snap_y,
+                );
                 self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }

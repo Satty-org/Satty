@@ -1199,6 +1199,13 @@ impl SketchBoard {
             }
             ToolbarEvent::CancelCrop => self.tools.get_crop_tool().borrow_mut().cancel(),
             ToolbarEvent::ApplyCrop => self.tools.get_crop_tool().borrow_mut().commit(),
+            ToolbarEvent::CropAspectRatioChanged(ratio) => {
+                self.tools
+                    .get_crop_tool()
+                    .borrow_mut()
+                    .set_aspect_ratio(ratio);
+                ToolUpdateResult::Redraw
+            }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()
