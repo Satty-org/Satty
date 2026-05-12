@@ -948,8 +948,12 @@ impl Component for App {
             .spacing(8)
             .valign(gtk::Align::Center)
             .build();
-        end_cluster.append(&output_dimensions_label);
+        // Revert sits first (left), output dimensions stays on the
+        // right edge of the bottom row. Without this swap the
+        // dimensions label visually jumped between the two views as
+        // Revert appeared / disappeared with crop presence.
         end_cluster.append(&revert_button);
+        end_cluster.append(&output_dimensions_label);
         {
             let sender_clone = sender.clone();
             revert_button.connect_clicked(move |_| {

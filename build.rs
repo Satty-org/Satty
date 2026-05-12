@@ -74,6 +74,12 @@ fn main() -> Result<(), io::Error> {
             "paint-bucket-regular",
             "page-fit-regular",
             "resize-large-regular",
+            // Crop-mode toolbar additions.
+            "arrow-swap-regular",
+            // No CCW variant in fluentui-system-icons; pull the
+            // anti-clockwise glyph from icon-development-kit.
+            "rotate-acw",
+            "flip-horizontal-regular",
         ],
     );
 

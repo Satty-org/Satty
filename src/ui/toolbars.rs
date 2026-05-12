@@ -223,6 +223,11 @@ pub struct ToolsToolbar {
     /// the user only types the field they want to change).
     resize_width_entry: Option<gtk::Entry>,
     resize_height_entry: Option<gtk::Entry>,
+    /// Currently-selected crop background (matte) preset.
+    /// Mirrored locally so the swatch on the bg-color MenuButton
+    /// can refresh via `#[watch]` whenever the user picks a new
+    /// preset from the popover.
+    crop_bg_color: crate::tools::CropBgColor,
     /// Currently-selected color, mirrored on the unified color-picker
     /// MenuButton's swatch. Updated whenever a palette/custom color is
     /// chosen, so the swatch reflects what subsequent annotations will use.
@@ -1185,6 +1190,11 @@ pub enum ToolsToolbarInput {
     /// pre-fills the resize popover's entries so it opens already
     /// populated next time.
     ImageDimensionsChanged { width: i32, height: i32 },
+    /// User picked a crop-mode background-color preset from the
+    /// swatch popover. Mirrors the choice into `crop_bg_color`
+    /// (so the MenuButton's swatch image refreshes) and re-emits
+    /// `ToolbarEvent::CropBgColorChanged` for the rest of the app.
+    CropBgColorSelected(crate::tools::CropBgColor),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1285,6 +1295,29 @@ const SWATCH_PIXBUF_SIZE: i32 = 40;
 /// the displayed swatch matches `.color-slot-empty`'s 4px CSS radius
 /// once scaled to its on-screen size (~20px).
 const SWATCH_PIXBUF_RADIUS: f64 = 8.0;
+
+/// Map a crop-mode bg-color preset to the RGBA used to render its
+/// swatch in the picker popover + MenuButton. Auto stays
+/// semi-transparent black (the legacy dim color); Transparent
+/// renders fully transparent (relies on the row's label text for
+/// recognition); the named presets are solid; Custom keeps the
+/// user's stored RGB at full alpha.
+fn crop_bg_preset_swatch(bg: crate::tools::CropBgColor) -> Color {
+    use crate::tools::CropBgColor;
+    match bg {
+        CropBgColor::Auto => Color::new(0, 0, 0, 128),
+        CropBgColor::Transparent => Color::new(0, 0, 0, 0),
+        CropBgColor::White => Color::new(255, 255, 255, 255),
+        CropBgColor::Gray => Color::new(128, 128, 128, 255),
+        CropBgColor::Black => Color::new(0, 0, 0, 255),
+        CropBgColor::Custom(r, g, b) => Color::new(
+            (r * 255.0).clamp(0.0, 255.0) as u8,
+            (g * 255.0).clamp(0.0, 255.0) as u8,
+            (b * 255.0).clamp(0.0, 255.0) as u8,
+            255,
+        ),
+    }
+}
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
     // GTK4's CSS `border-radius` doesn't clip a `GtkImage`'s pixbuf —
@@ -1844,7 +1877,7 @@ impl Component for ToolsToolbar {
                         add_css_class: "compact-control",
                         set_focusable: true,
                         set_hexpand: false,
-                        set_width_chars: 5,
+                        set_width_chars: 3,
                         set_max_length: 5,
                         set_input_purpose: gtk::InputPurpose::Digits,
                         install_tooltip: "Crop width (px)",
@@ -1856,6 +1889,7 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        add_css_class: "compact-control",
                         add_css_class: "flat",
                         set_icon_name: "arrow-swap-regular",
                         install_tooltip: "Swap width and height",
@@ -1868,7 +1902,7 @@ impl Component for ToolsToolbar {
                         add_css_class: "compact-control",
                         set_focusable: true,
                         set_hexpand: false,
-                        set_width_chars: 5,
+                        set_width_chars: 3,
                         set_max_length: 5,
                         set_input_purpose: gtk::InputPurpose::Digits,
                         install_tooltip: "Crop height (px)",
@@ -1886,22 +1920,30 @@ impl Component for ToolsToolbar {
                     // frame in white / gray / black; Custom Color…
                     // is a placeholder for a follow-up picker
                     // dialog and currently maps to a mid-gray).
-                    #[name(crop_bg_color_dropdown)]
-                    gtk::DropDown {
+                    // Crop background-color picker — MenuButton
+                    // showing the current preset's swatch, opening
+                    // a popover of labeled swatches (built
+                    // imperatively in init, mirrors the main
+                    // color-picker UX). Selection updates the
+                    // swatch via `#[watch]` on `crop_bg_color`.
+                    #[name(crop_bg_color_menu_btn)]
+                    gtk::MenuButton {
                         set_focusable: false,
+                        set_focus_on_click: false,
+                        set_hexpand: false,
                         add_css_class: "compact-control",
+                        set_has_frame: true,
+                        set_always_show_arrow: false,
                         install_tooltip: "Background color (outside crop)",
-                        set_model: Some(&gtk::StringList::new(
-                            crate::tools::CropBgColor::ALL_LABELS,
-                        )),
-                        set_selected: 0,
-                        connect_selected_notify[sender] => move |dd| {
-                            let bg = crate::tools::CropBgColor::from_index(
-                                dd.selected() as usize,
-                            );
-                            sender
-                                .output_sender()
-                                .emit(ToolbarEvent::CropBgColorChanged(bg));
+
+                        #[wrap(Some)]
+                        set_child = &gtk::Image {
+                            set_pixel_size: 18,
+                            set_can_target: false,
+                            #[watch]
+                            set_from_pixbuf: Some(&create_icon_pixbuf(
+                                crop_bg_preset_swatch(model.crop_bg_color),
+                            )),
                         },
                     },
 
@@ -1915,8 +1957,9 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        add_css_class: "compact-control",
                         add_css_class: "flat",
-                        set_icon_name: "arrow-rotate-counterclockwise-regular",
+                        set_icon_name: "rotate-acw",
                         install_tooltip: "Rotate 90° counter-clockwise",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::RotateImage);
@@ -1930,6 +1973,7 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        add_css_class: "compact-control",
                         add_css_class: "flat",
                         set_icon_name: "flip-horizontal-regular",
                         install_tooltip: "Flip horizontal",
@@ -1959,6 +2003,13 @@ impl Component for ToolsToolbar {
                         set_focusable: false,
                         set_hexpand: false,
                         add_css_class: "compact-control",
+                        // Frame on + always-show-arrow for the
+                        // dropdown chevron — without these the
+                        // MenuButton renders frameless inside a
+                        // toolbar context and reads as a label
+                        // rather than a clickable control.
+                        set_has_frame: true,
+                        set_always_show_arrow: true,
                         install_tooltip: "Resize image",
                         #[watch]
                         set_label: &format!(
@@ -2050,6 +2101,7 @@ impl Component for ToolsToolbar {
                         set_focusable: false,
                         set_hexpand: false,
                         set_label: "Cancel",
+                        add_css_class: "compact-control",
                         install_tooltip: "Cancel crop (Esc)",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::CancelCrop);
@@ -2059,6 +2111,7 @@ impl Component for ToolsToolbar {
                         set_focusable: false,
                         set_hexpand: false,
                         set_label: "Crop",
+                        add_css_class: "compact-control",
                         add_css_class: "suggested-action",
                         install_tooltip: "Apply crop (Enter)",
                         connect_clicked[sender] => move |_| {
@@ -2327,6 +2380,12 @@ impl Component for ToolsToolbar {
                     });
                 }
             }
+            ToolsToolbarInput::CropBgColorSelected(bg) => {
+                self.crop_bg_color = bg;
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::CropBgColorChanged(bg));
+            }
             ToolsToolbarInput::ImageDimensionsChanged { width, height } => {
                 self.image_width = width;
                 self.image_height = height;
@@ -2422,6 +2481,7 @@ impl Component for ToolsToolbar {
             image_height: 0,
             resize_width_entry: None,
             resize_height_entry: None,
+            crop_bg_color: crate::tools::CropBgColor::Auto,
             current_color: initial_color,
             current_color_pixbuf: initial_color_pixbuf,
             custom_color,
@@ -2539,6 +2599,61 @@ impl Component for ToolsToolbar {
 
         model.resize_width_entry = Some(w_entry);
         model.resize_height_entry = Some(h_entry);
+
+        // Crop bg-color picker popover — labeled-swatch list mirroring
+        // the main color-picker UX (vs the prior text-only DropDown).
+        // Each row is a flat button with a swatch image + label;
+        // clicking emits `CropBgColorSelected` which updates the
+        // MenuButton's `crop_bg_color` mirror (refreshing its own
+        // swatch via #[watch]) and re-emits the outbound
+        // `CropBgColorChanged` for sketch_board.
+        use crate::tools::CropBgColor;
+        let bg_popover = gtk::Popover::builder().has_arrow(true).build();
+        let bg_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .margin_top(4)
+            .margin_bottom(4)
+            .margin_start(4)
+            .margin_end(4)
+            .spacing(0)
+            .build();
+        for (bg, label_text) in [
+            (CropBgColor::Transparent, "Transparent"),
+            (CropBgColor::Auto, "Auto"),
+            (CropBgColor::White, "White"),
+            (CropBgColor::Gray, "Gray"),
+            (CropBgColor::Black, "Black"),
+            (CropBgColor::Custom(0.5, 0.5, 0.5), "Custom Color\u{2026}"),
+        ] {
+            let row_btn = gtk::Button::builder()
+                .css_classes(["flat"])
+                .focusable(false)
+                .build();
+            let row_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(8)
+                .build();
+            let swatch = gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(
+                crop_bg_preset_swatch(bg),
+            )));
+            swatch.set_pixel_size(SWATCH_DISPLAY_SIZE);
+            let lbl = gtk::Label::new(Some(label_text));
+            lbl.set_xalign(0.0);
+            lbl.set_hexpand(true);
+            row_box.append(&swatch);
+            row_box.append(&lbl);
+            row_btn.set_child(Some(&row_box));
+
+            let popover_for_row = bg_popover.clone();
+            let sender_for_row = sender.clone();
+            row_btn.connect_clicked(move |_| {
+                sender_for_row.input(ToolsToolbarInput::CropBgColorSelected(bg));
+                popover_for_row.popdown();
+            });
+            bg_box.append(&row_btn);
+        }
+        bg_popover.set_child(Some(&bg_box));
+        widgets.crop_bg_color_menu_btn.set_popover(Some(&bg_popover));
 
         // Build the popover for the unified color picker. Stash the
         // popover, the swatch_stack (for crossfade rebuilds), and the
