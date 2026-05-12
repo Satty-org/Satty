@@ -240,6 +240,22 @@ pub struct ToolsToolbar {
     /// inside the stack. The names themselves are throwaway — only
     /// uniqueness matters.
     color_popover_page_id: u64,
+    /// True iff the inline color picker panel (revealed by the arrow /
+    /// wheel button) is currently open. Drives the arrow icon and the
+    /// revealer's `reveal_child`.
+    picker_expanded: bool,
+    /// `gtk::Revealer` wrapping the inline picker panel. Stashed so
+    /// `TogglePickerExpansion` can flip its `reveal_child` without
+    /// walking the widget tree.
+    picker_revealer: Option<gtk::Revealer>,
+    /// The embedded `ColorChooserWidget` inside the inline picker
+    /// panel. `AddCurrentPickerToCustoms` reads its `rgba` so the
+    /// "+ Add to My Colors" button knows what to persist.
+    picker_chooser: Option<gtk::ColorChooserWidget>,
+    /// Handle to the bottom-row arrow button so the toggle handler
+    /// can flip its icon between pan-end and pan-start without
+    /// rebuilding the controls.
+    picker_arrow_btn: Option<gtk::Button>,
     /// Color currently being dragged within the saved-custom column,
     /// captured at drag-begin. While set, `custom_colors` is rendered
     /// WITHOUT this entry (it's been temporarily pulled out so the
@@ -340,119 +356,16 @@ impl ToolsToolbar {
         }
     }
 
-    fn show_color_dialog(&self, sender: ComponentSender<ToolsToolbar>, root: Option<Window>) {
-        let current_color: RGBA = self.custom_color.into();
-        let seeded_customs: Vec<RGBA> = APP_CONFIG
-            .read()
-            .color_palette()
-            .custom()
-            .iter()
-            .copied()
-            .chain(self.custom_colors.iter().copied())
-            .map(RGBA::from)
-            .collect();
-        relm4::spawn_local(async move {
-            // Custom window instead of `ColorChooserDialog`: GTK4's
-            // dialog forces action buttons into the headerbar (or a
-            // right-aligned action area), and the user wants them
-            // bottom-center. Wrapping a `ColorChooserWidget` lets us
-            // place the buttons wherever we want.
-            let dialog = gtk::Window::builder()
-                .modal(true)
-                .title("Choose Color")
-                .hide_on_close(true)
-                .resizable(false)
-                .build();
-            if let Some(w) = root {
-                dialog.set_transient_for(Some(&w));
-            }
-
-            let content = gtk::Box::builder()
-                .orientation(gtk::Orientation::Vertical)
-                .spacing(12)
-                .margin_top(12)
-                .margin_bottom(12)
-                .margin_start(12)
-                .margin_end(12)
-                .build();
-
-            let chooser = gtk::ColorChooserWidget::new();
-            chooser.set_use_alpha(true);
-            chooser.set_rgba(&current_color);
-            // Open directly into the gradient/hue/eyedropper editor —
-            // skip the palette grid, since the picker popover already
-            // serves that role and the editor is what users came here
-            // for (eyedropper + hex input + fine-tuning).
-            chooser.set_show_editor(true);
-            if !seeded_customs.is_empty() {
-                chooser.add_palette(gtk::Orientation::Horizontal, 8, &seeded_customs);
-            }
-            chooser.set_hexpand(true);
-            chooser.set_vexpand(true);
-            content.append(&chooser);
-
-            // Bottom-center button row. `halign = Center` keeps the
-            // buttons centered horizontally regardless of dialog
-            // width, while the inner box keeps them tight together.
-            let button_row = gtk::Box::builder()
-                .orientation(gtk::Orientation::Horizontal)
-                .spacing(8)
-                .halign(gtk::Align::Center)
-                .build();
-
-            let save_btn = gtk::Button::with_label("Save Custom Color");
-            let choose_btn = gtk::Button::with_label("Choose Color");
-            choose_btn.add_css_class("suggested-action");
-
-            button_row.append(&save_btn);
-            button_row.append(&choose_btn);
-            content.append(&button_row);
-
-            dialog.set_child(Some(&content));
-
-            // Wiring. `Save` persists the current chooser color and
-            // keeps the dialog open; `Choose` applies it and closes.
-            // Escape closes without applying.
-            let chooser_for_save = chooser.clone();
-            let sender_for_save = sender.clone();
-            save_btn.connect_clicked(move |_| {
-                let color = Color::from_gdk(chooser_for_save.rgba());
-                sender_for_save.input(ToolsToolbarInput::SaveCustomColor(color));
-            });
-
-            let chooser_for_choose = chooser.clone();
-            let dialog_for_choose = dialog.clone();
-            let sender_for_choose = sender.clone();
-            choose_btn.connect_clicked(move |_| {
-                let color = Color::from_gdk(chooser_for_choose.rgba());
-                sender_for_choose.input(ToolsToolbarInput::ColorDialogFinished(Some(color)));
-                dialog_for_choose.close();
-            });
-
-            let key_ctrl = gtk::EventControllerKey::new();
-            let dialog_for_esc = dialog.clone();
-            key_ctrl.connect_key_pressed(move |_, key, _, _| {
-                if key == relm4::gtk::gdk::Key::Escape {
-                    dialog_for_esc.close();
-                    relm4::gtk::glib::Propagation::Stop
-                } else {
-                    relm4::gtk::glib::Propagation::Proceed
-                }
-            });
-            dialog.add_controller(key_ctrl);
-
-            dialog.present();
-        });
-    }
 }
 
-/// Number of saved-custom slots per popover column. Once the user
-/// saves more than this many, an extra column appears to the right
-/// and the popover grows wider — matches convention's "fill columns
-/// then wrap" behavior. Set to 11 so each custom column is one row
-/// taller than the 10 palette swatches; the extra row sits next to
-/// the pick-button footer in the left column.
-const SLOTS_PER_COLUMN: usize = 11;
+/// Number of saved-custom slots per popover column. Matches the
+/// palette column's 10 swatches so saved customs visually line up
+/// with palette colors row-for-row. Once the user saves more than
+/// this many, a second column appears — matches typical "fill
+/// then wrap" behavior. The bottom row (row 10) of each column is
+/// reserved: the left column for the color-wheel button, the right
+/// column(s) for the expand-arrow (last column only).
+const SLOTS_PER_COLUMN: usize = 10;
 
 /// Duration of the crossfade between successive popover-grid layouts
 /// while reorder drag-and-drop is in flight. Short enough that a fast
@@ -461,34 +374,212 @@ const SLOTS_PER_COLUMN: usize = 11;
 /// shift reads as motion rather than a snap.
 const STACK_FADE_MS: u32 = 120;
 
+/// Handles returned by `build_color_popover` so the caller (`init`)
+/// can stash everything it needs on the model — the popover itself,
+/// the swatch-grid stack (for crossfade rebuilds), the inline picker's
+/// revealer + chooser (for live color updates), and the bottom arrow
+/// button (so the toggle handler can flip its icon).
+struct ColorPopoverHandles {
+    popover: gtk::Popover,
+    swatch_stack: gtk::Stack,
+    picker_revealer: gtk::Revealer,
+    picker_chooser: gtk::ColorChooserWidget,
+    arrow_btn: gtk::Button,
+}
+
 /// Build the popover that hangs off the unified color-picker MenuButton.
-/// style:a vertical 2-column grid with palette colors on
-/// the left and the user's saved-custom colors (plus dashed empty
-/// slots) on the right, with a color-wheel button at the bottom that
-/// opens the system color dialog. The grid lives inside a
-/// `gtk::Stack` so subsequent rebuilds (live drag-reorder) crossfade
-/// between layouts instead of snapping.
+/// Layout:
+///
+///   ┌── popover ───────────────────────────┬── revealer ──┐
+///   │ ┌── swatch_stack ─┐                   │ inline       │
+///   │ │ swatches grid   │                   │ picker       │
+///   │ └─────────────────┘                   │ panel        │
+///   │ ┌── controls box ─┐                   │ (chooser +   │
+///   │ │ [wheel]   [⇄]   │                   │ + Add to     │
+///   │ └─────────────────┘                   │ My Colors)   │
+///   └──────────────────────────────────────┴──────────────┘
+///
+/// The swatches grid is wrapped in a `Stack` so reorder drag-and-drop
+/// can crossfade between layouts. The controls and inline picker live
+/// outside the stack — they keep their state (and the chooser its
+/// hue/saturation/value cursor) across saved-customs rebuilds.
 fn build_color_popover(
     model: &ToolsToolbar,
     sender: &ComponentSender<ToolsToolbar>,
-) -> (gtk::Popover, gtk::Stack) {
+) -> ColorPopoverHandles {
     let popover = gtk::Popover::new();
     popover.add_css_class("color-picker-popover");
     popover.set_position(gtk::PositionType::Bottom);
     popover.set_has_arrow(true);
 
-    let stack = gtk::Stack::builder()
+    // Outer: horizontal box. Left = swatches+controls column. Right =
+    // revealer for the inline picker.
+    let outer = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(0)
+        .build();
+    outer.add_css_class("color-picker-content");
+
+    // Left column. Vertical: swatch_stack + controls_row.
+    let left = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(0)
+        .build();
+    left.add_css_class("color-picker-left");
+
+    let swatch_stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
         .transition_duration(STACK_FADE_MS)
         .hhomogeneous(true)
         .vhomogeneous(true)
         .build();
-
+    swatch_stack.add_css_class("swatches-area");
     let grid = build_color_popover_grid(model, sender, &popover);
-    stack.add_named(&grid, Some("page-0"));
-    stack.set_visible_child(&grid);
-    popover.set_child(Some(&stack));
-    (popover, stack)
+    swatch_stack.add_named(&grid, Some("page-0"));
+    swatch_stack.set_visible_child(&grid);
+    left.append(&swatch_stack);
+
+    // Bottom controls: color-wheel on the left, expand arrow on the
+    // right. Both toggle the inline picker — the wheel as a visual
+    // hint that the expanded view lets you mix any color, the arrow
+    // as the explicit collapse/expand toggle (standard convention).
+    let controls = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(0)
+        .hexpand(true)
+        .margin_start(16)
+        .margin_end(16)
+        .margin_top(0)
+        .margin_bottom(12)
+        .build();
+    controls.add_css_class("color-picker-controls");
+
+    let wheel_btn = gtk::Button::builder()
+        .focusable(false)
+        .focus_on_click(false)
+        .hexpand(false)
+        .icon_name("color-regular")
+        .halign(gtk::Align::Start)
+        .build();
+    wheel_btn.add_css_class("flat");
+    wheel_btn.add_css_class("color-wheel-button");
+    attach_floating_swatch_tooltip(&wheel_btn, "Open color picker");
+    let sender_for_wheel = sender.clone();
+    wheel_btn.connect_clicked(move |_| {
+        sender_for_wheel.input(ToolsToolbarInput::TogglePickerExpansion);
+    });
+
+    let spacer = gtk::Box::builder()
+        .hexpand(true)
+        .orientation(gtk::Orientation::Horizontal)
+        .build();
+
+    let arrow_btn = gtk::Button::builder()
+        .focusable(false)
+        .focus_on_click(false)
+        .hexpand(false)
+        .icon_name(if model.picker_expanded {
+            "pan-start-symbolic"
+        } else {
+            "pan-end-symbolic"
+        })
+        .halign(gtk::Align::End)
+        .build();
+    arrow_btn.add_css_class("flat");
+    arrow_btn.add_css_class("picker-expand-arrow");
+    attach_floating_swatch_tooltip(&arrow_btn, "Expand picker");
+    let sender_for_arrow = sender.clone();
+    arrow_btn.connect_clicked(move |_| {
+        sender_for_arrow.input(ToolsToolbarInput::TogglePickerExpansion);
+    });
+
+    controls.append(&wheel_btn);
+    controls.append(&spacer);
+    controls.append(&arrow_btn);
+    left.append(&controls);
+
+    outer.append(&left);
+
+    // Right side: revealer holding the inline picker panel. The
+    // chooser inside is built once and kept alive — its in-progress
+    // state (saturation/value cursor, hex entry text) needs to
+    // survive across saved-customs rebuilds.
+    let (picker_revealer, picker_chooser) = build_inline_picker_panel(model, sender);
+    outer.append(&picker_revealer);
+
+    popover.set_child(Some(&outer));
+    ColorPopoverHandles {
+        popover,
+        swatch_stack,
+        picker_revealer,
+        picker_chooser,
+        arrow_btn,
+    }
+}
+
+/// Build the inline color-picker panel — a `ColorChooserWidget` in
+/// editor mode plus a "+ Add to My Colors" button below — wrapped in a
+/// `Revealer` that slides in from the right when the user clicks the
+/// expand arrow / wheel button. The chooser broadcasts color changes
+/// live via `InlinePickerColorChanged` so the picked color is applied
+/// to subsequent annotations without a separate "Apply" step.
+fn build_inline_picker_panel(
+    model: &ToolsToolbar,
+    sender: &ComponentSender<ToolsToolbar>,
+) -> (gtk::Revealer, gtk::ColorChooserWidget) {
+    let revealer = gtk::Revealer::builder()
+        .transition_type(gtk::RevealerTransitionType::SlideRight)
+        .transition_duration(220)
+        .reveal_child(model.picker_expanded)
+        .build();
+    revealer.add_css_class("inline-picker-revealer");
+
+    let panel = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_start(16)
+        .margin_end(16)
+        .margin_top(14)
+        .margin_bottom(14)
+        .build();
+    panel.add_css_class("inline-picker-panel");
+
+    let chooser = gtk::ColorChooserWidget::new();
+    chooser.set_use_alpha(true);
+    chooser.set_rgba(&RGBA::from(model.current_color));
+    // Skip the palette grid built into ColorChooserWidget — the
+    // popover's left column already serves that role. The editor
+    // (saturation/value, hue, alpha, hex/RGB) is the new value-add.
+    chooser.set_show_editor(true);
+    chooser.set_hexpand(true);
+    chooser.set_vexpand(true);
+
+    // Broadcast color changes live. The chooser fires `notify::rgba`
+    // on every cursor movement — forward as `InlinePickerColorChanged`
+    // so the active drawing color tracks what the user is mixing.
+    let sender_for_chooser = sender.clone();
+    chooser.connect_rgba_notify(move |c| {
+        let color = Color::from_gdk(c.rgba());
+        sender_for_chooser.input(ToolsToolbarInput::InlinePickerColorChanged(color));
+    });
+
+    panel.append(&chooser);
+
+    let add_btn = gtk::Button::with_label("+ Add to My Colors");
+    add_btn.add_css_class("suggested-action");
+    add_btn.add_css_class("add-to-my-colors-btn");
+    add_btn.set_focusable(false);
+    add_btn.set_focus_on_click(false);
+    let chooser_for_add = chooser.clone();
+    let sender_for_add = sender.clone();
+    add_btn.connect_clicked(move |_| {
+        let color = Color::from_gdk(chooser_for_add.rgba());
+        sender_for_add.input(ToolsToolbarInput::SaveCustomColor(color));
+    });
+    panel.append(&add_btn);
+
+    revealer.set_child(Some(&panel));
+    (revealer, chooser)
 }
 
 thread_local! {
@@ -531,23 +622,6 @@ fn ensure_floating_swatch_tip(near: &gtk::Widget) -> (gtk::Popover, gtk::Label) 
         *cell.borrow_mut() = Some((popover.clone(), label.clone()));
         (popover, label)
     })
-}
-
-/// Dismiss every tooltip we currently own — both the install_tooltip
-/// popover for toolbar buttons (tracked via `ACTIVE_TOOLTIP`) and the
-/// floating swatch tooltip shared across the picker. Called when a
-/// modal dialog is about to open so no tooltip lingers on top of it.
-fn hide_all_tooltips() {
-    ACTIVE_TOOLTIP.with(|cell| {
-        if let Some(popover) = cell.borrow_mut().take() {
-            popover.popdown();
-        }
-    });
-    FLOATING_SWATCH_TIP.with(|cell| {
-        if let Some((popover, _)) = cell.borrow().as_ref() {
-            popover.popdown();
-        }
-    });
 }
 
 /// Attach a custom floating tooltip to a swatch inside the picker
@@ -764,7 +838,8 @@ fn build_color_popover_grid(
                 visual_slot
             };
             if let Some(color) = saved.get(saved_idx).copied() {
-                let w = build_saved_custom_swatch(color, saved_idx, sender);
+                let selected = color == model.current_color;
+                let w = build_saved_custom_swatch(color, saved_idx, selected, sender);
                 let t = match color.name() {
                     Some(name) => format!("{name} (saved {})", saved_idx + 1),
                     None => format!("Saved color {}", saved_idx + 1),
@@ -785,32 +860,10 @@ fn build_color_popover_grid(
         grid.attach(&widget, grid_col, row_idx as i32, 1, 1);
     }
 
-    // Color-wheel button → opens the custom-color dialog (eyedropper
-    // + hex + "Save Custom Color"). Anchored directly below the last
-    // palette swatch (row 10 in column 0) so it stays put visually
-    // even when the right column grows past 10 saved customs. The
-    // popover is dismissed first so it doesn't sit on top of the
-    // dialog (Wayland in particular routes clicks to the popover
-    // otherwise).
-    let pick_btn = gtk::Button::builder()
-        .focusable(false)
-        .focus_on_click(false)
-        .hexpand(false)
-        .icon_name("color-regular")
-        .build();
-    pick_btn.add_css_class("flat");
-    pick_btn.add_css_class("color-wheel-button");
-    attach_floating_swatch_tooltip(&pick_btn, "Pick custom color");
-    let sender_clone = sender.clone();
-    let popover_clone = popover.clone();
-    pick_btn.connect_clicked(move |_| {
-        popover_clone.popdown();
-        // Dismiss every tooltip so none lingers on top of the
-        // custom-color dialog when it opens.
-        hide_all_tooltips();
-        sender_clone.input(ToolsToolbarInput::ShowColorDialog);
-    });
-    grid.attach(&pick_btn, 0, 10, 1, 1);
+    // The color-wheel + expand-arrow live in the controls box BELOW
+    // the swatches grid (built once in `build_color_popover`). They're
+    // not attached here so they keep their state across rebuilds.
+    let _ = popover;
 
     grid
 }
@@ -1045,12 +1098,18 @@ pub enum ToolsToolbarInput {
     ToggleVisibility,
     SwitchSelectedTool(Tools),
     ColorButtonSelected(ColorButtons),
-    ShowColorDialog,
-    ColorDialogFinished(Option<Color>),
+    /// The inline picker's chooser emitted a new RGBA — broadcast it
+    /// as the current drawing color so the picked color is "live"
+    /// (applies applying as the user drags).
+    InlinePickerColorChanged(Color),
+    /// Toggle the inline picker panel's revealer. Flips
+    /// `picker_expanded`, animates the revealer, and updates the
+    /// arrow button's icon (pan-end ↔ pan-start).
+    TogglePickerExpansion,
     /// Append the given color to the user's persisted saved-custom
     /// palette, then refresh the popover so the new swatch shows up
-    /// next to its dashed placeholder neighbors. Fired by the dialog's
-    /// "Save Custom Color" button.
+    /// next to its dashed placeholder neighbors. Fired by the inline
+    /// picker's "+ Add to My Colors" button.
     SaveCustomColor(Color),
     /// Move the saved-custom color at `from` to position `to` (clamped
     /// to the current list length). Fired by drag-and-drop within the
@@ -1245,6 +1304,7 @@ fn create_icon(color: Color) -> gtk::Image {
 fn build_saved_custom_swatch(
     color: Color,
     slot: usize,
+    selected: bool,
     sender: &ComponentSender<ToolsToolbar>,
 ) -> gtk::Widget {
     use relm4::gtk::gdk;
@@ -1351,7 +1411,38 @@ fn build_saved_custom_swatch(
     });
     btn.add_controller(right_click);
 
-    btn.upcast::<gtk::Widget>()
+    if !selected {
+        return btn.upcast::<gtk::Widget>();
+    }
+
+    // The currently-selected saved-custom swatch gets a small X badge
+    // pinned to its top-left corner — single-click deletes the swatch
+    // (faster than the right-click → Delete fallback). Wrap the swatch
+    // in a `gtk::Overlay` and add the X as an overlay child; halign /
+    // valign Start pins it to the corner, and `set_measure_overlay`
+    // keeps the X out of the overlay's natural-size calculation so
+    // adjacent grid cells don't reflow.
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&btn));
+
+    let x_btn = gtk::Button::builder()
+        .focusable(false)
+        .focus_on_click(false)
+        .halign(gtk::Align::Start)
+        .valign(gtk::Align::Start)
+        .build();
+    x_btn.add_css_class("swatch-delete-x");
+    let x_label = gtk::Label::new(Some("×"));
+    x_label.add_css_class("swatch-delete-glyph");
+    x_btn.set_child(Some(&x_label));
+    attach_floating_swatch_tooltip(&x_btn, "Delete this saved color");
+    let sender_for_x = sender.clone();
+    x_btn.connect_clicked(move |_| {
+        sender_for_x.input(ToolsToolbarInput::DeleteCustomColor(slot));
+    });
+    overlay.add_overlay(&x_btn);
+
+    overlay.upcast::<gtk::Widget>()
 }
 
 /// Build the dashed empty-slot placeholder. Inert by itself —
@@ -1852,7 +1943,7 @@ impl Component for ToolsToolbar {
         },
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
             ToolsToolbarInput::SetVisibility(visible) => self.visible = visible,
             ToolsToolbarInput::ToggleVisibility => {
@@ -1877,47 +1968,58 @@ impl Component for ToolsToolbar {
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
             }
-            ToolsToolbarInput::ShowColorDialog => {
-                self.show_color_dialog(sender, root.toplevel_window());
+            ToolsToolbarInput::InlinePickerColorChanged(color) => {
+                // The inline picker emitted a new RGBA — apply it as
+                // the live drawing color so the picked value tracks
+                // what the user is mixing. If it happens to match a
+                // palette / saved-custom slot, mark that slot checked;
+                // otherwise leave the action on `Custom`.
+                self.custom_color = color;
+                let matched_button = APP_CONFIG
+                    .read()
+                    .color_palette()
+                    .palette()
+                    .iter()
+                    .position(|c| *c == color)
+                    .map(|i| ColorButtons::Palette(i as u64))
+                    .or_else(|| {
+                        self.custom_colors
+                            .iter()
+                            .position(|c| *c == color)
+                            .map(|i| ColorButtons::CustomSaved(i as u64))
+                    })
+                    .unwrap_or(ColorButtons::Custom);
+                self.color_action
+                    .change_state(&matched_button.to_variant());
+                self.current_color = color;
+                self.current_color_pixbuf = create_icon_pixbuf(color);
+                crate::state::save_last_color(color);
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::ColorSelected(color));
             }
-            ToolsToolbarInput::ColorDialogFinished(color) => {
-                if let Some(color) = color {
-                    self.custom_color = color;
-                    // If the picked color happens to match an existing
-                    // palette entry or saved-custom swatch, sync the
-                    // action state so that swatch lights up as checked.
-                    // Otherwise leave the action at `Custom` — no slot
-                    // in the popover represents this transient pick.
-                    let matched_button = APP_CONFIG
-                        .read()
-                        .color_palette()
-                        .palette()
-                        .iter()
-                        .position(|c| *c == color)
-                        .map(|i| ColorButtons::Palette(i as u64))
-                        .or_else(|| {
-                            self.custom_colors
-                                .iter()
-                                .position(|c| *c == color)
-                                .map(|i| ColorButtons::CustomSaved(i as u64))
-                        })
-                        .unwrap_or(ColorButtons::Custom);
-                    self.color_action
-                        .change_state(&matched_button.to_variant());
-                    self.current_color = color;
-                    self.current_color_pixbuf = create_icon_pixbuf(color);
-                    crate::state::save_last_color(color);
-                    sender
-                        .output_sender()
-                        .emit(ToolbarEvent::ColorSelected(color));
+            ToolsToolbarInput::TogglePickerExpansion => {
+                self.picker_expanded = !self.picker_expanded;
+                if let Some(rev) = &self.picker_revealer {
+                    rev.set_reveal_child(self.picker_expanded);
+                }
+                if let Some(btn) = &self.picker_arrow_btn {
+                    btn.set_icon_name(if self.picker_expanded {
+                        "pan-start-symbolic"
+                    } else {
+                        "pan-end-symbolic"
+                    });
+                }
+                // Re-seed the chooser to the current color each time
+                // the panel opens so reopening doesn't strand the user
+                // at a previously-edited hue.
+                if self.picker_expanded {
+                    if let Some(chooser) = &self.picker_chooser {
+                        chooser.set_rgba(&RGBA::from(self.current_color));
+                    }
                 }
             }
             ToolsToolbarInput::SaveCustomColor(color) => {
-                // Append-and-persist, then regenerate the popover's
-                // grid so the new swatch shows up immediately. The
-                // popover is typically closed while the dialog is
-                // open, so the rebuild is invisible to the user — but
-                // it's ready the next time they open the picker.
                 self.custom_colors = crate::state::append_custom_color(color);
                 self.refresh_color_popover(&sender);
             }
@@ -2184,6 +2286,10 @@ impl Component for ToolsToolbar {
             dragging_preview_slot: None,
             color_popover_stack: None,
             color_popover_page_id: 0,
+            picker_expanded: false,
+            picker_revealer: None,
+            picker_chooser: None,
+            picker_arrow_btn: None,
         };
         let widgets = view_output!();
 
@@ -2193,14 +2299,18 @@ impl Component for ToolsToolbar {
         model.crop_height_entry = Some(widgets.crop_height_entry.clone());
 
         // Build the popover for the unified color picker. Stash the
-        // popover + its inner Stack so `refresh_color_popover` can
-        // crossfade between grid layouts (e.g. mid-drag reorder
-        // previews) without rebuilding the popover itself.
-        let (popover, stack) = build_color_popover(&model, &sender);
-        widgets.color_button.set_popover(Some(&popover));
-        model.color_popover = Some(popover.clone());
-        model.color_popover_stack = Some(stack);
+        // popover, the swatch_stack (for crossfade rebuilds), and the
+        // inline-picker handles (revealer / chooser / arrow) so the
+        // toggle handler can drive them without walking the tree.
+        let handles = build_color_popover(&model, &sender);
+        widgets.color_button.set_popover(Some(&handles.popover));
+        let popover = handles.popover.clone();
+        model.color_popover = Some(handles.popover);
+        model.color_popover_stack = Some(handles.swatch_stack);
         model.color_popover_page_id = 1;
+        model.picker_revealer = Some(handles.picker_revealer);
+        model.picker_chooser = Some(handles.picker_chooser);
+        model.picker_arrow_btn = Some(handles.arrow_btn);
 
         // Refocus the canvas when the popover closes so keyboard shortcuts
         // resume working without the user having to click on the canvas.
