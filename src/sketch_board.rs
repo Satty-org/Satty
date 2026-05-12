@@ -77,6 +77,12 @@ pub enum SketchBoardInput {
     /// CropTool itself doesn't have to know which tool was active
     /// before the user switched into Crop.
     ExitCropToPreviousTool,
+    /// Mirror the current `style.fill` out to the StyleToolbar after
+    /// a programmatic toggle (the `F` keyboard shortcut routes
+    /// through `ToolbarEvent::ToggleFill`, which updates
+    /// `style.fill` but doesn't touch the toolbar's mirror — that's
+    /// done lazily on button click; this sync signal closes the loop).
+    SyncFillToToolbar,
     Output(SketchBoardOutput),
 }
 
@@ -1307,6 +1313,23 @@ impl SketchBoard {
                     sender.input(SketchBoardInput::new_text_event(TextEventMsg::Commit(
                         txt.to_string(),
                     )));
+                } else if txt == "f" || txt == "F" {
+                    // `F` toggles Fill Shape. Handled here (rather
+                    // than in the key-pressed chain below) because
+                    // GTK's IM context consumes printable letter
+                    // keys before they reach the EventControllerKey
+                    // path — same reason `p`, `c`, etc. tool
+                    // shortcuts are matched off `TextEventMsg::Commit`.
+                    // Route via the existing `ToggleFill` event so
+                    // sketch_board's `&mut self` handler does the
+                    // flip + dispatch, and follow up with a sync
+                    // signal to the toolbar (the button-click path
+                    // updates its own mirror locally; from a
+                    // keyboard toggle, we have to push instead).
+                    sender.input(SketchBoardInput::ToolbarEvent(
+                        ToolbarEvent::ToggleFill,
+                    ));
+                    sender.input(SketchBoardInput::SyncFillToToolbar);
                 } else if let Some(tool) = txt
                     .chars()
                     .next()
@@ -2068,26 +2091,6 @@ impl Component for SketchBoard {
                             } else if ke.modifier.is_empty() && ke.key == Key::Delete {
                                 self.handle_reset()
                             } else if ke.modifier.is_empty()
-                                && ke.is_one_of(Key::f, KeyMappingId::UsF)
-                            {
-                                // `f` shortcut → toggle Fill Shape.
-                                // Mirrors the toolbar button's
-                                // `ToolbarEvent::ToggleFill` so any
-                                // newly-drawn rectangles/ellipses
-                                // pick up the new fill state, and
-                                // emit a sync-back signal so the
-                                // toolbar's button icon / tooltip
-                                // tracks the new state (the toolbar
-                                // is the source of truth for its UI
-                                // and only flips on button click
-                                // otherwise).
-                                self.style.fill = !self.style.fill;
-                                let result = self.dispatch_style_change();
-                                sender
-                                    .output_sender()
-                                    .emit(SketchBoardOutput::FillShapesChanged(self.style.fill));
-                                result
-                            } else if ke.modifier.is_empty()
                                 && (ke.key == Key::Escape
                                     || ke.key == Key::Return
                                     || ke.key == Key::KP_Enter)
@@ -2314,6 +2317,12 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::FocusCanvas => {
                 self.renderer.grab_focus();
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::SyncFillToToolbar => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::FillShapesChanged(self.style.fill));
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::ExitCropToPreviousTool => {

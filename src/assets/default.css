@@ -65,8 +65,12 @@
 .compact-control > button,
 .compact-control > button.combo {
     min-height: 32px;
-    padding-top: 1px;
-    padding-bottom: 1px;
+    /* `padding-top/bottom: 0` so the rendered widget hits 34 px
+     * total (32 px min-height + 1 px border on each side) instead
+     * of 36 px with the original 1-px vertical padding. Adwaita's
+     * default button label fits comfortably in the 32-px inner. */
+    padding-top: 0;
+    padding-bottom: 0;
     padding-left: 8px;
     padding-right: 8px;
     font-size: 0.9em;

@@ -1921,6 +1921,10 @@ impl Component for ToolsToolbar {
                             sender
                                 .output_sender()
                                 .emit(ToolbarEvent::CropAspectRatioChanged(ratio));
+                            // Hand focus back to the canvas so single-
+                            // key shortcuts (F = fill, etc.) keep
+                            // working without a manual tab-back.
+                            sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                         },
                     },
 
@@ -1965,6 +1969,7 @@ impl Component for ToolsToolbar {
                         install_tooltip: "Swap width and height",
                         connect_clicked[sender] => move |_| {
                             sender.input(ToolsToolbarInput::CropDimensionsSwap);
+                            sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                         },
                     },
                     #[name(crop_height_entry)]
@@ -2039,6 +2044,7 @@ impl Component for ToolsToolbar {
                         install_tooltip: "Rotate 90° counter-clockwise",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::RotateImage);
+                            sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                         },
                     },
 
@@ -2056,6 +2062,7 @@ impl Component for ToolsToolbar {
                         install_tooltip: "Flip horizontal",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::FlipHorizontal);
+                            sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                         },
                     },
 
@@ -2192,6 +2199,7 @@ impl Component for ToolsToolbar {
                         install_tooltip: "Cancel crop (Esc)",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::CancelCrop);
+                            sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                         },
                     },
                     gtk::Button {
@@ -2204,6 +2212,7 @@ impl Component for ToolsToolbar {
                         install_tooltip: "Apply crop (Enter)",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::ApplyCrop);
+                            sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                         },
                     },
                 },
@@ -2479,6 +2488,7 @@ impl Component for ToolsToolbar {
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::CropBgColorChanged(bg));
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             }
             ToolsToolbarInput::ImageDimensionsChanged { width, height } => {
                 self.image_width = width;
@@ -2860,7 +2870,13 @@ impl Component for ToolsToolbar {
         });
 
         let popover_for_cancel = resize_popover.clone();
-        cancel_btn.connect_clicked(move |_| popover_for_cancel.popdown());
+        let sender_for_cancel = sender.clone();
+        cancel_btn.connect_clicked(move |_| {
+            popover_for_cancel.popdown();
+            sender_for_cancel
+                .output_sender()
+                .emit(ToolbarEvent::FocusCanvas);
+        });
 
         // Resize button: convert the typed values into image-pixel
         // dimensions based on the current units, then emit
@@ -2903,6 +2919,9 @@ impl Component for ToolsToolbar {
                         height: target_h_px,
                     });
                 popover_for_resize.popdown();
+                sender_resize
+                    .output_sender()
+                    .emit(ToolbarEvent::FocusCanvas);
             }
         });
 
