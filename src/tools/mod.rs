@@ -159,6 +159,14 @@ pub trait Tool {
         None
     }
 
+    /// True when the tool is currently dragging a resize handle (vs a
+    /// body / move drag). Sketch_board hides the cursor during a resize
+    /// drag so the user can see exactly where the dragged edge or
+    /// corner lands.
+    fn is_resizing(&self) -> bool {
+        false
+    }
+
     fn get_tool_type(&self) -> Tools;
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>);

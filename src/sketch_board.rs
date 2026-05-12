@@ -1578,6 +1578,14 @@ impl SketchBoard {
         let pointer_tool = self.tools.get(&Tools::Pointer);
         let pt = pointer_tool.borrow();
         if pt.dragging_drawable_id().is_some() {
+            // Hide the cursor entirely during a resize-handle drag so
+            // the user can see exactly where the dragged edge / corner
+            // lands. Body (move) drags keep the cursor visible — the
+            // user wants to track where the shape's reference point is
+            // moving to.
+            if pt.is_resizing() {
+                self.renderer.set_cursor_from_name(Some("none"));
+            }
             return;
         }
 
@@ -2156,11 +2164,14 @@ impl Component for SketchBoard {
 
                     ie.handle_event_mouse_input(&self.renderer);
 
-                    // Update hover cursor on motion (PointerPos events keep
-                    // their raw widget coords through the chain — translate
-                    // ourselves).
+                    // Update hover cursor on motion AND on drag-end —
+                    // a resize-handle drag hides the cursor (so the user
+                    // can see where the dragged edge lands), and the
+                    // hide stays in effect until the next motion event
+                    // unless we also refresh on release.
                     if let InputEvent::Mouse(me) = &ie
-                        && me.type_ == MouseEventType::PointerPos
+                        && (me.type_ == MouseEventType::PointerPos
+                            || me.type_ == MouseEventType::EndDrag)
                     {
                         let image_pos =
                             self.renderer.abs_canvas_to_image_coordinates(me.pos);

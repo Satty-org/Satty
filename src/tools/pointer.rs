@@ -232,17 +232,18 @@ impl Tool for PointerTool {
         // Marquee rect during drag-rect selection.
         let marquee = self.marquee.as_ref().map(MarqueeState::rect);
 
-        // Handles only for single-selection. Source from the live drag
-        // working copy if present, otherwise from the drawable the renderer
-        // passed in. We must NOT call back into `self.store` here — the
-        // renderer holds a mutable borrow on its inner state across this
-        // call, so re-entering would panic with a RefCell conflict.
-        let handles: Vec<Handle> = if self.selected.len() == 1 {
-            if let Some(d) = &self.drag {
-                d.working.handles()
-            } else {
-                selected.map(|d| d.handles()).unwrap_or_default()
-            }
+        // Handles only for single-selection AND only when no drag is
+        // in flight — hiding them mid-move / mid-resize lets the user
+        // actually see where the shape's edges / endpoints will land
+        // without the handle glyphs blocking the view. They reappear
+        // when the drag ends (the drag state is cleared at that
+        // point so this branch returns to drawing from `selected`).
+        // We must NOT call back into `self.store` here — the
+        // renderer holds a mutable borrow on its inner state across
+        // this call, so re-entering would panic with a RefCell
+        // conflict.
+        let handles: Vec<Handle> = if self.selected.len() == 1 && self.drag.is_none() {
+            selected.map(|d| d.handles()).unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -263,6 +264,10 @@ impl Tool for PointerTool {
 
     fn dragging_drawable_id(&self) -> Option<DrawableId> {
         self.drag.as_ref().map(|d| d.id)
+    }
+
+    fn is_resizing(&self) -> bool {
+        matches!(self.drag.as_ref().map(|d| d.mode), Some(DragMode::Handle(_)))
     }
 
     fn input_enabled(&self) -> bool {

@@ -1161,31 +1161,31 @@ impl FemtoVgAreaMut {
 
         // In-progress drawable from the active tool (e.g. the shape currently
         // being drawn). When the pointer tool is the active tool *and* it's
-        // mid-drag, this is the selection's working copy — render the glow
-        // beneath it so the halo follows the drag in real time.
+        // mid-drag, this is the selection's working copy — draw it WITHOUT
+        // the selection glow / outline so the user can see exactly where
+        // the shape's edges land while moving or resizing. The halo + the
+        // per-drawable selection decorations (text dashed outline, etc.)
+        // come back the moment the drag ends (drag state cleared → next
+        // frame goes through the stored-drawables path above, which still
+        // renders the glow for selected items).
         {
             let at = self.active_tool.borrow();
             if let Some(d) = at.get_drawable() {
-                let is_selected_drag = pointer_is_active
-                    && at.dragging_drawable_id().is_some();
-                if is_selected_drag {
-                    d.render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
-                }
-                super::set_current_drawable_is_selected(is_selected_drag);
+                // No glow + no `is_selected` publish during drag. (When
+                // the active tool is creating a NEW shape — not a pointer
+                // drag — `dragging_drawable_id` is None, so we never had
+                // a glow there anyway.)
                 d.draw(canvas, font, bounds)?;
-                super::set_current_drawable_is_selected(false);
             }
         }
 
         // The pointer tool's working copy during an implicit-mode drag (active
-        // tool is something else, like Arrow).
+        // tool is something else, like Arrow). Same "no glow, no selection
+        // decoration mid-drag" treatment as the active-tool branch above.
         if !pointer_is_active
             && let Some(d) = self.pointer_tool.borrow().get_drawable()
         {
-            d.render_glow(canvas, font, bounds, self.device_pixel_ratio)?;
-            super::set_current_drawable_is_selected(true);
             d.draw(canvas, font, bounds)?;
-            super::set_current_drawable_is_selected(false);
         }
 
         // Spotlight pass: dark overlay outside the union of all
