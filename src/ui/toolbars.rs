@@ -826,6 +826,13 @@ pub struct StyleToolbar {
     /// adds (delta_x_in_pixels × ANNOTATION_DRAG_GAIN) to this to get the
     /// new value. Cleared on `AnnotationDragEnd`.
     annotation_drag_origin: Option<f32>,
+    /// Accumulator for the scroll-over-pill gesture. A notched mouse
+    /// wheel reports |dy| = 1.0 per click so each notch fires one
+    /// `ANNOTATION_STEP` bump; trackpads emit many sub-1 dy events
+    /// per swipe, which would otherwise either undershoot (if we
+    /// require |dy| ≥ 1) or overshoot (if we step on every event).
+    /// Accumulate dy and consume it in whole-notch chunks.
+    annotation_scroll_accum: f32,
     /// True while the annotation pill is showing its inline `gtk::Entry`
     /// (click without drag flips this on). Drives the stack's visible
     /// child via imperative `set_visible_child_name` calls in the
@@ -1066,6 +1073,12 @@ pub enum StyleToolbarInput {
     /// next launch starts at this value instead of falling back to
     /// the welcome-dialog default or the config.toml fallback.
     SaveAnnotationAsDefault,
+    /// Scroll wheel over the multiplier pill — `dy` is GTK's signed
+    /// scroll delta (positive = scroll down). The handler accumulates
+    /// and bumps the annotation factor by ±`ANNOTATION_STEP` per
+    /// virtual notch so trackpads don't blow past the value in one
+    /// flick.
+    AnnotationScrollBump(f64),
     /// Right-click → "Save as default" on the size slider. Writes
     /// the current size as the saved default for the currently-active
     /// tool. Future tool-switches into that tool (and the next
@@ -1386,219 +1399,240 @@ impl Component for ToolsToolbar {
     type CommandOutput = ();
 
     view! {
-        root = gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 2,
+        // CenterBox mirrors the bottom row's layout so the toolbar's
+        // three logical clusters (view+history on the left, drawing
+        // tools in the middle, color+save on the right) sit at the
+        // window's left/center/right edges instead of clustering in
+        // the middle with empty space on each side. The cluster
+        // pattern matches convention's editor toolbar.
+        root = gtk::CenterBox {
             set_valign: Align::Start,
-            set_halign: Align::Center,
             add_css_class: "toolbar",
             add_css_class: "toolbar-top",
 
             #[watch]
             set_visible: model.visible,
 
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+            #[wrap(Some)]
+            set_start_widget = &gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 2,
 
-                set_icon_name: "resize-large-regular",
-                install_tooltip: "1:1",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
-            },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
 
-                set_icon_name: "page-fit-regular",
-                install_tooltip: "Fit to window",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
-            },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+                    set_icon_name: "resize-large-regular",
+                    install_tooltip: "1:1",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
+                },
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
 
-                set_icon_name: "recycling-bin",
-                install_tooltip: "Reset all annotations (Delete)",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
-            },
-            gtk::Separator {},
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+                    set_icon_name: "page-fit-regular",
+                    install_tooltip: "Fit to window",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
+                },
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
 
-                set_icon_name: "arrow-undo-filled",
-                install_tooltip: "Undo (Ctrl-Z)",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Undo);},
-            },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+                    set_icon_name: "recycling-bin",
+                    install_tooltip: "Reset all annotations (Delete)",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
+                },
+                gtk::Separator {},
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
 
-                set_icon_name: "arrow-redo-filled",
-                install_tooltip: "Redo (Ctrl-Y)",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
-            },
-            gtk::Separator {},
-            #[name(pointer_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
+                    set_icon_name: "arrow-undo-filled",
+                    install_tooltip: "Undo (Ctrl-Z)",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Undo);},
+                },
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
 
-                set_icon_name: "cursor-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Pointer,
-            },
-            #[name(crop_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "crop-filled",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Crop,
-            },
-            #[name(brush_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "pen-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Brush,
-            },
-            #[name(line_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "minus-large",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Line,
-            },
-            #[name(arrow_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "arrow-up-right-filled",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Arrow,
-            },
-            #[name(rectangle_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "checkbox-unchecked-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Rectangle,
-            },
-            #[name(ellipse_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "circle-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Ellipse,
-            },
-            #[name(text_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "text-case-title-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Text,
-            },
-            #[name(marker_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "number-circle-1-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Marker,
-            },
-            #[name(blur_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "drop-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Blur,
-            },
-            #[name(highlight_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "highlight-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Highlighter,
-            },
-            #[name(spotlight_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_icon_name: "flashlight-regular",
-                // tooltip set programmatically
-                ActionablePlus::set_action::<ToolsAction>: Tools::Spotlight,
-            },
-            gtk::Separator {},
-            // Unified color picker — single MenuButton showing the current
-            // color; the popover (built in init) holds the palette and a
-            // custom-color picker, mirroring a standard X's compact picker.
-            // `focusable: false` blocks Tab navigation; `focus_on_click:
-            // false` blocks mouse-click focus too — both are needed or
-            // shortcuts stop working until the user tabs focus back to
-            // the canvas.
-            #[name(color_button)]
-            gtk::MenuButton {
-                set_focusable: false,
-                set_focus_on_click: false,
-                set_hexpand: false,
-                add_css_class: "color-picker-button",
-                add_css_class: "flat",
-                install_tooltip: "Color (1–0 picks a palette color)",
-                set_always_show_arrow: false,
-
-                #[wrap(Some)]
-                set_child = &gtk::Image {
-                    set_pixel_size: 18,
-                    set_can_target: false,
-                    #[watch]
-                    set_from_pixbuf: Some(&model.current_color_pixbuf),
+                    set_icon_name: "arrow-redo-filled",
+                    install_tooltip: "Redo (Ctrl-Y)",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
                 },
             },
-            gtk::Separator {},
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
 
-                set_icon_name: "copy-regular",
-                install_tooltip: "Copy to clipboard (Ctrl+C)",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
+            #[wrap(Some)]
+            set_center_widget = &gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 2,
+
+                #[name(pointer_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "cursor-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Pointer,
+                },
+                #[name(crop_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "crop-filled",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Crop,
+                },
+                #[name(brush_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "pen-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Brush,
+                },
+                #[name(line_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "minus-large",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Line,
+                },
+                #[name(arrow_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "arrow-up-right-filled",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Arrow,
+                },
+                #[name(rectangle_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "checkbox-unchecked-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Rectangle,
+                },
+                #[name(ellipse_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "circle-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Ellipse,
+                },
+                #[name(text_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "text-case-title-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Text,
+                },
+                #[name(marker_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "number-circle-1-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Marker,
+                },
+                #[name(blur_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "drop-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Blur,
+                },
+                #[name(highlight_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "highlight-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Highlighter,
+                },
+                #[name(spotlight_button)]
+                gtk::ToggleButton {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "flashlight-regular",
+                    // tooltip set programmatically
+                    ActionablePlus::set_action::<ToolsAction>: Tools::Spotlight,
+                },
             },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
 
-                set_icon_name: "save-regular",
-                install_tooltip: "Save (Ctrl+S)",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
+            #[wrap(Some)]
+            set_end_widget = &gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 2,
 
-                set_visible: APP_CONFIG.read().output_filename().is_some()
-            },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
+                // Unified color picker — single MenuButton showing the current
+                // color; the popover (built in init) holds the palette and a
+                // custom-color picker, mirroring a standard X's compact picker.
+                // `focusable: false` blocks Tab navigation; `focus_on_click:
+                // false` blocks mouse-click focus too — both are needed or
+                // shortcuts stop working until the user tabs focus back to
+                // the canvas.
+                #[name(color_button)]
+                gtk::MenuButton {
+                    set_focusable: false,
+                    set_focus_on_click: false,
+                    set_hexpand: false,
+                    add_css_class: "color-picker-button",
+                    add_css_class: "flat",
+                    install_tooltip: "Color (1–0 picks a palette color)",
+                    set_always_show_arrow: false,
 
-                set_icon_name: "save-multiple-regular",
-                install_tooltip: "Save as (Ctrl+Shift+S)",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
+                    #[wrap(Some)]
+                    set_child = &gtk::Image {
+                        set_pixel_size: 18,
+                        set_can_target: false,
+                        #[watch]
+                        set_from_pixbuf: Some(&model.current_color_pixbuf),
+                    },
+                },
+                gtk::Separator {},
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "copy-regular",
+                    install_tooltip: "Copy to clipboard (Ctrl+C)",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
+                },
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "save-regular",
+                    install_tooltip: "Save (Ctrl+S)",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
+
+                    set_visible: APP_CONFIG.read().output_filename().is_some()
+                },
+                gtk::Button {
+                    set_focusable: false,
+                    set_hexpand: false,
+
+                    set_icon_name: "save-multiple-regular",
+                    install_tooltip: "Save as (Ctrl+Shift+S)",
+                    connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
+                },
             },
         },
     }
@@ -2278,6 +2312,7 @@ impl Component for StyleToolbar {
                     },
                 },
 
+                #[name = "text_background_dropdown"]
                 gtk::DropDown {
                     add_css_class: "compact-control",
                     set_focusable: false,
@@ -2510,6 +2545,46 @@ impl Component for StyleToolbar {
                 // change).
                 crate::state::save_annotation_size_factor(self.annotation_size);
             }
+            StyleToolbarInput::AnnotationScrollBump(dy) => {
+                // Drop the editing-entry case — if the user is mid-edit
+                // we shouldn't be hijacking their input.
+                if self.editing_annotation {
+                    return;
+                }
+                // Reset on direction reversal so a flick the other way
+                // doesn't have to chew through the previous direction's
+                // leftover (mirrors the canvas scroll-resize behavior).
+                let dy = dy as f32;
+                if self.annotation_scroll_accum != 0.0
+                    && self.annotation_scroll_accum.signum() != (-dy).signum()
+                {
+                    self.annotation_scroll_accum = 0.0;
+                }
+                // GTK: dy>0 is scroll-down. User asked for scroll-up =
+                // higher, so negate the sign.
+                self.annotation_scroll_accum += -dy;
+                let mut steps = 0i32;
+                while self.annotation_scroll_accum >= 1.0 {
+                    self.annotation_scroll_accum -= 1.0;
+                    steps += 1;
+                }
+                while self.annotation_scroll_accum <= -1.0 {
+                    self.annotation_scroll_accum += 1.0;
+                    steps -= 1;
+                }
+                if steps == 0 {
+                    return;
+                }
+                let raw = self.annotation_size + steps as f32 * ANNOTATION_STEP;
+                let snapped = quantise_annotation(raw);
+                if (snapped - self.annotation_size).abs() >= ANNOTATION_STEP / 2.0 {
+                    self.annotation_size = snapped;
+                    self.annotation_size_formatted = format_annotation(snapped);
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::AnnotationSizeChanged(snapped));
+                }
+            }
             StyleToolbarInput::SaveSizeAsDefault => {
                 // Persist the live size as the default for THE
                 // CURRENT TOOL only — different tools each get their
@@ -2549,6 +2624,9 @@ impl Component for StyleToolbar {
                 }
             }
             StyleToolbarInput::SetCurrentSize(size) => {
+                // Mirror sketch_board's tool-size change into the
+                // slider without re-broadcasting — sketch_board has
+                // already applied the value via dispatch_style_change.
                 self.current_size = size;
             }
             StyleToolbarInput::SyncToToolDefault => {
@@ -2576,12 +2654,6 @@ impl Component for StyleToolbar {
                     .output_sender()
                     .emit(ToolbarEvent::SizeSelected(size));
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
-            }
-            StyleToolbarInput::SetCurrentSize(size) => {
-                // Mirror sketch_board's tool-size change into the
-                // slider without re-broadcasting — sketch_board has
-                // already applied the value via dispatch_style_change.
-                self.current_size = size;
             }
             StyleToolbarInput::SyncFromSelection(style) => {
                 // Reflect the selected shape in the toolbar widgets
@@ -2645,6 +2717,7 @@ impl Component for StyleToolbar {
             current_size: initial_size,
             fill_shapes: APP_CONFIG.read().default_fill_shapes(),
             annotation_drag_origin: None,
+            annotation_scroll_accum: 0.0,
             editing_annotation: false,
             annotation_entry: None,
             annotation_stack: None,
@@ -2690,6 +2763,13 @@ impl Component for StyleToolbar {
             };
             widgets.blur_style_dropdown.set_selected(idx);
         }
+        if let Some(bg) = crate::state::load_text_background() {
+            let idx = match bg {
+                crate::tools::TextBackground::Rounded => 0,
+                crate::tools::TextBackground::Plain => 1,
+            };
+            widgets.text_background_dropdown.set_selected(idx);
+        }
 
         // Right-click → "Save as default" on the controls users
         // tweak in the central / right cluster. The multiplier pill
@@ -2703,6 +2783,24 @@ impl Component for StyleToolbar {
             attach_save_default_popover(&widgets.annotation_pill, move || {
                 s.input(StyleToolbarInput::SaveAnnotationAsDefault);
             });
+        }
+        // Hover + scroll over the multiplier pill nudges the factor
+        // by ±ANNOTATION_STEP per notch (up = larger, down = smaller).
+        // Saves the user from having to click → type → enter for small
+        // tweaks. The pill's existing drag-edit gesture only
+        // responds to button-1 motion, so a scroll event passes
+        // through without conflict.
+        {
+            let scroll = gtk::EventControllerScroll::new(
+                gtk::EventControllerScrollFlags::VERTICAL,
+            );
+            let sender_for_scroll = sender.clone();
+            scroll.connect_scroll(move |_c, _dx, dy| {
+                sender_for_scroll
+                    .input(StyleToolbarInput::AnnotationScrollBump(dy));
+                relm4::gtk::glib::Propagation::Stop
+            });
+            widgets.annotation_pill.add_controller(scroll);
         }
         {
             let s = sender.clone();
