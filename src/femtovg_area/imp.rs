@@ -35,21 +35,24 @@ const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 
 /// Breathing room (in CSS px) around the rendered screenshot inside
 /// the canvas. Gives the image visual separation from the toolbars
-/// and lets the drop shadow fall outside the image edges. Mirrors
-/// the standard approach. Scaled to canvas pixels at render time via
-/// the device pixel ratio.
-const CANVAS_PADDING_CSS: f32 = 40.0;
-/// macOS-style soft drop shadow: blur radius in CSS px. The shadow
-/// is a box-gradient that fades from semi-transparent black at the
-/// image edge to fully transparent over this distance.
-const SHADOW_BLUR_CSS: f32 = 18.0;
-/// Vertical offset of the shadow (CSS px). A small downward shift
-/// suggests a light source from above — matches macOS window shadow
-/// conventions.
-const SHADOW_OFFSET_Y_CSS: f32 = 4.0;
-/// Peak alpha of the drop shadow at the image edge. Semi-transparent
-/// black; lower values feel insubstantial, higher values look harsh.
-const SHADOW_ALPHA: f32 = 0.30;
+/// and lets the drop shadow fall outside the image edges. Scaled to
+/// canvas pixels at render time via the device pixel ratio. Sized to
+/// fully contain the `SHADOW_KEY_*` extent below so the wide key
+/// shadow doesn't get clipped at the canvas edge.
+const CANVAS_PADDING_CSS: f32 = 60.0;
+/// Ambient ("contact") shadow: a tight, even halo right at the image
+/// edge. No vertical offset — sells the "the image is sitting on the
+/// surface" half of the macOS shadow model.
+const SHADOW_AMBIENT_BLUR_CSS: f32 = 12.0;
+const SHADOW_AMBIENT_ALPHA: f32 = 0.25;
+/// Key ("elevation") shadow: wider, offset downward. This is the
+/// layer that actually reads as "the window is floating above the
+/// desktop" — the look macOS uses. Layered on top of the
+/// ambient so the two combine into a soft, asymmetric shadow that
+/// pools more below than above.
+const SHADOW_KEY_BLUR_CSS: f32 = 40.0;
+const SHADOW_KEY_OFFSET_Y_CSS: f32 = 14.0;
+const SHADOW_KEY_ALPHA: f32 = 0.45;
 /// Maximum overshoot (CSS px) the rubber-band rendering will display
 /// when the user pans past the image edge. The hyperbolic damping
 /// in `rubber_band` asymptotes to this value, so it's the "elastic
@@ -230,6 +233,13 @@ pub struct FemtoVgAreaMut {
     /// the right image-space position.
     effective_scale: f32,
     effective_offset: Vec2D,
+    /// Canvas-pixel rect of the visible content (full image in the
+    /// regular view; the cropped region in committed-crop mode).
+    /// Captured during `render_framebuffer` so the drop-shadow path
+    /// in `render` can draw a shadow around whichever rect is
+    /// actually on screen without re-deriving it.
+    display_rect_origin: Vec2D,
+    display_rect_size: Vec2D,
     /// Canvas pixel dimensions captured at the last
     /// `update_transformation` call. Used by
     /// `set_pan_from_scrollbar` to translate a scrollbar adjustment
@@ -310,7 +320,11 @@ impl GLAreaImpl for FemtoVGArea {
         // update scale factor + pan; capture the snapshot we need
         // for the upstream notifications BEFORE releasing the inner
         // borrow so the emit paths don't have to re-acquire it.
-        let (scale_factor, pan_info) = {
+        // `effective_scale` is what the indicator should show — for
+        // committed-crop mode it's `crop_zoom`, for the regular view
+        // it equals `scale_factor`. update_transformation keeps it in
+        // sync now, so one emit covers both paths.
+        let (eff_scale, pan_info) = {
             let mut inner_ref = self.inner();
             let inner = inner_ref
                 .as_mut()
@@ -327,9 +341,9 @@ impl GLAreaImpl for FemtoVGArea {
                 canvas_w: canvas.width() as f32,
                 canvas_h: canvas.height() as f32,
             };
-            (inner.scale_factor, pan_info)
+            (inner.effective_scale, pan_info)
         };
-        self.notify_zoom_display(scale_factor);
+        self.notify_zoom_display(eff_scale);
         self.notify_pan_display(pan_info);
     }
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
@@ -442,6 +456,8 @@ impl FemtoVGArea {
             spotlight_darkness: 0.50,
             effective_scale: 1.0,
             effective_offset: Vec2D::zero(),
+            display_rect_origin: Vec2D::zero(),
+            display_rect_size: Vec2D::zero(),
             last_canvas_size: Vec2D::zero(),
             crop_zoom: 1.0,
             last_pan_input: std::time::Instant::now(),
@@ -855,6 +871,7 @@ impl FemtoVgAreaMut {
             false,
             femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
             false,
+            true,
             RenderTarget::Image(image_id),
             transform,
         )?;
@@ -893,16 +910,31 @@ impl FemtoVgAreaMut {
             && crop_size.x > 0.0
             && crop_size.y > 0.0
         {
-            let fit_scale = (canvas_w / crop_size.x).min(canvas_h / crop_size.y);
-            // Apply the user's wheel-zoom on top of the fit. At 1.0
-            // we're exactly fit-to-canvas; above 1.0 the crop
-            // exceeds the canvas on the dominant axis and pan via
-            // `drag_offset` becomes meaningful.
-            let scale = fit_scale * self.crop_zoom;
+            // Render the committed crop at 1:1 when it fits in the
+            // canvas with padding, with reduced padding when it just
+            // fits the canvas, and scaled down only when it can't fit
+            // at all. Mirror image of `update_transformation`'s
+            // non-crop branch — same "100 % first, shrink padding,
+            // scale only as last resort" cascade. Main.rs resizes the
+            // window to fit (cropped + padding) on commit so the
+            // canvas usually has enough room for the 1:1 path.
+            // `crop_zoom` still multiplies on top so Super+scroll
+            // zooms further once cropped.
+            let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
+            let inner_w = (canvas_w - 2.0 * pad).max(crop_size.x.min(canvas_w));
+            let inner_h = (canvas_h - 2.0 * pad).max(crop_size.y.min(canvas_h));
+            let scale_with_pad = (inner_w / crop_size.x).min(inner_h / crop_size.y);
+            let base_scale = if scale_with_pad >= 1.0 {
+                1.0
+            } else {
+                (canvas_w / crop_size.x).min(canvas_h / crop_size.y)
+            };
+            let scale = base_scale * self.crop_zoom;
             let crop_canvas_w = crop_size.x * scale;
             let crop_canvas_h = crop_size.y * scale;
-            // pad_* can be negative when crop_zoom > 1; that's fine,
-            // the scissor below clips back to the visible window.
+            // pad_* can be negative when crop_zoom × base_scale > 1
+            // (zoomed past the canvas edge); the scissor below clips
+            // back to the visible window.
             let pad_x = (canvas_w - crop_canvas_w) / 2.0;
             let pad_y = (canvas_h - crop_canvas_h) / 2.0;
             // Clamp the user's pan to the in-bounds range for the
@@ -918,6 +950,15 @@ impl FemtoVgAreaMut {
             self.last_offset = self.drag_offset;
             let offset_x = pad_x - scale * crop_pos.x + self.drag_offset.x;
             let offset_y = pad_y - scale * crop_pos.y + self.drag_offset.y;
+            // Visible-content canvas-pixel rect — used by the
+            // drop-shadow path so the shadow falls around the
+            // cropped region, not the full background image
+            // (whose edges are off-canvas / scissored out).
+            self.display_rect_origin = Vec2D::new(
+                pad_x + self.drag_offset.x,
+                pad_y + self.drag_offset.y,
+            );
+            self.display_rect_size = Vec2D::new(crop_canvas_w, crop_canvas_h);
             let mut t = Transform2D::identity();
             t.scale(scale, scale);
             t.translate(offset_x, offset_y);
@@ -937,21 +978,93 @@ impl FemtoVgAreaMut {
         } else {
             // Leaving committed-crop view (or never entered) — reset
             // the user's crop-zoom multiplier so the next commit
-            // starts cleanly at fit-to-canvas (1.0). Without this, a
-            // user who zoomed inside a crop, reverted, and re-cropped
+            // starts cleanly at 100 % (1.0×). Without this, a user
+            // who zoomed inside a crop, reverted, and re-cropped
             // would land in the new committed view at the OLD zoom
             // multiplier (surprising).
             self.crop_zoom = 1.0;
+            // Non-crop view: visible rect is the full background image.
+            let image_w = self.background_image.width() as f32;
+            let image_h = self.background_image.height() as f32;
+            self.display_rect_origin = self.offset;
+            self.display_rect_size =
+                Vec2D::new(image_w * self.scale_factor, image_h * self.scale_factor);
             let mut t = Transform2D::identity();
             t.scale(self.scale_factor, self.scale_factor);
             t.translate(self.offset.x, self.offset.y);
             (t, None, self.scale_factor, self.offset)
         };
 
+        // (Effective-scale → zoom indicator emit happens in the
+        //  outer FemtoVGArea::render after this returns, because the
+        //  parent sender lives there.)
+
         // Cache the effective transform so input-coord conversion
         // routes through the same scale/offset the user is seeing.
         self.effective_scale = eff_scale;
         self.effective_offset = eff_offset;
+
+        // Pre-scissor stage: fill the full canvas with CANVAS_BG and
+        // draw the drop shadow in canvas-pixel space. Doing this here
+        // (rather than inside `render`'s clear + shadow path) is what
+        // lets the soft shadow blur fall OUTSIDE a committed crop's
+        // scissor rectangle — if we cleared and drew the shadow after
+        // setting the scissor, the blur would be clipped and the
+        // cropped view would have no visible shadow.
+        canvas.reset_transform();
+        canvas.clear_rect(
+            0,
+            0,
+            canvas.width(),
+            canvas.height(),
+            CANVAS_BG,
+        );
+
+        {
+            let dpr = self.device_pixel_ratio.max(0.0001);
+            let img_w = self.display_rect_size.x;
+            let img_h = self.display_rect_size.y;
+            let img_x = self.display_rect_origin.x;
+            let img_y = self.display_rect_origin.y;
+
+            let mut draw_layer =
+                |center_x: f32, center_y: f32, blur: f32, alpha: f32| {
+                    let mut path = Path::new();
+                    path.rect(
+                        center_x - blur,
+                        center_y - blur,
+                        img_w + 2.0 * blur,
+                        img_h + 2.0 * blur,
+                    );
+                    let paint = Paint::box_gradient(
+                        center_x,
+                        center_y,
+                        img_w,
+                        img_h,
+                        0.0,
+                        blur,
+                        femtovg::Color::rgbaf(0.0, 0.0, 0.0, alpha),
+                        femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+                    );
+                    canvas.fill_path(&path, &paint);
+                };
+
+            // Ambient (contact) layer — tight halo, no offset.
+            draw_layer(
+                img_x,
+                img_y,
+                SHADOW_AMBIENT_BLUR_CSS * dpr,
+                SHADOW_AMBIENT_ALPHA,
+            );
+
+            // Key (elevation) layer — wide, offset downward.
+            draw_layer(
+                img_x,
+                img_y + SHADOW_KEY_OFFSET_Y_CSS * dpr,
+                SHADOW_KEY_BLUR_CSS * dpr,
+                SHADOW_KEY_ALPHA,
+            );
+        }
 
         canvas.reset_transform();
         canvas.set_transform(&transform);
@@ -960,15 +1073,16 @@ impl FemtoVgAreaMut {
             canvas.scissor(sx, sy, sw, sh);
         }
 
-        // Dark-gray fill behind the image (CANVAS_BG) gives the
-        // canvas a standard-like surface tone that matches the
-        // toolbar chrome, rather than a solid black void.
+        // Canvas + shadow are already painted above; tell `render`
+        // to skip its own clear_rect so the shadow survives until
+        // the image is drawn over it.
         self.render(
             canvas,
             font,
             true,
             CANVAS_BG,
             true,
+            false,
             RenderTarget::Screen,
             transform,
         )?;
@@ -987,12 +1101,18 @@ impl FemtoVgAreaMut {
         render_crop: bool,
         outside_bg_color: femtovg::Color,
         onscreen: bool,
+        clear_canvas: bool,
         restore_target: RenderTarget,
         restore_transform: Transform2D,
     ) -> Result<()> {
-        // clear canvas
-
-        canvas.clear_rect(0, 0, canvas.width(), canvas.height(), outside_bg_color);
+        // Clear canvas. Skipped when the caller has already filled
+        // the canvas + drawn the drop shadow pre-scissor (the
+        // `render_framebuffer` path does this so the shadow blur can
+        // fall outside a committed-crop's scissor without being
+        // clipped).
+        if clear_canvas {
+            canvas.clear_rect(0, 0, canvas.width(), canvas.height(), outside_bg_color);
+        }
 
         // render background
         self.render_background_image(canvas, onscreen)?;
@@ -1270,46 +1390,11 @@ impl FemtoVgAreaMut {
         let w = self.background_image.width() as f32;
         let h = self.background_image.height() as f32;
 
-        // Soft drop shadow under the screenshot. Only drawn for the
-        // on-screen view — saved exports keep the clean image with no
-        // chrome. We render the shadow in canvas-pixel space (transform
-        // temporarily reset) so the blur radius is a fixed CSS-px
-        // value at every zoom level instead of growing/shrinking with
-        // the scale factor.
-        if onscreen {
-            let saved_transform = canvas.transform();
-            canvas.reset_transform();
-
-            let dpr = self.device_pixel_ratio.max(0.0001);
-            let blur = SHADOW_BLUR_CSS * dpr;
-            let offset_y = SHADOW_OFFSET_Y_CSS * dpr;
-            let img_canvas_x = self.offset.x;
-            let img_canvas_y = self.offset.y + offset_y;
-            let img_canvas_w = w * self.scale_factor;
-            let img_canvas_h = h * self.scale_factor;
-
-            let mut shadow_path = Path::new();
-            shadow_path.rect(
-                img_canvas_x - blur,
-                img_canvas_y - blur,
-                img_canvas_w + 2.0 * blur,
-                img_canvas_h + 2.0 * blur,
-            );
-            let shadow_paint = Paint::box_gradient(
-                img_canvas_x,
-                img_canvas_y,
-                img_canvas_w,
-                img_canvas_h,
-                0.0,
-                blur,
-                femtovg::Color::rgbaf(0.0, 0.0, 0.0, SHADOW_ALPHA),
-                femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
-            );
-            canvas.fill_path(&shadow_path, &shadow_paint);
-
-            canvas.reset_transform();
-            canvas.set_transform(&saved_transform);
-        }
+        // (The on-screen drop shadow is drawn pre-scissor by
+        //  `render_framebuffer` so it doesn't get clipped to the
+        //  cropped region in committed-crop mode — see the shadow
+        //  block at the top of that function. Saved exports skip
+        //  shadow entirely.)
 
         // render the image
         let mut path = Path::new();
@@ -1494,6 +1579,36 @@ impl FemtoVgAreaMut {
                 self.scale_factor = (canvas_width / image_width).min(canvas_height / image_height);
             }
         }
+
+        // `effective_scale` is what the zoom indicator should show:
+        // it's the on-screen scale a fresh `render_framebuffer` will
+        // actually use. For the regular view that's just
+        // `scale_factor`. For a committed crop we re-run the same
+        // auto-fit-with-padding cascade `render_framebuffer` uses —
+        // 100 % when the crop fits with padding, scaled-down only
+        // when it can't — multiplied by `crop_zoom`. Computing this
+        // here (rather than waiting for `render_framebuffer`) means
+        // the existing `notify_zoom_display` path in `resize` picks
+        // up the right value without special-casing crop mode.
+        let committed_crop = self
+            .crop_tool
+            .borrow()
+            .get_committed_rect()
+            .filter(|(_, s)| s.x > 0.0 && s.y > 0.0);
+        self.effective_scale = if let Some((_, crop_size)) = committed_crop {
+            let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
+            let inner_w = (canvas_width - 2.0 * pad).max(crop_size.x.min(canvas_width));
+            let inner_h = (canvas_height - 2.0 * pad).max(crop_size.y.min(canvas_height));
+            let scale_with_pad = (inner_w / crop_size.x).min(inner_h / crop_size.y);
+            let base = if scale_with_pad >= 1.0 {
+                1.0
+            } else {
+                (canvas_width / crop_size.x).min(canvas_height / crop_size.y)
+            };
+            base * self.crop_zoom
+        } else {
+            self.scale_factor
+        };
 
         let center_offset = Vec2D::new(
             (canvas_width - image_width * self.scale_factor) / 2.0,
