@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::time::Instant;
 
 use anyhow::Result;
 use femtovg::{Color, FontId, Paint, Path};
@@ -16,6 +17,18 @@ use super::{
     Drawable, DrawableId, DrawableStore, Handle, HandleId, SELECTION_BLUE, Text, Tool,
     ToolUpdateResult, Tools,
 };
+
+/// Step (image-space px) for a plain arrow-key nudge.
+const NUDGE_STEP: f32 = 1.0;
+/// Step when Shift is held — order-of-magnitude bigger, matching
+/// the convention in Figma / Sketch / Photoshop.
+const NUDGE_STEP_SHIFT: f32 = 10.0;
+/// A nudge that lands within this window of the previous one is
+/// treated as part of the same OS auto-repeat burst and folded into
+/// the same undo entry. Typical key-repeat is ~30–50 ms apart;
+/// deliberate tap-tap is >150 ms apart, so 100 ms cleanly separates
+/// the two.
+const NUDGE_COALESCE_MS: u128 = 100;
 
 pub const HIT_TOLERANCE: f32 = 6.0;
 /// Target visible diameter of the blue inner disc, in canvas (post-zoom)
@@ -66,6 +79,10 @@ pub struct PointerTool {
     /// user clicked empty space. The follow-up Click event is then suppressed
     /// so e.g. the Marker tool doesn't drop a counter on the same gesture.
     consume_next_click: bool,
+    /// Timestamp of the most recent arrow-key nudge. Used to decide
+    /// whether the next nudge is an OS auto-repeat tick (coalesce into
+    /// the previous undo entry) or a fresh discrete press (new entry).
+    last_nudge_at: Option<Instant>,
 }
 
 struct DragState {
@@ -213,6 +230,37 @@ impl PointerTool {
             .find(|h| h.pos.distance_to(&point) <= h.hit_radius)?;
         Some((id, drawable, hit))
     }
+
+    /// Translate every selected drawable by `delta` (image-space px) and
+    /// return a Modify result. Used by arrow-key nudge. When `coalesce`
+    /// is true, signals the renderer to fold this change into the
+    /// previous Modify undo entry instead of pushing a new one — so a
+    /// held-down arrow stays one undo step.
+    fn nudge_selection(&self, delta: Vec2D, coalesce: bool) -> ToolUpdateResult {
+        let Some(store) = self.store.as_ref() else {
+            return ToolUpdateResult::Unmodified;
+        };
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+        for &id in &self.selected {
+            if let Some(mut d) = store.clone_drawable(id) {
+                d.translate(delta);
+                updates.push((id, d));
+            }
+        }
+        match (updates.len(), coalesce) {
+            (0, _) => ToolUpdateResult::Unmodified,
+            (1, false) => {
+                let (id, d) = updates.pop().unwrap();
+                ToolUpdateResult::ModifyDrawable(id, d)
+            }
+            (1, true) => {
+                let (id, d) = updates.pop().unwrap();
+                ToolUpdateResult::ModifyDrawableCoalesce(id, d)
+            }
+            (_, false) => ToolUpdateResult::ModifyDrawables(updates),
+            (_, true) => ToolUpdateResult::ModifyDrawablesCoalesce(updates),
+        }
+    }
 }
 
 impl Tool for PointerTool {
@@ -316,6 +364,36 @@ impl Tool for PointerTool {
             self.drag = None;
             self.marquee = None;
             return ToolUpdateResult::RedrawAndStopPropagation;
+        }
+
+        // Arrow-key nudge: move the selection by 1 px (10 px with Shift).
+        // Accepts no modifier or Shift only; any other modifier falls
+        // through so e.g. Alt+arrow (canvas pan) keeps working.
+        let blocking_mods = ModifierType::CONTROL_MASK
+            | ModifierType::ALT_MASK
+            | ModifierType::SUPER_MASK;
+        if !event.modifier.intersects(blocking_mods) && !self.selected.is_empty() {
+            let step = if event.modifier.intersects(ModifierType::SHIFT_MASK) {
+                NUDGE_STEP_SHIFT
+            } else {
+                NUDGE_STEP
+            };
+            let delta = match event.key {
+                Key::Left => Some(Vec2D::new(-step, 0.0)),
+                Key::Right => Some(Vec2D::new(step, 0.0)),
+                Key::Up => Some(Vec2D::new(0.0, -step)),
+                Key::Down => Some(Vec2D::new(0.0, step)),
+                _ => None,
+            };
+            if let Some(delta) = delta {
+                let now = Instant::now();
+                let coalesce = self
+                    .last_nudge_at
+                    .map(|t| now.duration_since(t).as_millis() < NUDGE_COALESCE_MS)
+                    .unwrap_or(false);
+                self.last_nudge_at = Some(now);
+                return self.nudge_selection(delta, coalesce);
+            }
         }
 
         if !event.modifier.is_empty() {

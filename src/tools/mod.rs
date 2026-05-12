@@ -570,6 +570,13 @@ pub enum ToolUpdateResult {
     /// Replace many drawables atomically (Batch undo). Used for multi-select
     /// restyle.
     ModifyDrawables(Vec<(DrawableId, Box<dyn Drawable>)>),
+    /// Same as `ModifyDrawable` but merge with the previous undo entry
+    /// if it's already a Modify for the same id. Used by arrow-key
+    /// nudge so a held-down arrow produces one undo step rather than
+    /// one per OS auto-repeat tick.
+    ModifyDrawableCoalesce(DrawableId, Box<dyn Drawable>),
+    /// Multi-select counterpart of `ModifyDrawableCoalesce`.
+    ModifyDrawablesCoalesce(Vec<(DrawableId, Box<dyn Drawable>)>),
     /// Remove the drawable from the stack. Recorded as a Remove undo action so
     /// it can be restored.
     DeleteDrawable(DrawableId),

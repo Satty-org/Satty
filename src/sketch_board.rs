@@ -2096,9 +2096,10 @@ impl SketchBoard {
         // If the pointer applied the change to a selected drawable, that
         // result is what should land on the undo stack.
         match pointer_result {
-            ToolUpdateResult::ModifyDrawable(_, _) | ToolUpdateResult::ModifyDrawables(_) => {
-                pointer_result
-            }
+            ToolUpdateResult::ModifyDrawable(_, _)
+            | ToolUpdateResult::ModifyDrawables(_)
+            | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
+            | ToolUpdateResult::ModifyDrawablesCoalesce(_) => pointer_result,
             _ => active_result,
         }
     }
@@ -2540,6 +2541,8 @@ impl Component for SketchBoard {
                             | ToolUpdateResult::RedrawAndStopPropagation
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
+                            | ToolUpdateResult::ModifyDrawablesCoalesce(_)
                             | ToolUpdateResult::DeleteDrawable(_)
                             | ToolUpdateResult::DeleteDrawables(_) => Some(r),
                             _ => None,
@@ -2563,6 +2566,8 @@ impl Component for SketchBoard {
                         | ToolUpdateResult::DeleteDrawables(_)
                         | ToolUpdateResult::ModifyDrawable(_, _)
                         | ToolUpdateResult::ModifyDrawables(_)
+                        | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
+                        | ToolUpdateResult::ModifyDrawablesCoalesce(_)
                         | ToolUpdateResult::Commit(_) => active_tool_result,
                         _ => {
                             if ke.is_one_of(Key::z, KeyMappingId::UsZ)
@@ -2813,6 +2818,8 @@ impl Component for SketchBoard {
                             | ToolUpdateResult::RedrawAndStopPropagation
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
+                            | ToolUpdateResult::ModifyDrawablesCoalesce(_)
                             | ToolUpdateResult::DeleteDrawable(_)
                             | ToolUpdateResult::DeleteDrawables(_)
                             | ToolUpdateResult::EditTextDrawable(_) => Some(r),
@@ -2837,6 +2844,8 @@ impl Component for SketchBoard {
                             | ToolUpdateResult::DeleteDrawables(_)
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
+                            | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
+                            | ToolUpdateResult::ModifyDrawablesCoalesce(_)
                             | ToolUpdateResult::EditTextDrawable(_)
                             | ToolUpdateResult::Commit(_) => active_tool_result,
                             _ => {
@@ -2965,6 +2974,24 @@ impl Component for SketchBoard {
                 let ids: Vec<crate::tools::DrawableId> =
                     updates.iter().map(|(id, _)| *id).collect();
                 self.renderer.modify_many(updates);
+                self.auto_resize_canvas(&ids, &outer_sender);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                self.refresh_screen();
+            }
+            ToolUpdateResult::ModifyDrawableCoalesce(id, drawable) => {
+                self.renderer.modify_coalesce(id, drawable);
+                self.auto_resize_canvas(&[id], &outer_sender);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                self.refresh_screen();
+            }
+            ToolUpdateResult::ModifyDrawablesCoalesce(updates) => {
+                let ids: Vec<crate::tools::DrawableId> =
+                    updates.iter().map(|(id, _)| *id).collect();
+                self.renderer.modify_many_coalesce(updates);
                 self.auto_resize_canvas(&ids, &outer_sender);
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);

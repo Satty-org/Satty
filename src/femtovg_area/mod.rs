@@ -121,6 +121,23 @@ impl FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .modify_many(updates)
     }
+    pub fn modify_coalesce(&mut self, id: DrawableId, drawable: Box<dyn Drawable>) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .modify_coalesce(id, drawable)
+    }
+    pub fn modify_many_coalesce(
+        &mut self,
+        updates: Vec<(DrawableId, Box<dyn Drawable>)>,
+    ) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .modify_many_coalesce(updates)
+    }
     pub fn delete_many(&mut self, ids: &[DrawableId]) -> bool {
         self.imp()
             .inner()

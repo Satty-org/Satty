@@ -917,6 +917,65 @@ impl FemtoVgAreaMut {
         true
     }
 
+    /// Replace the drawable with `id` in-place, folding the change into
+    /// the top of the undo stack when that top is already a `Modify`
+    /// for the same id. The "first" prev (i.e. the state before the
+    /// burst started) is preserved, so a single Ctrl+Z reverses the
+    /// whole burst. Falls back to `modify` when the top doesn't match
+    /// — e.g. an unrelated action slipped in between.
+    pub fn modify_coalesce(&mut self, id: DrawableId, new: Box<dyn Drawable>) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let top_matches = matches!(
+            self.undo_stack.last(),
+            Some(UndoAction::Modify { id: top_id, .. }) if *top_id == id
+        );
+        if top_matches {
+            // Keep the existing Modify's `prev` (the burst's original
+            // state) and just swap the live drawable forward.
+            self.drawables[pos].drawable = new;
+            true
+        } else {
+            self.modify(id, new)
+        }
+    }
+
+    /// Multi-select counterpart of `modify_coalesce`. Coalesces only
+    /// when the top undo entry is a `Batch` whose contained `Modify`
+    /// ids match the requested update set exactly.
+    pub fn modify_many_coalesce(
+        &mut self,
+        updates: Vec<(DrawableId, Box<dyn Drawable>)>,
+    ) -> bool {
+        let top_matches = if let Some(UndoAction::Batch(actions)) = self.undo_stack.last() {
+            let top_ids: Vec<DrawableId> = actions
+                .iter()
+                .filter_map(|a| {
+                    if let UndoAction::Modify { id, .. } = a {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            top_ids.len() == actions.len()
+                && top_ids.len() == updates.len()
+                && updates.iter().all(|(id, _)| top_ids.contains(id))
+        } else {
+            false
+        };
+        if !top_matches {
+            return self.modify_many(updates);
+        }
+        for (id, new) in updates {
+            if let Some(pos) = self.drawables.iter().position(|s| s.id == id) {
+                self.drawables[pos].drawable = new;
+            }
+        }
+        true
+    }
+
     /// Replace many drawables atomically (single Batch undo).
     pub fn modify_many(&mut self, updates: Vec<(DrawableId, Box<dyn Drawable>)>) -> bool {
         let mut actions = Vec::new();
