@@ -356,9 +356,9 @@ dependencies = [
 
 [[package]]
 name = "femtovg"
-version = "0.23.2"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "727c5dd9d601f3f4ea133b8a6ba37d37ca67ed59781675dc1c9c9f1701e0d197"
+checksum = "75f98c9ad5e0886b078572197e2c43a7d7e92c7f389efeaff57f003eb4f552f8"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1047,9 +1047,9 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lru"
-version = "0.16.3"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
+checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
 
 [[package]]
 name = "memchr"
