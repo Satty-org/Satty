@@ -64,11 +64,13 @@ pub struct Configuration {
     profile_startup: bool,
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
-    /// How many Chaikin corner-cutting passes to run over a brush
-    /// stroke once the user releases. Each pass roughly doubles the
-    /// point count while halving every kink — 0 disables the pass,
-    /// 2 is the default (visibly smooth without exploding point
-    /// counts), 3 is silky for slow careful strokes.
+    /// Brush post-stroke smoothing level (0..=8). 0 disables. 1–2
+    /// are pure Chaikin corner-cutting (light smoothing). 3+ adds
+    /// Ramer–Douglas–Peucker simplification
+    /// before Chaikin's, with tolerance scaling per level — the
+    /// upper end of the slider produces visibly stylized arcs.
+    /// Default is 2: visibly smooth without dropping any input
+    /// detail.
     brush_post_smooth_iterations: usize,
     keybinds: Keybinds,
     zoom_factor: f32,

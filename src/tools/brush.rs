@@ -39,29 +39,101 @@ impl BrushDrawable {
         self.points.push(self.smoother.update(point));
     }
 
-    /// Post-stroke smoothing pass . Runs Chaikin's
-    /// corner-cutting `iterations` times over the delta tail. The
-    /// initial anchor `points[0]` is unused by render/bounds/hit-test
-    /// (all skip it), so we leave it alone; only `points[1..]` — the
-    /// per-frame deltas from `start_point` — get smoothed. Endpoints
-    /// of the delta tail stay anchored so the user-visible start and
-    /// release positions don't drift.
-    fn smooth_post_stroke(&mut self, iterations: usize) {
-        if iterations == 0 || self.points.len() < 4 {
+    /// Post-stroke smoothing pass. `level` is the
+    /// slider's integer setting (0 = off; higher = more aggressive).
+    /// Levels 1–2 are pure Chaikin corner-cutting; from 3 up the
+    /// stroke is first simplified with Ramer–Douglas–Peucker
+    /// (tolerance scales with level) and then Chaikin'd back into a
+    /// smooth curve. The initial anchor `points[0]` stays untouched
+    /// — render/bounds/hit-test all `skip(1)` it. Only the delta
+    /// tail `points[1..]` is smoothed, and the first/last deltas
+    /// stay anchored so the visible start/release positions don't
+    /// drift.
+    fn smooth_post_stroke(&mut self, level: usize) {
+        if level == 0 || self.points.len() < 4 {
             return;
         }
-        let smoothed = chaikin_smooth(&self.points[1..], iterations);
+        let smoothed = smooth_polyline(&self.points[1..], level);
         self.points.truncate(1);
         self.points.extend(smoothed);
+    }
+}
+
+/// Combined RDP-simplify + Chaikin-smooth pipeline. Higher `level`
+/// drops more interior detail (RDP tolerance grows) before the
+/// corner-cutting pass, so the slider produces visibly progressive
+/// smoothing instead of plateauing once Chaikin alone saturates.
+///
+/// Tuning rationale: levels 1–2 keep the original "trust the input"
+/// feel from the first version of this feature (only Chaikin, no
+/// data loss). Level 3 starts dropping points within ~1px of the
+/// line through their neighbors — enough to clean up sensor jitter
+/// without flattening intentional wiggles. By the top of the slider
+/// the tolerance is large enough that long swooping strokes
+/// collapse to a handful of control points and re-emerge as
+/// gently-curved arcs — the "almost stylized" end the standard
+/// stronger settings hit.
+fn smooth_polyline(points: &[Vec2D], level: usize) -> Vec<Vec2D> {
+    if level == 0 || points.len() < 3 {
+        return points.to_vec();
+    }
+    let chaikin_passes = match level {
+        1 => 1,
+        2 | 3 | 4 => 2,
+        _ => 3,
+    };
+    let rdp_tolerance: f32 = match level {
+        0 | 1 | 2 => 0.0,
+        3 => 1.0,
+        4 => 2.5,
+        5 => 5.0,
+        _ => 9.0,
+    };
+    let simplified: Vec<Vec2D> = if rdp_tolerance > 0.0 {
+        rdp_simplify(points, rdp_tolerance)
+    } else {
+        points.to_vec()
+    };
+    chaikin_smooth(&simplified, chaikin_passes)
+}
+
+/// Ramer–Douglas–Peucker polyline simplification. Recursively keeps
+/// the interior point farthest from the line spanning the current
+/// sub-path's endpoints — provided that distance exceeds
+/// `tolerance` — and discards every interior point of any
+/// sub-segment that fits within tolerance. Endpoints are always
+/// preserved so the stroke's start/end positions don't drift.
+fn rdp_simplify(points: &[Vec2D], tolerance: f32) -> Vec<Vec2D> {
+    if points.len() < 3 || tolerance <= 0.0 {
+        return points.to_vec();
+    }
+    let mut max_dist = 0.0_f32;
+    let mut max_idx = 0usize;
+    let end = points.len() - 1;
+    let a = points[0];
+    let b = points[end];
+    for i in 1..end {
+        let d = point_to_segment_distance(points[i], a, b);
+        if d > max_dist {
+            max_dist = d;
+            max_idx = i;
+        }
+    }
+    if max_dist > tolerance {
+        let mut left = rdp_simplify(&points[..=max_idx], tolerance);
+        let right = rdp_simplify(&points[max_idx..], tolerance);
+        left.pop(); // shared pivot point — keep it once
+        left.extend(right);
+        left
+    } else {
+        vec![a, b]
     }
 }
 
 /// Chaikin's corner-cutting smoothing. Each iteration replaces every
 /// interior segment (P_i, P_{i+1}) with two points at 1/4 and 3/4
 /// along the segment; first and last points stay anchored. One pass
-/// roughly doubles the point count while halving every kink. Two
-/// passes is usually enough to turn a visibly jittery free-hand
-/// polyline into a visibly smooth curve.
+/// roughly doubles the point count while halving every kink.
 fn chaikin_smooth(points: &[Vec2D], iterations: usize) -> Vec<Vec2D> {
     if points.len() < 3 || iterations == 0 {
         return points.to_vec();
