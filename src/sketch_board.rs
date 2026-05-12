@@ -143,6 +143,12 @@ pub enum SketchBoardOutput {
     /// padding) capped to 90 % of the display so the canvas can
     /// render the content at 1:1 whenever it fits.
     ContentSizeChanged { width: f32, height: f32 },
+    /// Underlying background-image dimensions changed (startup
+    /// seed + every rotate / resize action from the crop-mode top
+    /// toolbar). App forwards into ToolsToolbar so its
+    /// "Image size: W × H px" label and resize-popover entries
+    /// reflect the live value.
+    ImageDimensionsChanged { width: i32, height: i32 },
 }
 
 #[derive(Debug, Clone)]
@@ -1232,6 +1238,29 @@ impl SketchBoard {
                     // longer exist in the new orientation).
                     ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
                     ct.revert_to_seed();
+                    drop(ct);
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ImageDimensionsChanged {
+                            width: new_w as i32,
+                            height: new_h as i32,
+                        });
+                }
+                ToolUpdateResult::Redraw
+            }
+            ToolbarEvent::ResizeImage { width, height } => {
+                if let Some((new_w, new_h)) = self.renderer.resize_image(width, height) {
+                    let crop_tool = self.tools.get_crop_tool();
+                    let mut ct = crop_tool.borrow_mut();
+                    ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
+                    ct.revert_to_seed();
+                    drop(ct);
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ImageDimensionsChanged {
+                            width: new_w as i32,
+                            height: new_h as i32,
+                        });
                 }
                 ToolUpdateResult::Redraw
             }

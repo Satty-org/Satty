@@ -1402,6 +1402,40 @@ impl FemtoVgAreaMut {
         Some((new_w, new_h))
     }
 
+    /// Resample the background image to the target pixel dimensions
+    /// via `Pixbuf::scale_simple` (bilinear). Invalidates the
+    /// uploaded GL texture so the next render uploads the resampled
+    /// pixels. Returns the new `(width, height)` once the resample
+    /// succeeds; `None` on a degenerate request (zero / negative
+    /// dim) or out-of-memory failure inside `scale_simple`.
+    ///
+    /// Drawables don't scale with the image — same limitation as
+    /// the other transforms in this section. Resizing typically
+    /// happens before annotating; flatten-into-image first if you
+    /// need to ship pre-annotated artwork at a smaller dim.
+    pub fn resize_image(&mut self, new_w: i32, new_h: i32) -> Option<(f32, f32)> {
+        if new_w <= 0 || new_h <= 0 {
+            return None;
+        }
+        let resized = self.background_image.scale_simple(
+            new_w,
+            new_h,
+            gtk::gdk_pixbuf::InterpType::Bilinear,
+        )?;
+        let w = resized.width() as f32;
+        let h = resized.height() as f32;
+        self.background_image = resized;
+        self.background_image_id = None;
+        Some((w, h))
+    }
+
+    /// Current image-space dimensions of the background. Used by
+    /// the toolbar's "Image size: W×H" label to show what the
+    /// resize popover would default the W/H inputs to.
+    pub fn image_dimensions(&self) -> (i32, i32) {
+        (self.background_image.width(), self.background_image.height())
+    }
+
     fn render_background_image(
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

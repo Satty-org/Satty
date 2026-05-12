@@ -150,6 +150,10 @@ enum AppInput {
     /// new content with the same padding-and-90 %-cap logic the
     /// startup path uses.
     ContentSizeChanged { width: f32, height: f32 },
+    /// Background-image dimensions changed (startup, rotate, resize).
+    /// Forwarded to ToolsToolbar so the "Image size: W × H px"
+    /// MenuButton label and resize-popover entries stay in sync.
+    ImageDimensionsChanged { width: i32, height: i32 },
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
@@ -714,6 +718,16 @@ impl Component for App {
                     Self::window_size_for_content(scaled_w, scaled_h, monitor);
                 root.set_default_size(w, h);
             }
+            AppInput::ImageDimensionsChanged { width, height } => {
+                // Update the underlying image_dimensions field so the
+                // crop-mode toolbar's "Image size" label and resize
+                // popover both reflect the live value. Also push
+                // through to ToolsToolbar.
+                self.image_dimensions = (width, height);
+                self.tools_toolbar.sender().emit(
+                    ToolsToolbarInput::ImageDimensionsChanged { width, height },
+                );
+            }
         }
     }
 
@@ -764,6 +778,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::ContentSizeChanged { width, height } => {
                         AppInput::ContentSizeChanged { width, height }
+                    }
+                    SketchBoardOutput::ImageDimensionsChanged { width, height } => {
+                        AppInput::ImageDimensionsChanged { width, height }
                     }
                 });
 
@@ -992,6 +1009,17 @@ impl Component for App {
             image_dimensions.0 / display_scale,
             image_dimensions.1 / display_scale,
         ));
+
+        // Seed the ToolsToolbar's image_dimensions mirror so the
+        // crop-mode "Image size: W × H px" MenuButton label shows
+        // the correct values from launch (not 0×0). Subsequent
+        // changes flow via SketchBoardOutput::ImageDimensionsChanged.
+        model.tools_toolbar.sender().emit(
+            ToolsToolbarInput::ImageDimensionsChanged {
+                width: image_dimensions.0,
+                height: image_dimensions.1,
+            },
+        );
 
         let widgets = view_output!();
 

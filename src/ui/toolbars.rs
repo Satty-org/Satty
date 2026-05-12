@@ -210,6 +210,19 @@ pub struct ToolsToolbar {
     /// half-typed value every drag tick.
     crop_width_entry: Option<gtk::Entry>,
     crop_height_entry: Option<gtk::Entry>,
+    /// Current background image dimensions (in image-space pixels).
+    /// Drives the "Image size: W × H px" MenuButton label and
+    /// pre-fills the resize popover's W/H entries when it opens.
+    /// Pushed up via `ImageDimensionsChanged` from main.rs at
+    /// startup and after every rotate / resize.
+    image_width: i32,
+    image_height: i32,
+    /// Handles to the resize popover's W/H entries so the open
+    /// handler can pre-fill them with the current image dims
+    /// (the popover opens already populated so
+    /// the user only types the field they want to change).
+    resize_width_entry: Option<gtk::Entry>,
+    resize_height_entry: Option<gtk::Entry>,
     /// Currently-selected color, mirrored on the unified color-picker
     /// MenuButton's swatch. Updated whenever a palette/custom color is
     /// chosen, so the swatch reflects what subsequent annotations will use.
@@ -1100,6 +1113,11 @@ pub enum ToolbarEvent {
     /// image-bounds (width/height swapped) flow back to update the
     /// window size and reseed the crop rect.
     RotateImage,
+    /// User confirmed "Resize" in the image-size popover. Resamples
+    /// the background image to the target pixel dimensions; the new
+    /// `(width, height)` flow back through `ContentSizeChanged` to
+    /// resize the window and reseed the crop rect.
+    ResizeImage { width: i32, height: i32 },
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -1161,6 +1179,12 @@ pub enum ToolsToolbarInput {
     /// Swaps the current dimensions and emits a fresh
     /// `CropDimensionsSet` so the crop rect resizes accordingly.
     CropDimensionsSwap,
+    /// Background image dimensions changed (startup, rotate, or
+    /// resize). The handler updates `image_width` / `image_height`
+    /// so the MenuButton label refreshes via `#[watch]`, and
+    /// pre-fills the resize popover's entries so it opens already
+    /// populated next time.
+    ImageDimensionsChanged { width: i32, height: i32 },
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1913,6 +1937,35 @@ impl Component for ToolsToolbar {
                             sender.output_sender().emit(ToolbarEvent::FlipHorizontal);
                         },
                     },
+
+                    gtk::Separator {
+                        set_orientation: gtk::Orientation::Vertical,
+                    },
+
+                    // "Image size: W × H px" MenuButton. The popover
+                    // (built imperatively in init) lets the user
+                    // type new pixel dimensions and resample. Label
+                    // refreshes via #[watch] on `image_width` /
+                    // `image_height`, which are pushed up by
+                    // `ImageDimensionsChanged` after rotate / resize.
+                    gtk::Label {
+                        set_focusable: false,
+                        set_hexpand: false,
+                        set_label: "Image size:",
+                        add_css_class: "dim-label",
+                    },
+                    #[name(resize_menu_btn)]
+                    gtk::MenuButton {
+                        set_focusable: false,
+                        set_hexpand: false,
+                        add_css_class: "compact-control",
+                        install_tooltip: "Resize image",
+                        #[watch]
+                        set_label: &format!(
+                            "{} × {} px",
+                            model.image_width, model.image_height,
+                        ),
+                    },
                 },
             },
 
@@ -2274,6 +2327,22 @@ impl Component for ToolsToolbar {
                     });
                 }
             }
+            ToolsToolbarInput::ImageDimensionsChanged { width, height } => {
+                self.image_width = width;
+                self.image_height = height;
+                // Pre-populate the resize popover's entries so it
+                // opens already showing the current image dims.
+                // The popover only opens transiently (close on
+                // Resize / Cancel / click-out), so we can refresh
+                // these unconditionally without worrying about
+                // clobbering live typing.
+                if let Some(e) = &self.resize_width_entry {
+                    e.set_text(&width.to_string());
+                }
+                if let Some(e) = &self.resize_height_entry {
+                    e.set_text(&height.to_string());
+                }
+            }
         }
     }
 
@@ -2349,6 +2418,10 @@ impl Component for ToolsToolbar {
             crop_height: 0,
             crop_width_entry: None,
             crop_height_entry: None,
+            image_width: 0,
+            image_height: 0,
+            resize_width_entry: None,
+            resize_height_entry: None,
             current_color: initial_color,
             current_color_pixbuf: initial_color_pixbuf,
             custom_color,
@@ -2371,6 +2444,101 @@ impl Component for ToolsToolbar {
         // handler can has-focus-check before refreshing their text.
         model.crop_width_entry = Some(widgets.crop_width_entry.clone());
         model.crop_height_entry = Some(widgets.crop_height_entry.clone());
+
+        // Build the "Image size" popover imperatively and attach to
+        // the MenuButton in the crop-mode center cluster. Built here
+        // rather than in `view!` because the relm4 inline macro
+        // doesn't have a clean syntax for "popover containing a
+        // grid + two entries + two buttons" without spelling out
+        // every connect_*; keeping it imperative keeps the view!
+        // block readable.
+        let resize_popover = gtk::Popover::builder().has_arrow(true).build();
+        let popover_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(8)
+            .margin_end(8)
+            .build();
+
+        let grid = gtk::Grid::builder()
+            .row_spacing(6)
+            .column_spacing(8)
+            .build();
+        let w_label = gtk::Label::builder()
+            .label("Width:")
+            .halign(gtk::Align::End)
+            .build();
+        let w_entry = gtk::Entry::builder()
+            .input_purpose(gtk::InputPurpose::Digits)
+            .width_chars(6)
+            .max_length(6)
+            .text(model.image_width.to_string())
+            .build();
+        let h_label = gtk::Label::builder()
+            .label("Height:")
+            .halign(gtk::Align::End)
+            .build();
+        let h_entry = gtk::Entry::builder()
+            .input_purpose(gtk::InputPurpose::Digits)
+            .width_chars(6)
+            .max_length(6)
+            .text(model.image_height.to_string())
+            .build();
+        grid.attach(&w_label, 0, 0, 1, 1);
+        grid.attach(&w_entry, 1, 0, 1, 1);
+        grid.attach(&h_label, 0, 1, 1, 1);
+        grid.attach(&h_entry, 1, 1, 1, 1);
+        popover_box.append(&grid);
+
+        let button_row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(8)
+            .halign(gtk::Align::End)
+            .margin_top(4)
+            .build();
+        let cancel_btn = gtk::Button::builder().label("Cancel").build();
+        let resize_btn = gtk::Button::builder()
+            .label("Resize")
+            .css_classes(["suggested-action"])
+            .build();
+        button_row.append(&cancel_btn);
+        button_row.append(&resize_btn);
+        popover_box.append(&button_row);
+        resize_popover.set_child(Some(&popover_box));
+        widgets.resize_menu_btn.set_popover(Some(&resize_popover));
+
+        // The entries are refreshed every time
+        // `ImageDimensionsChanged` fires (which happens at startup,
+        // after rotate, and after resize). No popover-show hook
+        // needed — by the time the popover opens, the entries
+        // already show the latest values.
+        let popover_for_cancel = resize_popover.clone();
+        cancel_btn.connect_clicked(move |_| popover_for_cancel.popdown());
+        let popover_for_resize = resize_popover.clone();
+        let sender_resize = sender.clone();
+        let w_entry_resize = w_entry.clone();
+        let h_entry_resize = h_entry.clone();
+        resize_btn.connect_clicked(move |_| {
+            let w = w_entry_resize.text().trim().parse::<i32>().ok();
+            let h = h_entry_resize.text().trim().parse::<i32>().ok();
+            if let (Some(w), Some(h)) = (w, h)
+                && w > 0
+                && h > 0
+            {
+                sender_resize
+                    .output_sender()
+                    .emit(ToolbarEvent::ResizeImage {
+                        width: w,
+                        height: h,
+                    });
+                popover_for_resize.popdown();
+            }
+        });
+
+        model.resize_width_entry = Some(w_entry);
+        model.resize_height_entry = Some(h_entry);
 
         // Build the popover for the unified color picker. Stash the
         // popover, the swatch_stack (for crossfade rebuilds), and the

@@ -200,6 +200,22 @@ impl FemtoVGArea {
             .rotate_image_ccw()
     }
 
+    pub fn resize_image(&mut self, new_w: i32, new_h: i32) -> Option<(f32, f32)> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .resize_image(new_w, new_h)
+    }
+
+    pub fn image_dimensions(&self) -> (i32, i32) {
+        self.imp()
+            .inner()
+            .as_ref()
+            .map(|i| i.image_dimensions())
+            .unwrap_or((0, 0))
+    }
+
     /// Current image-to-canvas scale factor — image-space lengths
     /// multiplied by this give canvas-pixel sizes. Used by callers
     /// that need to size on-screen UI (cursors, hit-test halos) to
