@@ -184,6 +184,14 @@ impl FemtoVGArea {
             .reset()
     }
 
+    pub fn flip_image_horizontal(&mut self) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .flip_image_horizontal()
+    }
+
     /// Current image-to-canvas scale factor — image-space lengths
     /// multiplied by this give canvas-pixel sizes. Used by callers
     /// that need to size on-screen UI (cursors, hit-test halos) to

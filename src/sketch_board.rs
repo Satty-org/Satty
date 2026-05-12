@@ -1217,6 +1217,10 @@ impl SketchBoard {
                 self.tools.get_crop_tool().borrow_mut().set_bg_color(bg);
                 ToolUpdateResult::Redraw
             }
+            ToolbarEvent::FlipHorizontal => {
+                self.renderer.flip_image_horizontal();
+                ToolUpdateResult::Redraw
+            }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()

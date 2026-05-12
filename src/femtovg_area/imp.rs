@@ -1360,6 +1360,27 @@ impl FemtoVgAreaMut {
         self.spotlight_darkness = value.clamp(0.0, 1.0);
     }
 
+    /// Mirror the background image horizontally and invalidate the
+    /// uploaded GL texture so the next render uploads the flipped
+    /// pixels. Existing drawables keep their image-space positions
+    /// (so a flip immediately followed by drawing lands annotations
+    /// over the mirrored content; a flip AFTER drawing leaves the
+    /// annotations where they were, no longer tracking the image
+    /// content — that's a documented limitation, fixable by
+    /// extending the Drawable trait with a mirror op later if it
+    /// shows up as friction).
+    ///
+    /// Returns `true` when the flip succeeded; `false` when the
+    /// Pixbuf couldn't be flipped (out of memory).
+    pub fn flip_image_horizontal(&mut self) -> bool {
+        let Some(flipped) = self.background_image.flip(true) else {
+            return false;
+        };
+        self.background_image = flipped;
+        self.background_image_id = None;
+        true
+    }
+
     fn render_background_image(
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
