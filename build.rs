@@ -76,11 +76,11 @@ fn main() -> Result<(), io::Error> {
             "resize-large-regular",
             // Crop-mode toolbar additions.
             "arrow-swap-regular",
-            // `crop-arrow-rotate-regular` is the matched-to-standard
-            // glyph — a square frame with a curved rotation arrow
-            // overlaid. Reads as "rotate the cropped frame" rather
-            // than a bare circular arrow.
-            "crop-arrow-rotate-regular",
+            // Material's `rotate-90-degrees-ccw-symbolic` is the
+            // glyph: a small tilted-square
+            // with a curved CCW arrow overhead. Reads as "rotate
+            // the framed image" rather than a bare circular arrow.
+            "rotate-90-degrees-ccw",
             "flip-horizontal-regular",
         ],
     );

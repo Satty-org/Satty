@@ -2018,7 +2018,7 @@ impl Component for ToolsToolbar {
                         set_height_request: 34,
                         add_css_class: "compact-control",
                         add_css_class: "flat",
-                        set_icon_name: "crop-arrow-rotate-regular",
+                        set_icon_name: "rotate-90-degrees-ccw",
                         install_tooltip: "Rotate 90° counter-clockwise",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::RotateImage);
