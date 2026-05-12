@@ -572,11 +572,14 @@ fn build_inline_picker_panel(
 
     let panel = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
-        .margin_start(16)
-        .margin_end(16)
-        .margin_top(14)
-        .margin_bottom(14)
+        .spacing(8)
+        // Tight on the leading edge so the picker hugs the swatches
+        // column instead of floating in dead space. Trailing/top/bottom
+        // keep modest breathing room.
+        .margin_start(8)
+        .margin_end(12)
+        .margin_top(12)
+        .margin_bottom(12)
         .build();
     panel.add_css_class("inline-picker-panel");
 
@@ -587,8 +590,15 @@ fn build_inline_picker_panel(
     // popover's left column already serves that role. The editor
     // (saturation/value, hue, alpha, hex/RGB) is the new value-add.
     chooser.set_show_editor(true);
-    chooser.set_hexpand(true);
-    chooser.set_vexpand(true);
+    // Constrain to a compact natural size so the saturation/value
+    // square + hue/alpha sliders don't tower over the swatches
+    // column. With hexpand/vexpand off the chooser uses its natural
+    // size, which the CSS rules clamp via `min-*` on the inner
+    // `colorplane` / `colorscale` nodes.
+    chooser.set_hexpand(false);
+    chooser.set_vexpand(false);
+    chooser.set_halign(gtk::Align::Fill);
+    chooser.set_valign(gtk::Align::Start);
 
     // Broadcast color changes live. The chooser fires `notify::rgba`
     // on every cursor movement — forward as `InlinePickerColorChanged`
@@ -606,6 +616,11 @@ fn build_inline_picker_panel(
     add_btn.add_css_class("add-to-my-colors-btn");
     add_btn.set_focusable(false);
     add_btn.set_focus_on_click(false);
+    // Don't stretch the button to the chooser's full width — it reads
+    // as a giant slab below the gradient. Centered + natural width is
+    // tighter and matches convention's compact CTA.
+    add_btn.set_halign(gtk::Align::Center);
+    add_btn.set_hexpand(false);
     let chooser_for_add = chooser.clone();
     let sender_for_add = sender.clone();
     add_btn.connect_clicked(move |_| {
@@ -1401,8 +1416,10 @@ fn create_icon_pixbuf(color: Color) -> Pixbuf {
 
 /// Displayed size for popover swatches and placeholders — chosen so
 /// the dashed `.color-slot-empty` boxes line up with the filled
-/// swatch buttons on the left column.
-const SWATCH_DISPLAY_SIZE: i32 = 20;
+/// swatch buttons on the left column. Bumped from the earlier 20 px
+/// so the palette has more on-screen presence; the source pixbuf is
+/// rendered at 40 px so this scales without softening.
+const SWATCH_DISPLAY_SIZE: i32 = 26;
 
 fn create_icon(color: Color) -> gtk::Image {
     let img = gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)));

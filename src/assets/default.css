@@ -251,3 +251,66 @@ dropdown.compact-control > button.combo {
     min-width: 0;
     min-height: 0;
 }
+.picker-expand-arrow {
+    padding: 4px;
+    min-width: 0;
+    min-height: 0;
+}
+/* Inline expanded picker panel — constrain the GtkColorChooserWidget's
+ * internal editor nodes (saturation/value square, hue + alpha scales,
+ * preview swatch, hex entry) to a compact size. GTK only honors
+ * `min-*` (no `max-*`); Rust turns off the chooser's hexpand/vexpand
+ * so the natural request determined by these rules is what the
+ * popover actually shows. */
+.inline-picker-panel colorplane {
+    min-width: 180px;
+    min-height: 130px;
+}
+.inline-picker-panel colorscale {
+    min-height: 16px;
+}
+.inline-picker-panel colorscale > trough {
+    min-height: 12px;
+}
+.inline-picker-panel colorswatch {
+    min-width: 26px;
+    min-height: 26px;
+}
+.inline-picker-panel entry {
+    min-height: 24px;
+    padding: 2px 6px;
+}
+/* "+ Add to My Colors" button: pill shape, padding sized to hug the
+ * label. The actual width comes from `halign: Center + hexpand: false`
+ * in Rust — without those the button would still stretch even with
+ * tight padding here. */
+.add-to-my-colors-btn {
+    margin-top: 4px;
+    padding: 6px 18px;
+    border-radius: 16px;
+    font-weight: 600;
+}
+/* X-to-delete badge on the currently-selected saved swatch. The
+ * positioning (top-left corner, overlapping the swatch) is set in
+ * Rust via negative margins on the overlay child; this rule paints
+ * the circular dark pill. */
+.swatch-delete-x {
+    min-width: 14px;
+    min-height: 14px;
+    padding: 0;
+    background: alpha(@theme_bg_color, 0.92);
+    color: @theme_fg_color;
+    border: 1px solid alpha(@borders, 0.6);
+    border-radius: 50%;
+    box-shadow: 0 1px 2px alpha(black, 0.4);
+}
+.swatch-delete-x:hover {
+    background: @theme_bg_color;
+    border-color: alpha(@borders, 0.9);
+}
+.swatch-delete-glyph {
+    font-size: 11px;
+    font-weight: bold;
+    margin: 0;
+    padding: 0;
+}
