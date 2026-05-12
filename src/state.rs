@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use xdg::BaseDirectories;
 
 use crate::style::{Color, Size};
-use crate::tools::{ArrowStyle, BlurStyle, Tools};
+use crate::tools::{ArrowStyle, BlurStyle, TextBackground, Tools};
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -54,6 +54,11 @@ pub struct PersistedState {
     /// auto-save semantics as `arrow_style`.
     #[serde(default)]
     pub blur_style: Option<BlurStyle>,
+    /// Last-chosen text background style (Plain / Rounded). Same
+    /// auto-save semantics as `arrow_style` — re-opening the Text
+    /// tool restores the user's last choice.
+    #[serde(default)]
+    pub text_background: Option<TextBackground>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -201,6 +206,16 @@ pub fn load_blur_style() -> Option<BlurStyle> {
 pub fn save_blur_style(style: BlurStyle) {
     let mut state = load();
     state.blur_style = Some(style);
+    save(&state);
+}
+
+pub fn load_text_background() -> Option<TextBackground> {
+    load().text_background
+}
+
+pub fn save_text_background(bg: TextBackground) {
+    let mut state = load();
+    state.text_background = Some(bg);
     save(&state);
 }
 

@@ -198,7 +198,9 @@ fn dashed_rounded_rect_path(
 /// active). `Plain` renders the text glyphs directly on the canvas;
 /// `Rounded` adds a cream-colored rounded pill behind each line of
 /// text (the pill snugly fits each line's glyph metrics).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum TextBackground {
     Plain,
