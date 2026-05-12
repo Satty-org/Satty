@@ -198,6 +198,18 @@ pub struct ToolsToolbar {
     /// image size / Cancel-Crop). Initial value is `Pointer` —
     /// reset to the actual starting tool right before view_output!.
     current_tool: Tools,
+    /// Last crop (width, height) pushed up from `CropTool`'s
+    /// dimensions emit. Mirrored locally so the toolbar can both
+    /// refresh the W/H entries (when they're not focused) and
+    /// recompute swap-button output on click without a round-trip.
+    crop_width: i32,
+    crop_height: i32,
+    /// Handles to the W/H text inputs so the `CropDimensionsChanged`
+    /// handler can `has_focus`-check before calling `set_text` —
+    /// `#[watch]`-driven `set_text` would otherwise clobber a
+    /// half-typed value every drag tick.
+    crop_width_entry: Option<gtk::Entry>,
+    crop_height_entry: Option<gtk::Entry>,
     /// Currently-selected color, mirrored on the unified color-picker
     /// MenuButton's swatch. Updated whenever a palette/custom color is
     /// chosen, so the swatch reflects what subsequent annotations will use.
@@ -1016,6 +1028,11 @@ pub enum ToolbarEvent {
     /// `CropTool::set_aspect_ratio`, which both snaps the existing
     /// rect to the new ratio and enforces it on subsequent drags.
     CropAspectRatioChanged(crate::tools::AspectRatio),
+    /// User entered explicit (width, height) values from the
+    /// crop-mode W/H text inputs (or pressed the ↔ swap button).
+    /// Sketch_board recenters the crop rect on the image at the
+    /// requested dimensions via `CropTool::set_dimensions`.
+    CropDimensionsSet { width: i32, height: i32 },
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -1057,6 +1074,20 @@ pub enum ToolsToolbarInput {
     /// (drop outside the popover, Esc, etc.) and the handler restores
     /// the pre-drag snapshot.
     EndCustomDrag { success: bool },
+    /// Crop tool emitted a new (width, height) for its current rect
+    /// (drag tick, ratio snap, or explicit set). The handler updates
+    /// `crop_width` / `crop_height` and refreshes the W/H entries
+    /// unless they currently have focus (don't clobber typed input).
+    CropDimensionsChanged { width: i32, height: i32 },
+    /// User pressed Enter in the W entry (or `None` if the typed
+    /// text didn't parse — we ignore it).
+    CropWidthEntered(Option<i32>),
+    /// User pressed Enter in the H entry.
+    CropHeightEntered(Option<i32>),
+    /// User clicked the ↔ swap button between the W/H entries.
+    /// Swaps the current dimensions and emits a fresh
+    /// `CropDimensionsSet` so the crop rect resizes accordingly.
+    CropDimensionsSwap,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1670,6 +1701,53 @@ impl Component for ToolsToolbar {
                                 .emit(ToolbarEvent::CropAspectRatioChanged(ratio));
                         },
                     },
+
+                    // Direct-entry W and H inputs. Typing a value
+                    // and pressing Enter (or moving focus) recenters
+                    // the crop rect on the image at the typed
+                    // dimensions, honoring the active aspect-ratio
+                    // constraint. Drag updates flow back so the
+                    // entries always show the current rect size
+                    // (suspended while the entry has focus so we
+                    // don't clobber half-typed input).
+                    #[name(crop_width_entry)]
+                    gtk::Entry {
+                        add_css_class: "compact-control",
+                        set_focusable: true,
+                        set_hexpand: false,
+                        set_width_chars: 5,
+                        set_max_length: 5,
+                        set_input_purpose: gtk::InputPurpose::Digits,
+                        install_tooltip: "Crop width (px)",
+                        connect_activate[sender] => move |e| {
+                            let v = e.text().trim().parse::<i32>().ok();
+                            sender.input(ToolsToolbarInput::CropWidthEntered(v));
+                        },
+                    },
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+                        add_css_class: "flat",
+                        set_icon_name: "arrow-swap-regular",
+                        install_tooltip: "Swap width and height",
+                        connect_clicked[sender] => move |_| {
+                            sender.input(ToolsToolbarInput::CropDimensionsSwap);
+                        },
+                    },
+                    #[name(crop_height_entry)]
+                    gtk::Entry {
+                        add_css_class: "compact-control",
+                        set_focusable: true,
+                        set_hexpand: false,
+                        set_width_chars: 5,
+                        set_max_length: 5,
+                        set_input_purpose: gtk::InputPurpose::Digits,
+                        install_tooltip: "Crop height (px)",
+                        connect_activate[sender] => move |e| {
+                            let v = e.text().trim().parse::<i32>().ok();
+                            sender.input(ToolsToolbarInput::CropHeightEntered(v));
+                        },
+                    },
                 },
             },
 
@@ -1965,6 +2043,61 @@ impl Component for ToolsToolbar {
                     );
                 }
             }
+            ToolsToolbarInput::CropDimensionsChanged { width, height } => {
+                self.crop_width = width;
+                self.crop_height = height;
+                // Refresh the entries — but only when they don't
+                // currently have focus, so a user mid-typing in
+                // the W or H field doesn't see their text wiped
+                // every drag tick.
+                if let Some(e) = &self.crop_width_entry
+                    && !e.has_focus()
+                {
+                    e.set_text(&width.to_string());
+                }
+                if let Some(e) = &self.crop_height_entry
+                    && !e.has_focus()
+                {
+                    e.set_text(&height.to_string());
+                }
+            }
+            ToolsToolbarInput::CropWidthEntered(value) => {
+                if let Some(w) = value
+                    && w > 0
+                {
+                    sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
+                        width: w,
+                        height: self.crop_height.max(1),
+                    });
+                    sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                } else if let Some(e) = &self.crop_width_entry {
+                    // Snap back to the last known good value so the
+                    // entry doesn't keep showing unparseable text
+                    // after Enter on (e.g.) empty input.
+                    e.set_text(&self.crop_width.to_string());
+                }
+            }
+            ToolsToolbarInput::CropHeightEntered(value) => {
+                if let Some(h) = value
+                    && h > 0
+                {
+                    sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
+                        width: self.crop_width.max(1),
+                        height: h,
+                    });
+                    sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                } else if let Some(e) = &self.crop_height_entry {
+                    e.set_text(&self.crop_height.to_string());
+                }
+            }
+            ToolsToolbarInput::CropDimensionsSwap => {
+                if self.crop_width > 0 && self.crop_height > 0 {
+                    sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
+                        width: self.crop_height,
+                        height: self.crop_width,
+                    });
+                }
+            }
         }
     }
 
@@ -2036,6 +2169,10 @@ impl Component for ToolsToolbar {
             tool_buttons: HashMap::new(),
             tool_action: tool_action.clone().into(),
             current_tool: Tools::Pointer,
+            crop_width: 0,
+            crop_height: 0,
+            crop_width_entry: None,
+            crop_height_entry: None,
             current_color: initial_color,
             current_color_pixbuf: initial_color_pixbuf,
             custom_color,
@@ -2049,6 +2186,11 @@ impl Component for ToolsToolbar {
             color_popover_page_id: 0,
         };
         let widgets = view_output!();
+
+        // Stash the W/H entries so the `CropDimensionsChanged`
+        // handler can has-focus-check before refreshing their text.
+        model.crop_width_entry = Some(widgets.crop_width_entry.clone());
+        model.crop_height_entry = Some(widgets.crop_height_entry.clone());
 
         // Build the popover for the unified color picker. Stash the
         // popover + its inner Stack so `refresh_color_popover` can

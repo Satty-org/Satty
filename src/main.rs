@@ -640,6 +640,16 @@ impl Component for App {
                 let scale = Self::display_scale_divisor(root);
                 self.output_dimensions_label
                     .set_text(&format!("{} x {}", d.0 / scale, d.1 / scale));
+                // Mirror into the ToolsToolbar so the crop-mode W/H
+                // text entries reflect the current rect. The toolbar
+                // skips the entry refresh when either field has
+                // focus (typed input wins).
+                self.tools_toolbar.sender().emit(
+                    ToolsToolbarInput::CropDimensionsChanged {
+                        width: d.0,
+                        height: d.1,
+                    },
+                );
             }
             AppInput::ZoomChanged(scale) => {
                 self.zoom_indicator

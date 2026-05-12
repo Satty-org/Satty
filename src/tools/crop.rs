@@ -964,6 +964,47 @@ impl CropTool {
         self.aspect_ratio
     }
 
+    /// Toolbar W/H text inputs: resize (and recenter) the current
+    /// crop rect to the explicit pixel dimensions. The new rect is
+    /// centered on the current rect's midpoint when one exists, or
+    /// on the image center otherwise — that way typing 800×600 with
+    /// no prior crop frames the middle of the screenshot.
+    /// Falls back to a no-op if we don't even have image bounds
+    /// yet (no screenshot loaded).
+    pub fn set_dimensions(&mut self, width: f32, height: f32) {
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        let Some(bounds) = self.image_bounds else {
+            return;
+        };
+        let center = match self.crop.as_ref() {
+            Some(c) => {
+                let (p, s) = c.get_rectangle();
+                Vec2D::new(p.x + s.x / 2.0, p.y + s.y / 2.0)
+            }
+            None => Vec2D::new(bounds.x / 2.0, bounds.y / 2.0),
+        };
+        let new_pos = Vec2D::new(center.x - width / 2.0, center.y - height / 2.0);
+        let new_size = Vec2D::new(width, height);
+        if let Some(c) = self.crop.as_mut() {
+            c.pos = new_pos;
+            c.size = new_size;
+            c.active = true;
+        } else {
+            self.crop = Some(Crop {
+                pos: new_pos,
+                size: new_size,
+                active: true,
+                committed: false,
+                ever_committed: false,
+                last_committed: None,
+            });
+            self.emit_crop_presence(true);
+        }
+        self.emit_crop_dimensions_update();
+    }
+
     fn emit_crop_dimensions_update(&self) {
         if let (Some(crop), Some(sender)) = (&self.crop, &self.sender) {
             let (_pos, size) = crop.get_rectangle();

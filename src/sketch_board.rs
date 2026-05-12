@@ -1206,6 +1206,13 @@ impl SketchBoard {
                     .set_aspect_ratio(ratio);
                 ToolUpdateResult::Redraw
             }
+            ToolbarEvent::CropDimensionsSet { width, height } => {
+                self.tools
+                    .get_crop_tool()
+                    .borrow_mut()
+                    .set_dimensions(width as f32, height as f32);
+                ToolUpdateResult::Redraw
+            }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
                 sender
                     .output_sender()
