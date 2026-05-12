@@ -1355,6 +1355,23 @@ impl SketchBoard {
                                 .output_sender()
                                 .emit(SketchBoardOutput::BrushPostSmoothReset(saved));
                         }
+                        Tools::Rectangle | Tools::Ellipse => {
+                            // Same snapback for per-tool fill. Saved
+                            // default wins if the user has explicitly
+                            // pinned one for THIS shape tool;
+                            // otherwise leave style.fill alone so an
+                            // in-session toggle survives switching
+                            // between Rectangle and Ellipse.
+                            if let Some(saved) =
+                                crate::state::load_fill_for_tool(tool)
+                                && saved != self.style.fill
+                            {
+                                self.style.fill = saved;
+                                sender
+                                    .output_sender()
+                                    .emit(SketchBoardOutput::FillShapesChanged(saved));
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -1582,6 +1599,18 @@ impl SketchBoard {
                 crate::state::save_brush_post_smooth_iterations(
                     APP_CONFIG.read().brush_post_smooth_iterations(),
                 );
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::SaveFillAsDefault => {
+                // Only Rectangle / Ellipse honor fill; save against
+                // whichever of those two is active. If the user
+                // somehow right-clicks the (then-hidden) button from
+                // a different tool, skip — there's nothing meaningful
+                // to persist for, e.g., Brush.
+                let tool = self.active_tool_type();
+                if matches!(tool, Tools::Rectangle | Tools::Ellipse) {
+                    crate::state::save_fill_for_tool(tool, self.style.fill);
+                }
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::TextBackgroundSelected(bg) => {

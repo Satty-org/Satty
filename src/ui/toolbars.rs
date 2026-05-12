@@ -1893,6 +1893,10 @@ pub enum ToolbarEvent {
     /// User picked "Save as default" from the brush smoothing
     /// slider's right-click menu — write the live value to state.toml.
     SaveBrushPostSmoothAsDefault,
+    /// User picked "Save as default" from the fill button's
+    /// right-click menu — persist the live fill state as the saved
+    /// default for the current tool (Rectangle / Ellipse).
+    SaveFillAsDefault,
     /// User clicked "Revert to Original" — drop the committed crop
     /// entirely so the canvas shows the full original image again.
     RevertCrop,
@@ -5352,6 +5356,18 @@ impl Component for StyleToolbar {
             attach_save_default_popover(&widgets.brush_smooth_slider, move || {
                 s.output_sender()
                     .emit(ToolbarEvent::SaveBrushPostSmoothAsDefault);
+            });
+        }
+        {
+            // Right-click the paint-bucket → "Save as default". Lets
+            // the user pin the current fill state (filled / outline)
+            // as the per-tool default for Rectangle or Ellipse,
+            // matching the affordance the other tool-specific
+            // controls offer. Left-click still toggles fill, since
+            // `ToggleFill` is wired to `connect_clicked` upstream.
+            let s = sender.clone();
+            attach_save_default_popover(&widgets.fill_button, move || {
+                s.output_sender().emit(ToolbarEvent::SaveFillAsDefault);
             });
         }
 

@@ -91,6 +91,12 @@ pub struct PersistedState {
     /// fall back to the config / built-in default (2).
     #[serde(default)]
     pub brush_post_smooth_iterations: Option<usize>,
+    /// Per-tool saved-default fill state (true = filled, false =
+    /// outline). Keyed by `Tools`; only Rectangle / Ellipse currently
+    /// honor this. A missing entry means "no saved default — use the
+    /// `default-fill-shapes` config value".
+    #[serde(default)]
+    pub fill_per_tool: HashMap<Tools, bool>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -342,6 +348,21 @@ pub fn load_brush_post_smooth_iterations() -> Option<usize> {
 pub fn save_brush_post_smooth_iterations(value: usize) {
     let mut state = load();
     state.brush_post_smooth_iterations = Some(value);
+    save(&state);
+}
+
+/// Read this tool's saved-default fill state, if any. Returns `None`
+/// when the user has never persisted a fill default for the tool —
+/// callers fall back to `APP_CONFIG.default_fill_shapes()`.
+pub fn load_fill_for_tool(tool: Tools) -> Option<bool> {
+    load().fill_per_tool.get(&tool).copied()
+}
+
+/// Persist `fill` as the saved-default fill state for `tool`. Future
+/// launches and future entries into `tool` will start at this fill.
+pub fn save_fill_for_tool(tool: Tools, fill: bool) {
+    let mut state = load();
+    state.fill_per_tool.insert(tool, fill);
     save(&state);
 }
 
