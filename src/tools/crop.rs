@@ -410,21 +410,65 @@ impl Crop {
         }
         (closest_handle, min_distance_squared)
     }
-    fn test_handle_hit(&self, mouse_pos: Vec2D, margin2: f32) -> Option<CropHandle> {
-        const HANDLE_HIT2: f32 = Crop::HANDLE_HIT_RADIUS * Crop::HANDLE_HIT_RADIUS;
-        let allowed_distance2 = HANDLE_HIT2 + margin2;
-
-        let (handle, distance2) = self.get_closest_handle(mouse_pos);
-        if distance2 < allowed_distance2 {
-            Some(handle)
-        } else {
-            None
+    /// Edge-aware handle hit test. Corner handles match within
+    /// `tolerance` of the corner point; edge handles match anywhere
+    /// along the edge SEGMENT (within `tolerance` perpendicular
+    /// distance from the edge line, and between the two corners on
+    /// the parallel axis). Corners take precedence in the diagonal
+    /// zone so a hit near a corner resolves to the corner handle
+    /// rather than one of its two edges.
+    ///
+    /// `tolerance` is in the same coordinate space as `point`
+    /// (callers in image-space pass an image-pixel tolerance;
+    /// callers compensating for canvas scale pre-divide).
+    ///
+    /// The visible edge "bar" at the midpoint is purely a hint —
+    /// the user can grab anywhere along the edge.
+    fn hit_handle(&self, point: Vec2D, tolerance: f32) -> Option<CropHandle> {
+        let (pos, size) = self.get_rectangle();
+        if size.x <= 0.0 || size.y <= 0.0 {
+            return None;
         }
+        let right = pos.x + size.x;
+        let bottom = pos.y + size.y;
+        let tol2 = tolerance * tolerance;
+
+        for (handle, corner) in [
+            (CropHandle::TopLeftCorner, Vec2D::new(pos.x, pos.y)),
+            (CropHandle::TopRightCorner, Vec2D::new(right, pos.y)),
+            (CropHandle::BottomRightCorner, Vec2D::new(right, bottom)),
+            (CropHandle::BottomLeftCorner, Vec2D::new(pos.x, bottom)),
+        ] {
+            if (corner - point).norm2() <= tol2 {
+                return Some(handle);
+            }
+        }
+
+        let in_horizontal_span = point.x >= pos.x && point.x <= right;
+        let in_vertical_span = point.y >= pos.y && point.y <= bottom;
+
+        if in_horizontal_span && (point.y - pos.y).abs() <= tolerance {
+            return Some(CropHandle::TopEdge);
+        }
+        if in_horizontal_span && (point.y - bottom).abs() <= tolerance {
+            return Some(CropHandle::BottomEdge);
+        }
+        if in_vertical_span && (point.x - pos.x).abs() <= tolerance {
+            return Some(CropHandle::LeftEdge);
+        }
+        if in_vertical_span && (point.x - right).abs() <= tolerance {
+            return Some(CropHandle::RightEdge);
+        }
+        None
+    }
+
+    fn test_handle_hit(&self, mouse_pos: Vec2D) -> Option<CropHandle> {
+        self.hit_handle(mouse_pos, Self::HANDLE_HIT_RADIUS)
     }
 
     /// Hit-test classification used by the hover-cursor logic. Reports
-    /// `Handle` when the pointer is over any of the 8 corner / edge
-    /// anchors, `Body` when inside the crop rectangle, and `None` for
+    /// `Handle` when the pointer is over any corner or anywhere along
+    /// an edge, `Body` when inside the crop rectangle, and `None` for
     /// the surrounding dim region. Returns `None` while the crop
     /// hasn't been drawn yet (zero size) so an unset crop doesn't
     /// flip the cursor under the user.
@@ -440,13 +484,11 @@ impl Crop {
             return None;
         }
         // HANDLE_HIT_RADIUS is in CSS pixels; divide by scale to get
-        // an equivalent radius in image-space units (where `point` and
-        // handle positions are expressed).
+        // an equivalent tolerance in image-space units (where `point`
+        // and the rect coordinates are expressed).
         let scale = image_to_canvas_scale.max(0.0001);
-        let radius_image = Self::HANDLE_HIT_RADIUS / scale;
-        let radius2 = radius_image * radius_image;
-        let (handle, distance2) = self.get_closest_handle(point);
-        if distance2 < radius2 {
+        let tolerance = Self::HANDLE_HIT_RADIUS / scale;
+        if let Some(handle) = self.hit_handle(point, tolerance) {
             return Some(CropHit::Handle(handle));
         }
         let (pos, size) = self.get_rectangle();
@@ -850,7 +892,6 @@ impl CropHandle {
 }
 
 impl CropTool {
-    const HANDLE_MARGIN_IN_2: f32 = 15.0 * 15.0;
     const HANDLE_MARGIN_OUT: f32 = 40.0;
 
     fn test_inside_crop(&self, mouse_pos: Vec2D, margin: f32) -> bool {
@@ -1196,7 +1237,7 @@ impl CropTool {
                 if !c.active {
                     activate = true;
                 }
-                if let Some(handle) = c.test_handle_hit(pos, CropTool::HANDLE_MARGIN_IN_2) {
+                if let Some(handle) = c.test_handle_hit(pos) {
                     // Crop exists and we are near a handle, drag it
                     self.action = Some(CropToolAction::DragHandle(DragHandleState {
                         handle,

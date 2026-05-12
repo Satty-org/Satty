@@ -771,6 +771,20 @@ impl FemtoVgAreaMut {
                 inverses.reverse();
                 UndoAction::Batch(inverses)
             }
+            UndoAction::ResizeCanvas {
+                prev_image,
+                applied_offset,
+            } => {
+                let cur_image = std::mem::replace(&mut self.background_image, prev_image);
+                self.background_image_id = None;
+                for s in &mut self.drawables {
+                    s.drawable.translate(-applied_offset);
+                }
+                UndoAction::ResizeCanvas {
+                    prev_image: cur_image,
+                    applied_offset: -applied_offset,
+                }
+            }
         }
     }
 

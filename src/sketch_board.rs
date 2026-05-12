@@ -168,6 +168,10 @@ pub enum SketchBoardOutput {
     /// cropped size only after commit) so it doesn't visually
     /// thrash on every drag tick.
     CropEditDimensions { width: i32, height: i32 },
+    /// User wants to open the Preferences dialog (gear button or
+    /// Ctrl+,). The dialog isn't a child of sketch_board, so we
+    /// just forward the intent up to App.
+    OpenPreferences,
 }
 
 #[derive(Debug, Clone)]
@@ -1108,6 +1112,12 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
+            ToolbarEvent::OpenPreferences => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::OpenPreferences);
+                ToolUpdateResult::Unmodified
+            }
             ToolbarEvent::FocusCanvas => {
                 self.renderer.grab_focus();
                 ToolUpdateResult::Unmodified
@@ -2011,6 +2021,16 @@ impl Component for SketchBoard {
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_toggle_toolbars_display(sender)
+                            } else if ke.key == Key::comma
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                // Ctrl+, → open Preferences. Mirrors the
+                                // gear button in the top toolbar's end
+                                // cluster.
+                                sender
+                                    .output_sender()
+                                    .emit(SketchBoardOutput::OpenPreferences);
+                                ToolUpdateResult::Unmodified
                             } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {

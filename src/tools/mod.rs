@@ -576,6 +576,17 @@ pub enum UndoAction {
     /// the whole group. Used for multi-select operations like deleting a set
     /// of drawables at once.
     Batch(Vec<UndoAction>),
+    /// Canvas was auto-extended to fit a drawable that spilled past the
+    /// previous image bounds. Holds the pre-extension Pixbuf and the
+    /// `(left, top)` translation that was applied to drawables when the
+    /// strips were prepended. Undoing restores the original background
+    /// and translates drawables back by `(-left, -top)`. Always paired
+    /// with the triggering `Add` / `Modify` inside a `Batch` so a single
+    /// Ctrl+Z reverses both.
+    ResizeCanvas {
+        prev_image: gtk::gdk_pixbuf::Pixbuf,
+        applied_offset: Vec2D,
+    },
 }
 
 pub use arrow::{ArrowStyle, ArrowTool};

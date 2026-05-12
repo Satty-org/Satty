@@ -74,6 +74,8 @@ fn main() -> Result<(), io::Error> {
             "paint-bucket-regular",
             "page-fit-regular",
             "resize-large-regular",
+            // Preferences gear.
+            "settings-regular",
             // Crop-mode toolbar additions.
             "arrow-swap-regular",
             // Material's `rotate-90-degrees-ccw-symbolic` is the

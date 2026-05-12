@@ -163,6 +163,8 @@ enum AppInput {
     /// output-dims readout doesn't watch this; it tracks the
     /// committed output, not the in-edit rect).
     CropEditDimensions { width: i32, height: i32 },
+    /// Open the Preferences dialog (gear button or Ctrl+,).
+    OpenPreferences,
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
@@ -665,6 +667,9 @@ impl Component for App {
                     ToolsToolbarInput::CropDimensionsChanged { width, height },
                 );
             }
+            AppInput::OpenPreferences => {
+                ui::preferences::open(root);
+            }
             AppInput::ZoomChanged(scale) => {
                 self.zoom_indicator
                     .sender()
@@ -803,6 +808,7 @@ impl Component for App {
                     SketchBoardOutput::CropEditDimensions { width, height } => {
                         AppInput::CropEditDimensions { width, height }
                     }
+                    SketchBoardOutput::OpenPreferences => AppInput::OpenPreferences,
                 });
 
         // Toolbars

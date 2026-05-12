@@ -1486,6 +1486,9 @@ pub enum ToolbarEvent {
     SaveFileAs,
     Resize,
     OriginalScale,
+    /// User clicked the gear button (or pressed Ctrl+,). Opens the
+    /// preferences dialog where shortcut keys can be edited.
+    OpenPreferences,
     /// A toolbar popover (e.g. the unified color picker) has closed; the
     /// canvas should grab keyboard focus back so single-key shortcuts
     /// (z, r, b, …) keep working without the user having to click first.
@@ -2545,6 +2548,16 @@ impl Component for ToolsToolbar {
                         },
                     },
                     gtk::Separator {},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "settings-regular",
+                        install_tooltip: "Preferences (Ctrl+,)",
+                        connect_clicked[sender] => move |_| {
+                            sender.output_sender().emit(ToolbarEvent::OpenPreferences);
+                        },
+                    },
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
