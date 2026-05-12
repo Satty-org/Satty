@@ -285,6 +285,18 @@ impl Configuration {
         };
 
         APP_CONFIG.write().merge(file, command_line);
+
+        // Layer user-edited keybinds from `state.toml` ON TOP of the
+        // config-file + defaults the merge above produced. Keys in
+        // `state` win — they're the freshest user intent, set via the
+        // Preferences dialog.
+        if let Some(state_binds) = crate::state::load_keybinds() {
+            let mut runtime_binds: HashMap<char, Tools> = HashMap::new();
+            for (tool, ch) in state_binds {
+                runtime_binds.insert(ch, tool);
+            }
+            APP_CONFIG.write().set_keybinds(runtime_binds);
+        }
     }
     fn merge_general(&mut self, general: ConfigurationFileGeneral) {
         if let Some(v) = general.fullscreen {

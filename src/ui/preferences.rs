@@ -316,6 +316,7 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W) {
     let working_for_save = working.clone();
     save_btn.connect_clicked(move |_| {
         let map = working_for_save.borrow().clone();
+        crate::state::save_keybinds(&map);
         APP_CONFIG.write().set_keybinds(map);
         dialog_for_save.close();
     });

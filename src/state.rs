@@ -59,6 +59,14 @@ pub struct PersistedState {
     /// tool restores the user's last choice.
     #[serde(default)]
     pub text_background: Option<TextBackground>,
+    /// User-edited keyboard shortcuts from the Preferences dialog.
+    /// Map keyed by `Tools`; each value is a single character (the
+    /// shortcut). Tools missing from this map fall back to the
+    /// defaults in `Keybinds::default()` (still merged by
+    /// config.toml first). `None` means "preferences dialog has
+    /// never been saved" — leaves the config/default map alone.
+    #[serde(default)]
+    pub keybinds: Option<HashMap<Tools, String>>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -216,6 +224,36 @@ pub fn load_text_background() -> Option<TextBackground> {
 pub fn save_text_background(bg: TextBackground) {
     let mut state = load();
     state.text_background = Some(bg);
+    save(&state);
+}
+
+/// Persisted user-edited keybinds, if the Preferences dialog has ever
+/// been saved. Returned as a `char` map matching the in-memory shape
+/// `Keybinds` uses (we store strings on disk so TOML doesn't choke on
+/// single-char values).
+pub fn load_keybinds() -> Option<HashMap<Tools, char>> {
+    load().keybinds.map(|map| {
+        map.into_iter()
+            .filter_map(|(tool, s)| {
+                let mut chars = s.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => Some((tool, c)),
+                    _ => None,
+                }
+            })
+            .collect()
+    })
+}
+
+/// Replace the persisted keybind map wholesale. Called by the
+/// Preferences dialog's Save handler with the user's edited set.
+pub fn save_keybinds(shortcuts: &HashMap<char, Tools>) {
+    let mut state = load();
+    let serialized: HashMap<Tools, String> = shortcuts
+        .iter()
+        .map(|(c, t)| (*t, c.to_string()))
+        .collect();
+    state.keybinds = Some(serialized);
     save(&state);
 }
 
