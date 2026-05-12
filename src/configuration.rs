@@ -77,6 +77,24 @@ pub struct Configuration {
     input_scale: f32,
     title: Option<String>,
     app_id: Option<String>,
+    /// User preference: flip the sign of every mouse-wheel / trackpad
+    /// scroll delta inside the app, on top of whatever the OS does at
+    /// the compositor layer. Inverts pan direction, zoom direction,
+    /// scroll-resize, and the annotation-pill bump in one shot — all
+    /// scroll consumers read this through `invert_scrolling()` so a
+    /// single toggle reverses the entire app's scroll polarity.
+    invert_scrolling: bool,
+    /// User preference: when true, pressing Esc on the canvas adds an
+    /// `Action::Exit` to whatever `actions_on_escape` already runs, so
+    /// the app closes. Default is false — Esc does nothing
+    /// app-globally, leaving each tool's own Esc handling intact (Crop
+    /// cancel, Text exit-edit, in-progress shape abort, etc.).
+    close_on_esc: bool,
+    /// Whether to hide the default 10-color palette in the color
+    /// picker. When true, the popover's left column disappears and
+    /// the 1–9, 0 number-key shortcuts pick from the first column
+    /// of saved-custom colors instead.
+    hide_default_palette: bool,
 }
 
 pub struct Keybinds {
@@ -302,6 +320,35 @@ impl Configuration {
                 runtime_binds.insert(ch, tool);
             }
             APP_CONFIG.write().set_keybinds(runtime_binds);
+        }
+
+        // Pull the invert-scrolling preference from `state.toml` so
+        // the user's last choice survives restarts. Default = false
+        // (no inversion) when the field has never been written.
+        APP_CONFIG
+            .write()
+            .set_invert_scrolling(crate::state::load_invert_scrolling());
+
+        // Same shape for the "Esc closes satty" preference — load
+        // from state, fall back to false (no implicit Exit) when the
+        // field has never been written.
+        APP_CONFIG
+            .write()
+            .set_close_on_esc(crate::state::load_close_on_esc());
+
+        // Same shape for the hide-default-palette preference — load
+        // from state, fall back to false (palette visible) when not
+        // yet written.
+        APP_CONFIG
+            .write()
+            .set_hide_default_palette(crate::state::load_hide_default_palette());
+
+        // Brush post-stroke smoothing iterations: if the user has
+        // saved a default via the slider's right-click menu, fold
+        // that on top of the config / built-in default so the brush
+        // tool sees a single live value.
+        if let Some(v) = crate::state::load_brush_post_smooth_iterations() {
+            APP_CONFIG.write().set_brush_post_smooth_iterations(v);
         }
     }
     fn merge_general(&mut self, general: ConfigurationFileGeneral) {
@@ -692,6 +739,13 @@ impl Configuration {
         self.brush_post_smooth_iterations
     }
 
+    /// Live in-memory override for the brush post-smoothing iteration
+    /// count. The brush tool reads this on every EndDrag, so updates
+    /// take effect on the next stroke without restart.
+    pub fn set_brush_post_smooth_iterations(&mut self, value: usize) {
+        self.brush_post_smooth_iterations = value;
+    }
+
     pub fn keybinds(&self) -> &Keybinds {
         &self.keybinds
     }
@@ -701,6 +755,44 @@ impl Configuration {
     /// `state.toml` separately so the change survives restarts.
     pub fn set_keybinds(&mut self, shortcuts: HashMap<char, Tools>) {
         self.keybinds.shortcuts = shortcuts;
+    }
+
+    pub fn invert_scrolling(&self) -> bool {
+        self.invert_scrolling
+    }
+
+    /// Toggle the in-app scroll-inversion preference. Wired from the
+    /// Preferences dialog; the change takes effect immediately on the
+    /// next scroll event (no restart needed) and is persisted to
+    /// `state.toml` by the caller.
+    pub fn set_invert_scrolling(&mut self, value: bool) {
+        self.invert_scrolling = value;
+    }
+
+    pub fn close_on_esc(&self) -> bool {
+        self.close_on_esc
+    }
+
+    /// Toggle the "Esc closes satty" preference. Wired from the
+    /// Preferences dialog and persisted to `state.toml`. Independent
+    /// of `actions_on_escape` so existing user configs (e.g.
+    /// `actions = ["save-to-clipboard"]`) keep firing — this just
+    /// gates the implicit Exit action that used to be the default.
+    pub fn set_close_on_esc(&mut self, value: bool) {
+        self.close_on_esc = value;
+    }
+
+    pub fn hide_default_palette(&self) -> bool {
+        self.hide_default_palette
+    }
+
+    /// Toggle the "Hide default palette" preference. Wired from the
+    /// Preferences dialog and persisted to `state.toml`. When on,
+    /// the color picker hides its 10-color palette column entirely
+    /// and the 1–9, 0 shortcut keys map to the first column of
+    /// saved-custom colors instead.
+    pub fn set_hide_default_palette(&mut self, value: bool) {
+        self.hide_default_palette = value;
     }
 
     pub fn zoom_factor(&self) -> f32 {
@@ -747,7 +839,13 @@ impl Default for Configuration {
             save_after_copy: false,
             auto_copy: false,
             actions_on_enter: vec![],
-            actions_on_escape: vec![Action::Exit],
+            // Default to NO automatic Exit on Esc — the "Close on Esc"
+            // preference (persisted in state.toml) gates that
+            // behavior so a fresh install doesn't kill the window on
+            // an accidental Esc. Users who explicitly set
+            // `actions_on_escape = ["exit", ...]` in their config.toml
+            // still get the original behavior (config wins).
+            actions_on_escape: vec![],
             actions_on_right_click: vec![],
             color_palette: ColorPalette::default(),
             default_hide_toolbars: false,
@@ -769,6 +867,11 @@ impl Default for Configuration {
             input_scale: 1.0,
             title: None,
             app_id: None,
+            // Default matches the state-load fallback so the value is
+            // consistent whether or not state.toml has been written.
+            invert_scrolling: true,
+            close_on_esc: false,
+            hide_default_palette: false,
         }
     }
 }

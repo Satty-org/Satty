@@ -67,6 +67,30 @@ pub struct PersistedState {
     /// never been saved" — leaves the config/default map alone.
     #[serde(default)]
     pub keybinds: Option<HashMap<Tools, String>>,
+    /// Flip the sign of every scroll delta the app consumes. `None`
+    /// is "use default" (false = no inversion). Toggled from the
+    /// Preferences dialog; reversing this flips zoom, pan,
+    /// scroll-resize, and the annotation-pill bump together so the
+    /// user can pick whichever direction feels right.
+    #[serde(default)]
+    pub invert_scrolling: Option<bool>,
+    /// Whether pressing Esc on the canvas closes satty. `None` means
+    /// "use default" (false). Independent of `actions_on_escape` —
+    /// this just gates the implicit Exit action so users with
+    /// explicit per-Esc-action config keep their behavior either way.
+    #[serde(default)]
+    pub close_on_esc: Option<bool>,
+    /// Whether to hide the default 10-color palette in the color
+    /// picker popover. When true, the palette column disappears and
+    /// the 1–9, 0 shortcut keys map to the first column of saved
+    /// custom colors instead. `None` = default (false, palette shown).
+    #[serde(default)]
+    pub hide_default_palette: Option<bool>,
+    /// Saved-default number of Chaikin post-stroke smoothing passes
+    /// for the brush tool. `None` = "never explicitly saved"; callers
+    /// fall back to the config / built-in default (2).
+    #[serde(default)]
+    pub brush_post_smooth_iterations: Option<usize>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -243,6 +267,62 @@ pub fn load_keybinds() -> Option<HashMap<Tools, char>> {
             })
             .collect()
     })
+}
+
+/// Whether the user has opted into in-app scroll inversion. Defaults
+/// to `true` for fresh installs (matches the typical user
+/// expectation that wheel-up grows / zooms in and pan follows the
+/// natural-scroll direction); existing state.toml values still
+/// win, so an explicit `false` stays `false`.
+pub fn load_invert_scrolling() -> bool {
+    load().invert_scrolling.unwrap_or(true)
+}
+
+/// Persist the scroll-inversion preference. Called from the
+/// Preferences dialog's CheckButton toggle so the choice survives
+/// restarts.
+pub fn save_invert_scrolling(value: bool) {
+    let mut state = load();
+    state.invert_scrolling = Some(value);
+    save(&state);
+}
+
+/// Whether Esc should close satty (in addition to firing any
+/// `actions_on_escape` from config). Defaults to false.
+pub fn load_close_on_esc() -> bool {
+    load().close_on_esc.unwrap_or(false)
+}
+
+pub fn save_close_on_esc(value: bool) {
+    let mut state = load();
+    state.close_on_esc = Some(value);
+    save(&state);
+}
+
+/// Whether the color picker popover hides its default 10-color
+/// palette column. When true, the 1–9, 0 number-key shortcuts pick
+/// from the first column of saved-custom colors instead. Defaults
+/// to false.
+pub fn load_hide_default_palette() -> bool {
+    load().hide_default_palette.unwrap_or(false)
+}
+
+pub fn save_hide_default_palette(value: bool) {
+    let mut state = load();
+    state.hide_default_palette = Some(value);
+    save(&state);
+}
+
+/// Saved-default number of post-stroke Chaikin smoothing passes for
+/// the brush. `None` = use config / built-in default.
+pub fn load_brush_post_smooth_iterations() -> Option<usize> {
+    load().brush_post_smooth_iterations
+}
+
+pub fn save_brush_post_smooth_iterations(value: usize) {
+    let mut state = load();
+    state.brush_post_smooth_iterations = Some(value);
+    save(&state);
 }
 
 /// Replace the persisted keybind map wholesale. Called by the
