@@ -76,9 +76,11 @@ fn main() -> Result<(), io::Error> {
             "resize-large-regular",
             // Crop-mode toolbar additions.
             "arrow-swap-regular",
-            // No CCW variant in fluentui-system-icons; pull the
-            // anti-clockwise glyph from icon-development-kit.
-            "rotate-acw",
+            // `crop-arrow-rotate-regular` is the matched-to-standard
+            // glyph — a square frame with a curved rotation arrow
+            // overlaid. Reads as "rotate the cropped frame" rather
+            // than a bare circular arrow.
+            "crop-arrow-rotate-regular",
             "flip-horizontal-regular",
         ],
     );

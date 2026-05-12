@@ -1871,6 +1871,7 @@ impl Component for ToolsToolbar {
                     #[name(crop_aspect_dropdown)]
                     gtk::DropDown {
                         set_focusable: false,
+                        set_height_request: 34,
                         add_css_class: "compact-control",
                         install_tooltip: "Aspect ratio",
                         set_model: Some(&gtk::StringList::new(
@@ -1894,13 +1895,22 @@ impl Component for ToolsToolbar {
                     // constraint. Drag updates flow back so the
                     // entries always show the current rect size
                     // (suspended while the entry has focus so we
-                    // don't clobber half-typed input).
+                    // don't clobber half-typed input). `.crop-dim-entry`
+                    // gives them tight 2-px horizontal padding so
+                    // they don't dominate the toolbar's center
+                    // cluster — the default compact-control padding
+                    // makes the entries triple-wide for a 3-digit
+                    // value.
                     #[name(crop_width_entry)]
                     gtk::Entry {
                         add_css_class: "compact-control",
+                        add_css_class: "crop-dim-entry",
                         set_focusable: true,
                         set_hexpand: false,
+                        set_height_request: 34,
+                        set_width_request: 48,
                         set_width_chars: 3,
+                        set_max_width_chars: 4,
                         set_max_length: 5,
                         set_input_purpose: gtk::InputPurpose::Digits,
                         install_tooltip: "Crop width (px)",
@@ -1912,6 +1922,7 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         add_css_class: "compact-control",
                         add_css_class: "flat",
                         set_icon_name: "arrow-swap-regular",
@@ -1923,9 +1934,13 @@ impl Component for ToolsToolbar {
                     #[name(crop_height_entry)]
                     gtk::Entry {
                         add_css_class: "compact-control",
+                        add_css_class: "crop-dim-entry",
                         set_focusable: true,
                         set_hexpand: false,
+                        set_height_request: 34,
+                        set_width_request: 48,
                         set_width_chars: 3,
+                        set_max_width_chars: 4,
                         set_max_length: 5,
                         set_input_purpose: gtk::InputPurpose::Digits,
                         install_tooltip: "Crop height (px)",
@@ -1954,6 +1969,7 @@ impl Component for ToolsToolbar {
                         set_focusable: false,
                         set_focus_on_click: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         add_css_class: "compact-control",
                         set_has_frame: true,
                         set_always_show_arrow: false,
@@ -1980,9 +1996,10 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         add_css_class: "compact-control",
                         add_css_class: "flat",
-                        set_icon_name: "rotate-acw",
+                        set_icon_name: "crop-arrow-rotate-regular",
                         install_tooltip: "Rotate 90° counter-clockwise",
                         connect_clicked[sender] => move |_| {
                             sender.output_sender().emit(ToolbarEvent::RotateImage);
@@ -1996,6 +2013,7 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         add_css_class: "compact-control",
                         add_css_class: "flat",
                         set_icon_name: "flip-horizontal-regular",
@@ -2025,7 +2043,15 @@ impl Component for ToolsToolbar {
                     gtk::MenuButton {
                         set_focusable: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         add_css_class: "compact-control",
+                        // CSS class gives the button a gray background
+                        // even before hover, matching the resize
+                        // MenuButton's "subtle but clickable" look in
+                        // the standard pattern. The Adwaita default for a
+                        // MenuButton in a toolbar context renders
+                        // frameless until hover.
+                        add_css_class: "image-size-menubtn",
                         // Frame on + always-show-arrow for the
                         // dropdown chevron — without these the
                         // MenuButton renders frameless inside a
@@ -2124,6 +2150,7 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         set_label: "Cancel",
                         add_css_class: "compact-control",
                         install_tooltip: "Cancel crop (Esc)",
@@ -2134,6 +2161,7 @@ impl Component for ToolsToolbar {
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
+                        set_height_request: 34,
                         set_label: "Crop",
                         add_css_class: "compact-control",
                         add_css_class: "suggested-action",

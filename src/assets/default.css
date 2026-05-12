@@ -125,6 +125,29 @@ dropdown.compact-control > button.combo {
     padding: 4px;
 }
 
+/* Crop-mode W/H text inputs. The default `.compact-control`
+ * padding (8 px left + right) makes 3-digit dimension entries
+ * read triple-wide; we tighten to 2 px so the entry hugs its
+ * value. The natural width still respects `width_request: 48`
+ * (set on the widget) so single-digit input doesn't collapse
+ * the entry below readability. */
+.crop-dim-entry > text {
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+/* "Image size: W × H px" MenuButton in the crop-mode top toolbar.
+ * Adwaita's default for a MenuButton in a toolbar context renders
+ * frameless until hover (button blends into the toolbar). Pin a
+ * subtle alpha-tinted background so it reads as a clickable
+ * control at rest, brightening on hover. */
+.image-size-menubtn > button {
+    background-color: alpha(@headerbar_fg_color, 0.10);
+}
+.image-size-menubtn > button:hover {
+    background-color: alpha(@headerbar_fg_color, 0.18);
+}
+
 /* Crop-tool "Snap to edges" controls. The checkbox + accompanying hint
  * label sit in the bottom-row alongside the zoom indicator while the
  * Crop tool is active; defaults read as oversized next to the slim
