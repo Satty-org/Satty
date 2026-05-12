@@ -655,11 +655,18 @@ impl Component for App {
                 self.update_revert_visibility();
             }
             AppInput::ColorSwitchShortcut(index) => {
+                // When the user has hidden the default palette, the
+                // 1–9, 0 shortcut keys pick from the first column of
+                // saved-custom colors instead — that column is now
+                // the picker's "primary" set.
+                let button = if APP_CONFIG.read().hide_default_palette() {
+                    ui::toolbars::ColorButtons::CustomSaved(index)
+                } else {
+                    ui::toolbars::ColorButtons::Palette(index)
+                };
                 self.tools_toolbar
                     .sender()
-                    .emit(ToolsToolbarInput::ColorButtonSelected(
-                        ui::toolbars::ColorButtons::Palette(index),
-                    ));
+                    .emit(ToolsToolbarInput::ColorButtonSelected(button));
             }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
