@@ -2740,9 +2740,43 @@ impl Component for ToolsToolbar {
 
             let popover_for_row = bg_popover.clone();
             let sender_for_row = sender.clone();
-            row_btn.connect_clicked(move |_| {
-                sender_for_row.input(ToolsToolbarInput::CropBgColorSelected(bg));
+            let is_custom_row = matches!(bg, CropBgColor::Custom(..));
+            row_btn.connect_clicked(move |btn| {
                 popover_for_row.popdown();
+                if is_custom_row {
+                    // Open a modal color chooser so the user can pick
+                    // an arbitrary matte color. On OK, push back as a
+                    // `Custom(r, g, b)` selection (alpha is dropped —
+                    // the matte is always fully opaque, the named
+                    // "Auto" preset is the semi-transparent option).
+                    let top = btn
+                        .root()
+                        .and_then(|r| r.downcast::<gtk::Window>().ok());
+                    let mut builder = gtk::ColorChooserDialog::builder()
+                        .modal(true)
+                        .title("Pick crop background color");
+                    if let Some(w) = &top {
+                        builder = builder.transient_for(w);
+                    }
+                    let dialog = builder.build();
+                    let sender_for_dialog = sender_for_row.clone();
+                    dialog.connect_response(move |dlg, response| {
+                        if response == gtk::ResponseType::Ok {
+                            let rgba = dlg.rgba();
+                            let picked = CropBgColor::Custom(
+                                rgba.red(),
+                                rgba.green(),
+                                rgba.blue(),
+                            );
+                            sender_for_dialog
+                                .input(ToolsToolbarInput::CropBgColorSelected(picked));
+                        }
+                        dlg.close();
+                    });
+                    dialog.show();
+                } else {
+                    sender_for_row.input(ToolsToolbarInput::CropBgColorSelected(bg));
+                }
             });
             bg_box.append(&row_btn);
         }
