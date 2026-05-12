@@ -145,6 +145,11 @@ enum AppInput {
     /// Sketch board changed the active tool's size — forward to the
     /// style toolbar so its slider mirrors the new value.
     ToolSizeChanged(crate::style::Size),
+    /// The canvas's intrinsic content size changed (crop commit /
+    /// re-enter crop edit / revert). Re-fit the window around the
+    /// new content with the same padding-and-90 %-cap logic the
+    /// startup path uses.
+    ContentSizeChanged { width: f32, height: f32 },
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
@@ -251,14 +256,89 @@ impl App {
         })
     }
 
+    /// Effective DPI scale to display dimensions in — divides capture-
+    /// native pixels into CSS-px equivalents so a 1498 × 218 image
+    /// taken on a 2× HiDPI screen reads as 749 × 109. Explicit
+    /// `input_scale` wins; otherwise we pick the larger of the
+    /// widget's `scale_factor()` and the monitor's `scale_factor()`
+    /// to handle Wayland fractional-scaling outputs where root can
+    /// report 1.
+    fn display_scale_divisor(root: &Window) -> i32 {
+        let input_scale = APP_CONFIG.read().input_scale();
+        if input_scale != 1.0 {
+            return input_scale.round().max(1.0) as i32;
+        }
+        let root_scale = root.scale_factor().max(1);
+        let monitor_scale = root
+            .surface()
+            .and_then(|s| {
+                DisplayManager::get()
+                    .default_display()
+                    .and_then(|d| d.monitor_at_surface(&s))
+            })
+            .map(|m| m.scale_factor())
+            .unwrap_or(1)
+            .max(1);
+        root_scale.max(monitor_scale)
+    }
+
+    /// Compute the window size to wrap `content_w × content_h` pixels
+    /// (in CSS px, already DPR-corrected) with the standard image
+    /// padding + toolbar chrome, capped to 90 % of `monitor` on each
+    /// axis so the window never dominates the desktop. Shared between
+    /// the initial-resize path and the `ContentSizeChanged` handler
+    /// (which fires on crop commit / re-enter / revert).
+    fn window_size_for_content(
+        content_w: f64,
+        content_h: f64,
+        monitor: Option<Rectangle>,
+    ) -> (i32, i32) {
+        const IMAGE_PAD_CSS: f64 = 40.0;
+        const TOOLBAR_CHROME_CSS: f64 = 120.0;
+        let padded_w = content_w + 2.0 * IMAGE_PAD_CSS;
+        let padded_h = content_h + 2.0 * IMAGE_PAD_CSS + TOOLBAR_CHROME_CSS;
+        let (final_w, final_h) = if let Some(m) = monitor {
+            let max_w = m.width() as f64 * 0.90;
+            let max_h = m.height() as f64 * 0.90;
+            (padded_w.min(max_w), padded_h.min(max_h))
+        } else {
+            (padded_w, padded_h)
+        };
+        (final_w as i32, final_h as i32)
+    }
+
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
-        let scale = APP_CONFIG.read().input_scale();
         let fullscreen = APP_CONFIG.read().fullscreen();
         let resize = APP_CONFIG.read().resize();
         let floating_hack = APP_CONFIG.read().floating_hack();
 
-        let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
-        let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
+        // Convert image dimensions from PIXELS (capture-native, what
+        // grim hands us — device px on HiDPI displays) to the GTK
+        // window's CSS-px coordinate system. `input_scale` is the
+        // explicit user override; when it's left at the default 1.0
+        // we fall back to the widget's reported scale factor — and
+        // for Wayland fractional-scaling outputs (where GTK4 reports
+        // scale_factor=1 and relies on wp-fractional-scale) we also
+        // probe the monitor object for its scale.
+        let input_scale = APP_CONFIG.read().input_scale();
+        let root_scale = root.scale_factor().max(1) as f64;
+        let monitor_scale = root
+            .surface()
+            .and_then(|s| {
+                DisplayManager::get()
+                    .default_display()
+                    .and_then(|d| d.monitor_at_surface(&s))
+            })
+            .map(|m| m.scale_factor() as f64)
+            .unwrap_or(1.0)
+            .max(1.0);
+        let scale = if input_scale != 1.0 {
+            input_scale as f64
+        } else {
+            root_scale.max(monitor_scale)
+        };
+        let image_width = self.image_dimensions.0 as f64 / scale;
+        let image_height = self.image_dimensions.1 as f64 / scale;
 
         eprintln!(
             "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
@@ -552,12 +632,14 @@ impl Component for App {
             }
             AppInput::DimensionsUpdate(dimensions) => {
                 let d = dimensions.unwrap_or(self.image_dimensions);
-                // Pad spaces around the multiplier so the readout reads
-                // as "WIDTH x HEIGHT" rather than the cramped "WxH"
-                // form (matches the convention standard / image
-                // editors use).
+                // Show the dimensions in the same coordinate system
+                // the user perceives — divide by the display's DPR
+                // so a 1498×218 image captured on a 2× HiDPI screen
+                // reads as 749×109 (the visual size of the region
+                // they framed), not the doubled device-pixel count.
+                let scale = Self::display_scale_divisor(root);
                 self.output_dimensions_label
-                    .set_text(&format!("{} x {}", d.0, d.1));
+                    .set_text(&format!("{} x {}", d.0 / scale, d.1 / scale));
             }
             AppInput::ZoomChanged(scale) => {
                 self.zoom_indicator
@@ -601,6 +683,26 @@ impl Component for App {
                 self.style_toolbar
                     .sender()
                     .emit(StyleToolbarInput::SetCurrentSize(size));
+            }
+            AppInput::ContentSizeChanged { width, height } => {
+                // Fit the window around the new content — applied via
+                // `set_default_size`, which Wayland's compositor will
+                // generally honor as a resize request. Same
+                // input_scale → device-pixel-ratio fallback as the
+                // initial-resize path: convert capture-native pixels
+                // into the window's CSS-px coord system.
+                let input_scale = APP_CONFIG.read().input_scale();
+                let scale = if input_scale != 1.0 {
+                    input_scale as f64
+                } else {
+                    root.scale_factor().max(1) as f64
+                };
+                let scaled_w = width as f64 / scale;
+                let scaled_h = height as f64 / scale;
+                let monitor = Self::get_monitor_size(root);
+                let (w, h) =
+                    Self::window_size_for_content(scaled_w, scaled_h, monitor);
+                root.set_default_size(w, h);
             }
         }
     }
@@ -649,6 +751,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::ToolSizeChanged(size) => {
                         AppInput::ToolSizeChanged(size)
+                    }
+                    SketchBoardOutput::ContentSizeChanged { width, height } => {
+                        AppInput::ContentSizeChanged { width, height }
                     }
                 });
 
@@ -867,11 +972,16 @@ impl Component for App {
         // Seed the bottom-right output dimensions label with the
         // full image size so something's visible immediately —
         // sketch_board republishes via DimensionsUpdate whenever the
-        // crop changes. Format must match the spaced "W x H" form used
-        // in the DimensionsUpdate handler above.
-        model
-            .output_dimensions_label
-            .set_text(&format!("{} x {}", image_dimensions.0, image_dimensions.1));
+        // crop changes. Format must match the spaced "W x H" form
+        // used in the DimensionsUpdate handler above. Divide by DPR
+        // here too so the seeded value isn't doubled compared to
+        // what the user sees rendered on screen.
+        let display_scale = Self::display_scale_divisor(&root);
+        model.output_dimensions_label.set_text(&format!(
+            "{} x {}",
+            image_dimensions.0 / display_scale,
+            image_dimensions.1 / display_scale,
+        ));
 
         let widgets = view_output!();
 
