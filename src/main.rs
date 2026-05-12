@@ -158,6 +158,11 @@ enum AppInput {
     /// keyboard shortcut). Forwarded so the toolbar's button
     /// state updates in lockstep with sketch_board's `style.fill`.
     FillShapesChanged(bool),
+    /// Crop rect dimensions during a drag / typed set — pushed
+    /// only to the top toolbar's W/H entries (the bottom-right
+    /// output-dims readout doesn't watch this; it tracks the
+    /// committed output, not the in-edit rect).
+    CropEditDimensions { width: i32, height: i32 },
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
@@ -648,15 +653,16 @@ impl Component for App {
                 let scale = Self::display_scale_divisor(root);
                 self.output_dimensions_label
                     .set_text(&format!("{} x {}", d.0 / scale, d.1 / scale));
-                // Mirror into the ToolsToolbar so the crop-mode W/H
-                // text entries reflect the current rect. The toolbar
-                // skips the entry refresh when either field has
-                // focus (typed input wins).
+                // (NB: the crop-mode toolbar W/H entries get their
+                // live values via `CropEditDimensions` instead, so
+                // they update on every drag without making the
+                // bottom-right output-dims readout thrash too —
+                // the readout fires only on commit / revert /
+                // un-commit, when the OUTPUT actually changes.)
+            }
+            AppInput::CropEditDimensions { width, height } => {
                 self.tools_toolbar.sender().emit(
-                    ToolsToolbarInput::CropDimensionsChanged {
-                        width: d.0,
-                        height: d.1,
-                    },
+                    ToolsToolbarInput::CropDimensionsChanged { width, height },
                 );
             }
             AppInput::ZoomChanged(scale) => {
@@ -793,6 +799,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::FillShapesChanged(fill) => {
                         AppInput::FillShapesChanged(fill)
+                    }
+                    SketchBoardOutput::CropEditDimensions { width, height } => {
+                        AppInput::CropEditDimensions { width, height }
                     }
                 });
 
@@ -1030,6 +1039,13 @@ impl Component for App {
         // crop-mode "Image size: W × H px" MenuButton label shows
         // the correct values from launch (not 0×0). Subsequent
         // changes flow via SketchBoardOutput::ImageDimensionsChanged.
+        // Push the display DPR FIRST so the seeding code below
+        // applies it (otherwise the entries get image-pixel values
+        // until the first manual change).
+        model
+            .tools_toolbar
+            .sender()
+            .emit(ToolsToolbarInput::SetDisplayScale(display_scale));
         model.tools_toolbar.sender().emit(
             ToolsToolbarInput::ImageDimensionsChanged {
                 width: image_dimensions.0,

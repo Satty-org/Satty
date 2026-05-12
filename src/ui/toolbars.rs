@@ -228,6 +228,15 @@ pub struct ToolsToolbar {
     /// can refresh via `#[watch]` whenever the user picks a new
     /// preset from the popover.
     crop_bg_color: crate::tools::CropBgColor,
+    /// Display device-pixel-ratio (matches main.rs's
+    /// `display_scale_divisor`). All user-facing pixel values
+    /// (crop W/H entries, "Image size: W × H px" label, resize
+    /// popover entries) divide raw image pixels by this to show
+    /// LOGICAL pixels — what the user sees on screen — and
+    /// multiply typed values back to image pixels before they
+    /// flow out as ToolbarEvents. Defaults to 1; main.rs pushes
+    /// the real value at startup via `SetDisplayScale`.
+    display_scale: i32,
     /// Currently-selected color, mirrored on the unified color-picker
     /// MenuButton's swatch. Updated whenever a palette/custom color is
     /// chosen, so the swatch reflects what subsequent annotations will use.
@@ -1195,6 +1204,15 @@ pub enum ToolsToolbarInput {
     /// (so the MenuButton's swatch image refreshes) and re-emits
     /// `ToolbarEvent::CropBgColorChanged` for the rest of the app.
     CropBgColorSelected(crate::tools::CropBgColor),
+    /// Push the display DPR divisor from main.rs at startup so
+    /// all user-facing pixel values (W/H entries, "Image size"
+    /// label, resize-popover entries) render in LOGICAL pixels
+    /// instead of raw image pixels.
+    SetDisplayScale(i32),
+    /// User clicked "Resize" in the image-size popover with
+    /// logical-pixel values. Handler multiplies by `display_scale`
+    /// and emits `ToolbarEvent::ResizeImage` with image pixels.
+    ResizeImageRequested { width: i32, height: i32 },
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2019,7 +2037,8 @@ impl Component for ToolsToolbar {
                         #[watch]
                         set_label: &format!(
                             "{} × {} px",
-                            model.image_width, model.image_height,
+                            model.image_width / model.display_scale.max(1),
+                            model.image_height / model.display_scale.max(1),
                         ),
                     },
                 },
@@ -2333,27 +2352,32 @@ impl Component for ToolsToolbar {
             ToolsToolbarInput::CropDimensionsChanged { width, height } => {
                 self.crop_width = width;
                 self.crop_height = height;
+                let s = self.display_scale.max(1);
                 // Refresh the entries — but only when they don't
                 // currently have focus, so a user mid-typing in
                 // the W or H field doesn't see their text wiped
-                // every drag tick.
+                // every drag tick. Values are divided by the
+                // display scale so the user sees LOGICAL pixels
+                // (the dimensions they perceive on screen) rather
+                // than the doubled image-pixel count on HiDPI.
                 if let Some(e) = &self.crop_width_entry
                     && !e.has_focus()
                 {
-                    e.set_text(&width.to_string());
+                    e.set_text(&(width / s).to_string());
                 }
                 if let Some(e) = &self.crop_height_entry
                     && !e.has_focus()
                 {
-                    e.set_text(&height.to_string());
+                    e.set_text(&(height / s).to_string());
                 }
             }
             ToolsToolbarInput::CropWidthEntered(value) => {
-                if let Some(w) = value
-                    && w > 0
+                let s = self.display_scale.max(1);
+                if let Some(w_logical) = value
+                    && w_logical > 0
                 {
                     sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
-                        width: w,
+                        width: w_logical * s,
                         height: self.crop_height.max(1),
                     });
                     sender.output_sender().emit(ToolbarEvent::FocusCanvas);
@@ -2361,20 +2385,21 @@ impl Component for ToolsToolbar {
                     // Snap back to the last known good value so the
                     // entry doesn't keep showing unparseable text
                     // after Enter on (e.g.) empty input.
-                    e.set_text(&self.crop_width.to_string());
+                    e.set_text(&(self.crop_width / s).to_string());
                 }
             }
             ToolsToolbarInput::CropHeightEntered(value) => {
-                if let Some(h) = value
-                    && h > 0
+                let s = self.display_scale.max(1);
+                if let Some(h_logical) = value
+                    && h_logical > 0
                 {
                     sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
                         width: self.crop_width.max(1),
-                        height: h,
+                        height: h_logical * s,
                     });
                     sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                 } else if let Some(e) = &self.crop_height_entry {
-                    e.set_text(&self.crop_height.to_string());
+                    e.set_text(&(self.crop_height / s).to_string());
                 }
             }
             ToolsToolbarInput::CropDimensionsSwap => {
@@ -2394,17 +2419,51 @@ impl Component for ToolsToolbar {
             ToolsToolbarInput::ImageDimensionsChanged { width, height } => {
                 self.image_width = width;
                 self.image_height = height;
+                let s = self.display_scale.max(1);
                 // Pre-populate the resize popover's entries so it
-                // opens already showing the current image dims.
-                // The popover only opens transiently (close on
-                // Resize / Cancel / click-out), so we can refresh
-                // these unconditionally without worrying about
-                // clobbering live typing.
+                // opens already showing the current image dims in
+                // LOGICAL pixels. The popover only opens transiently
+                // (close on Resize / Cancel / click-out), so we can
+                // refresh these unconditionally without worrying
+                // about clobbering live typing.
                 if let Some(e) = &self.resize_width_entry {
-                    e.set_text(&width.to_string());
+                    e.set_text(&(width / s).to_string());
                 }
                 if let Some(e) = &self.resize_height_entry {
-                    e.set_text(&height.to_string());
+                    e.set_text(&(height / s).to_string());
+                }
+            }
+            ToolsToolbarInput::ResizeImageRequested { width, height } => {
+                let s = self.display_scale.max(1);
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::ResizeImage {
+                        width: width * s,
+                        height: height * s,
+                    });
+            }
+            ToolsToolbarInput::SetDisplayScale(scale) => {
+                self.display_scale = scale.max(1);
+                // Refresh the entries with the new scale applied —
+                // covers the startup case where ImageDimensionsChanged
+                // fired before this scale was known, leaving the
+                // entries showing image-pixel values.
+                let s = self.display_scale;
+                if let Some(e) = &self.crop_width_entry
+                    && !e.has_focus()
+                {
+                    e.set_text(&(self.crop_width / s).to_string());
+                }
+                if let Some(e) = &self.crop_height_entry
+                    && !e.has_focus()
+                {
+                    e.set_text(&(self.crop_height / s).to_string());
+                }
+                if let Some(e) = &self.resize_width_entry {
+                    e.set_text(&(self.image_width / s).to_string());
+                }
+                if let Some(e) = &self.resize_height_entry {
+                    e.set_text(&(self.image_height / s).to_string());
                 }
             }
         }
@@ -2487,6 +2546,7 @@ impl Component for ToolsToolbar {
             resize_width_entry: None,
             resize_height_entry: None,
             crop_bg_color: crate::tools::CropBgColor::Auto,
+            display_scale: 1,
             current_color: initial_color,
             current_color_pixbuf: initial_color_pixbuf,
             custom_color,
@@ -2592,12 +2652,13 @@ impl Component for ToolsToolbar {
                 && w > 0
                 && h > 0
             {
-                sender_resize
-                    .output_sender()
-                    .emit(ToolbarEvent::ResizeImage {
-                        width: w,
-                        height: h,
-                    });
+                // Route through the input message so the handler
+                // can apply `display_scale` (logical → image pixels)
+                // before emitting the outbound `ResizeImage` event.
+                sender_resize.input(ToolsToolbarInput::ResizeImageRequested {
+                    width: w,
+                    height: h,
+                });
                 popover_for_resize.popdown();
             }
         });

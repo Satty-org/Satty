@@ -155,6 +155,13 @@ pub enum SketchBoardOutput {
     /// reflect the new value without the user clicking the
     /// button manually.
     FillShapesChanged(bool),
+    /// Live crop-rect dimensions during a drag / typed set. Used
+    /// to refresh the crop-mode toolbar's W/H entries WITHOUT
+    /// touching the bottom-right output-dimensions readout — the
+    /// readout reflects the OUTPUT (full image while editing,
+    /// cropped size only after commit) so it doesn't visually
+    /// thrash on every drag tick.
+    CropEditDimensions { width: i32, height: i32 },
 }
 
 #[derive(Debug, Clone)]

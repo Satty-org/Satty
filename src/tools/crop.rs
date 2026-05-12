@@ -782,6 +782,11 @@ impl CropTool {
         crop.active = false;
         self.action = None;
         self.emit_content_size(size.x, size.y);
+        // The OUTPUT dimensions just became the cropped rect —
+        // push to the bottom-right readout so the user sees the
+        // new effective image size after commit. (Drags don't
+        // touch this readout; only commit / revert do.)
+        self.emit_output_dimensions(Some((size.x.round() as i32, size.y.round() as i32)));
         // Hand the user back to the main view — emit a tool switch
         // so the StyleToolbar reappears and the crop bottom bar
         // collapses. Pointer is a neutral default; the user can
@@ -1054,7 +1059,7 @@ impl CropTool {
         };
         crop.pos = Vec2D::new(center_x - new_w / 2.0, center_y - new_h / 2.0);
         crop.size = Vec2D::new(new_w, new_h);
-        self.emit_crop_dimensions_update();
+        self.emit_crop_edit_dimensions();
     }
 
     pub fn aspect_ratio(&self) -> AspectRatio {
@@ -1114,17 +1119,37 @@ impl CropTool {
             });
             self.emit_crop_presence(true);
         }
-        self.emit_crop_dimensions_update();
+        self.emit_crop_edit_dimensions();
     }
 
-    fn emit_crop_dimensions_update(&self) {
+    /// Emit a live "crop rect dimensions" tick for the toolbar's
+    /// W/H entries. Distinct from `DimensionsUpdate` — the bottom-
+    /// right output-dimensions readout doesn't watch this; it
+    /// only updates on commit / revert / un-commit so the readout
+    /// always reflects the OUTPUT (full image during edit, cropped
+    /// size after commit).
+    fn emit_crop_edit_dimensions(&self) {
         if let (Some(crop), Some(sender)) = (&self.crop, &self.sender) {
             let (_pos, size) = crop.get_rectangle();
             let width = size.x.round() as i32;
             let height = size.y.round() as i32;
             sender
                 .send(SketchBoardInput::Output(
-                    SketchBoardOutput::DimensionsUpdate(Some((width, height))),
+                    SketchBoardOutput::CropEditDimensions { width, height },
+                ))
+                .ok();
+        }
+    }
+
+    /// Emit the bottom-right output-dimensions readout's new
+    /// value. `None` resets to full image bounds; `Some((w, h))`
+    /// shows a committed crop's dims. Called on commit, revert,
+    /// re-enter (un-commit), and `revert_to_seed`.
+    fn emit_output_dimensions(&self, dims: Option<(i32, i32)>) {
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::DimensionsUpdate(dims),
                 ))
                 .ok();
         }
@@ -1292,14 +1317,14 @@ impl CropTool {
                     }
                 }
                 crop.size = Vec2D::new(sx, sy);
-                self.emit_crop_dimensions_update();
+                self.emit_crop_edit_dimensions();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::DragHandle(state) => {
                 Self::apply_drag_handle_transformation(
                     crop, state, direction, aspect, snap_x, snap_y,
                 );
-                self.emit_crop_dimensions_update();
+                self.emit_crop_edit_dimensions();
                 ToolUpdateResult::Redraw
             }
             CropToolAction::Move(state) => {
@@ -1444,9 +1469,14 @@ impl Tool for CropTool {
             c.committed = false;
             // If the previous frame was showing a committed crop, the
             // canvas is now displaying the full image again — bump the
-            // window back up to fit it.
-            if was_committed && let Some(bounds) = self.image_bounds {
-                self.emit_content_size(bounds.x, bounds.y);
+            // window back up to fit it, and reset the bottom-right
+            // output-dims readout back to "full image" (it had been
+            // showing the committed crop's dims).
+            if was_committed {
+                if let Some(bounds) = self.image_bounds {
+                    self.emit_content_size(bounds.x, bounds.y);
+                }
+                self.emit_output_dimensions(None);
             }
             // The Revert button is gated on `has_crop` in the bottom
             // toolbar; re-asserting presence on every tool entry keeps
