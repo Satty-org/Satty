@@ -1,5 +1,8 @@
 .root {
-    min-width: 65rem;
+    /* No explicit min-width — GTK already takes the natural size of
+       the toolbars into account, and a hard min was forcing the
+       window wider than small/medium screenshots actually needed,
+       wasting padding on both sides of the top menu. */
     min-height: 10rem;
 }
 
