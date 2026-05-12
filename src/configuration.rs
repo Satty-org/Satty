@@ -668,6 +668,13 @@ impl Configuration {
         &self.keybinds
     }
 
+    /// Replace the tool ↔ key map wholesale. Called by the Preferences
+    /// dialog on Save with the user's edited set; persisted to
+    /// `state.toml` separately so the change survives restarts.
+    pub fn set_keybinds(&mut self, shortcuts: HashMap<char, Tools>) {
+        self.keybinds.shortcuts = shortcuts;
+    }
+
     pub fn zoom_factor(&self) -> f32 {
         self.zoom_factor
     }
