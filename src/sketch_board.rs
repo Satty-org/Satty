@@ -136,6 +136,13 @@ pub enum SketchBoardOutput {
     /// re-emit, because sketch_board already pushed the size to the
     /// active tool via `dispatch_style_change`.
     ToolSizeChanged(crate::style::Size),
+    /// The intrinsic size of what's currently displayed on the canvas
+    /// changed — emitted on initial layout, crop commit (cropped
+    /// region dims), re-enter of crop edit mode (full image dims), and
+    /// revert (full image dims). Main resizes the window to (size +
+    /// padding) capped to 90 % of the display so the canvas can
+    /// render the content at 1:1 whenever it fits.
+    ContentSizeChanged { width: f32, height: f32 },
 }
 
 #[derive(Debug, Clone)]
@@ -245,12 +252,16 @@ impl SketchBoardInput {
         }))
     }
 
-    pub fn new_pan_scroll_event(delta_x: f64, delta_y: f64) -> SketchBoardInput {
+    pub fn new_pan_scroll_event(
+        delta_x: f64,
+        delta_y: f64,
+        modifier: ModifierType,
+    ) -> SketchBoardInput {
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: MouseEventType::PanScroll,
             button: MouseButton::Middle,
             n_pressed: 0,
-            modifier: ModifierType::empty(),
+            modifier,
             pos: Vec2D::new(delta_x as f32, delta_y as f32),
             release: false,
         }))
@@ -325,13 +336,24 @@ impl InputEvent {
                 }
 
                 MouseEventType::Scroll => {
-                    let factor = APP_CONFIG.read().zoom_factor();
-                    match me.pos.y {
-                        v if v < 0.0 => renderer.set_zoom_scale(factor),
-                        v if v > 0.0 => renderer.set_zoom_scale(1f32 / factor),
-                        _ => {}
+                    // Treat scroll delta as a *continuous* zoom
+                    // exponent rather than a discrete step. A notched
+                    // mouse wheel reports |dy| = 1.0 per click, so
+                    // `factor^(-dy)` reduces to the old behavior
+                    // (factor / 1·factor per click). A trackpad
+                    // emits many smooth events with |dy| ≪ 1.0 per
+                    // event, so the previous "any nonzero dy = one
+                    // full zoom step" rule made trackpad zoom feel
+                    // ~10× too aggressive. With the exponent, a full
+                    // trackpad swipe accumulates to roughly one
+                    // mouse-wheel-click of zoom — same end-state, no
+                    // sprint.
+                    if me.pos.y != 0.0 {
+                        let factor = APP_CONFIG.read().zoom_factor();
+                        let multiplier = factor.powf(-me.pos.y);
+                        renderer.set_zoom_scale(multiplier);
+                        renderer.request_render(&[]);
                     }
-                    renderer.request_render(&[]);
                     None
                 }
                 MouseEventType::PanScroll => {
@@ -367,6 +389,23 @@ impl InputEvent {
     }
 }
 
+/// Apply `steps` discrete bumps to a `Size`, positive = step_up. Used
+/// by the scroll-wheel resize gestures so a single multi-step swipe
+/// (or even a wraparound from a fast trackpad flick) lands on the
+/// right rung in one pass.
+fn apply_size_steps(mut size: crate::style::Size, steps: i32) -> crate::style::Size {
+    if steps > 0 {
+        for _ in 0..steps {
+            size = size.step_up();
+        }
+    } else if steps < 0 {
+        for _ in 0..(-steps) {
+            size = size.step_down();
+        }
+    }
+    size
+}
+
 pub struct SketchBoard {
     renderer: FemtoVGArea,
     active_tool: Rc<RefCell<dyn Tool>>,
@@ -388,6 +427,14 @@ pub struct SketchBoard {
     /// recorded anything yet (initial app state) — the fallback is
     /// Pointer in that case.
     tool_before_crop: Option<Tools>,
+    /// Accumulator for the scroll-resize gesture (selection-wheel and
+    /// Shift+wheel). A notched mouse wheel reports |dy| = 1.0 per
+    /// click so a step fires every event, but trackpads emit many
+    /// small fractional deltas — we add them up and only step the
+    /// size when |accum| crosses 1.0, then subtract the consumed
+    /// portion. Reset on direction reversal so a flick the other way
+    /// doesn't have to chew through the previous direction's leftover.
+    scroll_resize_accum: f32,
 }
 
 impl SketchBoard {
@@ -1102,6 +1149,10 @@ impl SketchBoard {
                     .get(&Tools::Text)
                     .borrow_mut()
                     .set_text_background(bg);
+                // Auto-save: the last-chosen background becomes the
+                // default for the next launch. Same pattern as arrow
+                // and blur style.
+                crate::state::save_text_background(bg);
 
                 // Also apply retroactively to any selected text
                 // drawables — without this the dropdown only takes
@@ -1129,13 +1180,21 @@ impl SketchBoard {
                 }
             }
             ToolbarEvent::RevertCrop => {
-                // Drop the crop entirely. Renderer reads the new
-                // (empty) committed_rect on its next frame and
-                // returns to the regular pan/zoom transform.
-                self.tools.get_crop_tool().borrow_mut().revert();
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::CropPresenceChanged(false));
+                // Two behaviors depending on where the click came from:
+                //   * Inside Crop tool — reset to the fresh-entry seed
+                //     so the user can immediately drag a new region
+                //     without leaving the tool.
+                //   * Outside Crop tool — drop the crop entirely so
+                //     the committed-rect transform clears and the
+                //     Revert button disappears with it.
+                if self.active_tool_type() == Tools::Crop {
+                    self.tools.get_crop_tool().borrow_mut().revert_to_seed();
+                } else {
+                    self.tools.get_crop_tool().borrow_mut().revert();
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::CropPresenceChanged(false));
+                }
                 ToolUpdateResult::Redraw
             }
             /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
@@ -1257,6 +1316,98 @@ impl SketchBoard {
             ));
     }
 
+    /// Convert an accumulated scroll-delta into N discrete +1 (smaller)
+    /// or -1 (bigger) steps. dy carries the sign GTK reports — negative
+    /// means scroll-up, which we want to map to "bigger". The
+    /// accumulator (`self.scroll_resize_accum`) is the per-instance
+    /// buffer so trackpads (many small dy events) accumulate to the
+    /// same number of steps a notched wheel (|dy|=1.0) emits per
+    /// click. Returns the signed step count, where +1 = step_up and
+    /// -1 = step_down.
+    fn drain_scroll_resize_steps(&mut self, dy: f32) -> i32 {
+        // Reset on direction reversal so a flick the other way doesn't
+        // have to chew through the previous direction's leftover.
+        if self.scroll_resize_accum != 0.0 && (self.scroll_resize_accum.signum() != (-dy).signum())
+        {
+            self.scroll_resize_accum = 0.0;
+        }
+        // GTK reports dy>0 for scroll-down, dy<0 for scroll-up. We want
+        // scroll-up → step_up (bigger), so negate the sign.
+        self.scroll_resize_accum += -dy;
+        let mut steps = 0;
+        while self.scroll_resize_accum >= 1.0 {
+            self.scroll_resize_accum -= 1.0;
+            steps += 1;
+        }
+        while self.scroll_resize_accum <= -1.0 {
+            self.scroll_resize_accum += 1.0;
+            steps -= 1;
+        }
+        steps
+    }
+
+    /// Resize all currently-selected drawables by `dy`-derived steps.
+    /// Falls through cleanly when the accumulated dy hasn't reached a
+    /// full step yet — typical for trackpad scrolling.
+    fn scroll_resize_selection(
+        &mut self,
+        selected: &[DrawableId],
+        dy: f32,
+        outer_sender: &ComponentSender<Self>,
+    ) {
+        let steps = self.drain_scroll_resize_steps(dy);
+        if steps == 0 {
+            return;
+        }
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::with_capacity(selected.len());
+        for id in selected {
+            let Some(mut d) = self.renderer.clone_drawable(*id) else {
+                continue;
+            };
+            let Some(mut s) = d.style() else {
+                continue;
+            };
+            let new_size = apply_size_steps(s.size, steps);
+            if new_size == s.size {
+                continue;
+            }
+            s.size = new_size;
+            d.set_style(s);
+            updates.push((*id, d));
+        }
+        match updates.len() {
+            0 => {}
+            1 => {
+                let (id, d) = updates.pop().unwrap();
+                self.renderer.modify(id, d);
+                self.refresh_screen();
+            }
+            _ => {
+                self.renderer.modify_many(updates);
+                self.refresh_screen();
+            }
+        }
+        self.sync_toolbar_to_selection(outer_sender);
+    }
+
+    /// Bump the active tool's `style.size` by `dy`-derived steps.
+    /// Notifies the toolbar so the slider stays in sync.
+    fn scroll_resize_tool_size(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
+        let steps = self.drain_scroll_resize_steps(dy);
+        if steps == 0 {
+            return;
+        }
+        let new_size = apply_size_steps(self.style.size, steps);
+        if new_size == self.style.size {
+            return;
+        }
+        self.style.size = new_size;
+        self.dispatch_style_change();
+        outer_sender
+            .output_sender()
+            .emit(SketchBoardOutput::ToolSizeChanged(new_size));
+    }
+
     /// Dispatch a StyleChanged event so the toolbar's color/size/fill controls
     /// affect both future drawings (via the active tool) and any current
     /// selection (via the pointer tool's implicit selection state).
@@ -1341,8 +1492,13 @@ impl SketchBoard {
             if let Some(crop) = ct.get_crop()
                 && !crop.is_committed()
             {
-                cursor = match crop.hit_kind(image_pos) {
-                    Some(crate::tools::CropHit::Handle) => Some("pointer"),
+                // Pass the current image→canvas scale so the handle
+                // hit zone stays at a constant CSS-pixel size — without
+                // this, an auto-fit-scaled-down screenshot has tiny
+                // hit zones that miss the visible handle bracket.
+                let scale = self.renderer.current_render_scale();
+                cursor = match crop.hit_kind(image_pos, scale) {
+                    Some(crate::tools::CropHit::Handle(h)) => Some(h.resize_cursor()),
                     Some(crate::tools::CropHit::Body) => Some("grab"),
                     None => None,
                 };
@@ -1600,23 +1756,20 @@ impl Component for SketchBoard {
                             // dy at the compositor layer), so we just
                             // pass the deltas straight through to the
                             // panner. The PanScroll handler scales
-                            // them into pixels.
+                            // them into pixels (or hijacks for
+                            // size-resize on Shift, per the modifier
+                            // we forward below).
                             //
-                            // Shift + vertical wheel → horizontal pan
-                            // (standard convention for mice that lack
-                            // a horizontal axis). We rebind only when
-                            // the wheel itself reported no horizontal
-                            // delta, so trackpads / MX-style horizontal
-                            // wheels still pan two-axes normally.
-                            let (pan_dx, pan_dy) = if modifier
-                                .contains(gtk::gdk::ModifierType::SHIFT_MASK)
-                                && dx == 0.0
-                            {
-                                (dy, 0.0)
-                            } else {
-                                (dx, dy)
-                            };
-                            sender.input(SketchBoardInput::new_pan_scroll_event(pan_dx, pan_dy));
+                            // We DON'T do the Shift+vertical→horizontal
+                            // remap here anymore — Shift now signals
+                            // "resize on scroll" in the input handler,
+                            // and remapping dy→dx would steal the
+                            // delta. The handler does its own
+                            // horizontal-pan fallback for plain Shift
+                            // on a one-axis wheel.
+                            sender.input(SketchBoardInput::new_pan_scroll_event(
+                                dx, dy, modifier,
+                            ));
                         }
                         relm4::gtk::glib::Propagation::Stop
                     },
@@ -1856,6 +2009,48 @@ impl Component for SketchBoard {
                         }
                     }
                 } else {
+                    // Scroll-resize gesture takes precedence over the
+                    // pan handler — running pan first would shove the
+                    // canvas around while the user is trying to
+                    // resize. So we sniff the event up front, and
+                    // only delegate to the pan handler if the gesture
+                    // ISN'T a resize.
+                    let resize_consumed = if let InputEvent::Mouse(me) = &ie
+                        && me.type_ == MouseEventType::PanScroll
+                        && me.pos.y.abs() > 0.0
+                    {
+                        let selected = self
+                            .tools
+                            .get(&Tools::Pointer)
+                            .borrow()
+                            .selected_drawables();
+                        let shift_held = me.modifier.contains(ModifierType::SHIFT_MASK);
+                        if !selected.is_empty() {
+                            // Selection + wheel → resize the selected
+                            // drawable(s). Modifier-free; ignores Shift.
+                            self.scroll_resize_selection(&selected, me.pos.y, &outer_sender);
+                            true
+                        } else if shift_held {
+                            // No selection + Shift + wheel → bump the
+                            // active tool's size for the next stroke.
+                            self.scroll_resize_tool_size(me.pos.y, &outer_sender);
+                            true
+                        } else {
+                            // Clear residual accumulation when neither
+                            // resize path is active — keeps a later
+                            // resize gesture from inheriting stale
+                            // delta from a pan.
+                            self.scroll_resize_accum = 0.0;
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if resize_consumed {
+                        return;
+                    }
+
                     ie.handle_event_mouse_input(&self.renderer);
 
                     // Update hover cursor on motion (PointerPos events keep
@@ -1867,94 +2062,6 @@ impl Component for SketchBoard {
                         let image_pos =
                             self.renderer.abs_canvas_to_image_coordinates(me.pos);
                         self.update_hover_cursor(image_pos);
-                    }
-
-                    // Scroll-resize hijack: with a selection active,
-                    // the wheel changes the size of the selected
-                    // shape(s) instead of panning the canvas. dy is
-                    // packed into `me.pos.y` (negative = scroll up =
-                    // bigger). Lets the user tweak sizes anywhere on
-                    // the canvas without aiming for the toolbar slider.
-                    //
-                    // No selection + Shift held → bump the *active
-                    // tool's* size instead, so the user can grow/shrink
-                    // the next stroke without aiming for the slider
-                    // either. Shift gating keeps a plain wheel free
-                    // for canvas pan when nothing is selected.
-                    if let InputEvent::Mouse(me) = &ie
-                        && me.type_ == MouseEventType::PanScroll
-                        && me.pos.y.abs() > 0.0
-                    {
-                        let selected = self
-                            .tools
-                            .get(&Tools::Pointer)
-                            .borrow()
-                            .selected_drawables();
-                        if selected.is_empty()
-                            && me.modifier.contains(ModifierType::SHIFT_MASK)
-                        {
-                            let step_up = me.pos.y < 0.0;
-                            let new_size = if step_up {
-                                self.style.size.step_up()
-                            } else {
-                                self.style.size.step_down()
-                            };
-                            if new_size != self.style.size {
-                                self.style.size = new_size;
-                                self.dispatch_style_change();
-                                outer_sender
-                                    .output_sender()
-                                    .emit(SketchBoardOutput::ToolSizeChanged(new_size));
-                            }
-                            return;
-                        }
-                        if !selected.is_empty() {
-                            let step_up = me.pos.y < 0.0;
-                            let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> =
-                                Vec::with_capacity(selected.len());
-                            for id in &selected {
-                                let Some(mut d) = self.renderer.clone_drawable(*id) else {
-                                    continue;
-                                };
-                                let Some(mut s) = d.style() else {
-                                    continue;
-                                };
-                                let new_size = if step_up {
-                                    s.size.step_up()
-                                } else {
-                                    s.size.step_down()
-                                };
-                                if new_size == s.size {
-                                    continue;
-                                }
-                                s.size = new_size;
-                                d.set_style(s);
-                                updates.push((*id, d));
-                            }
-                            let result = match updates.len() {
-                                0 => ToolUpdateResult::Unmodified,
-                                1 => {
-                                    let (id, d) = updates.pop().unwrap();
-                                    ToolUpdateResult::ModifyDrawable(id, d)
-                                }
-                                _ => ToolUpdateResult::ModifyDrawables(updates),
-                            };
-                            // Skip the rest of the dispatch (which
-                            // would otherwise pan the canvas).
-                            match result {
-                                ToolUpdateResult::ModifyDrawable(id, d) => {
-                                    self.renderer.modify(id, d);
-                                    self.refresh_screen();
-                                }
-                                ToolUpdateResult::ModifyDrawables(updates) => {
-                                    self.renderer.modify_many(updates);
-                                    self.refresh_screen();
-                                }
-                                _ => {}
-                            }
-                            self.sync_toolbar_to_selection(&outer_sender);
-                            return;
-                        }
                     }
 
                     // Implicit selection: when a non-Pointer tool is active,
@@ -2207,6 +2314,7 @@ impl Component for SketchBoard {
             last_saved_filepath: RefCell::new(None),
             last_synced_selection: None,
             tool_before_crop: None,
+            scroll_resize_accum: 0.0,
         };
 
         let pointer_tool = model.tools.get(&Tools::Pointer);
@@ -2240,6 +2348,13 @@ impl Component for SketchBoard {
                 .get(&Tools::Blur)
                 .borrow_mut()
                 .set_blur_style(style);
+        }
+        if let Some(bg) = crate::state::load_text_background() {
+            model
+                .tools
+                .get(&Tools::Text)
+                .borrow_mut()
+                .set_text_background(bg);
         }
         let area = &mut model.renderer;
         area.init(
