@@ -99,7 +99,7 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.6 Delete `ToolsToolbarInput::ResizeImageRequested` and its handler
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/ui/toolbars.rs`
   - Remove the variant at line 2107.
   - Remove its handler at line 3742.

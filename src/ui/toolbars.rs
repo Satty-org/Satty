@@ -2096,10 +2096,6 @@ pub enum ToolsToolbarInput {
     /// label, resize-popover entries) render in LOGICAL pixels
     /// instead of raw image pixels.
     SetDisplayScale(i32),
-    /// User clicked "Resize" in the image-size popover with
-    /// logical-pixel values. Handler multiplies by `display_scale`
-    /// and emits `ToolbarEvent::ResizeImage` with image pixels.
-    ResizeImageRequested { width: i32, height: i32 },
     /// User clicked a dashed-empty placeholder in the saved-custom
     /// grid. Stash that slot index as `selected_empty_slot` so the
     /// next `SaveCustomColor` inserts at that visual position instead
@@ -3717,15 +3713,6 @@ impl Component for ToolsToolbar {
                 if let Some(d) = &self.resize_orig_dims {
                     d.set((width.max(1), height.max(1)));
                 }
-            }
-            ToolsToolbarInput::ResizeImageRequested { width, height } => {
-                let s = self.display_scale.max(1);
-                sender
-                    .output_sender()
-                    .emit(ToolbarEvent::ResizeImage {
-                        width: width * s,
-                        height: height * s,
-                    });
             }
             ToolsToolbarInput::SetDisplayScale(scale) => {
                 self.display_scale = scale.max(1);
