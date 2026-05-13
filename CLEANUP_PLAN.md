@@ -194,26 +194,27 @@ errors that happen to be self-cancelling.
 
 ### 1.12 Other small clippy cleanups
 
-- [ ] **Task**
+- [x] **Task**
   - ~~`src/tools/brush.rs:105,109` — range patterns~~ (done by 1.9)
-  - `src/tools/brush.rs:138` — replace `for i in 1..end` indexing
-    with `iter().enumerate().skip(1).take(end-1)` only if it's clearer.
-    If not, `#[allow]`.
+  - `src/tools/brush.rs:138` — kept the index loop with
+    `#[allow(clippy::needless_range_loop)]` + a comment. Clippy's
+    enumerate-skip-take rewrite is uglier and clippy itself used
+    `<item>` as a placeholder.
   - ~~`src/tools/text.rs:1411` — `.is_multiple_of(2)`~~ (done by 1.9)
   - ~~`src/hyprland.rs:138` — `.contains(...)`~~ (done by 1.9)
   - ~~`src/ui/toolbars.rs:3358` — let-chain collapse~~ (done by 1.9)
-  - File: `src/ui/toolbars.rs` (lines shifted after Tier 1) — indent the
-    multi-line doc list items so they group correctly (or rewrite as
-    paragraphs). Was lines 488–494, 2208, 2226, 2227 — re-grep before
-    fixing.
-  - File: `src/sketch_board.rs` — convert the `match self.last_tool_press`
-    expression to `matches!`. Was line 1971 — re-grep.
-  - File: `src/tools/arrow.rs:457` — `too_many_arguments` (8/7). Either
-    bundle `draw_solid`'s args into a small struct or `#[allow]` it on
-    that one method.
-  - Verify: `cargo clippy --no-deps` → goal: 0 warnings.
-  - Status: 18 warnings remain (was 28). Bulk of remaining are
-    `doc_lazy_continuation`, the `matches!` rewrite, and `too_many_arguments`.
+  - `src/ui/toolbars.rs` doc continuations: root cause was `///` lines
+    starting with `+` (used as a plus sign in formula/prose, but
+    markdown reads it as a list bullet). Reflowed each case so the
+    `+` lands at end of the previous line. Also split a merged
+    two-paragraph doc block near `PICKER_COLORPLANE_WIDTH` with a
+    blank `///` separator.
+  - `src/sketch_board.rs` match → `matches!` applied.
+  - `src/tools/arrow.rs:457` and `src/femtovg_area/imp.rs:1460` —
+    `too_many_arguments`: `#[allow]` on each. Both are render
+    functions whose params are individually meaningful; bundling
+    would just scatter call sites without clarity gain.
+  - Verify: `cargo clippy --no-deps` → **0 warnings**.
 
 ---
 
