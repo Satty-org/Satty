@@ -2155,7 +2155,6 @@ pub enum StyleToolbarInput {
     /// without re-emitting `SizeSelected` (sketch_board already
     /// pushed the new size to the active tool).
     SetCurrentSize(crate::style::Size),
-    DimensionsChanged((i32, i32)),
     /// The active drawing tool changed; tool-specific controls re-evaluate
     /// their visibility.
     ToolChanged(Tools),
@@ -5052,10 +5051,6 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
-            }
-            StyleToolbarInput::DimensionsChanged((_width, _height)) => {
-                // Dimensions display moved to App's bottom_row.end_widget;
-                // ignore here so the variant can be deprecated later.
             }
             StyleToolbarInput::ToolChanged(tool) => {
                 self.current_tool = tool;

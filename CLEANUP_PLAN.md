@@ -133,7 +133,7 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.8 Delete `StyleToolbarInput::DimensionsChanged` and its handler
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/ui/toolbars.rs`
   - Remove the variant at line 2173.
   - Remove its handler at line 5141 (comment confirms: "Dimensions display
@@ -470,9 +470,9 @@ Things flagged during diagnosis that aren't action items yet:
 
 Update these numbers as tasks land:
 
-- Tier 1 dead code: 0 / 9 tasks (1.1–1.9)
+- Tier 1 dead code: 8 / 9 tasks (1.1–1.9)
 - Tier 1.5 clippy: 0 / 3 tasks (1.10–1.12)
 - Tier 2 dedup: 0 / 5 tasks (2.1–2.5)
 - Tier 3 splits: 1 / 11 tasks (3.5 obsolete after 1.7 cascade)
 
-**Total: 7 / 28 tasks.**
+**Total: 9 / 28 tasks.**
