@@ -1692,36 +1692,75 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 // Pre-sync `self.style.fill` to the currently-selected
-                // shape's fill state before flipping it. Without this,
-                // if the user clicks a shape whose fill state disagrees
-                // with `self.style.fill` (which may carry a stale
-                // value from an earlier toggle), the first press just
-                // brings the global into sync with the shape and the
-                // visible state doesn't change — the user has to press
-                // again to actually flip. Reading the selection's own
-                // fill makes a single press always produce a visible
-                // flip on the selected shape.
+                // SHAPE's fill state (Rect / Ellipse only) before
+                // flipping it. Without this, the first press might
+                // just bring the global into sync with the shape and
+                // produce no visible change. Brush / arrow / text /
+                // etc. selections don't participate in the pre-sync
+                // because they don't carry a meaningful fill state.
                 let selected = self
                     .tools
                     .get(&Tools::Pointer)
                     .borrow()
                     .selected_drawables();
                 if let Some(fill) = selected.iter().find_map(|id| {
-                    self.renderer
-                        .clone_drawable(*id)
-                        .and_then(|d| d.style())
-                        .map(|s| s.fill)
+                    self.renderer.clone_drawable(*id).and_then(|d| {
+                        if matches!(
+                            d.tool_type(),
+                            Some(Tools::Rectangle) | Some(Tools::Ellipse)
+                        ) {
+                            d.style().map(|s| s.fill)
+                        } else {
+                            None
+                        }
+                    })
                 }) {
                     self.style.fill = fill;
                 }
                 self.style.fill = !self.style.fill;
+                let new_fill = self.style.fill;
                 // Toast announces the new state so a keyboard toggle
                 // (`F`) reads as feedback, not a silent change.
-                let label = if self.style.fill { "Fill shape" } else { "No fill" };
+                let label = if new_fill { "Fill shape" } else { "No fill" };
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::ShowCycleToast(label.to_string()));
-                self.dispatch_style_change()
+                // Mirror the new fill out to the toolbar so the icon
+                // refreshes.
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::FillShapesChanged(new_fill));
+                // Forward to the active tool so its next-stroke style
+                // picks up the new fill — but skip Pointer, which
+                // would otherwise apply self.style to every selected
+                // drawable wholesale (overwriting brushes' color /
+                // size / etc., not just toggling fill on Rect/Ellipse).
+                if self.active_tool_type() != Tools::Pointer {
+                    self.active_tool
+                        .borrow_mut()
+                        .handle_event(ToolEvent::StyleChanged(self.style));
+                }
+                // Apply ONLY to fillable selection: Rect/Ellipse get
+                // their `fill` flipped without disturbing their other
+                // style fields; brushes / arrows / text / etc. in the
+                // selection are left untouched.
+                self.apply_to_selection(|d| {
+                    if !matches!(
+                        d.tool_type(),
+                        Some(Tools::Rectangle) | Some(Tools::Ellipse)
+                    ) {
+                        return false;
+                    }
+                    let Some(mut style) = d.style() else {
+                        return false;
+                    };
+                    if style.fill == new_fill {
+                        return false;
+                    }
+                    style.fill = new_fill;
+                    d.set_style(style);
+                    true
+                })
             }
             ToolbarEvent::AnnotationSizeChanged(value) => {
                 self.style.annotation_size_factor = value;
