@@ -895,7 +895,22 @@ impl CropTool {
         // Canonicalize, snapshot, mark committed so the renderer
         // switches to zoomed-in view. `ever_committed` sticks so a
         // future re-entry's exit-without-Enter reverts to this rect.
-        let (pos, size) = crop.get_rectangle();
+        let (mut pos, mut size) = crop.get_rectangle();
+        // Inside-out edit can push the canvas frame past the image
+        // edges (zoom hits the 10 %/500 % clamp, pan slides image
+        // away). Clamp the committed image rect back inside the
+        // bounds so the output is always a valid subregion — the
+        // saved screenshot can't reference image pixels that don't
+        // exist. Skipped if we don't have bounds yet (shouldn't
+        // happen after init, defensive).
+        if let Some(b) = self.image_bounds {
+            let left = pos.x.clamp(0.0, b.x);
+            let top = pos.y.clamp(0.0, b.y);
+            let right = (pos.x + size.x).clamp(0.0, b.x);
+            let bottom = (pos.y + size.y).clamp(0.0, b.y);
+            pos = Vec2D::new(left, top);
+            size = Vec2D::new((right - left).max(0.0), (bottom - top).max(0.0));
+        }
         crop.pos = pos;
         crop.size = size;
         crop.last_committed = Some((pos, size));

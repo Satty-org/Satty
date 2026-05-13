@@ -1308,6 +1308,25 @@ impl SketchBoard {
             ZoomCommand::FitCanvas => self.renderer.reset_size(0.0),
             ZoomCommand::Abs(scale) => self.renderer.reset_size(scale),
         }
+        // Inside-out crop edit (Phase 6 of CROP_INSIDE_OUT_PLAN.md):
+        // an explicit zoom command (toolbar / indicator) re-frames the
+        // canvas around the image, so the user's image-coord crop
+        // region is the durable intent — re-derive canvas-from-image
+        // (A direction) so the on-canvas frame adjusts to the new
+        // transform while still bounding the same image region.
+        // Distinct from wheel/pan (Phase 4/5), which use the opposite
+        // direction (canvas stays put, image re-derives).
+        if self.active_tool_type() == Tools::Crop {
+            let crop_tool = self.tools.get_crop_tool();
+            let in_edit = crop_tool.borrow().is_active_edit();
+            if in_edit {
+                let (eff_scale, eff_offset) = self.renderer.render_transform();
+                let dpi = self.renderer.scale_factor() as f32;
+                let mut t = crop_tool.borrow_mut();
+                t.set_render_transform(eff_scale, eff_offset, dpi);
+                t.refresh_canvas_from_image();
+            }
+        }
         self.renderer.request_render(&[]);
     }
 
@@ -1757,6 +1776,14 @@ impl SketchBoard {
         // any seed-from-bounds or un-commit mutation in `handle_activated`
         // has finished before we sample.
         if tool == Tools::Crop {
+            // `handle_activated` may have just flipped a committed crop
+            // back to uncommitted — at that instant the cached
+            // effective_scale/offset still describe the committed-crop
+            // view's fit-to-canvas transform. Run a synchronous
+            // re-layout so the snapshot we cache below matches the
+            // full-image (now-active edit) transform instead, and the
+            // refreshed canvas-coord twin covers the right image region.
+            self.renderer.refresh_transform();
             let (eff_scale, eff_offset) = self.renderer.render_transform();
             let dpi = self.renderer.scale_factor() as f32;
             let crop_tool = self.tools.get_crop_tool();

@@ -281,6 +281,17 @@ impl FemtoVGArea {
             .unwrap_or((1.0, Vec2D::zero()))
     }
 
+    /// Synchronously re-run `update_transformation` (via the widget's
+    /// resize path) so subsequent reads of `render_transform()`
+    /// reflect any state changes made just prior. The crop tool's
+    /// activation hook uses this to ensure the snapshot it caches
+    /// matches the post-handle_activated view (which may have just
+    /// flipped a committed crop back to uncommitted, switching the
+    /// view from zoomed-into-crop to full-image).
+    pub fn refresh_transform(&self) {
+        self.imp().resize(0, 0);
+    }
+
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D) -> Vec2D {
         self.imp()
             .inner()
