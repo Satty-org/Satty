@@ -108,7 +108,7 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.7 Delete `StyleToolbarInput::ShowAnnotationDialog` and its handler
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/ui/toolbars.rs`
   - Remove the variant at line 2123.
   - Remove its handler at line 4964 (calls `show_annotation_dialog`). If
@@ -116,6 +116,20 @@ Zero behavior change. Each task is independently safe.
   - Re-check: `grep -rn "ShowAnnotationDialog\|show_annotation_dialog" src/`.
   - Verify: `cargo build`. Annotation pill should still work (drag + inline
     edit are the live paths, not this dialog).
+  - **Done**: deletion cascaded further than the plan anticipated. Once
+    nothing fired `ShowAnnotationDialog`, the whole `AnnotationSizeDialog`
+    component became unreachable, so the commit also removed:
+    - The `AnnotationSizeDialog` struct + entire `impl Component` block
+    - `AnnotationSizeDialogInput` / `AnnotationSizeDialogOutput` enums
+    - `StyleToolbar::annotation_dialog_controller` field + init
+    - The now-stale `Window` import and the `root` parameter in
+      `StyleToolbar::update` (renamed to `_root`)
+    - Stale doc comment in `welcome.rs` that referenced the dialog
+  - `AnnotationDialogFinished` stays — it's reused by the welcome-dialog
+    flow in `main.rs:640` to push the saved annotation size into the
+    style toolbar.
+  - **Knock-on**: Task 3.5 (split `AnnotationSizeDialog` to its own
+    file) is no longer applicable. Marked deleted below.
 
 ### 1.8 Delete `StyleToolbarInput::DimensionsChanged` and its handler
 
@@ -349,16 +363,10 @@ Before each split:
   - Verify: change each style from the dropdown; select a shape with each
     style and confirm dropdown reflects it.
 
-### 3.5 Split `src/ui/toolbars.rs` — pull `AnnotationSizeDialog` to its own file
+### 3.5 ~~Split `AnnotationSizeDialog`~~ — N/A
 
-- [ ] **Task**
-  - The whole `AnnotationSizeDialog` component (~150 lines).
-  - New file: `src/ui/annotation_size_dialog.rs` (or merge into the live
-    annotation-pill code if the dialog turns out to be the
-    `ShowAnnotationDialog` dead path from Tier 1 — in which case 1.7
-    already removed it).
-  - Verify: only relevant if the dialog has a live trigger. If 1.7 found
-    it's fully dead, skip this and delete instead.
+- [x] **Obsolete**: Task 1.7 confirmed the dialog was fully dead and
+  removed it. Nothing left to split.
 
 ### 3.6 Split `src/sketch_board.rs` — pull file I/O out
 
@@ -465,6 +473,6 @@ Update these numbers as tasks land:
 - Tier 1 dead code: 0 / 9 tasks (1.1–1.9)
 - Tier 1.5 clippy: 0 / 3 tasks (1.10–1.12)
 - Tier 2 dedup: 0 / 5 tasks (2.1–2.5)
-- Tier 3 splits: 0 / 11 tasks (3.1–3.11)
+- Tier 3 splits: 1 / 11 tasks (3.5 obsolete after 1.7 cascade)
 
-**Total: 0 / 28 tasks.**
+**Total: 7 / 28 tasks.**

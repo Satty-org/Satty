@@ -228,10 +228,9 @@ impl Component for WelcomeDialog {
         root.add_controller(key_controller);
 
         // GTK4 Windows default to hidden — without this, the dialog
-        // would be built but never shown. (`AnnotationSizeDialog`
-        // gates presentation on a separate `Show` message because
-        // it's reused across multiple invocations; this dialog is a
-        // one-shot, so showing in init is the right place.)
+        // would be built but never shown. This dialog is a one-shot
+        // launched once at startup, so showing in init is the right
+        // place (no separate Show message needed).
         root.present();
 
         ComponentParts { model, widgets }
