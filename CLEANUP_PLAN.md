@@ -256,7 +256,7 @@ Behavior-preserving consolidation. Each task is verifiable independently.
 
 ### 2.3 Unify silent/non-silent style setters
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/ui/toolbars.rs:5239–5386`
   - Today: `SetArrowStyle` / `SetArrowStyleSilently`, `SetTextBackground` /
     `SetTextBackgroundSilently`, etc. — pairs that differ only in whether

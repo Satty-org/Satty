@@ -847,17 +847,26 @@ impl Component for App {
                 // loop (sketch_board doesn't re-emit on apply).
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetArrowStyle(style));
+                    .emit(StyleToolbarInput::SetArrowStyle {
+                        style,
+                        emit_upstream: true,
+                    });
             }
             AppInput::BlurStyleCycled(style) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetBlurStyle(style));
+                    .emit(StyleToolbarInput::SetBlurStyle {
+                        style,
+                        emit_upstream: true,
+                    });
             }
             AppInput::TextBackgroundCycled(bg) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetTextBackground(bg));
+                    .emit(StyleToolbarInput::SetTextBackground {
+                        bg,
+                        emit_upstream: true,
+                    });
             }
             AppInput::HighlighterStyleCycled(style) => {
                 self.style_toolbar
@@ -871,17 +880,26 @@ impl Component for App {
                 // background.
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetTextBackgroundSilently(bg));
+                    .emit(StyleToolbarInput::SetTextBackground {
+                        bg,
+                        emit_upstream: false,
+                    });
             }
             AppInput::SelectionArrowStyleChanged(style) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetArrowStyleSilently(style));
+                    .emit(StyleToolbarInput::SetArrowStyle {
+                        style,
+                        emit_upstream: false,
+                    });
             }
             AppInput::SelectionBlurStyleChanged(style) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetBlurStyleSilently(style));
+                    .emit(StyleToolbarInput::SetBlurStyle {
+                        style,
+                        emit_upstream: false,
+                    });
             }
             AppInput::SelectionBrushPostSmoothChanged(value) => {
                 self.style_toolbar

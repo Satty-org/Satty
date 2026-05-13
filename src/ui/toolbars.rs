@@ -1478,12 +1478,12 @@ pub struct StyleToolbar {
     /// variant via the double-tap shortcut (the view! macro only sets
     /// the initial value in `init`).
     text_background_dropdown: Option<gtk::DropDown>,
-    /// Flag set by the `SetTextBackgroundSilently` handler around its
-    /// programmatic `set_selected` call so the dropdown's
-    /// `connect_selected_notify` skips its upstream emit. Without
-    /// this, syncing the dropdown to a freshly-selected drawable's
-    /// background would re-fire `TextBackgroundSelected` and toast +
-    /// re-apply pointlessly. Rc<Cell<bool>> because the notify
+    /// Flag set by the `SetTextBackground { emit_upstream: false }`
+    /// handler around its programmatic `set_selected` call so the
+    /// dropdown's `connect_selected_notify` skips its upstream emit.
+    /// Without this, syncing the dropdown to a freshly-selected
+    /// drawable's background would re-fire `TextBackgroundSelected`
+    /// and toast + re-apply pointlessly. Rc<Cell<bool>> because the notify
     /// closure captures it independently from the model.
     text_background_silent: std::rc::Rc<std::cell::Cell<bool>>,
     /// Currently-selected highlighter style — drives the
@@ -2180,38 +2180,29 @@ pub enum StyleToolbarInput {
     /// shortcut toggles fill from outside the toolbar so the
     /// button icon + tooltip stay in sync.
     SetFillShapes(bool),
-    /// Blur-algorithm popover picked a style. Mirror locally for the
-    /// MenuButton icon and forward `BlurStyleSelected` upstream so
-    /// sketch_board updates the active BlurTool + persists.
-    SetBlurStyle(BlurStyle),
+    /// Blur-algorithm popover picked a style (or sketch_board cycled
+    /// to one). When `emit_upstream` is true the handler also
+    /// forwards `BlurStyleSelected` upstream so sketch_board updates
+    /// the active BlurTool + persists; when false (selection-sync
+    /// path) only the local mirror + MenuButton icon + tooltip
+    /// refresh, no toast, no re-apply.
+    SetBlurStyle { style: BlurStyle, emit_upstream: bool },
     /// Same shape as `SetBlurStyle` for the arrow-geometry picker.
-    SetArrowStyle(ArrowStyle),
+    SetArrowStyle { style: ArrowStyle, emit_upstream: bool },
     /// Same shape for the highlighter style (TextLocked / Normal).
     /// Handler updates local mirror + MenuButton preview and re-emits
     /// `HighlighterStyleSelected` upstream so sketch_board persists +
     /// toasts. Fired by both the popover-click path and the
     /// double-tap-cycle's round-trip from sketch_board.
     SetHighlighterStyle(crate::tools::HighlighterStyle),
-    /// Sync the text-background DropDown to the variant sketch_board
-    /// just promoted (currently only fired from the double-tap cycle).
-    /// The handler flips `selected` on the stashed dropdown widget;
-    /// the dropdown's own `connect_selected_notify` then re-emits
-    /// `TextBackgroundSelected` upstream, so sketch_board re-applies
-    /// the (already-applied) value — idempotent, no feedback loop.
-    SetTextBackground(crate::tools::TextBackground),
-    /// Same as `SetTextBackground`, but suppress the dropdown's
-    /// `notify::selected` so no upstream `TextBackgroundSelected`
-    /// fires. Used by the selection-sync path: when the user clicks
-    /// between text drawables, the toolbar reflects the freshly-
-    /// selected drawable's background WITHOUT re-applying it (it's
-    /// already that way) or showing a toast.
-    SetTextBackgroundSilently(crate::tools::TextBackground),
-    /// Selection-sync variants for Arrow / Blur. Update local state +
-    /// the MenuButton's preview without emitting upstream — used
-    /// when the user clicks between drawables with different variants
-    /// so the picker reflects each one as it's selected.
-    SetArrowStyleSilently(ArrowStyle),
-    SetBlurStyleSilently(BlurStyle),
+    /// Sync the text-background DropDown to a variant. When
+    /// `emit_upstream` is true (cycle path) the dropdown's natural
+    /// `connect_selected_notify` re-emits `TextBackgroundSelected`
+    /// upstream — sketch_board then re-applies the same value
+    /// idempotently. When false (selection-sync path) the silent
+    /// flag suppresses the dropdown's notify so the just-clicked
+    /// drawable isn't redundantly re-styled or toasted.
+    SetTextBackground { bg: crate::tools::TextBackground, emit_upstream: bool },
     /// Snap the Spotlight / Highlighter slider widgets to the given
     /// values without re-emitting upstream. Fired by sketch_board
     /// when the user re-enters those tools so the slider always
@@ -5142,21 +5133,23 @@ impl Component for StyleToolbar {
                     label.set_text(fill_tooltip_text(self.fill_shapes));
                 }
             }
-            StyleToolbarInput::SetBlurStyle(style) => {
-                // Mirror locally for the MenuButton's `#[watch]`ed icon,
-                // refresh the dynamic tooltip's wording, then forward
-                // upstream so sketch_board updates the active BlurTool
-                // and writes state.toml.
+            StyleToolbarInput::SetBlurStyle { style, emit_upstream } => {
+                // Local mirror drives the MenuButton's `#[watch]`ed icon;
+                // tooltip wording refreshes either way. Upstream emit
+                // skipped on the selection-sync path so the same value
+                // isn't redundantly re-applied + toasted.
                 self.blur_style = style;
                 if let Some(label) = &self.blur_style_tooltip_label {
                     label.set_text(&blur_tooltip_text(style));
                 }
-                sender
-                    .output_sender()
-                    .emit(ToolbarEvent::BlurStyleSelected(style));
-                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                if emit_upstream {
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::BlurStyleSelected(style));
+                    sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                }
             }
-            StyleToolbarInput::SetArrowStyle(style) => {
+            StyleToolbarInput::SetArrowStyle { style, emit_upstream } => {
                 self.arrow_style = style;
                 // Flip the MenuButton's preview to the new shape.
                 if let Some(cell) = &self.arrow_preview_cell {
@@ -5168,10 +5161,12 @@ impl Component for StyleToolbar {
                 if let Some(label) = &self.arrow_style_tooltip_label {
                     label.set_text(&arrow_tooltip_text(style));
                 }
-                sender
-                    .output_sender()
-                    .emit(ToolbarEvent::ArrowStyleSelected(style));
-                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                if emit_upstream {
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::ArrowStyleSelected(style));
+                    sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+                }
             }
             StyleToolbarInput::SetHighlighterStyle(style) => {
                 self.highlighter_style = style;
@@ -5183,61 +5178,27 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::HighlighterStyleSelected(style));
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             }
-            StyleToolbarInput::SetTextBackground(bg) => {
+            StyleToolbarInput::SetTextBackground { bg, emit_upstream } => {
                 // Match the popover-list / init mapping for the
-                // dropdown's index.
+                // dropdown's index. The notify-handler in init fires
+                // `TextBackgroundSelected` upstream on every selection
+                // change — we suppress it via the silent flag on the
+                // selection-sync path so the just-clicked drawable
+                // isn't redundantly re-styled or toasted.
                 if let Some(dd) = &self.text_background_dropdown {
                     let idx = match bg {
                         crate::tools::TextBackground::Rounded => 0,
                         crate::tools::TextBackground::Plain => 1,
                     };
                     if dd.selected() != idx {
+                        if !emit_upstream {
+                            self.text_background_silent.set(true);
+                        }
                         dd.set_selected(idx);
+                        if !emit_upstream {
+                            self.text_background_silent.set(false);
+                        }
                     }
-                }
-            }
-            StyleToolbarInput::SetTextBackgroundSilently(bg) => {
-                // Selection-sync path: programmatically flip the
-                // dropdown's selected index with the notify-handler
-                // short-circuited so no upstream `TextBackgroundSelected`
-                // fires (would re-apply to the just-selected drawable
-                // and toast — both redundant).
-                if let Some(dd) = &self.text_background_dropdown {
-                    let idx = match bg {
-                        crate::tools::TextBackground::Rounded => 0,
-                        crate::tools::TextBackground::Plain => 1,
-                    };
-                    if dd.selected() != idx {
-                        self.text_background_silent.set(true);
-                        dd.set_selected(idx);
-                        self.text_background_silent.set(false);
-                    }
-                }
-            }
-            StyleToolbarInput::SetArrowStyleSilently(style) => {
-                // Mirror `SetArrowStyle`'s local-state updates without
-                // the upstream emit. The MenuButton's preview chip
-                // is driven by the `arrow_preview_cell` so flipping
-                // that + queue_draw is all we need.
-                self.arrow_style = style;
-                if let Some(cell) = &self.arrow_preview_cell {
-                    cell.set(style);
-                }
-                if let Some(area) = &self.arrow_preview_area {
-                    area.queue_draw();
-                }
-                if let Some(label) = &self.arrow_style_tooltip_label {
-                    label.set_text(&arrow_tooltip_text(style));
-                }
-            }
-            StyleToolbarInput::SetBlurStyleSilently(style) => {
-                // Blur's MenuButton icon is `#[watch]`ed off
-                // `model.blur_style`, so updating the field is enough
-                // for the icon to refresh; tooltip label flips the
-                // wording.
-                self.blur_style = style;
-                if let Some(label) = &self.blur_style_tooltip_label {
-                    label.set_text(&blur_tooltip_text(style));
                 }
             }
             StyleToolbarInput::SetSpotlightDarkness(value) => {
@@ -5279,8 +5240,8 @@ impl Component for StyleToolbar {
         let dragged = std::rc::Rc::new(std::cell::Cell::new(false));
 
         // Captured by the text-background DropDown's `connect_selected_notify`
-        // so the selection-sync path (`SetTextBackgroundSilently`) can
-        // suppress the upstream emit. Lives outside the model field
+        // so the selection-sync path (`SetTextBackground { emit_upstream: false }`)
+        // can suppress the upstream emit. Lives outside the model field
         // because relm4's view! macro captures plain identifiers from
         // the enclosing scope, not model paths.
         let text_background_silent =
@@ -5365,7 +5326,10 @@ impl Component for StyleToolbar {
                 .0
                 .upcast::<gtk::Widget>(),
             arrow_style_label,
-            StyleToolbarInput::SetArrowStyle,
+            |s| StyleToolbarInput::SetArrowStyle {
+                style: s,
+                emit_upstream: true,
+            },
         ));
         model.blur_style_popover = Some(build_style_popover(
             &widgets.blur_style_menu,
@@ -5378,7 +5342,10 @@ impl Component for StyleToolbar {
             ],
             |s| gtk::Image::from_icon_name(blur_style_icon(s)).upcast::<gtk::Widget>(),
             blur_style_label,
-            StyleToolbarInput::SetBlurStyle,
+            |s| StyleToolbarInput::SetBlurStyle {
+                style: s,
+                emit_upstream: true,
+            },
         ));
         model.highlighter_style_popover = Some(build_style_popover(
             &widgets.highlighter_style_menu,
