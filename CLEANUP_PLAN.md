@@ -224,7 +224,7 @@ Behavior-preserving consolidation. Each task is verifiable independently.
 
 ### 2.1 Generic `apply_property_to_selection` helper
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/sketch_board.rs`
   - Today: `apply_arrow_style_to_selection` (1133), `apply_blur_style_to_selection`
     (1162), `apply_brush_smooth_to_selection` (1195) all share the same

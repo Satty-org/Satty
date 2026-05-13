@@ -1213,7 +1213,41 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
-    /// Advance the active tool's style variant by one. Triggered by a
+    /// Walk the current selection, give each clone to `mutate`, and
+    /// collect the ones it touched into a single `ToolUpdateResult`.
+    /// Returning `false` from `mutate` skips the clone — used to gate
+    /// on whether the drawable actually owns the property being
+    /// applied (e.g. arrow-style on a non-arrow). One-element results
+    /// fold to `ModifyDrawable`, multi-element to `ModifyDrawables`,
+    /// empty to `Unmodified` so callers can fall through to a
+    /// "treat as default" branch when nothing relevant was selected.
+    fn apply_to_selection<F>(&mut self, mut mutate: F) -> ToolUpdateResult
+    where
+        F: FnMut(&mut dyn Drawable) -> bool,
+    {
+        let selected_ids = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+        for id in selected_ids {
+            if let Some(mut d) = self.renderer.clone_drawable(id)
+                && mutate(d.as_mut())
+            {
+                updates.push((id, d));
+            }
+        }
+        match updates.len() {
+            0 => ToolUpdateResult::Unmodified,
+            1 => {
+                let (id, d) = updates.pop().unwrap();
+                ToolUpdateResult::ModifyDrawable(id, d)
+            }
+            _ => ToolUpdateResult::ModifyDrawables(updates),
+        }
+    }
+
     /// Re-shape every currently-selected Arrow drawable to the given
     /// style. Wired into `ArrowStyleSelected` (popover-click and
     /// double-tap cycle paths both flow through it) so the picker
@@ -1223,28 +1257,14 @@ impl SketchBoard {
         &mut self,
         style: crate::tools::ArrowStyle,
     ) -> ToolUpdateResult {
-        let selected_ids = self
-            .tools
-            .get(&Tools::Pointer)
-            .borrow()
-            .selected_drawables();
-        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
-        for id in selected_ids {
-            if let Some(mut d) = self.renderer.clone_drawable(id)
-                && d.arrow_style().is_some()
-            {
+        self.apply_to_selection(|d| {
+            if d.arrow_style().is_some() {
                 d.set_arrow_style_on_drawable(style);
-                updates.push((id, d));
+                true
+            } else {
+                false
             }
-        }
-        match updates.len() {
-            0 => ToolUpdateResult::Unmodified,
-            1 => {
-                let (id, d) = updates.pop().unwrap();
-                ToolUpdateResult::ModifyDrawable(id, d)
-            }
-            _ => ToolUpdateResult::ModifyDrawables(updates),
-        }
+        })
     }
 
     /// Same as `apply_arrow_style_to_selection` for Blur drawables.
@@ -1252,58 +1272,29 @@ impl SketchBoard {
         &mut self,
         style: crate::tools::BlurStyle,
     ) -> ToolUpdateResult {
-        let selected_ids = self
-            .tools
-            .get(&Tools::Pointer)
-            .borrow()
-            .selected_drawables();
-        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
-        for id in selected_ids {
-            if let Some(mut d) = self.renderer.clone_drawable(id)
-                && d.blur_style().is_some()
-            {
+        self.apply_to_selection(|d| {
+            if d.blur_style().is_some() {
                 d.set_blur_style_on_drawable(style);
-                updates.push((id, d));
+                true
+            } else {
+                false
             }
-        }
-        match updates.len() {
-            0 => ToolUpdateResult::Unmodified,
-            1 => {
-                let (id, d) = updates.pop().unwrap();
-                ToolUpdateResult::ModifyDrawable(id, d)
-            }
-            _ => ToolUpdateResult::ModifyDrawables(updates),
-        }
+        })
     }
 
     /// Re-run the brush smoothing pipeline on every currently-selected
-    /// brush annotation at the given level. Mirrors
-    /// `apply_arrow_style_to_selection` — gates on the drawable's
+    /// brush annotation at the given level. Gates on the drawable's
     /// `smooth_level()` so the caller can fall through to the
     /// "treat as default" branch when nothing brush is selected.
     fn apply_brush_smooth_to_selection(&mut self, level: usize) -> ToolUpdateResult {
-        let selected_ids = self
-            .tools
-            .get(&Tools::Pointer)
-            .borrow()
-            .selected_drawables();
-        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
-        for id in selected_ids {
-            if let Some(mut d) = self.renderer.clone_drawable(id)
-                && d.smooth_level().is_some()
-            {
+        self.apply_to_selection(|d| {
+            if d.smooth_level().is_some() {
                 d.set_smooth_level(level);
-                updates.push((id, d));
+                true
+            } else {
+                false
             }
-        }
-        match updates.len() {
-            0 => ToolUpdateResult::Unmodified,
-            1 => {
-                let (id, d) = updates.pop().unwrap();
-                ToolUpdateResult::ModifyDrawable(id, d)
-            }
-            _ => ToolUpdateResult::ModifyDrawables(updates),
-        }
+        })
     }
 
     /// Read the current variant for the tool's cycle. When a single
