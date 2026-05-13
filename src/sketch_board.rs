@@ -29,6 +29,8 @@ use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
 
 type RenderedImage = Img<Vec<RGBA<u8>>>;
+const SAVE_AS_LAST_DIR_FILE: &str = "save_as_last_dir";
+const SAVE_AS_LAST_DIR_MAX_BYTES: u64 = 10_000;
 
 #[derive(Debug, Clone)]
 pub enum SketchBoardInput {
@@ -372,7 +374,7 @@ impl SketchBoard {
         let mut output_filename = if panic::catch_unwind(|| delayed_format.to_string()).is_ok() {
             delayed_format.to_string()
         } else {
-            println!(
+            eprintln!(
                 "Warning: Could not format filename {output_filename} due to chrono format error, falling back to literal filename."
             );
             output_filename.to_owned()
@@ -411,12 +413,12 @@ impl SketchBoard {
 
     fn save_as_last_dir_file() -> Option<PathBuf> {
         let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
-        dirs.get_state_file("save_as_last_dir")
+        dirs.get_state_file(SAVE_AS_LAST_DIR_FILE)
     }
 
     fn save_as_last_dir_file_for_write() -> Option<PathBuf> {
         let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
-        dirs.place_state_file("save_as_last_dir").ok()
+        dirs.place_state_file(SAVE_AS_LAST_DIR_FILE).ok()
     }
 
     fn save_as_initial_dir(
@@ -424,6 +426,9 @@ impl SketchBoard {
         configured_output_path: Option<&Path>,
     ) -> Option<PathBuf> {
         if let Some(last_dir_file) = last_dir_file
+            && fs::metadata(last_dir_file).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.len() <= SAVE_AS_LAST_DIR_MAX_BYTES
+            })
             && let Ok(last_dir) = fs::read_to_string(last_dir_file)
         {
             let last_dir = PathBuf::from(last_dir);
@@ -552,7 +557,7 @@ impl SketchBoard {
             if let Some(initial_dir) = initial_dir {
                 let initial_dir = gtk::gio::File::for_path(initial_dir);
                 if let Err(e) = dialog.set_current_folder(Some(&initial_dir)) {
-                    println!("Error setting Save As folder: {e}");
+                    eprintln!("Error setting Save As folder: {e}");
                 }
             }
 
