@@ -41,13 +41,13 @@ pub struct Crop {
     /// through deactivation). `None` until the first commit.
     last_committed: Option<(Vec2D, Vec2D)>,
     /// Position of the crop frame in CANVAS (CSS-pixel) coords,
-    /// populated by `CropTool::sync_canvas_from_image` once an edit
-    /// session starts. Source of truth for the inside-out workflow:
-    /// the frame stays fixed in canvas pixels while plain-wheel
-    /// zoom + Ctrl+drag pan reflow the image beneath it (see
-    /// CROP_INSIDE_OUT_PLAN.md). Outside edit mode the value is
-    /// stale bookkeeping — image-coord `pos`/`size` are authoritative
-    /// then.
+    /// derived from the image-coord `pos`/`size` via the renderer's
+    /// transform whenever the tool refreshes (`refresh_canvas_from_image`).
+    /// During inside-out edit (CROP_INSIDE_OUT_PLAN.md) the canvas-
+    /// coord twin is what the user sees fixed on screen; the wheel +
+    /// pan phases re-derive image coords FROM this pair to keep the
+    /// canvas frame anchored while the image scales / scrolls
+    /// beneath it. Outside edit mode the value is stale bookkeeping.
     canvas_pos: Vec2D,
     canvas_size: Vec2D,
     /// Color of the matte rendered OUTSIDE the crop rectangle. Set
@@ -85,6 +85,14 @@ pub struct CropTool {
     /// tool builds (seed, re-seed, etc.) so the drawable sees it
     /// without a back-reference.
     bg_color: CropBgColor,
+    /// Latest renderer transform snapshot (`effective_scale`,
+    /// `effective_offset`, device-pixel-ratio). Pushed by sketch_board
+    /// on tool activation and after every transform-changing event
+    /// (wheel zoom, pan, render-tick re-derive). The crop tool's
+    /// inside-out edit workflow uses it to round-trip its canvas-
+    /// fixed frame against the image-coord rect that rendering +
+    /// hit-tests still consume. `None` before the first push.
+    render_transform: Option<RenderTransformSnapshot>,
 }
 
 /// Color shown OUTSIDE the crop rectangle while the tool is active —
@@ -259,7 +267,64 @@ impl Default for CropTool {
             image_bounds: None,
             aspect_ratio: AspectRatio::Freeform,
             bg_color: CropBgColor::Auto,
+            render_transform: None,
         }
+    }
+}
+
+/// Snapshot of the renderer's image↔canvas transform, captured by
+/// sketch_board whenever a transform-changing event lands (tool
+/// activation, wheel zoom, pan). The crop tool's inside-out edit
+/// workflow uses it to derive its canvas-fixed frame's image-coord
+/// twin (and vice versa for the upcoming wheel + pan phases) without
+/// a back-reference to the renderer.
+///
+/// Mirrors the `effective_scale` / `effective_offset` pair the
+/// renderer caches in `update_transformation`; `dpi` is the widget's
+/// device-pixel-ratio so we can round-trip CSS-pixel canvas coords
+/// against the physical-pixel offset the renderer stores.
+#[derive(Debug, Clone, Copy)]
+struct RenderTransformSnapshot {
+    effective_scale: f32,
+    effective_offset: Vec2D,
+    dpi: f32,
+}
+
+impl RenderTransformSnapshot {
+    fn is_valid(&self) -> bool {
+        self.effective_scale > 0.0 && self.dpi > 0.0
+    }
+
+    fn image_to_canvas_rect(
+        &self,
+        image_pos: Vec2D,
+        image_size: Vec2D,
+    ) -> (Vec2D, Vec2D) {
+        let cp = Vec2D::new(
+            (image_pos.x * self.effective_scale + self.effective_offset.x) / self.dpi,
+            (image_pos.y * self.effective_scale + self.effective_offset.y) / self.dpi,
+        );
+        let cs = Vec2D::new(
+            image_size.x * self.effective_scale / self.dpi,
+            image_size.y * self.effective_scale / self.dpi,
+        );
+        (cp, cs)
+    }
+
+    fn canvas_to_image_rect(
+        &self,
+        canvas_pos: Vec2D,
+        canvas_size: Vec2D,
+    ) -> (Vec2D, Vec2D) {
+        let ip = Vec2D::new(
+            (canvas_pos.x * self.dpi - self.effective_offset.x) / self.effective_scale,
+            (canvas_pos.y * self.dpi - self.effective_offset.y) / self.effective_scale,
+        );
+        let is = Vec2D::new(
+            canvas_size.x * self.dpi / self.effective_scale,
+            canvas_size.y * self.dpi / self.effective_scale,
+        );
+        (ip, is)
     }
 }
 
@@ -792,6 +857,7 @@ impl CropTool {
         // out-of-sync state recovers.
         self.emit_crop_presence(true);
         self.emit_content_size(bounds.x, bounds.y);
+        self.refresh_canvas_from_image();
     }
 
     /// Toolbar "Cancel" button (or Esc): exit Crop without applying
@@ -857,29 +923,54 @@ impl CropTool {
         ToolUpdateResult::Redraw
     }
 
-    /// Populate the live crop's canvas-coord representation from its
-    /// current image-coord rect via the caller-supplied transform.
-    /// Sketch_board calls this on Crop tool activation so the
-    /// inside-out edit workflow has a canvas-fixed frame anchor as
-    /// soon as the user starts editing.
-    ///
-    /// `canvas_pos`/`canvas_size` are pre-computed by the renderer
-    /// (`image_to_canvas_rect`) so this method doesn't need a
-    /// back-reference to the renderer itself.
-    pub fn sync_canvas_from_image(&mut self, canvas_pos: Vec2D, canvas_size: Vec2D) {
+    /// Push the renderer's current image↔canvas transform into the
+    /// tool. Sketch_board calls this on tool activation and after any
+    /// transform-changing event (wheel zoom, pan) so the drag handlers
+    /// + render-tick re-derive paths can convert between canvas and
+    /// image coords without a back-reference to the renderer.
+    pub fn set_render_transform(
+        &mut self,
+        effective_scale: f32,
+        effective_offset: Vec2D,
+        dpi: f32,
+    ) {
+        self.render_transform = Some(RenderTransformSnapshot {
+            effective_scale,
+            effective_offset,
+            dpi,
+        });
+    }
+
+    /// Refresh the live crop's canvas-coord frame from its image-coord
+    /// rect via the cached render transform. Called after every drag
+    /// tick so the canvas-coord twin stays in sync with the image-coord
+    /// source of truth that snap + aspect + clamp math operates on.
+    /// No-op when there's no crop or no transform snapshot.
+    pub fn refresh_canvas_from_image(&mut self) {
+        let Some(t) = self.render_transform.filter(|t| t.is_valid()) else {
+            return;
+        };
         if let Some(c) = self.crop.as_mut() {
-            c.canvas_pos = canvas_pos;
-            c.canvas_size = canvas_size;
+            let (cp, cs) = t.image_to_canvas_rect(c.pos, c.size);
+            c.canvas_pos = cp;
+            c.canvas_size = cs;
         }
     }
 
-    /// Current image-coord rect (canonicalized to positive size) for
-    /// the live crop, or `None` if no crop exists. Sketch_board reads
-    /// this before calling `sync_canvas_from_image` to compute the
-    /// matching canvas rect via the renderer.
-    pub fn current_image_rect(&self) -> Option<(Vec2D, Vec2D)> {
-        let crop = self.crop.as_ref()?;
-        Some(crop.get_rectangle())
+    /// Mirror of `refresh_canvas_from_image` — derive image-coord rect
+    /// from the canvas-coord twin via the cached transform. Reserved
+    /// for the wheel + pan phases where the renderer's transform
+    /// changes while the canvas frame must stay put: canvas is the
+    /// authority and image is re-derived to track the new transform.
+    pub fn refresh_image_from_canvas(&mut self) {
+        let Some(t) = self.render_transform.filter(|t| t.is_valid()) else {
+            return;
+        };
+        if let Some(c) = self.crop.as_mut() {
+            let (ip, is) = t.canvas_to_image_rect(c.canvas_pos, c.canvas_size);
+            c.pos = ip;
+            c.size = is;
+        }
     }
 
     /// Toggle whether crop edges snap to image edges during drag.
@@ -1156,6 +1247,7 @@ impl CropTool {
         crop.pos = Vec2D::new(center_x - new_w / 2.0, center_y - new_h / 2.0);
         crop.size = Vec2D::new(new_w, new_h);
         self.emit_crop_edit_dimensions();
+        self.refresh_canvas_from_image();
     }
 
     pub fn aspect_ratio(&self) -> AspectRatio {
@@ -1218,6 +1310,7 @@ impl CropTool {
             self.emit_crop_presence(true);
         }
         self.emit_crop_edit_dimensions();
+        self.refresh_canvas_from_image();
     }
 
     /// Emit a live "crop rect dimensions" tick for the toolbar's
@@ -1328,6 +1421,11 @@ impl CropTool {
         if !was_present && self.crop.is_some() {
             self.emit_crop_presence(true);
         }
+        // Refresh the canvas-coord twin so a brand-new crop has a
+        // canvas-fixed anchor as soon as it exists. Existing crops
+        // get refreshed too but it's a no-op there — pos/size didn't
+        // change in this branch, only `action` did.
+        self.refresh_canvas_from_image();
         ToolUpdateResult::Redraw
     }
 
@@ -1390,7 +1488,7 @@ impl CropTool {
             None => return ToolUpdateResult::Unmodified,
         };
 
-        match action {
+        let result = match action {
             CropToolAction::NewCrop => {
                 // Drag-to-create: snap the dragged corner (start + dir)
                 // to image edges if applicable. The starting corner
@@ -1477,7 +1575,12 @@ impl CropTool {
                 crop.pos = Vec2D::new(final_x, final_y);
                 ToolUpdateResult::Redraw
             }
-        }
+        };
+        // Refresh the canvas-coord twin so the inside-out workflow's
+        // canvas-fixed anchor reflects the just-applied image-coord
+        // mutation. Cheap (a few multiplies); runs on every drag tick.
+        self.refresh_canvas_from_image();
+        result
     }
 
     fn end_drag(&mut self, direction: Vec2D, modifier: ModifierType) -> ToolUpdateResult {

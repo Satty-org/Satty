@@ -2236,6 +2236,17 @@ impl FemtoVgAreaMut {
         }
     }
 
+    /// Snapshot of the renderer's image↔canvas transform: the scale
+    /// + offset that `abs_canvas_to_image_coordinates` and friends
+    /// apply. Callers cache it so they can perform their own
+    /// conversions without holding a renderer reference — the crop
+    /// tool reads this on activation and after each transform-changing
+    /// gesture so its inside-out edit workflow can keep canvas and
+    /// image coords in sync.
+    pub fn render_transform(&self) -> (f32, Vec2D) {
+        (self.effective_scale, self.effective_offset)
+    }
+
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
         Vec2D::new(
             (input.x * dpi_scale_factor - self.effective_offset.x) / self.effective_scale,

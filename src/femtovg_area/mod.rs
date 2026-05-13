@@ -266,6 +266,21 @@ impl FemtoVGArea {
             .unwrap_or(1.0)
     }
 
+    /// Image↔canvas transform snapshot — (effective_scale, effective_offset).
+    /// `effective_offset` is in physical canvas pixels; combine with the
+    /// widget's `scale_factor()` (device pixel ratio) to round-trip
+    /// CSS-pixel canvas coords against image coords. The crop tool
+    /// caches this on activation and after each transform-changing
+    /// gesture so its inside-out workflow can derive image⇄canvas rects
+    /// without a back-reference to the renderer.
+    pub fn render_transform(&self) -> (f32, Vec2D) {
+        self.imp()
+            .inner()
+            .as_ref()
+            .map(|i| i.render_transform())
+            .unwrap_or((1.0, Vec2D::zero()))
+    }
+
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D) -> Vec2D {
         self.imp()
             .inner()

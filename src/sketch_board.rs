@@ -1741,24 +1741,20 @@ impl SketchBoard {
         // (or arrow for pointer/crop) without waiting for mouse move.
         self.apply_idle_cursor();
 
-        // Seed the crop tool's canvas-coord frame from its image-coord
-        // rect for the inside-out edit workflow (CROP_INSIDE_OUT_PLAN.md).
-        // Done after Activated so any seed-from-bounds or un-commit
-        // mutation in `handle_activated` has finished — we read the
-        // post-activation image rect and project it through the current
-        // renderer transform. The canvas frame stays fixed in canvas
-        // pixels while later phases let plain wheel + Ctrl+drag move
-        // the image beneath it.
+        // Push the renderer's current image↔canvas transform into the
+        // crop tool and refresh its canvas-coord frame from the
+        // (post-Activated) image-coord rect. Sets up the inside-out
+        // edit workflow's canvas-fixed anchor for the upcoming wheel +
+        // pan phases (CROP_INSIDE_OUT_PLAN.md). Done after Activated so
+        // any seed-from-bounds or un-commit mutation in `handle_activated`
+        // has finished before we sample.
         if tool == Tools::Crop {
+            let (eff_scale, eff_offset) = self.renderer.render_transform();
+            let dpi = self.renderer.scale_factor() as f32;
             let crop_tool = self.tools.get_crop_tool();
-            let image_rect = crop_tool.borrow().current_image_rect();
-            if let Some((image_pos, image_size)) = image_rect {
-                let (canvas_pos, canvas_size) =
-                    self.renderer.image_to_canvas_rect(image_pos, image_size);
-                crop_tool
-                    .borrow_mut()
-                    .sync_canvas_from_image(canvas_pos, canvas_size);
-            }
+            let mut t = crop_tool.borrow_mut();
+            t.set_render_transform(eff_scale, eff_offset, dpi);
+            t.refresh_canvas_from_image();
         }
 
         match activate_result {
