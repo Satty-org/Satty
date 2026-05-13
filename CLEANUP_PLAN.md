@@ -274,7 +274,7 @@ Behavior-preserving consolidation. Each task is verifiable independently.
 
 ### 2.4 Consolidate `Text` RefCells into `LayoutCache`
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/tools/text.rs`
   - Today: 8 separate `RefCell` fields on `Text` (rect, editing_rect,
     last_line_height, last_css_to_image, last_natural_text_width, glyphs,

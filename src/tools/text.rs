@@ -219,6 +219,60 @@ impl TextBackground {
 }
 
 #[derive(Clone, Debug)]
+/// Per-frame layout state captured during `Text::draw` and consulted by
+/// `bounds`, `hit_test`, `move_handle`, etc. Grouped behind a single
+/// `RefCell<LayoutCache>` on `Text` so a draw pass takes one mut borrow
+/// instead of eight, and so callers that need several fields together
+/// (line metrics + wrap state) read them with one shared borrow.
+struct LayoutCache {
+    /// Glyph bounding rect in GTK coordinates. Drives `glyph_rect()` /
+    /// committed-selection bounds.
+    rect: Rectangle,
+    /// Wrap-area rect (top-left + size, image coords) covering the
+    /// full text-box including unfilled wrap width and empty-line
+    /// space. Used to render the blue editing outline and to hit-test
+    /// editing handles.
+    editing_rect: Rect,
+    /// Line height (image-space px) from the most recent draw.
+    /// `bounds()` / handle hit-tests use this to reason about the
+    /// box height without re-measuring the font.
+    line_height: f32,
+    /// CSS-px → image-space conversion factor (= 1 /
+    /// canvas.transform.average_scale × DPR). `bounds` / `move_handle`
+    /// use it to translate the CSS-pixel PILL_PAD / OUTLINE_PADDING
+    /// constants into image units and to convert a dragged handle
+    /// position back into the underlying `text_box_width`.
+    css_to_image: f32,
+    /// Natural single-line width of the full text (image-space px)
+    /// from the last `measure_text`. `bounds` during a handle drag
+    /// uses `natural_width / wrap_width` to estimate the new line
+    /// count so the outline reflects wrapping in real time.
+    natural_text_width: f32,
+    /// Per-line glyph rects. Outer Vec is lines, inner is glyph
+    /// rects within each line.
+    glyphs: Vec<Vec<Rectangle>>,
+    /// Byte ranges per wrapped line, populated from
+    /// `canvas.break_text_vec` at the top of each draw.
+    line_ranges: Vec<Range<usize>>,
+}
+
+impl LayoutCache {
+    fn new() -> Self {
+        Self {
+            rect: Rectangle::new(0, 0, 0, 0),
+            editing_rect: Rect::default(),
+            line_height: 0.0,
+            // 1.0 (not 0.0) so an early `bounds()` call before the
+            // first draw doesn't collapse into degenerate math.
+            css_to_image: 1.0,
+            natural_text_width: 0.0,
+            glyphs: Vec::new(),
+            line_ranges: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Text {
     pos: Vec2D,
     editing: bool,
@@ -230,33 +284,13 @@ pub struct Text {
     background: TextBackground,
     preedit: Option<Preedit>,
     im_context: Option<InputContext>,
-    rect: RefCell<Rectangle>,
-    /// Wrap-area rect (top-left + size, image coords) updated each frame
-    /// during editing — covers the full text-box including unfilled wrap
-    /// width and empty-line space. Used to render the blue outline and
-    /// to hit-test editing handles.
-    editing_rect: RefCell<Rect>,
-    /// Last measured line height (image-space px) from the most recent
-    /// draw. Cached so `bounds()` / handle hit-tests can reason about
-    /// the box height without re-measuring the font.
-    last_line_height: RefCell<f32>,
-    /// CSS-px → image-space conversion factor captured from the last
-    /// draw (= 1 / canvas.transform.average_scale). Used by `bounds`
-    /// and `move_handle` to translate the CSS-pixel
-    /// PILL_PAD/OUTLINE_PADDING constants into image units, and to
-    /// convert a dragged handle position back into the underlying
-    /// `text_box_width` (which is the WRAP width, not the visible
-    /// outline width).
-    last_css_to_image: RefCell<f32>,
-    /// Natural single-line width of the full text (image-space px),
-    /// captured from `measure_text` on every draw. Used by `bounds`
-    /// during a handle drag to estimate the *new* line count
-    /// (= natural_width / wrap_width, ceil) so the blue outline
-    /// reflects wrapping in real-time instead of lagging until the
-    /// next draw refreshes `line_ranges`.
-    last_natural_text_width: RefCell<f32>,
-    glyphs: RefCell<Vec<Vec<Rectangle>>>,
-    line_ranges: RefCell<Vec<Range<usize>>>,
+    /// Per-draw layout cache (see `LayoutCache`). One RefCell so a
+    /// draw pass takes a single mut borrow rather than threading
+    /// eight separate ones.
+    layout: RefCell<LayoutCache>,
+    /// Caret blink phase — independent of layout state, so it gets
+    /// its own cell that the blink timer can flip without dirtying
+    /// any draw-derived data.
     cursor_visible: RefCell<bool>,
     font_ids: Vec<FontId>,
     /// Explicit wrap width set on creation and by side-handle drags.
@@ -332,13 +366,7 @@ impl Text {
             background,
             preedit: None,
             im_context,
-            rect: RefCell::new(Rectangle::new(0, 0, 0, 0)),
-            editing_rect: RefCell::new(Rect::default()),
-            last_line_height: RefCell::new(0.0),
-            last_css_to_image: RefCell::new(1.0),
-            last_natural_text_width: RefCell::new(0.0),
-            glyphs: RefCell::new(Vec::new()),
-            line_ranges: RefCell::new(Vec::new()),
+            layout: RefCell::new(LayoutCache::new()),
             cursor_visible: RefCell::new(true),
             font_ids: femtovg_area::font_stack().to_vec(),
             // Start with auto-fit (None) so the wrap area hugs the
@@ -476,7 +504,7 @@ impl Drawable for Text {
         };
 
         let lines = canvas.break_text_vec(wrap_width, text, &base_paint)?;
-        self.line_ranges.replace(lines.clone());
+        self.layout.borrow_mut().line_ranges = lines.clone();
 
         let font_metrics = canvas.measure_font(&base_paint)?;
         let measured_cursor = canvas
@@ -586,8 +614,14 @@ impl Drawable for Text {
 
         //calculate rect and glyphs
         let mut draw_baseline = self.pos.y;
-        let mut rect = self.rect.borrow_mut();
-        let mut glyphs = self.glyphs.borrow_mut();
+        let mut layout = self.layout.borrow_mut();
+        // Deref once so the split borrows below see disjoint fields of
+        // a plain `&mut LayoutCache` rather than two reborrows of the
+        // `RefMut` (Rust's split-borrow rules don't apply through the
+        // `Deref` boundary).
+        let layout: &mut LayoutCache = &mut layout;
+        let rect = &mut layout.rect;
+        let glyphs = &mut layout.glyphs;
 
         glyphs.clear();
         {
@@ -687,9 +721,9 @@ impl Drawable for Text {
                 stack_height + pad_y_top_img + pad_y_bottom_img,
             ),
         };
-        *self.editing_rect.borrow_mut() = editing_box;
-        *self.last_line_height.borrow_mut() = cursor_height;
-        *self.last_css_to_image.borrow_mut() = css_to_image_dpr;
+        layout.editing_rect = editing_box;
+        layout.line_height = cursor_height;
+        layout.css_to_image = css_to_image_dpr;
         // Measure the full text on a single line (no wrapping) so
         // bounds() can estimate live line count during a drag.
         let natural_w = canvas
@@ -697,13 +731,12 @@ impl Drawable for Text {
             .ok()
             .map(|m| m.width())
             .unwrap_or(0.0);
-        *self.last_natural_text_width.borrow_mut() = natural_w;
+        layout.natural_text_width = natural_w;
 
         // Blue editing outline + side/corner handles (replaces the legacy
-        // orange debug rect). style:a thin rounded outline around
-        // the wrap area with draggable handles, visible during text
-        // creation/editing and replaced by the PointerTool's glow halo
-        // once committed.
+        // orange debug rect): a thin rounded outline around the wrap area
+        // with draggable handles, visible during text creation/editing
+        // and replaced by the PointerTool's glow halo once committed.
         // Draw the blue outline whenever the text is being edited
         // OR is currently selected (renderer publishes selection
         // state via the thread-local). Doing this inside `draw`
@@ -900,8 +933,12 @@ impl Drawable for Text {
         // visible as the outline snapping to its final size only
         // after mouse-up. Using current pos + width + cached line
         // metrics here makes the outline track the drag in real time.
-        let line_height = *self.last_line_height.borrow();
-        let css_to_image = *self.last_css_to_image.borrow();
+        let layout = self.layout.borrow();
+        let line_height = layout.line_height;
+        let css_to_image = layout.css_to_image;
+        let natural_w = layout.natural_text_width.max(0.0);
+        let cached_line_count = layout.line_ranges.len().max(1) as f32;
+        drop(layout);
         if line_height <= 0.0 || css_to_image <= 0.0 {
             return None;
         }
@@ -935,11 +972,10 @@ impl Drawable for Text {
         // single line; combined with current wrap_width this gives
         // the correct line count even mid-drag when the cached
         // line_ranges is still from the previous frame.
-        let natural_w = (*self.last_natural_text_width.borrow()).max(0.0);
         let live_line_count = if natural_w > 0.0 && wrap_width > 0.0 {
             (natural_w / wrap_width).ceil().max(1.0)
         } else {
-            self.line_ranges.borrow().len().max(1) as f32
+            cached_line_count
         };
 
         // Vertical: stack_top = pos.y - line_height (matches draw).
@@ -967,7 +1003,7 @@ impl Drawable for Text {
         // text and bubble through to TextTool, which would commit
         // the current text and spawn an extra one at the click
         // position — the "phantom text box on handle drag" bug.
-        let css_to_image = *self.last_css_to_image.borrow();
+        let css_to_image = self.layout.borrow().css_to_image;
         // Match SelectionOverlay's outer handle radius (12/2 + 2 = 8
         // CSS px) and add a comfortable safety margin of another 8
         // px so the boundary hit-test doesn't fail at the very edge
@@ -982,16 +1018,17 @@ impl Drawable for Text {
 
     fn translate(&mut self, delta: Vec2D) {
         self.pos += delta;
-        // Shift cached glyph rect so bounds() stays valid until the next draw recomputes it.
-        let mut r = self.rect.borrow_mut();
-        *r = Rectangle::new(
+        // Shift cached layout rects so bounds() stays valid until the
+        // next draw recomputes them.
+        let mut layout = self.layout.borrow_mut();
+        let r = &layout.rect;
+        layout.rect = Rectangle::new(
             r.x() + delta.x as i32,
             r.y() + delta.y as i32,
             r.width(),
             r.height(),
         );
-        let mut er = self.editing_rect.borrow_mut();
-        er.pos += delta;
+        layout.editing_rect.pos += delta;
     }
 
     fn handles(&self) -> Vec<Handle> {
@@ -1025,7 +1062,7 @@ impl Drawable for Text {
         // CSS px outside the rendered glyphs (glyph→cream pill→outline).
         // Convert a dragged handle position back into wrap-width space
         // by subtracting that pad in image-space units.
-        let css_to_image = *self.last_css_to_image.borrow();
+        let css_to_image = self.layout.borrow().css_to_image;
         let pad_x = SELECTION_PAD_X_CSS * css_to_image;
         // Total vertical padding (above the top of the glyphs + below
         // the bottom). Used to convert a dragged BottomRight handle
@@ -1462,7 +1499,7 @@ impl Text {
     /// Cached glyph bounding rect in image coordinates, or `None` when
     /// the text hasn't been measured yet or is empty.
     fn glyph_rect(&self) -> Option<Rect> {
-        let r = self.rect.borrow();
+        let r = self.layout.borrow().rect;
         if r.width() <= 0 || r.height() <= 0 {
             return None;
         }
@@ -1477,7 +1514,7 @@ impl Text {
     /// even when stale — callers that need a freshly measured rect must
     /// queue a draw first.
     fn editing_box(&self) -> Rect {
-        *self.editing_rect.borrow()
+        self.layout.borrow().editing_rect
     }
 
     /// Positions of the three editing-mode handles (`Left`, `Right`,
@@ -2065,8 +2102,9 @@ impl Tool for TextTool {
                             let in_body = if t.editing {
                                 t.editing_box().contains(pos)
                             } else {
-                                t.rect
+                                t.layout
                                     .borrow()
+                                    .rect
                                     .contains_point(pos.x as i32, pos.y as i32)
                             };
                             if in_body {
@@ -2074,7 +2112,8 @@ impl Tool for TextTool {
                                 let mut index = 0;
                                 let mut find_index = false;
 
-                                let glyphs = t.glyphs.borrow();
+                                let layout = t.layout.borrow();
+                                let glyphs = &layout.glyphs;
                                 for line in 0..glyphs.len() {
                                     let line_rect = glyphs.get(line).unwrap();
 
@@ -2226,14 +2265,14 @@ impl Tool for TextTool {
                             original_pos: t.pos,
                             original_text_box_width: t.text_box_width,
                             original_size_factor: t.style.annotation_size_factor,
-                            original_line_height: *t.last_line_height.borrow(),
+                            original_line_height: t.layout.borrow().line_height,
                             anchor: handle.pos,
                         });
                         return ToolUpdateResult::StopPropagation;
                     }
                 }
                 if let Some(t) = &mut self.text {
-                    let rect = t.rect.borrow();
+                    let rect = t.layout.borrow().rect;
                     if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
                         return ToolUpdateResult::StopPropagation;
                     }
@@ -2250,11 +2289,11 @@ impl Tool for TextTool {
                         t.pos = drag.original_pos;
                         t.text_box_width = drag.original_text_box_width;
                         t.style.annotation_size_factor = drag.original_size_factor;
-                        // Restore last_line_height so move_handle's
+                        // Restore line_height so move_handle's
                         // height-based scale math sees the pre-drag
                         // box geometry (it drifts each frame as the
                         // factor changes).
-                        *t.last_line_height.borrow_mut() = drag.original_line_height;
+                        t.layout.borrow_mut().line_height = drag.original_line_height;
                         let to = drag.anchor + event.pos;
                         t.move_handle(drag.handle, to);
                     }
@@ -2264,13 +2303,14 @@ impl Tool for TextTool {
                 if event.button == MouseButton::Primary {
                     let global_pos = self.drag_start_pos + event.pos;
                     if let Some(t) = &mut self.text {
-                        let rect = t.rect.borrow();
+                        let layout = t.layout.borrow();
+                        let rect = &layout.rect;
                         if rect.contains_point(global_pos.x as i32, global_pos.y as i32) {
                             //calculate text cursor position
                             let mut index = 0;
                             let mut find_index = false;
 
-                            let glyphs = t.glyphs.borrow();
+                            let glyphs = &layout.glyphs;
                             for line in glyphs.iter() {
                                 for glyph in line.iter() {
                                     if glyph
@@ -2318,7 +2358,7 @@ impl Tool for TextTool {
                 }
                 self.dragged = Rc::new(RefCell::new(false));
                 if let Some(t) = &mut self.text {
-                    let rect = t.rect.borrow();
+                    let rect = t.layout.borrow().rect;
                     if rect.contains_point(event.pos.x as i32, event.pos.y as i32) {
                         return ToolUpdateResult::StopPropagation;
                     }
@@ -2570,7 +2610,8 @@ impl TextTool {
                             let mut next_line = 0;
                             let mut offset = 0;
 
-                            let ranges = text.line_ranges.borrow();
+                            let layout = text.layout.borrow();
+                            let ranges = &layout.line_ranges;
 
                             for i in 0..ranges.len() {
                                 let line = ranges.get(i).unwrap();
@@ -2627,7 +2668,8 @@ impl TextTool {
                             let mut last_line = 0;
                             let mut offset = 0;
 
-                            let ranges = text.line_ranges.borrow();
+                            let layout = text.layout.borrow();
+                            let ranges = &layout.line_ranges;
 
                             for i in 0..ranges.len() {
                                 let line = ranges.get(i).unwrap();
@@ -2730,7 +2772,8 @@ impl TextTool {
                         let mut next_line = 0;
                         let mut offset = 0;
 
-                        let ranges = text.line_ranges.borrow();
+                        let layout = text.layout.borrow();
+                        let ranges = &layout.line_ranges;
 
                         for i in 0..ranges.len() {
                             let line = ranges.get(i).unwrap();
@@ -2777,7 +2820,8 @@ impl TextTool {
                         let mut last_line = 0;
                         let mut offset = 0;
 
-                        let ranges = text.line_ranges.borrow();
+                        let layout = text.layout.borrow();
+                        let ranges = &layout.line_ranges;
 
                         for i in 0..ranges.len() {
                             let line = ranges.get(i).unwrap();
