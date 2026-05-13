@@ -1479,6 +1479,29 @@ impl FemtoVgAreaMut {
         // render background
         self.render_background_image(canvas, onscreen)?;
 
+        // Debug overlay: when `SATTY_DEBUG_BANDS=1`, draw a faint
+        // colored stripe at each detected text band so we can
+        // visually correlate the cursor's anchored position against
+        // the heuristic's output. Temporary — strip once the
+        // detector is dialed in.
+        if std::env::var("SATTY_DEBUG_BANDS").is_ok() {
+            for b in crate::text_bands::bands() {
+                let mut path = femtovg::Path::new();
+                path.rect(0.0, b.y_start, self.background_image.width() as f32, b.height());
+                let paint = femtovg::Paint::color(femtovg::Color::rgba(255, 60, 60, 50));
+                canvas.fill_path(&path, &paint);
+                // Solid edge lines at top/bottom for sharp visual.
+                let mut edge = femtovg::Path::new();
+                edge.move_to(0.0, b.y_start);
+                edge.line_to(self.background_image.width() as f32, b.y_start);
+                edge.move_to(0.0, b.y_end);
+                edge.line_to(self.background_image.width() as f32, b.y_end);
+                let mut edge_paint = femtovg::Paint::color(femtovg::Color::rgba(255, 60, 60, 200));
+                edge_paint.set_line_width(1.0);
+                canvas.stroke_path(&edge, &edge_paint);
+            }
+        }
+
         let bounds = (
             Vec2D::zero(),
             Vec2D::new(

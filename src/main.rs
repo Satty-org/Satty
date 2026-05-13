@@ -39,6 +39,7 @@ mod notification;
 mod sketch_board;
 mod state;
 mod style;
+mod text_bands;
 mod tools;
 mod ui;
 
@@ -210,6 +211,7 @@ enum AppInput {
     ArrowStyleCycled(crate::tools::ArrowStyle),
     BlurStyleCycled(crate::tools::BlurStyle),
     TextBackgroundCycled(crate::tools::TextBackground),
+    HighlighterStyleCycled(crate::tools::HighlighterStyle),
     /// Show a transient toast announcing the just-cycled variant.
     /// Drives `cycle_toast_revealer` and (re)schedules the hide
     /// timer. Independent of the structured `*Cycled` events so
@@ -857,6 +859,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetTextBackground(bg));
             }
+            AppInput::HighlighterStyleCycled(style) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetHighlighterStyle(style));
+            }
             AppInput::SelectionTextBackgroundChanged(bg) => {
                 // Silent dropdown update — no toast, no reapply.
                 // Just push the value into the StyleToolbar so its
@@ -987,6 +994,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::TextBackgroundCycled(bg) => {
                         AppInput::TextBackgroundCycled(bg)
+                    }
+                    SketchBoardOutput::HighlighterStyleCycled(style) => {
+                        AppInput::HighlighterStyleCycled(style)
                     }
                     SketchBoardOutput::ShowCycleToast(text) => {
                         AppInput::ShowCycleToast(text)
@@ -1462,6 +1472,14 @@ fn run_satty() -> Result<()> {
     };
 
     generate_profile_output!("image loaded, starting gui");
+    // Pre-compute the text-band detection once on the loaded image.
+    // The Highlighter tool reads this cache via `text_bands::bands()`
+    // for both the snap-on-drag and hover-preview features. Done
+    // before relm4 launches so the bands are available the first
+    // time the user hovers the canvas — the scan is fast enough
+    // (~20 ms on a 4K capture) that the user can't tell it ran.
+    text_bands::init_from_pixbuf(&image);
+    generate_profile_output!("text bands detected");
     // start GUI
     let app = relm4::main_application();
     let app_id = match app_id_pref.as_deref() {

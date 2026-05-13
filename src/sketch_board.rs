@@ -179,6 +179,7 @@ pub enum SketchBoardOutput {
     ArrowStyleCycled(crate::tools::ArrowStyle),
     BlurStyleCycled(crate::tools::BlurStyle),
     TextBackgroundCycled(crate::tools::TextBackground),
+    HighlighterStyleCycled(crate::tools::HighlighterStyle),
     /// Announce the just-cycled variant by name (e.g. "Arrow:
     /// Curved"). Caller renders it as a centered toast on the
     /// canvas — separate from the structured style events so the
@@ -512,6 +513,15 @@ pub struct SketchBoard {
     /// cycles, so the user can't accidentally change variants by
     /// pressing the same key once.
     last_tool_press: Option<(char, std::time::Instant)>,
+    /// Last image-space pointer position seen by `update_hover_cursor`.
+    /// Stashed so events that don't carry a pointer position (zoom
+    /// change, tool switch) can refresh the cursor by re-running the
+    /// band-aware path at the last-known location rather than falling
+    /// back to a style-only cursor. Without this, zooming with the
+    /// pointer over a text row would briefly render the cursor at the
+    /// style-derived size + pointer-anchored position until the user
+    /// nudged the mouse and the next motion event re-detected.
+    last_hover_image_pos: Option<crate::math::Vec2D>,
 }
 
 /// Max gap (ms) between two presses of the same tool-shortcut key
@@ -1258,6 +1268,20 @@ impl SketchBoard {
         crate::state::load_text_background().unwrap_or_default()
     }
 
+    /// Seed for the highlighter style cycle. Unlike Arrow/Blur/Text
+    /// where the style is a baked drawable property, the highlighter's
+    /// HighlighterStyle is a *tool* setting only — committed strokes
+    /// don't remember which mode they were drawn in. So the seed
+    /// comes from the active tool's current style (which already
+    /// reflects state.toml after init).
+    fn cycle_seed_highlighter(&self) -> crate::tools::HighlighterStyle {
+        self.tools
+            .get(&Tools::Highlighter)
+            .borrow()
+            .highlighter_style()
+            .unwrap_or_default()
+    }
+
     /// double-press of the tool's shortcut key (see the
     /// `TextEventMsg::Commit` handler). Tools without per-tool style
     /// variants (Pointer, Crop, Brush, etc.) are no-ops; the
@@ -1271,7 +1295,7 @@ impl SketchBoard {
         // own the toast emission, so a single user action shows a
         // single toast regardless of whether the trigger was the
         // double-tap, the popover row, or the dropdown.
-        use crate::tools::{ArrowStyle, BlurStyle, TextBackground};
+        use crate::tools::{ArrowStyle, BlurStyle, HighlighterStyle, TextBackground};
         match tool {
             Tools::Arrow => {
                 // Seed off the selected arrow (if any) so cycling
@@ -1322,6 +1346,17 @@ impl SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::TextBackgroundCycled(next));
+            }
+            Tools::Highlighter => {
+                let next = self.cycle_seed_highlighter().next();
+                self.tools
+                    .get(&Tools::Highlighter)
+                    .borrow_mut()
+                    .set_highlighter_style(next);
+                crate::state::save_highlighter_style(next);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::HighlighterStyleCycled(next));
             }
             _ => {
                 // Tools without per-tool variants — pointer, crop,
@@ -1606,6 +1641,27 @@ impl SketchBoard {
                 // path: changing the picker should re-shape what's
                 // already on the canvas, not only future strokes.
                 self.apply_arrow_style_to_selection(style)
+            }
+            ToolbarEvent::HighlighterStyleSelected(style) => {
+                self.tools
+                    .get(&Tools::Highlighter)
+                    .borrow_mut()
+                    .set_highlighter_style(style);
+                // Auto-persist: cycling becomes the new default for
+                // the next launch.
+                crate::state::save_highlighter_style(style);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ShowCycleToast(format!(
+                        "Highlighter: {}",
+                        style.display_name()
+                    )));
+                // Highlighter style is a *tool* setting, not a
+                // drawable property — committed highlight strokes
+                // baked in their forced_width at the time of commit.
+                // So there's no "apply to selection" here; the
+                // change only affects future strokes.
+                ToolUpdateResult::Unmodified
             }
             ToolbarEvent::BlurStyleSelected(style) => {
                 self.tools
@@ -2214,7 +2270,8 @@ impl SketchBoard {
     /// the canvas hints where new geometry will land. Brush and Highlighter
     /// override the crosshair with a custom double-ring cursor sized to
     /// their stroke width (see `crate::ui::cursor`).
-    fn update_hover_cursor(&self, image_pos: Vec2D) {
+    fn update_hover_cursor(&mut self, image_pos: Vec2D) {
+        self.last_hover_image_pos = Some(image_pos);
         let pointer_tool = self.tools.get(&Tools::Pointer);
         let pt = pointer_tool.borrow();
         if pt.dragging_drawable_id().is_some() {
@@ -2308,8 +2365,56 @@ impl SketchBoard {
         // 3. Tool-specific default for empty canvas. Brush/Highlighter
         //    take a custom-rendered cursor that previews stroke
         //    geometry; everything else falls through to a named cursor.
+        //    For Highlighter, also check the detected text band at the
+        //    current pointer y — when the pointer is over a band, the
+        //    cursor's height matches the band's height AND its render
+        //    position is anchored to the band's center (via the
+        //    hotspot offset). That way the preview capsule sits over
+        //    the text row the click would highlight, no matter where
+        //    inside the band the pointer actually is.
         if cursor.is_none() {
-            if let Some(custom) = self.custom_drawing_cursor() {
+            let (band_height, band_v_offset) =
+                if self.active_tool_type() == Tools::Highlighter {
+                    // While a drag is in flight, the tool's
+                    // `locked_text_band()` (set at BeginDrag in
+                    // TextLocked mode) takes precedence — the
+                    // cursor stays at the band the stroke started
+                    // on no matter where the pointer wanders.
+                    // When idle, the current `highlighter_style()`
+                    // decides whether to even attempt a band lookup:
+                    //   * TextLocked → query `detect_local_band` and
+                    //     anchor the cursor to that band.
+                    //   * Normal → no band, no anchor — the cursor
+                    //     is the freehand style.size-derived capsule
+                    //     centered on the pointer.
+                    let active_tool = self.active_tool.borrow();
+                    let locked = active_tool.locked_text_band();
+                    let style = active_tool
+                        .highlighter_style()
+                        .unwrap_or_default();
+                    drop(active_tool);
+                    let band = match (locked, style) {
+                        (Some(b), _) => Some(b),
+                        (None, crate::tools::HighlighterStyle::TextLocked) => {
+                            crate::text_bands::detect_local_band(
+                                image_pos.x,
+                                image_pos.y,
+                            )
+                        }
+                        (None, crate::tools::HighlighterStyle::Normal) => None,
+                    };
+                    match band {
+                        Some(b) => {
+                            let pad =
+                                2.0 * b.height() * crate::text_bands::BAND_PAD_PERCENT_PER_SIDE;
+                            (Some(b.height() + pad), b.center_y() - image_pos.y)
+                        }
+                        None => (None, 0.0),
+                    }
+                } else {
+                    (None, 0.0)
+                };
+            if let Some(custom) = self.custom_drawing_cursor(band_height, band_v_offset) {
                 self.renderer.set_cursor(Some(&custom));
                 return;
             }
@@ -2331,8 +2436,15 @@ impl SketchBoard {
 
     /// Build a custom drawing cursor for tools that have one (Brush,
     /// Highlighter). Returns `None` for tools that should keep a
-    /// stock named cursor.
-    fn custom_drawing_cursor(&self) -> Option<gtk::gdk::Cursor> {
+    /// stock named cursor. `band_height_image_px` overrides the
+    /// Highlighter cursor's height to match a detected text band
+    /// under the pointer — the "smart highlighter" preview. Pass
+    /// `None` to use the style's stroke width as the cursor height.
+    fn custom_drawing_cursor(
+        &self,
+        band_height_image_px: Option<f32>,
+        band_vertical_offset_image_px: f32,
+    ) -> Option<gtk::gdk::Cursor> {
         let render_scale = self.renderer.current_render_scale() as f64;
         // GTK4 paints cursor textures at a HiDPI-scaled on-screen size,
         // so we divide by DPR inside the cursor builders to keep the
@@ -2344,14 +2456,25 @@ impl SketchBoard {
             &self.style,
             render_scale,
             dpr,
+            band_height_image_px,
+            band_vertical_offset_image_px,
         )
     }
 
-    /// Apply the idle cursor immediately on a tool switch (so the user sees
-    /// the crosshair / custom drawing cursor as soon as they pick a tool,
-    /// without needing to move the mouse first).
-    fn apply_idle_cursor(&self) {
-        if let Some(custom) = self.custom_drawing_cursor() {
+    /// Apply the idle cursor — used on tool switch, zoom change, and
+    /// anywhere else we need to refresh without a motion event. When
+    /// we have a remembered hover position (from a prior motion under
+    /// any tool), we look up the band there so the cursor reflects
+    /// the current under-the-pointer text row immediately instead of
+    /// showing the style-derived size until the next motion. First
+    /// invocation of the app (no prior motion) falls through to the
+    /// style cursor — same behavior as before.
+    fn apply_idle_cursor(&mut self) {
+        if let Some(pos) = self.last_hover_image_pos {
+            self.update_hover_cursor(pos);
+            return;
+        }
+        if let Some(custom) = self.custom_drawing_cursor(None, 0.0) {
             self.renderer.set_cursor(Some(&custom));
             return;
         }
@@ -2978,6 +3101,19 @@ impl Component for SketchBoard {
                 // rendered stroke at the current zoom — rebuild so the
                 // double-ring matches the on-screen geometry after the
                 // user zooms in or out.
+                //
+                // The stashed `last_hover_image_pos` is in image
+                // coordinates, but zoom changes how the (unchanged)
+                // screen pointer maps into image space. So the stored
+                // image pos is stale after zoom; clear it (and the
+                // band cache) so the cursor falls back to a style
+                // size momentarily until the next motion event
+                // re-runs detection at the now-correct image pos.
+                // Better than rendering an anchored cursor at the
+                // wrong band — that would visibly snap to a row the
+                // pointer isn't actually over.
+                self.last_hover_image_pos = None;
+                crate::text_bands::clear_local_band_cache();
                 if matches!(self.active_tool_type(), Tools::Brush | Tools::Highlighter) {
                     self.apply_idle_cursor();
                 }
@@ -3144,6 +3280,7 @@ impl Component for SketchBoard {
             tool_before_crop: None,
             scroll_resize_accum: 0.0,
             last_tool_press: None,
+            last_hover_image_pos: None,
         };
 
         let pointer_tool = model.tools.get(&Tools::Pointer);
@@ -3184,6 +3321,13 @@ impl Component for SketchBoard {
                 .get(&Tools::Text)
                 .borrow_mut()
                 .set_text_background(bg);
+        }
+        if let Some(style) = crate::state::load_highlighter_style() {
+            model
+                .tools
+                .get(&Tools::Highlighter)
+                .borrow_mut()
+                .set_highlighter_style(style);
         }
         let area = &mut model.renderer;
         area.init(

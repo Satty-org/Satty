@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use xdg::BaseDirectories;
 
 use crate::style::{Color, Size};
-use crate::tools::{ArrowStyle, BlurStyle, TextBackground, Tools};
+use crate::tools::{ArrowStyle, BlurStyle, HighlighterStyle, TextBackground, Tools};
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -59,6 +59,11 @@ pub struct PersistedState {
     /// tool restores the user's last choice.
     #[serde(default)]
     pub text_background: Option<TextBackground>,
+    /// Last-chosen highlighter style (TextLocked / Normal). Same
+    /// auto-save semantics: cycling via toolbar or double-tap
+    /// persists, restoring the user's preference on next launch.
+    #[serde(default)]
+    pub highlighter_style: Option<HighlighterStyle>,
     /// User-edited keyboard shortcuts from the Preferences dialog.
     /// Map keyed by `Tools`; each value is a single character (the
     /// shortcut). Tools missing from this map fall back to the
@@ -274,6 +279,16 @@ pub fn load_text_background() -> Option<TextBackground> {
 pub fn save_text_background(bg: TextBackground) {
     let mut state = load();
     state.text_background = Some(bg);
+    save(&state);
+}
+
+pub fn load_highlighter_style() -> Option<HighlighterStyle> {
+    load().highlighter_style
+}
+
+pub fn save_highlighter_style(style: HighlighterStyle) {
+    let mut state = load();
+    state.highlighter_style = Some(style);
     save(&state);
 }
 

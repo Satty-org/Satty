@@ -167,6 +167,17 @@ pub trait Tool {
         false
     }
 
+    /// The text band the tool is locked onto for an in-flight stroke,
+    /// if any. The Highlighter sets this on `BeginDrag` and clears it
+    /// on `EndDrag`; other tools always return `None`.
+    /// `update_hover_cursor` reads this so the cursor texture stays
+    /// stable across the whole drag — without this hook, every motion
+    /// event would re-run local band detection and the cursor would
+    /// morph mid-stroke as the pointer crossed other text elements.
+    fn locked_text_band(&self) -> Option<crate::text_bands::TextBand> {
+        None
+    }
+
     fn get_tool_type(&self) -> Tools;
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>);
@@ -188,6 +199,20 @@ pub trait Tool {
     /// meaningful for `TextTool`). Default no-op so the toolbar can
     /// broadcast without checking tool type.
     fn set_text_background(&mut self, _bg: TextBackground) {}
+
+    /// Switch the highlighter style (TextLocked vs Normal). Only the
+    /// HighlightTool acts on this; default no-op for everyone else
+    /// so the toolbar can broadcast without per-tool dispatch.
+    fn set_highlighter_style(&mut self, _style: HighlighterStyle) {}
+
+    /// Current highlighter style — Highlighter returns its active
+    /// value; everyone else returns `None`. Read by sketch_board's
+    /// hover-cursor path so the cursor knows whether to do the
+    /// band lookup (TextLocked) or fall through to the 
+    /// style.size-derived freehand cursor (Normal).
+    fn highlighter_style(&self) -> Option<HighlighterStyle> {
+        None
+    }
 
     /// Resume editing an existing committed text drawable. Only `TextTool`
     /// implements this; the default no-op lets sketch_board dispatch
@@ -719,7 +744,7 @@ pub use arrow::{ArrowStyle, ArrowTool};
 pub use blur::{BlurStyle, BlurTool};
 pub use crop::{AspectRatio, CropBgColor, CropHit, CropTool};
 pub use ellipse::EllipseTool;
-pub use highlight::{HighlightTool, Highlighters};
+pub use highlight::{HighlighterStyle, HighlightTool, Highlighters};
 pub use line::LineTool;
 pub use rectangle::RectangleTool;
 pub use spotlight::SpotlightTool;

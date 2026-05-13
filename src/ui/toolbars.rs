@@ -1486,6 +1486,15 @@ pub struct StyleToolbar {
     /// re-apply pointlessly. Rc<Cell<bool>> because the notify
     /// closure captures it independently from the model.
     text_background_silent: std::rc::Rc<std::cell::Cell<bool>>,
+    /// Currently-selected highlighter style — drives the
+    /// highlighter MenuButton's tooltip wording and is the seed for
+    /// the dropdown's "active" indicator.
+    highlighter_style: crate::tools::HighlighterStyle,
+    /// Popover hanging off the highlighter-style MenuButton.
+    highlighter_style_popover: Option<gtk::Popover>,
+    /// Inner Label of the highlighter MenuButton's tooltip — same
+    /// role as the arrow / blur ones. Updated on `SetHighlighterStyle`.
+    highlighter_style_tooltip_label: Option<gtk::Label>,
 }
 
 /// Icon name shown on the blur-style MenuButton and on each popover
@@ -1507,6 +1516,28 @@ fn blur_style_label(s: BlurStyle) -> &'static str {
         BlurStyle::Gaussian => "Blur (smooth)",
         BlurStyle::BlackOut => "Black Out",
     }
+}
+
+/// Icon name shown on the highlighter-style MenuButton chip and the
+/// popover rows. Both icons live in the bundled set (see
+/// `icons.toml`).
+fn highlighter_style_icon(s: crate::tools::HighlighterStyle) -> &'static str {
+    use crate::tools::HighlighterStyle::*;
+    match s {
+        // Text-locked = "smart" highlighter that snaps to text rows.
+        // The paragraph glyph (stacked lines of text) reads as the
+        // text-snap behavior; pairs with the thick i-beam cursor the
+        // tool puts on screen when this mode is active.
+        TextLocked => "text-paragraph-regular",
+        // Normal = freeform highlighter. The marker/highlight glyph
+        // is the canonical highlighter affordance.
+        Normal => "highlight-regular",
+    }
+}
+
+/// Human label for the highlighter-style popover rows.
+fn highlighter_style_label(s: crate::tools::HighlighterStyle) -> &'static str {
+    s.display_name()
 }
 
 /// Human label for the arrow-style popover rows.
@@ -1733,6 +1764,11 @@ fn blur_tooltip_text(s: BlurStyle) -> String {
     blur_style_label(s).to_string()
 }
 
+/// Tooltip text for the highlighter-style MenuButton.
+fn highlighter_tooltip_text(s: crate::tools::HighlighterStyle) -> String {
+    highlighter_style_label(s).to_string()
+}
+
 /// Build a popover full of icon+label rows for an enum-style picker,
 /// attach it to `menu`, and wire each row to dispatch the matching
 /// `StyleToolbarInput`. Shared by the arrow and blur menus — they
@@ -1888,6 +1924,7 @@ pub enum ToolbarEvent {
     SizeSelected(Size),
     ArrowStyleSelected(ArrowStyle),
     BlurStyleSelected(BlurStyle),
+    HighlighterStyleSelected(crate::tools::HighlighterStyle),
     /// Crop tool's "Snap to edges" checkbox toggled. sketch_board
     /// forwards the value to `CropTool` and persists it to state.
     SnapToEdgesChanged(bool),
@@ -2163,6 +2200,12 @@ pub enum StyleToolbarInput {
     SetBlurStyle(BlurStyle),
     /// Same shape as `SetBlurStyle` for the arrow-geometry picker.
     SetArrowStyle(ArrowStyle),
+    /// Same shape for the highlighter style (TextLocked / Normal).
+    /// Handler updates local mirror + MenuButton preview and re-emits
+    /// `HighlighterStyleSelected` upstream so sketch_board persists
+    /// + toasts. Fired by both the popover-click path and the
+    /// double-tap-cycle's round-trip from sketch_board.
+    SetHighlighterStyle(crate::tools::HighlighterStyle),
     /// Sync the text-background DropDown to the variant sketch_board
     /// just promoted (currently only fired from the double-tap cycle).
     /// The handler flips `selected` on the stashed dropdown widget;
@@ -4676,6 +4719,31 @@ impl Component for StyleToolbar {
                 set_width_request: TOOL_CLUSTER_WIDTH,
                 set_halign: gtk::Align::Start,
 
+                // Highlighter style picker — placed BEFORE the
+                // cluster label so the picker reads as the primary
+                // choice and the "Opacity" label introduces the
+                // slider that follows. Visible only while the
+                // Highlighter tool is active; the other tools' style
+                // pickers below remain after the label as before
+                // (they don't have a secondary slider to introduce).
+                #[name = "highlighter_style_menu"]
+                gtk::MenuButton {
+                    add_css_class: "compact-control",
+                    set_focusable: false,
+                    set_focus_on_click: false,
+                    set_hexpand: false,
+                    set_valign: gtk::Align::Center,
+                    set_height_request: 34,
+                    set_always_show_arrow: true,
+                    #[watch]
+                    set_visible: model.current_tool == Tools::Highlighter,
+                    #[wrap(Some)]
+                    set_child = &gtk::Image {
+                        #[watch]
+                        set_icon_name: Some(highlighter_style_icon(model.highlighter_style)),
+                    },
+                },
+
                 gtk::Label {
                     add_css_class: "dim-label",
                     #[watch]
@@ -5192,6 +5260,16 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::ArrowStyleSelected(style));
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             }
+            StyleToolbarInput::SetHighlighterStyle(style) => {
+                self.highlighter_style = style;
+                if let Some(label) = &self.highlighter_style_tooltip_label {
+                    label.set_text(&highlighter_tooltip_text(style));
+                }
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::HighlighterStyleSelected(style));
+                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
+            }
             StyleToolbarInput::SetTextBackground(bg) => {
                 // Match the popover-list / init mapping for the
                 // dropdown's index.
@@ -5332,6 +5410,10 @@ impl Component for StyleToolbar {
             blur_style_tooltip_label: None,
             text_background_dropdown: None,
             text_background_silent: text_background_silent.clone(),
+            highlighter_style: crate::state::load_highlighter_style()
+                .unwrap_or_default(),
+            highlighter_style_popover: None,
+            highlighter_style_tooltip_label: None,
         };
 
         // create widgets
@@ -5386,6 +5468,20 @@ impl Component for StyleToolbar {
             blur_style_label,
             StyleToolbarInput::SetBlurStyle,
         ));
+        model.highlighter_style_popover = Some(build_style_popover(
+            &widgets.highlighter_style_menu,
+            &sender,
+            &[
+                crate::tools::HighlighterStyle::TextLocked,
+                crate::tools::HighlighterStyle::Normal,
+            ],
+            |s| {
+                gtk::Image::from_icon_name(highlighter_style_icon(s))
+                    .upcast::<gtk::Widget>()
+            },
+            highlighter_style_label,
+            StyleToolbarInput::SetHighlighterStyle,
+        ));
 
         // Build the arrow MenuButton's leading preview — same drawing
         // code as the popover rows, with a Cell driving which variant
@@ -5413,6 +5509,12 @@ impl Component for StyleToolbar {
             gtk::PositionType::Top,
         );
         model.blur_style_tooltip_label = Some(blur_tooltip);
+        let highlighter_tooltip = install_dynamic_tooltip(
+            &widgets.highlighter_style_menu,
+            &highlighter_tooltip_text(model.highlighter_style),
+            gtk::PositionType::Top,
+        );
+        model.highlighter_style_tooltip_label = Some(highlighter_tooltip);
         if let Some(bg) = crate::state::load_text_background() {
             let idx = match bg {
                 crate::tools::TextBackground::Rounded => 0,

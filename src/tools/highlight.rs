@@ -43,6 +43,50 @@ pub enum Highlighters {
     Freehand = 1,
 }
 
+/// Per-tool highlighter style — picks between the classic freehand
+/// drawing path and the text-band snap. Persisted via
+/// state.toml; double-tapping the highlighter shortcut cycles.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum HighlighterStyle {
+    /// "Smart" highlighter. Detects the text band under the cursor 
+    /// and locks the stroke horizontally at that band's center, 
+    /// sized to the band's height — covers a line of text cleanly 
+    /// with no vertical drift from trackpad jitter.
+    #[default]
+    TextLocked,
+    /// Classic freehand highlighter — stroke follows the pointer in
+    /// both x and y, sized by the toolbar's Size slider (XS…XXL),
+    /// post-smoothed on release so the curve reads clean.
+    Normal,
+}
+
+impl HighlighterStyle {
+    pub fn next(self) -> Self {
+        use HighlighterStyle::*;
+        match self {
+            TextLocked => Normal,
+            Normal => TextLocked,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        // Only two variants — prev == next.
+        self.next()
+    }
+
+    /// Short label used in the cycle toast and tooltip wording.
+    pub fn display_name(self) -> &'static str {
+        use HighlighterStyle::*;
+        match self {
+            TextLocked => "Text-locked",
+            Normal => "Normal",
+        }
+    }
+}
+
 impl From<command_line::Highlighters> for Highlighters {
     fn from(tool: command_line::Highlighters) -> Self {
         match tool {
@@ -68,19 +112,30 @@ pub struct HighlightStroke {
     /// snapping behavior can detect the just-pressed and just-released
     /// transitions. Not used after commit.
     shift_pressed: bool,
+    /// When `Some`, the stroke renders at this width instead of the
+    /// width derived from `style.size`. Set when the user starts the
+    /// stroke inside a detected text band so the highlight matches
+    /// the band's measured height instead of the global tool size.
+    /// Carried into the committed drawable so selection / resize /
+    /// re-render all use the locked width.
+    forced_width: Option<f32>,
 }
 
 impl HighlightStroke {
     fn stroke_width(&self) -> f32 {
-        self.style
-            .size
-            .to_highlight_width(self.style.annotation_size_factor)
+        self.forced_width.unwrap_or_else(|| {
+            self.style
+                .size
+                .to_highlight_width(self.style.annotation_size_factor)
+        })
     }
 
-    /// Solid fill paint (no stroke params). The highlight is rendered
-    /// as a filled polygon — see `build_highlight_path` — so the only
-    /// thing the paint needs to encode is the color + per-stroke
-    /// alpha that was baked in at commit time.
+    /// Color + per-stroke opacity baked into a femtovg `Paint`. Used
+    /// for the native stroked path render in `draw` — line width, cap,
+    /// and join are set on top of this at stroke time. The "fill"
+    /// name is historical; the highlight used to render as a filled
+    /// polygon, and most callers think of the paint as the fill color
+    /// even though we now stroke with it.
     fn fill_paint(&self) -> Paint {
         Paint::color(femtovg::Color::rgba(
             self.style.color.r,
@@ -103,223 +158,6 @@ impl HighlightStroke {
     }
 }
 
-/// Radius (image-space pixels) of the rounded outer corners at each
-/// end of the highlight stroke. Small enough not to noticeably eat
-/// into the stroke width (the rounded corners reduce the effective
-/// width at the very tips by ~1px), but visible enough that the ends
-/// don't read as harshly chopped-off butt caps. Independent of the
-/// stroke width on purpose: the user asked for a fixed-size soft
-/// corner, not a width-scaled one.
-const HIGHLIGHT_CAP_RADIUS: f32 = 4.0;
-
-/// One Chaikin smoothing pass (corner-cutting subdivision). Each
-/// interior segment `p[i] → p[i+1]` is replaced with two interpolated
-/// points at 25 % and 75 % along the segment, while the polyline's
-/// two endpoints are preserved verbatim so the stroke still starts
-/// and ends where the user lifted the mouse. Two passes is enough to
-/// take the visible jitter out of a hand-drawn polyline without
-/// drifting the curve away from where the user drew it.
-fn chaikin_smooth(points: &[Vec2D], iterations: usize) -> Vec<Vec2D> {
-    if points.len() < 3 || iterations == 0 {
-        return points.to_vec();
-    }
-    let mut current = points.to_vec();
-    for _ in 0..iterations {
-        let mut next = Vec::with_capacity(current.len() * 2);
-        next.push(current[0]);
-        for i in 0..current.len() - 1 {
-            let a = current[i];
-            let b = current[i + 1];
-            next.push(a * 0.75 + b * 0.25);
-            next.push(a * 0.25 + b * 0.75);
-        }
-        next.push(*current.last().unwrap());
-        current = next;
-    }
-    current
-}
-
-/// Append a discretized arc to `poly`, starting from the polygon's
-/// current end (which the caller must have already pushed and which
-/// is assumed to equal `from`) and ending at `to`. The arc center
-/// + radius pin the geometry; `steps` controls smoothness (~6 is
-/// plenty for the 4-px-radius caps used here — even at 8x zoom
-/// the segments are well under a pixel apart).
-fn add_arc_segments(
-    poly: &mut Vec<Vec2D>,
-    center: Vec2D,
-    r: f32,
-    from: Vec2D,
-    to: Vec2D,
-    steps: usize,
-) {
-    let from_off = from - center;
-    let to_off = to - center;
-    let angle_from = from_off.y.atan2(from_off.x);
-    let angle_to = to_off.y.atan2(to_off.x);
-    // Pick the shortest-signed sweep so we always traverse the
-    // quarter arc the polygon expects (the polygon's perimeter
-    // turns by exactly ±π/2 at each cap corner; the full π/2
-    // shows up after the modular normalization below).
-    let mut delta = angle_to - angle_from;
-    while delta > std::f32::consts::PI {
-        delta -= 2.0 * std::f32::consts::PI;
-    }
-    while delta <= -std::f32::consts::PI {
-        delta += 2.0 * std::f32::consts::PI;
-    }
-    for i in 1..=steps {
-        let t = i as f32 / steps as f32;
-        let angle = angle_from + delta * t;
-        poly.push(Vec2D::new(
-            center.x + r * angle.cos(),
-            center.y + r * angle.sin(),
-        ));
-    }
-}
-
-/// Build a closed filled polygon for a highlight stroke: offset the
-/// polyline by ±width/2 perpendicular to each segment, bevel-join
-/// interior vertices, and round the two endpoint corners with
-/// `cap_radius` so the ends read as soft caps instead of perfectly
-/// flat butt-cap rectangles.
-///
-/// The rounded corners CUT INWARD into the polygon — the polyline's
-/// endpoints stay at the user-drawn positions and the stroke width
-/// is *not* widened to accommodate the rounding. This is what
-/// "rounded ends without adding extra width" means in practice: the
-/// effective width tapers slightly (by ~1 px at the very tip for a
-/// 4 px radius) over the last few pixels of each end.
-fn build_highlight_path(points: &[Vec2D], width: f32, cap_radius: f32) -> Option<Path> {
-    if points.len() < 2 {
-        return None;
-    }
-    let half_w = width / 2.0;
-
-    // Drop coincident consecutive points — they produce zero-length
-    // segments and a NaN tangent, which crashes the arc math below.
-    let mut clean: Vec<Vec2D> = vec![points[0]];
-    for &p in &points[1..] {
-        if (p - *clean.last().unwrap()).norm() >= 0.5 {
-            clean.push(p);
-        }
-    }
-    if clean.len() < 2 {
-        return None;
-    }
-
-    let n_segs = clean.len() - 1;
-    let mut tn: Vec<(Vec2D, Vec2D)> = Vec::with_capacity(n_segs);
-    for i in 0..n_segs {
-        let d = clean[i + 1] - clean[i];
-        let len = d.norm();
-        let t = Vec2D::new(d.x / len, d.y / len);
-        // CCW-90 perpendicular in math; in canvas y-down this lands
-        // on the "right" of the tangent (visually).
-        let n = Vec2D::new(-t.y, t.x);
-        tn.push((t, n));
-    }
-
-    // Clamp the cap radius so the rounding can't (a) exceed half the
-    // stroke width — the cap edge would invert — nor (b) eat past
-    // the inner end of the first/last segment, which would push the
-    // shortened endpoint past the other end of the segment.
-    let first_seg_len = (clean[1] - clean[0]).norm();
-    let last_seg_len = (clean[clean.len() - 1] - clean[clean.len() - 2]).norm();
-    let r = cap_radius
-        .min(half_w)
-        .min(first_seg_len / 2.0)
-        .min(last_seg_len / 2.0)
-        .max(0.0);
-
-    let p_first = clean[0];
-    let (t_first, n_first) = tn[0];
-    let p_last = clean[clean.len() - 1];
-    let (t_last, n_last) = tn[n_segs - 1];
-
-    let arc_steps = 6;
-    let mut poly: Vec<Vec2D> = Vec::new();
-
-    // -n side, traversed start → end. The polygon's first point
-    // sits just past the start-cap rounded corner (r along +t_first
-    // from p_first - n_first * half_w).
-    poly.push(p_first - n_first * half_w + t_first * r);
-
-    for i in 0..n_segs {
-        let n = tn[i].1;
-        let p_seg_end = if i == n_segs - 1 {
-            // Last segment: pull the -n side endpoint inward by r so
-            // the rounded end-cap corner has room.
-            clean[i + 1] - n * half_w - tn[i].0 * r
-        } else {
-            clean[i + 1] - n * half_w
-        };
-        poly.push(p_seg_end);
-
-        if i + 1 < n_segs {
-            // Bevel join: straight line across to the next segment's
-            // -n offset start at the shared interior vertex.
-            let n_next = tn[i + 1].1;
-            poly.push(clean[i + 1] - n_next * half_w);
-        }
-    }
-
-    // Rounded corner at end on -n side
-    let arc1_center = p_last - n_last * (half_w - r) - t_last * r;
-    let arc1_from = p_last - n_last * half_w - t_last * r;
-    let arc1_to = p_last - n_last * (half_w - r);
-    add_arc_segments(&mut poly, arc1_center, r, arc1_from, arc1_to, arc_steps);
-
-    // End cap edge (straight line across the cap between the two
-    // rounded corners; degenerates to a single point when r == half_w)
-    let arc2_from = p_last + n_last * (half_w - r);
-    poly.push(arc2_from);
-
-    // Rounded corner at end on +n side
-    let arc2_center = p_last + n_last * (half_w - r) - t_last * r;
-    let arc2_to = p_last + n_last * half_w - t_last * r;
-    add_arc_segments(&mut poly, arc2_center, r, arc2_from, arc2_to, arc_steps);
-
-    // +n side, traversed end → start (reverse direction)
-    for i in (0..n_segs).rev() {
-        let n = tn[i].1;
-        let p_seg_start = if i == 0 {
-            clean[i] + n * half_w + tn[i].0 * r
-        } else {
-            clean[i] + n * half_w
-        };
-        poly.push(p_seg_start);
-
-        if i > 0 {
-            let n_prev = tn[i - 1].1;
-            poly.push(clean[i] + n_prev * half_w);
-        }
-    }
-
-    // Rounded corner at start on +n side
-    let arc3_center = p_first + n_first * (half_w - r) + t_first * r;
-    let arc3_from = p_first + n_first * half_w + t_first * r;
-    let arc3_to = p_first + n_first * (half_w - r);
-    add_arc_segments(&mut poly, arc3_center, r, arc3_from, arc3_to, arc_steps);
-
-    // Start cap edge
-    let arc4_from = p_first - n_first * (half_w - r);
-    poly.push(arc4_from);
-
-    // Rounded corner at start on -n side (closes the loop)
-    let arc4_center = p_first - n_first * (half_w - r) + t_first * r;
-    let arc4_to = p_first - n_first * half_w + t_first * r;
-    add_arc_segments(&mut poly, arc4_center, r, arc4_from, arc4_to, arc_steps);
-
-    let mut path = Path::new();
-    path.move_to(poly[0].x, poly[0].y);
-    for p in &poly[1..] {
-        path.line_to(p.x, p.y);
-    }
-    path.close();
-    Some(path)
-}
-
 impl Drawable for HighlightStroke {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -333,10 +171,30 @@ impl Drawable for HighlightStroke {
     ) -> Result<()> {
         canvas.save();
         let points = self.absolute_points();
-        if let Some(path) =
-            build_highlight_path(&points, self.stroke_width(), HIGHLIGHT_CAP_RADIUS)
-        {
-            canvas.fill_path(&path, &self.fill_paint());
+        if points.len() >= 2 {
+            // Native GPU stroke with round caps + bevel joins.
+            // Round caps protrude past the polyline's endpoints by
+            // `stroke_width / 2`, producing the hemispherical ends a
+            // physical highlighter leaves on paper — and unlike the
+            // old custom inward-eating polygon, this never degenerates
+            // to a butt cap when the first/last segment is short
+            // (which used to happen on every fresh drag because the
+            // user accelerated from rest and the first sample lay
+            // only 1–2 px from the click point). Bevel joins keep
+            // interior corners flat so a zig-zag stroke doesn't
+            // balloon at vertices. The fill_paint() already encodes
+            // color + per-stroke opacity from when the stroke was
+            // committed.
+            let mut path = femtovg::Path::new();
+            path.move_to(points[0].x, points[0].y);
+            for p in &points[1..] {
+                path.line_to(p.x, p.y);
+            }
+            let mut paint = self.fill_paint();
+            paint.set_line_width(self.stroke_width());
+            paint.set_line_cap(femtovg::LineCap::Round);
+            paint.set_line_join(femtovg::LineJoin::Bevel);
+            canvas.stroke_path(&path, &paint);
         }
         canvas.restore();
         Ok(())
@@ -471,7 +329,45 @@ pub struct HighlightTool {
     style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
+    /// The text band, if any, the active stroke is locked to. Set on
+    /// BeginDrag (TextLocked mode only) when the cursor lands inside
+    /// a detected band; the in-flight stroke then renders at the
+    /// band's height and snaps every UpdateDrag to the band's center
+    /// y. Cleared on EndDrag.
+    locked_band: Option<crate::text_bands::TextBand>,
+    /// Absolute image-space position of the active stroke's BeginDrag
+    /// event. Kept separately from `stroke.first` because TextLocked
+    /// mode snaps `stroke.first.y` to the locked anchor (band center,
+    /// or the click y when no band) before pushing any rest entries
+    /// — which makes `stroke.first.y` no longer equal to the click's
+    /// y. `event.pos` in UpdateDrag is delta-from-BeginDrag, so the
+    /// absolute-x calc still needs the original click x as the
+    /// anchor; that's what `drag_anchor` stores. None when no drag is
+    /// in flight.
+    drag_anchor: Option<Vec2D>,
+    /// Active style: TextLocked (smart highlighter) vs Normal 
+    /// (classic freehand). Persisted via state.toml; the toolbar 
+    /// dropdown and double-tap-shortcut cycle both drive
+    /// `set_highlighter_style` to update this. Branches in 
+    /// `handle_mouse_event` dispatch on it at BeginDrag, snapshotted 
+    /// into `drag_style` so a mid-drag toolbar flip doesn't change 
+    /// behavior of the in-flight stroke.
+    highlight_style: HighlighterStyle,
+    /// Snapshot of `highlight_style` taken at BeginDrag. UpdateDrag /
+    /// EndDrag read this instead of the live `highlight_style` so a
+    /// mid-drag style change from the toolbar doesn't reshape the
+    /// stroke in flight. None when no drag is in flight.
+    drag_style: Option<HighlighterStyle>,
 }
+
+/// Minimum total drag motion (image px, end-to-end Euclidean) for a
+/// highlight stroke to commit on release. Below this the user
+/// effectively just clicked — common while positioning the cursor
+/// before the "real" drag — and committing the resulting tiny stroke
+/// would scatter half-circle ink blobs across the canvas (one per
+/// failed positioning attempt). Real highlight intent always involves
+/// a deliberate horizontal motion well past this floor.
+const MIN_COMMIT_LENGTH_PX: f32 = 4.0;
 
 impl Tool for HighlightTool {
     fn input_enabled(&self) -> bool {
@@ -493,16 +389,57 @@ impl Tool for HighlightTool {
                 if event.button == MouseButton::Middle {
                     return ToolUpdateResult::Unmodified;
                 }
-                // Pen-style: every drag starts a fresh freehand stroke.
-                // No more block/freehand toggle — the block highlighter
-                // mode lives on in the Spotlight tool, which kept both
-                // shape variants for its own use case.
-                self.stroke = Some(HighlightStroke {
-                    first: event.pos,
-                    rest: Vec::new(),
-                    style: self.style,
-                    shift_pressed,
-                });
+                // Snapshot the current style so a mid-drag flip via
+                // the toolbar doesn't reshape this stroke.
+                self.drag_style = Some(self.highlight_style);
+                self.drag_anchor = Some(event.pos);
+                match self.highlight_style {
+                    HighlighterStyle::TextLocked => {
+                        // Strict horizontal lock. Anchor y =
+                        // band.center_y if a band is detected at the
+                        // click, otherwise the click's y. `stroke.first`
+                        // is placed at (click.x, anchor.y) so the very
+                        // first vertex sits on the locked line — no
+                        // vertical lump at stroke start.
+                        let band = crate::text_bands::detect_local_band(
+                            event.pos.x,
+                            event.pos.y,
+                        );
+                        let anchor_y = band
+                            .map(|b| b.center_y())
+                            .unwrap_or(event.pos.y);
+                        self.locked_band = band;
+                        let pad = band
+                            .map(|b| {
+                                2.0 * b.height()
+                                    * crate::text_bands::BAND_PAD_PERCENT_PER_SIDE
+                            })
+                            .unwrap_or(0.0);
+                        self.stroke = Some(HighlightStroke {
+                            first: Vec2D::new(event.pos.x, anchor_y),
+                            rest: Vec::new(),
+                            style: self.style,
+                            shift_pressed,
+                            forced_width: band.map(|b| b.height() + pad),
+                        });
+                    }
+                    HighlighterStyle::Normal => {
+                        // Classic freehand. No band detection, no axis
+                        // lock — the polyline follows the pointer in
+                        // both x and y. Width comes from the toolbar's
+                        // size slider (Style::size → to_highlight_width).
+                        // Post-smoothing on EndDrag cleans up trackpad
+                        // jitter.
+                        self.locked_band = None;
+                        self.stroke = Some(HighlightStroke {
+                            first: event.pos,
+                            rest: Vec::new(),
+                            style: self.style,
+                            shift_pressed,
+                            forced_width: None,
+                        });
+                    }
+                }
                 ToolUpdateResult::Redraw
             }
             MouseEventType::UpdateDrag | MouseEventType::EndDrag => {
@@ -515,28 +452,44 @@ impl Tool for HighlightTool {
                 if event.pos == Vec2D::zero() {
                     return ToolUpdateResult::Unmodified;
                 }
+                let Some(drag_anchor) = self.drag_anchor else {
+                    return ToolUpdateResult::Unmodified;
+                };
 
-                // Shift behavior carried over from the previous freehand
-                // implementation: pressing Shift snaps the in-flight
-                // segment to a 15° increment, and chained Shift presses
-                // build a polyline of straight aligned runs.
+                // The rest entry — what gets pushed onto the polyline
+                // as an offset-from-stroke.first — depends on the
+                // mode snapshotted at BeginDrag.
+                //   * TextLocked: x follows the pointer, y locked to
+                //     the anchor (zero offset from stroke.first.y),
+                //     so the recorded rest entry's y is always 0.
+                //   * Normal: rest entry is the raw delta from
+                //     BeginDrag (event.pos as reported), so the
+                //     polyline tracks pointer in both axes.
+                let rest_entry = match self.drag_style {
+                    Some(HighlighterStyle::TextLocked) => {
+                        let abs_x = drag_anchor.x + event.pos.x;
+                        Vec2D::new(abs_x - stroke.first.x, 0.0)
+                    }
+                    _ => event.pos,
+                };
+
                 if shift_pressed {
+                    // Shift kept for the existing 15°-angle-snap
+                    // behavior. In TextLocked mode the y is locked
+                    // so the snap collapses to ±x (effectively a
+                    // no-op); in Normal mode it works as the classic
+                    // angle quantization for chained straight runs.
                     if stroke.shift_pressed && !stroke.rest.is_empty() {
                         stroke.rest.pop();
                     }
                     let last = stroke.rest.last().copied().unwrap_or(Vec2D::zero());
-                    let snapped = event.pos.sub(last).snapped_vector_15deg().add(last);
+                    let snapped =
+                        rest_entry.sub(last).snapped_vector_15deg().add(last);
                     stroke.rest.push(snapped);
                 } else {
-                    // Drop micro-segments — when EndDrag fires within a
-                    // pixel of the previous UpdateDrag, that tiny final
-                    // segment runs at an arbitrary angle and the line's
-                    // cap renders as a perpendicular block sticking off
-                    // the stroke. Skipping the duplicate keeps the end
-                    // clean.
                     let last = stroke.rest.last().copied().unwrap_or(Vec2D::zero());
-                    if (event.pos - last).norm() >= 1.0 {
-                        stroke.rest.push(event.pos);
+                    if (rest_entry - last).norm() >= 1.0 {
+                        stroke.rest.push(rest_entry);
                     }
                 }
                 stroke.shift_pressed = shift_pressed;
@@ -544,27 +497,65 @@ impl Tool for HighlightTool {
                 if event.type_ == MouseEventType::UpdateDrag {
                     return ToolUpdateResult::Redraw;
                 }
-                // On release, smooth the raw mouse polyline with two
-                // Chaikin passes — enough to take the visible jitter
-                // off a fast hand-drawn arc without drifting the
-                // curve away from where the user actually drew it.
-                // Skip smoothing if the user was Shift-drawing (every
-                // segment was already angle-snapped on purpose and
-                // smoothing would un-snap the corners).
-                if !stroke.shift_pressed && stroke.rest.len() >= 2 {
+                // Reject strokes that look like accidental clicks /
+                // tap-then-tiny-wiggle: end-to-end Euclidean distance
+                // below `MIN_COMMIT_LENGTH_PX`. With round caps even a
+                // 1-px stroke renders as a visible half_w-radius
+                // half-circle, so the canvas otherwise accumulates ink
+                // blobs every time the user repositions before the
+                // real drag.
+                let end_offset = stroke.rest.last().copied().unwrap_or(Vec2D::zero());
+                if end_offset.norm() < MIN_COMMIT_LENGTH_PX {
+                    self.stroke = None;
+                    self.locked_band = None;
+                    self.drag_anchor = None;
+                    self.drag_style = None;
+                    crate::text_bands::clear_local_band_cache();
+                    return ToolUpdateResult::Redraw;
+                }
+                // Normal mode: post-stroke smoothing via the same
+                // RDP+Chaikin pipeline the brush tool uses. Hard-coded
+                // smoothing level — picked from the brush's 0..=6
+                // scale where 4 sits in the "noticeable smoothing
+                // with light RDP simplification" band; enough to
+                // clean up trackpad jitter without drifting the curve
+                // far enough from input to mis-cover what the user
+                // intended to highlight. Skipped when the user was
+                // Shift-drawing (segments already angle-snapped on
+                // purpose) and skipped for TextLocked mode (polyline
+                // is already a perfect horizontal line — smoothing
+                // would just resample the same line).
+                if matches!(self.drag_style, Some(HighlighterStyle::Normal))
+                    && !stroke.shift_pressed
+                    && stroke.rest.len() >= 2
+                {
+                    const HIGHLIGHT_SMOOTH_LEVEL: usize = 4;
                     let mut absolute = Vec::with_capacity(stroke.rest.len() + 1);
                     absolute.push(stroke.first);
                     for p in &stroke.rest {
                         absolute.push(stroke.first + *p);
                     }
-                    let smoothed = chaikin_smooth(&absolute, 2);
+                    let smoothed = crate::tools::brush::smooth_polyline(
+                        &absolute,
+                        HIGHLIGHT_SMOOTH_LEVEL,
+                    );
                     if let Some((&new_first, new_rest_abs)) = smoothed.split_first() {
                         stroke.first = new_first;
-                        stroke.rest = new_rest_abs.iter().map(|p| *p - new_first).collect();
+                        stroke.rest =
+                            new_rest_abs.iter().map(|p| *p - new_first).collect();
                     }
                 }
                 let committed: Box<dyn Drawable> = Box::new(stroke.clone());
                 self.stroke = None;
+                self.locked_band = None;
+                self.drag_anchor = None;
+                self.drag_style = None;
+                // Drop the band-detection hysteresis cache so the
+                // next hover after release re-evaluates from scratch.
+                // Without this, a release that happened far from the
+                // last cached anchor would leave the cursor showing
+                // the stale band on the next motion event.
+                crate::text_bands::clear_local_band_cache();
                 ToolUpdateResult::Commit(committed)
             }
             _ => ToolUpdateResult::Unmodified,
@@ -614,5 +605,17 @@ impl Tool for HighlightTool {
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
         self.sender = Some(sender);
+    }
+
+    fn locked_text_band(&self) -> Option<crate::text_bands::TextBand> {
+        self.locked_band
+    }
+
+    fn set_highlighter_style(&mut self, style: HighlighterStyle) {
+        self.highlight_style = style;
+    }
+
+    fn highlighter_style(&self) -> Option<HighlighterStyle> {
+        Some(self.highlight_style)
     }
 }
