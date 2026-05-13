@@ -409,6 +409,13 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+    /// Set by `set_zoom_scale_at` to tell `update_transformation`
+    /// to KEEP the freshly-computed `drag_offset` (which positions
+    /// the image so the user's anchor point stays under the cursor
+    /// after a zoom). Without this flag, the centering logic at
+    /// line ~2003 would zero out drag_offset on the very tick the
+    /// zoom takes effect, defeating the anchor.
+    zoom_anchor_pending: bool,
     /// Device pixel ratio of the host display (1 on standard DPI, 2 on
     /// retina). Updated on `resize`. Used so per-frame UI elements
     /// (selection handles) can render at constant CSS-pixel size while
@@ -655,6 +662,7 @@ impl FemtoVGArea {
             last_scale: 0.0,
             is_drag: false,
             is_reset: false,
+            zoom_anchor_pending: false,
             device_pixel_ratio: 1.0,
             spotlight_darkness: 0.50,
             effective_scale: 1.0,
@@ -1999,20 +2007,18 @@ impl FemtoVgAreaMut {
                 self.last_scale = self.zoom_scale;
                 self.scale_factor = self.zoom_scale;
 
-                if !self.is_reset {
+                if !self.is_reset && !self.zoom_anchor_pending {
                     // Keep the image centered on zoom — clear the
                     // accumulated drag offset so `center_offset`
                     // (below) places the image at the canvas's
-                    // middle. The old behavior computed a
-                    // cursor-relative offset which made the image
-                    // lurch toward the pointer on every zoom step
-                    // (disorienting for keyboard / button zooms
-                    // where there's no meaningful pointer anchor).
-                    // Wheel-pan still works because the user adjusts
-                    // drag_offset *after* zooming, not during.
+                    // middle. Skipped when the zoom came from
+                    // `set_zoom_scale_at`, which has already
+                    // computed a `drag_offset` that anchors the
+                    // image under the cursor.
                     self.drag_offset = Vec2D::zero();
                     self.store_last_offset();
                 }
+                self.zoom_anchor_pending = false;
             } else {
                 self.scale_factor = self.zoom_scale;
             }
@@ -2289,6 +2295,80 @@ impl FemtoVgAreaMut {
 
     pub fn set_pointer_offset(&mut self, offset: Vec2D) {
         self.pointer_offset = offset;
+    }
+
+    /// Last known cursor position in canvas (physical) pixels. The
+    /// Motion controller pushes this via `set_pointer_offset` on
+    /// every move, so it tracks the user's cursor across the canvas
+    /// continuously — used by `set_zoom_scale_at_cursor` to anchor
+    /// wheel-zoom on whatever the user is hovering over.
+    pub fn pointer_offset(&self) -> Vec2D {
+        self.pointer_offset
+    }
+
+    /// Zoom while keeping `anchor_canvas` (in canvas physical pixels,
+    /// same units as `pointer_offset` / `drag_offset`) under the same
+    /// canvas position before and after. Reduces to `set_zoom_scale`
+    /// when the scale doesn't actually change, or when committed crop
+    /// is active (the crop view has its own zoom semantics).
+    pub fn set_zoom_scale_at(&mut self, factor: f32, abs: bool, anchor_canvas: Vec2D) {
+        if self.is_drag {
+            return;
+        }
+        // Committed-crop mode routes zoom through `crop_zoom` (a
+        // multiplier on top of the fit) — no drag_offset to adjust,
+        // so just defer to the existing path.
+        if self.crop_tool.borrow().get_committed_rect().is_some() {
+            self.set_zoom_scale(factor, abs);
+            return;
+        }
+        // Capture pre-zoom state so we can solve for the new
+        // drag_offset that keeps the anchor pinned.
+        let canvas_w = self.last_canvas_size.x;
+        let canvas_h = self.last_canvas_size.y;
+        let image_w = self.background_image.width() as f32;
+        let image_h = self.background_image.height() as f32;
+        let old_scale = self.scale_factor;
+        if canvas_w <= 0.0 || canvas_h <= 0.0 || old_scale <= 0.0 {
+            self.set_zoom_scale(factor, abs);
+            return;
+        }
+        let old_center = Vec2D::new(
+            (canvas_w - image_w * old_scale) / 2.0,
+            (canvas_h - image_h * old_scale) / 2.0,
+        );
+        // Image-space point (in original image pixels) currently
+        // displayed at `anchor_canvas`.
+        let image_pt = (anchor_canvas - old_center - self.drag_offset) * (1.0 / old_scale);
+
+        // Apply the zoom request through the standard path so the
+        // crop-zoom branch + min/max clamps + FitCanvas sentinel
+        // all stay centralised.
+        self.set_zoom_scale(factor, abs);
+
+        // `set_zoom_scale` writes `zoom_scale`; `scale_factor`
+        // doesn't update until the next `update_transformation`.
+        // Compute the future scale ourselves so we can set the
+        // matching `drag_offset` right now (avoids a one-frame
+        // flicker where the image briefly recenters).
+        let new_scale = if self.zoom_scale > 0.0 {
+            self.zoom_scale
+        } else {
+            // FitCanvas / cold start — let auto-fit run, no anchor.
+            return;
+        };
+        if (new_scale - old_scale).abs() < 1e-4 {
+            return;
+        }
+        let new_center = Vec2D::new(
+            (canvas_w - image_w * new_scale) / 2.0,
+            (canvas_h - image_h * new_scale) / 2.0,
+        );
+        self.drag_offset = anchor_canvas - new_center - image_pt * new_scale;
+        self.store_last_offset();
+        // Tell update_transformation NOT to zero this drag_offset
+        // when it picks up the new scale on the next render tick.
+        self.zoom_anchor_pending = true;
     }
 
     pub fn set_drag_offset(&mut self, offset: Vec2D) {

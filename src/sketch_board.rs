@@ -461,7 +461,10 @@ impl InputEvent {
                     if me.pos.y != 0.0 {
                         let factor = APP_CONFIG.read().zoom_factor();
                         let multiplier = factor.powf(-me.pos.y);
-                        renderer.set_zoom_scale(multiplier);
+                        // Anchor on cursor so the image scales around
+                        // whatever the user is hovering over, instead
+                        // of jumping toward the canvas center.
+                        renderer.set_zoom_scale_at_cursor(multiplier);
                         renderer.request_render(&[]);
                     }
                     None

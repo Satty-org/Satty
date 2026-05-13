@@ -299,6 +299,25 @@ impl FemtoVGArea {
         );
     }
 
+    /// Zoom by `factor` anchored on the last-known cursor position
+    /// (tracked by the Motion controller via `set_pointer_offset`).
+    /// Used by the canvas wheel-zoom path so the image scales around
+    /// whatever the user is hovering over, instead of jumping toward
+    /// the canvas center.
+    pub fn set_zoom_scale_at_cursor(&self, factor: f32) {
+        let anchor = self
+            .imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .pointer_offset();
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_zoom_scale_at(factor, false, anchor);
+    }
+
     pub fn set_zoom_scale(&self, factor: f32) {
         self.imp()
             .inner()
