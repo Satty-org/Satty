@@ -3781,6 +3781,31 @@ impl Component for SketchBoard {
 
                     ie.handle_event_mouse_input(&self.renderer);
 
+                    // Inside-out crop edit: after a wheel-zoom landed
+                    // (Phase 4 of CROP_INSIDE_OUT_PLAN.md), the renderer's
+                    // transform changed but the canvas-coord twin stayed
+                    // put. Push the new transform into the crop tool and
+                    // re-derive image-coord pos/size from the canvas
+                    // twin so the canvas-fixed frame visually stays
+                    // anchored against the new zoom. Plain modifier-less
+                    // wheel only; modified scrolls (Super, Alt, etc.)
+                    // already route through other handlers.
+                    if let InputEvent::Mouse(me) = &ie
+                        && me.type_ == MouseEventType::Scroll
+                        && me.modifier.is_empty()
+                        && self.active_tool_type() == Tools::Crop
+                    {
+                        let crop_tool = self.tools.get_crop_tool();
+                        let in_edit = crop_tool.borrow().is_active_edit();
+                        if in_edit {
+                            let (eff_scale, eff_offset) = self.renderer.render_transform();
+                            let dpi = self.renderer.scale_factor() as f32;
+                            let mut t = crop_tool.borrow_mut();
+                            t.set_render_transform(eff_scale, eff_offset, dpi);
+                            t.refresh_image_from_canvas();
+                        }
+                    }
+
                     // Update hover cursor on motion AND on drag-end —
                     // a resize-handle drag hides the cursor (so the user
                     // can see where the dragged edge lands), and the

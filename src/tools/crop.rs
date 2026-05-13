@@ -923,6 +923,19 @@ impl CropTool {
         ToolUpdateResult::Redraw
     }
 
+    /// True when the inside-out edit workflow's canvas-fixed frame is
+    /// the user's current focus: a crop exists, is flagged active, and
+    /// is not committed (the post-Enter zoomed-in view doesn't count).
+    /// Sketch_board reads this to decide whether a wheel-zoom or pan
+    /// gesture should re-derive the image-coord rect from the canvas-
+    /// coord twin (canvas-fixed frame, Phase 4/5) or fall through to
+    /// the normal full-canvas zoom + pan.
+    pub fn is_active_edit(&self) -> bool {
+        self.crop
+            .as_ref()
+            .is_some_and(|c| c.active && !c.committed)
+    }
+
     /// Push the renderer's current image↔canvas transform into the
     /// tool. Sketch_board calls this on tool activation and after any
     /// transform-changing event (wheel zoom, pan) so the drag handlers
