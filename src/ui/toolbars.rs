@@ -4517,7 +4517,7 @@ impl Component for StyleToolbar {
                 set_round_digits: 0,
                 set_digits: 0,
                 set_draw_value: false,
-                install_tooltip_above: "Annotation size",
+                install_tooltip_above: "Annotation size — Ctrl+scroll on canvas to adjust",
                 // Marks are added imperatively in init() via
                 // `refresh_size_slider_marks` so the letter for the
                 // current tool's saved default can be bolded.
