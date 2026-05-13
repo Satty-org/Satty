@@ -535,6 +535,71 @@ impl Handle {
     }
 }
 
+/// Render a list of selection / editing handles to `canvas` using a
+/// white-ring + blue-disc visual. Round handles draw circles; Square
+/// handles draw rounded squares half the round diameter — signals a
+/// different semantic (e.g. text's bottom-right scales font size +
+/// width together rather than purely resizing).
+///
+/// `css_to_image` converts CSS-pixel diameters into image units so the
+/// on-screen size stays constant across zoom + DPR. Callers compute it
+/// as `device_pixel_ratio / canvas.transform.average_scale()`.
+pub fn render_handles(
+    canvas: &mut Canvas<OpenGl>,
+    handles: &[Handle],
+    css_to_image: f32,
+) {
+    // CSS-pixel diameters. The pipeline is image_units →
+    // (image_to_canvas scale) → physical pixels (canvas is sized
+    // in physical px); to display N CSS px we want N × DPR physical
+    // px, which is (N × DPR) ÷ image_to_canvas in image units. The
+    // caller has already folded both factors into `css_to_image`.
+    const INNER_DIAMETER: f32 = 12.0;
+    const RING: f32 = 2.0;
+    let inner_r = (INNER_DIAMETER / 2.0) * css_to_image;
+    let outer_r = (INNER_DIAMETER / 2.0 + RING) * css_to_image;
+    // Square handles draw at HALF the round diameter per the standard pattern
+    // text-tool reference — smaller + different shape distinguishes the
+    // "this corner has a special semantic" handle from plain resizes.
+    let sq_inner_half = (INNER_DIAMETER / 4.0) * css_to_image;
+    let sq_outer_half = (INNER_DIAMETER / 4.0 + RING) * css_to_image;
+    let sq_corner = 1.5 * css_to_image;
+    let white_fill = Paint::color(femtovg::Color::white());
+    let blue_fill = Paint::color(SELECTION_BLUE);
+    for h in handles {
+        match h.kind {
+            HandleKind::Round => {
+                let mut outer = FemtoPath::new();
+                outer.circle(h.pos.x, h.pos.y, outer_r);
+                canvas.fill_path(&outer, &white_fill);
+                let mut inner = FemtoPath::new();
+                inner.circle(h.pos.x, h.pos.y, inner_r);
+                canvas.fill_path(&inner, &blue_fill);
+            }
+            HandleKind::Square => {
+                let mut outer = FemtoPath::new();
+                outer.rounded_rect(
+                    h.pos.x - sq_outer_half,
+                    h.pos.y - sq_outer_half,
+                    sq_outer_half * 2.0,
+                    sq_outer_half * 2.0,
+                    sq_corner,
+                );
+                canvas.fill_path(&outer, &white_fill);
+                let mut inner = FemtoPath::new();
+                inner.rounded_rect(
+                    h.pos.x - sq_inner_half,
+                    h.pos.y - sq_inner_half,
+                    sq_inner_half * 2.0,
+                    sq_inner_half * 2.0,
+                    sq_corner,
+                );
+                canvas.fill_path(&inner, &blue_fill);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleId {
     /// Linear-shape endpoints (arrow, line).

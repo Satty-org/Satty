@@ -31,23 +31,12 @@ const NUDGE_STEP_SHIFT: f32 = 10.0;
 const NUDGE_COALESCE_MS: u128 = 100;
 
 pub const HIT_TOLERANCE: f32 = 6.0;
-/// Target visible diameter of the blue inner disc, in canvas (post-zoom)
-/// pixels. The actual draw radius is divided by the current canvas
-/// transform scale so handles look the same size regardless of how much
-/// the image is fit-scaled or zoomed.
-const HANDLE_INNER_DIAMETER: f32 = 12.0;
-/// White ring thickness on each side of the inner disc (so outer
-/// diameter = inner + 2 × ring).
-const HANDLE_RING: f32 = 2.0;
-/// Hit-test radius (image units) for grabbing a handle. Kept in image
-/// units because hit-tests run against image-space pointer positions;
-/// scaled up a bit so the cursor doesn't have to be pixel-perfect.
 /// Generous radius (image units) for grabbing a selection handle.
-/// Larger than the visible 12 px disc so users don't need
-/// pixel-precise aim — matches convention's "comfortably grabbable
-/// from anywhere within ~20 px of the dot" feel.
+/// Larger than the visible 12 px disc so users don't need pixel-
+/// precise aim — matches typical "comfortably grabbable from
+/// anywhere within ~20 px of the dot" feel.
 pub const HANDLE_HIT_RADIUS: f32 = 20.0;
-/// Marquee fill / stroke color (accent blue, faded).
+/// Marquee fill / stroke color (faded accent blue).
 const MARQUEE_FILL: Color = Color {
     r: 0.18,
     g: 0.53,
@@ -155,60 +144,16 @@ impl Drawable for SelectionOverlay {
             canvas.stroke_path(&path, &stroke);
         }
 
-        // Handles: white-filled outer disc + blue inner disc. Final goal
-        // is HANDLE_INNER_DIAMETER CSS pixels visible on screen. The
-        // pipeline:
-        //   image_units → (image_to_canvas scale, from canvas.transform)
-        //               → physical pixels (canvas is sized in physical px)
-        // So to draw N CSS px we want N × DPR physical px, which means
-        // (N × DPR) ÷ image_to_canvas in image units.
+        // Handles: white outer disc + blue inner disc, scaled so the
+        // on-screen size stays constant across zoom + DPR. The
+        // image_units → physical-pixels pipeline lives in `css_to_image`
+        // (= DPR ÷ image_to_canvas); `super::render_handles` reads it
+        // out at the same scale used by the editing-mode handles in
+        // `Text::draw_editing_handles`, so committed-selection and
+        // mid-edit handles match pixel-for-pixel.
         let img_to_canvas = canvas.transform().average_scale().max(0.0001);
         let css_to_image = self.device_pixel_ratio / img_to_canvas;
-        let inner_r = (HANDLE_INNER_DIAMETER / 2.0) * css_to_image;
-        let outer_r = (HANDLE_INNER_DIAMETER / 2.0 + HANDLE_RING) * css_to_image;
-        // Square handles are HALF the size of round ones per the
-        // standard text-tool reference — small visually distinct
-        // marker for "this handle has a special semantic." 6 px inner
-        // blue + 2 px white ring = 10 px total square.
-        let sq_inner_half = (HANDLE_INNER_DIAMETER / 4.0) * css_to_image;
-        let sq_outer_half = (HANDLE_INNER_DIAMETER / 4.0 + HANDLE_RING) * css_to_image;
-        let sq_corner = 1.5 * css_to_image;
-        let white_fill = Paint::color(Color::white());
-        let blue_fill = Paint::color(SELECTION_BLUE);
-        for h in &self.handles {
-            match h.kind {
-                super::HandleKind::Round => {
-                    let mut outer = Path::new();
-                    outer.circle(h.pos.x, h.pos.y, outer_r);
-                    canvas.fill_path(&outer, &white_fill);
-
-                    let mut inner = Path::new();
-                    inner.circle(h.pos.x, h.pos.y, inner_r);
-                    canvas.fill_path(&inner, &blue_fill);
-                }
-                super::HandleKind::Square => {
-                    let mut outer = Path::new();
-                    outer.rounded_rect(
-                        h.pos.x - sq_outer_half,
-                        h.pos.y - sq_outer_half,
-                        sq_outer_half * 2.0,
-                        sq_outer_half * 2.0,
-                        sq_corner,
-                    );
-                    canvas.fill_path(&outer, &white_fill);
-
-                    let mut inner = Path::new();
-                    inner.rounded_rect(
-                        h.pos.x - sq_inner_half,
-                        h.pos.y - sq_inner_half,
-                        sq_inner_half * 2.0,
-                        sq_inner_half * 2.0,
-                        sq_corner,
-                    );
-                    canvas.fill_path(&inner, &blue_fill);
-                }
-            }
-        }
+        super::render_handles(canvas, &self.handles, css_to_image);
         canvas.restore();
         Ok(())
     }

@@ -69,12 +69,6 @@ const DEFAULT_INITIAL_BOX_WIDTH: f32 = 80.0;
 /// Lower bound for `text_box_width`. Below this, dragging a handle
 /// inward stops shrinking the box.
 const MIN_TEXT_BOX_WIDTH: f32 = 60.0;
-/// Inner blue-disc diameter for editing-mode handles, in CSS pixels.
-/// Matches the value used by `SelectionOverlay` in pointer.rs so editing
-/// and selection handles render identically.
-const HANDLE_INNER_DIAMETER: f32 = 12.0;
-/// White ring thickness on each side of the inner disc, in CSS pixels.
-const HANDLE_RING: f32 = 2.0;
 /// Image-space hit radius for the editing-mode handle hit test inside
 /// `TextTool`. Bigger than the visual handle so users don't have to
 /// pixel-precise hit a ~12 px disc to grab it.
@@ -1517,11 +1511,12 @@ impl Text {
         self.layout.borrow().editing_rect
     }
 
-    /// Positions of the three editing-mode handles (`Left`, `Right`,
-    /// `BottomRight`) at the wrap-area edges. Used both for inline
-    /// rendering and for `TextTool`'s editing-mode handle hit-test.
-    fn editing_handles(&self) -> Vec<Handle> {
-        let b = self.editing_box();
+    /// Build the three editing-mode handles from a wrap-area rect.
+    /// Free of `&self` so both `editing_handles()` (which reads the
+    /// cached editing_rect) and `draw_editing_handles` (which gets
+    /// the rect by parameter, sometimes mid-draw while the layout
+    /// cache is mut-borrowed) can use the same construction.
+    fn editing_handles_from_box(b: Rect) -> Vec<Handle> {
         if b.size.x <= 0.0 || b.size.y <= 0.0 {
             return Vec::new();
         }
@@ -1541,72 +1536,28 @@ impl Text {
         ]
     }
 
-    /// Render the three editing-mode handles at the wrap-area edges with
-    /// the same visual style as the `PointerTool::SelectionOverlay` so
-    /// editing and selection states match. Sized in CSS pixels and scaled
-    /// to image units to look constant on-screen regardless of zoom.
+    /// Positions of the three editing-mode handles at the wrap-area
+    /// edges. Used by `TextTool`'s editing-mode handle hit-test.
+    fn editing_handles(&self) -> Vec<Handle> {
+        Self::editing_handles_from_box(self.editing_box())
+    }
+
+    /// Render the three editing-mode handles at the wrap-area edges
+    /// using the shared `tools::render_handles` so editing-mode and
+    /// committed-selection (PointerTool::SelectionOverlay) handles
+    /// look pixel-for-pixel identical.
     fn draw_editing_handles(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         editing_box: Rect,
     ) {
-        // DPR-aware sizing so editing handles look the same on-screen
-        // size as the SelectionOverlay's handles in selected mode.
+        // DPR-aware sizing — same formula PointerTool uses so the two
+        // handle paths track each other across zoom + DPR changes.
         let dpr = crate::femtovg_area::current_device_pixel_ratio().max(0.0001);
         let img_to_canvas = canvas.transform().average_scale().max(0.0001);
         let css_to_image_dpr = dpr / img_to_canvas;
-        let inner_r = (HANDLE_INNER_DIAMETER / 2.0) * css_to_image_dpr;
-        let outer_r = (HANDLE_INNER_DIAMETER / 2.0 + HANDLE_RING) * css_to_image_dpr;
-        let white_fill = Paint::color(Color::white());
-        let blue_fill = Paint::color(SELECTION_BLUE);
-
-        let center_y = editing_box.pos.y + editing_box.size.y / 2.0;
-        let right = editing_box.pos.x + editing_box.size.x;
-        let bottom = editing_box.pos.y + editing_box.size.y;
-
-        // Two round side handles for left/right wrap-width adjust.
-        // Drawn as the standard PointerTool selection handle (white
-        // ring + blue disc) so the visual language matches.
-        let round_positions = [
-            Vec2D::new(editing_box.pos.x, center_y),
-            Vec2D::new(right, center_y),
-        ];
-        for p in &round_positions {
-            let mut outer = Path::new();
-            outer.circle(p.x, p.y, outer_r);
-            canvas.fill_path(&outer, &white_fill);
-            let mut inner = Path::new();
-            inner.circle(p.x, p.y, inner_r);
-            canvas.fill_path(&inner, &blue_fill);
-        }
-
-        // Bottom-right corner: SMALL rounded square. Half the size
-        // of the round handles per the user spec — visually distinct
-        // (different shape + smaller) signaling the special "scales
-        // font + width together" semantic. 6 px inner blue + 2 px
-        // white ring = 10 px total square, half the round handles'
-        // ~16 px outer diameter.
-        let sq_inner_half = (HANDLE_INNER_DIAMETER / 4.0) * css_to_image_dpr;
-        let sq_outer_half = (HANDLE_INNER_DIAMETER / 4.0 + HANDLE_RING) * css_to_image_dpr;
-        let sq_corner = 1.5 * css_to_image_dpr;
-        let mut square_outer = Path::new();
-        square_outer.rounded_rect(
-            right - sq_outer_half,
-            bottom - sq_outer_half,
-            sq_outer_half * 2.0,
-            sq_outer_half * 2.0,
-            sq_corner,
-        );
-        canvas.fill_path(&square_outer, &white_fill);
-        let mut square_inner = Path::new();
-        square_inner.rounded_rect(
-            right - sq_inner_half,
-            bottom - sq_inner_half,
-            sq_inner_half * 2.0,
-            sq_inner_half * 2.0,
-            sq_corner,
-        );
-        canvas.fill_path(&square_inner, &blue_fill);
+        let handles = Self::editing_handles_from_box(editing_box);
+        crate::tools::render_handles(canvas, &handles, css_to_image_dpr);
     }
 }
 

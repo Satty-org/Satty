@@ -290,7 +290,7 @@ Behavior-preserving consolidation. Each task is verifiable independently.
 
 ### 2.5 Extract `tools::common::handle` for handle render + hit-test
 
-- [ ] **Task**
+- [x] **Task**
   - Files: `src/tools/text.rs`, `src/tools/pointer.rs` (and any other tool
     that renders handles).
   - Create `src/tools/common.rs` (or extend `src/tools/mod.rs`) with:
@@ -478,7 +478,7 @@ Update these numbers as tasks land:
 
 - Tier 1 dead code: 9 / 9 tasks (1.1–1.9) ✅
 - Tier 1.5 clippy: 3 / 3 tasks (1.10–1.12) ✅ — clippy now 0 warnings
-- Tier 2 dedup: 0 / 5 tasks (2.1–2.5)
+- Tier 2 dedup: 5 / 5 tasks (2.1–2.5) ✅
 - Tier 3 splits: 1 / 11 tasks (3.5 obsolete after 1.7 cascade)
 
-**Total: 13 / 28 tasks.**
+**Total: 18 / 28 tasks.**
