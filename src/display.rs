@@ -19,9 +19,7 @@ use std::process::Command;
 pub fn detect_hyprland_scale() -> Option<f32> {
     // Cheap pre-check: when this env var is missing we're not running
     // under Hyprland and shelling out would only produce noise.
-    if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
-        return None;
-    }
+    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE")?;
     let output = Command::new("hyprctl")
         .args(["monitors", "-j"])
         .output()

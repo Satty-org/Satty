@@ -135,7 +135,7 @@ fn parse_binds(text: &str) -> Vec<BindEntry> {
         if modmask != MOD_SUPER || !submap.is_empty() || catch_all {
             continue;
         }
-        if !KEYS_TO_HIJACK.iter().any(|k| *k == key.as_str()) {
+        if !KEYS_TO_HIJACK.contains(&key.as_str()) {
             continue;
         }
         out.push(BindEntry {

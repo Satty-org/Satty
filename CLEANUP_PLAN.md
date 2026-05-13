@@ -146,11 +146,20 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.9 Run cargo fix to clear remaining trivial warnings
 
-- [ ] **Task**
+- [x] **Task**
   - Run `cargo fix --bin satty --allow-dirty` for the auto-fixable lints
     (the "use suggestion" ones from clippy).
   - Manually review the diff — reject any rewrite that hurts readability.
   - Verify: `cargo build && cargo clippy --no-deps`.
+  - **Done** — used `cargo clippy --fix --bin satty -p satty -- --no-deps`.
+    24 → 18 clippy warnings, 0 build warnings. Files touched:
+    - `src/display.rs` — `if ….is_none() { return None }` → `…?;`
+    - `src/hyprland.rs` — `.iter().any()` → `.contains()` (1.12 item)
+    - `src/tools/brush.rs` — `1 | 2 | 3` → `1..=3` patterns (1.12 item)
+    - `src/tools/text.rs` — `% 2 == 0` → `.is_multiple_of(2)` (1.12 item)
+    - `src/ui/toolbars.rs` — collapsed nested `if` + `if let` to a let
+      chain (1.12 item); had to manually fix the body indentation
+      cargo-fix left over-indented.
 
 ---
 
@@ -190,25 +199,25 @@ errors that happen to be self-cancelling.
 ### 1.12 Other small clippy cleanups
 
 - [ ] **Task**
-  - File: `src/tools/brush.rs:105,109` — convert `2 | 3 | 4` patterns to
-    range patterns `2..=4`.
-  - File: `src/tools/brush.rs:138` — replace `for i in 1..end` indexing
+  - ~~`src/tools/brush.rs:105,109` — range patterns~~ (done by 1.9)
+  - `src/tools/brush.rs:138` — replace `for i in 1..end` indexing
     with `iter().enumerate().skip(1).take(end-1)` only if it's clearer.
     If not, `#[allow]`.
-  - File: `src/tools/text.rs:1411` — `(now_ms / 500) % 2 == 0` →
-    `.is_multiple_of(2)`.
-  - File: `src/hyprland.rs:138` — `KEYS_TO_HIJACK.iter().any(...)` →
-    `.contains(&key.as_str())`.
-  - File: `src/ui/toolbars.rs:3358` — collapse the `if … if let …` per
-    clippy's `let chains` suggestion.
-  - File: `src/ui/toolbars.rs:488–494,2208,2226,2227` — indent the
+  - ~~`src/tools/text.rs:1411` — `.is_multiple_of(2)`~~ (done by 1.9)
+  - ~~`src/hyprland.rs:138` — `.contains(...)`~~ (done by 1.9)
+  - ~~`src/ui/toolbars.rs:3358` — let-chain collapse~~ (done by 1.9)
+  - File: `src/ui/toolbars.rs` (lines shifted after Tier 1) — indent the
     multi-line doc list items so they group correctly (or rewrite as
-    paragraphs).
-  - File: `src/sketch_board.rs:1971` — convert the match to `matches!`.
+    paragraphs). Was lines 488–494, 2208, 2226, 2227 — re-grep before
+    fixing.
+  - File: `src/sketch_board.rs` — convert the `match self.last_tool_press`
+    expression to `matches!`. Was line 1971 — re-grep.
   - File: `src/tools/arrow.rs:457` — `too_many_arguments` (8/7). Either
     bundle `draw_solid`'s args into a small struct or `#[allow]` it on
     that one method.
-  - Verify: `cargo clippy --no-deps` → 28 warnings → goal: 0.
+  - Verify: `cargo clippy --no-deps` → goal: 0 warnings.
+  - Status: 18 warnings remain (was 28). Bulk of remaining are
+    `doc_lazy_continuation`, the `matches!` rewrite, and `too_many_arguments`.
 
 ---
 
@@ -470,9 +479,10 @@ Things flagged during diagnosis that aren't action items yet:
 
 Update these numbers as tasks land:
 
-- Tier 1 dead code: 8 / 9 tasks (1.1–1.9)
-- Tier 1.5 clippy: 0 / 3 tasks (1.10–1.12)
+- Tier 1 dead code: 9 / 9 tasks (1.1–1.9) ✅
+- Tier 1.5 clippy: 0 / 3 tasks (1.10–1.12) — 4 sub-items of 1.12 done
+  incidentally by 1.9's cargo fix
 - Tier 2 dedup: 0 / 5 tasks (2.1–2.5)
 - Tier 3 splits: 1 / 11 tasks (3.5 obsolete after 1.7 cascade)
 
-**Total: 9 / 28 tasks.**
+**Total: 10 / 28 tasks.**

@@ -3327,10 +3327,10 @@ impl Component for ToolsToolbar {
                 // Re-seed the chooser to the current color each time
                 // the panel opens so reopening doesn't strand the user
                 // at a previously-edited hue.
-                if self.picker_expanded {
-                    if let Some(chooser) = &self.picker_chooser {
-                        chooser.set_rgba(&RGBA::from(self.current_color));
-                    }
+                if self.picker_expanded
+                    && let Some(chooser) = &self.picker_chooser
+                {
+                    chooser.set_rgba(&RGBA::from(self.current_color));
                 }
                 // Grid rendering depends on `picker_expanded` (the
                 // "next column" empty placeholders only show when

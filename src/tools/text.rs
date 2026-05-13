@@ -1407,7 +1407,7 @@ impl Text {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis())
                 .unwrap_or(0);
-            (now_ms / 500) % 2 == 0
+            (now_ms / 500).is_multiple_of(2)
         };
         if cursor_visible && blink_on {
             // Draw the caret as a 2 CSS px wide rounded rect filled

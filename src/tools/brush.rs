@@ -102,11 +102,11 @@ pub(crate) fn smooth_polyline(points: &[Vec2D], level: usize) -> Vec<Vec2D> {
     }
     let chaikin_passes = match level {
         1 => 1,
-        2 | 3 | 4 => 2,
+        2..=4 => 2,
         _ => 3,
     };
     let rdp_tolerance: f32 = match level {
-        0 | 1 | 2 => 0.0,
+        0..=2 => 0.0,
         3 => 1.0,
         4 => 2.5,
         5 => 5.0,
