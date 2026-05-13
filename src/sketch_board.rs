@@ -137,7 +137,7 @@ pub enum SketchBoardOutput {
     /// nothing selected) — the toolbar then keeps its last value.
     SelectionStyleChanged(Option<Style>),
     /// Sketch board changed the active tool's size programmatically
-    /// (e.g. Shift+wheel over the canvas with no selection). The
+    /// (e.g. Ctrl+wheel over the canvas with no selection). The
     /// toolbar mirrors the new value into its slider — no SizeSelected
     /// re-emit, because sketch_board already pushed the size to the
     /// active tool via `dispatch_style_change`.
@@ -498,7 +498,7 @@ pub struct SketchBoard {
     /// Pointer in that case.
     tool_before_crop: Option<Tools>,
     /// Accumulator for the scroll-resize gesture (selection-wheel and
-    /// Shift+wheel). A notched mouse wheel reports |dy| = 1.0 per
+    /// Ctrl+wheel). A notched mouse wheel reports |dy| = 1.0 per
     /// click so a step fires every event, but trackpads emit many
     /// small fractional deltas — we add them up and only step the
     /// size when |accum| crosses 1.0, then subtract the consumed
@@ -2734,18 +2734,24 @@ impl Component for SketchBoard {
                             // scrolling preference (natural-on inverts
                             // dy at the compositor layer), so we just
                             // pass the deltas straight through to the
-                            // panner. The PanScroll handler scales
-                            // them into pixels (or hijacks for
-                            // size-resize on Shift, per the modifier
-                            // we forward below).
+                            // panner.
                             //
-                            // We DON'T do the Shift+vertical→horizontal
-                            // remap here anymore — Shift now signals
-                            // "resize on scroll" in the input handler,
-                            // and remapping dy→dx would steal the
-                            // delta. The handler does its own
-                            // horizontal-pan fallback for plain Shift
-                            // on a one-axis wheel.
+                            // Shift+vertical-wheel → horizontal pan.
+                            // The standard "shift-flips-axis" remap
+                            // matches GTK widget convention and what
+                            // most users expect from notched mouse
+                            // wheels. Only remap a pure vertical
+                            // delta — a trackpad two-finger swipe
+                            // already carries `dx` directly and we
+                            // don't want to double-up.
+                            let (dx, dy) = if modifier
+                                .contains(gtk::gdk::ModifierType::SHIFT_MASK)
+                                && dx == 0.0
+                            {
+                                (dy, 0.0)
+                            } else {
+                                (dx, dy)
+                            };
                             sender.input(SketchBoardInput::new_pan_scroll_event(
                                 dx, dy, modifier,
                             ));
@@ -3056,15 +3062,19 @@ impl Component for SketchBoard {
                             .get(&Tools::Pointer)
                             .borrow()
                             .selected_drawables();
-                        let shift_held = me.modifier.contains(ModifierType::SHIFT_MASK);
+                        let ctrl_held = me.modifier.contains(ModifierType::CONTROL_MASK);
                         if !selected.is_empty() {
                             // Selection + wheel → resize the selected
-                            // drawable(s). Modifier-free; ignores Shift.
+                            // drawable(s). Modifier-free; ignores Ctrl.
                             self.scroll_resize_selection(&selected, me.pos.y, &outer_sender);
                             true
-                        } else if shift_held {
-                            // No selection + Shift + wheel → bump the
+                        } else if ctrl_held {
+                            // No selection + Ctrl + wheel → bump the
                             // active tool's size for the next stroke.
+                            // Was Shift+wheel; Shift is reserved for
+                            // GTK's standard "vertical wheel → horizontal
+                            // pan" remap that the pan handler still
+                            // honors below.
                             self.scroll_resize_tool_size(me.pos.y, &outer_sender);
                             true
                         } else {
