@@ -2765,7 +2765,48 @@ impl SketchBoard {
             return;
         }
         self.style.annotation_size_factor = new_val;
-        self.dispatch_style_change();
+        // dispatch_style_change returns a ToolUpdateResult the
+        // framework normally feeds back into the update-loop match
+        // for `renderer.modify*` — but this function is invoked
+        // from a side path (input event handler) where that result
+        // is discarded. So apply factor-only updates manually to
+        // every selected drawable. Skipping the full
+        // dispatch_style_change path also avoids the side effect of
+        // replacing other style fields on non-selection-target
+        // drawables.
+        let selected_ids = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+        for id in selected_ids {
+            if let Some(mut d) = self.renderer.clone_drawable(id)
+                && let Some(mut style) = d.style()
+            {
+                if (style.annotation_size_factor - new_val).abs() < f32::EPSILON {
+                    continue;
+                }
+                style.annotation_size_factor = new_val;
+                d.set_style(style);
+                updates.push((id, d));
+            }
+        }
+        match updates.len() {
+            0 => {}
+            1 => {
+                let (id, d) = updates.pop().unwrap();
+                self.renderer.modify(id, d);
+            }
+            _ => {
+                self.renderer.modify_many(updates);
+            }
+        }
+        // Also push the new style to the active tool so its next
+        // stroke picks up the new factor.
+        self.active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(self.style));
         // The toolbar's pill listens for `SelectionStyleChanged`
         // (single-select) and `SelectionMultiAgreement` (multi) to
         // update — but with no selection, neither fires for an
