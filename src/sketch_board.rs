@@ -3607,7 +3607,19 @@ impl Component for SketchBoard {
                         let ctrl_held = me.modifier.contains(ModifierType::CONTROL_MASK);
                         let shift_held = me.modifier.contains(ModifierType::SHIFT_MASK);
                         let alt_held = me.modifier.contains(ModifierType::ALT_MASK);
-                        if ctrl_held && shift_held {
+                        let no_mods = !ctrl_held && !shift_held && !alt_held;
+                        if self.active_tool_type() == Tools::Spotlight && no_mods {
+                            // Plain wheel in Spotlight tool → darkness.
+                            // Size + multiplier don't affect spotlight
+                            // rendering, so handing the unmodified
+                            // wheel to its primary control is more
+                            // useful than the pan / resize defaults.
+                            // `scroll_alt_slider` routes to the
+                            // Spotlight branch via
+                            // `alt_slider_target_tool()`.
+                            self.scroll_alt_slider(me.pos.y, &outer_sender);
+                            true
+                        } else if ctrl_held && shift_held {
                             // Ctrl+Shift+wheel → bump the active tool's
                             // "alternate" slider (the per-tool cluster
                             // slider that lives in the bottom-right

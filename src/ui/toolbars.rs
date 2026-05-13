@@ -4553,9 +4553,13 @@ impl Component for StyleToolbar {
                 set_valign: gtk::Align::Center,
                 // Greyed out when a multi-selection's drawables have
                 // mixed sizes — prevents an accidental drag from
-                // collapsing them all to a single value.
+                // collapsing them all to a single value. Also when
+                // the active tool is Spotlight (which doesn't read
+                // `style.size`), so the slider visually matches the
+                // fact that scrolling here has no effect.
                 #[watch]
-                set_sensitive: !model.size_slider_disabled,
+                set_sensitive: !model.size_slider_disabled
+                    && model.current_tool != Tools::Spotlight,
                 // GTK's valign:Center splits remaining space evenly above
                 // and below the widget, but the slider's mark labels
                 // hang below the trough — so the "visual center" (the
@@ -4620,9 +4624,12 @@ impl Component for StyleToolbar {
                     set_height_request: 34,
                     // Greyed out when a multi-selection has mixed
                     // per-drawable annotation factors — same rule as
-                    // the size slider's disabled state.
+                    // the size slider's disabled state. Also when
+                    // the active tool is Spotlight (which doesn't
+                    // read `style.annotation_size_factor`).
                     #[watch]
-                    set_sensitive: !model.annotation_pill_disabled,
+                    set_sensitive: !model.annotation_pill_disabled
+                        && model.current_tool != Tools::Spotlight,
                     // ew-resize cursor signals "horizontal scrub" the moment
                     // the pointer enters the pill; combined with the
                     // GestureDrag below this gives the same feel as the
