@@ -1127,26 +1127,26 @@ impl SketchBoard {
             // direction, flip it.
             let (mut dx, mut dy) = (DUPLICATE_DX_PX, DUPLICATE_DY_PX);
             if let Some(b) = d.bounds() {
-                if dx < 0.0
+                // Flip dx if the default direction would clip and the
+                // opposite direction has room. Two cases because dx's
+                // sign tells us which canvas edge to check (and the
+                // bounds-fit test mirrors accordingly).
+                let flip_dx = (dx < 0.0
                     && b.pos.x + dx < 0.0
-                    && b.pos.x + b.size.x - dx <= img_w
-                {
-                    dx = -dx;
-                } else if dx > 0.0
-                    && b.pos.x + b.size.x + dx > img_w
-                    && b.pos.x - dx >= 0.0
-                {
+                    && b.pos.x + b.size.x - dx <= img_w)
+                    || (dx > 0.0
+                        && b.pos.x + b.size.x + dx > img_w
+                        && b.pos.x - dx >= 0.0);
+                if flip_dx {
                     dx = -dx;
                 }
-                if dy > 0.0
+                let flip_dy = (dy > 0.0
                     && b.pos.y + b.size.y + dy > img_h
-                    && b.pos.y - dy >= 0.0
-                {
-                    dy = -dy;
-                } else if dy < 0.0
-                    && b.pos.y + dy < 0.0
-                    && b.pos.y + b.size.y - dy <= img_h
-                {
+                    && b.pos.y - dy >= 0.0)
+                    || (dy < 0.0
+                        && b.pos.y + dy < 0.0
+                        && b.pos.y + b.size.y - dy <= img_h);
+                if flip_dy {
                     dy = -dy;
                 }
             }

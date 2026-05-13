@@ -170,21 +170,17 @@ errors that happen to be self-cancelling.
 
 ### 1.10 Investigate duplicate `if/else` blocks in boundary-flip
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/sketch_board.rs:1041–1061`.
-  - Clippy says lines 1044+1049 and 1055+1060 are identical blocks. That
-    means the `if`/`else if` both do the same thing — almost certainly the
-    second branch should flip the *other* direction or guard a different
-    case.
-  - Read both branches; figure out original intent. The pattern looks like
-    "bounce duplicate-by-Alt+D offset off image edges" — likely meant:
-    - `if dx < 0 && would-go-off-left` → flip to positive
-    - `else if dx > 0 && would-go-off-right` → flip to negative
-    - …but both branches currently do `dx = -dx` which only works for one
-      of the two cases.
-  - Fix or document why it's intentional.
-  - Verify: Alt+D duplicate near each image edge — the duplicate should
-    appear *inside* the image, never clipped off.
+  - **Verdict: not a bug, but the structure was misleading.** Both branches
+    correctly *guard* different cases (`dx < 0` going off-left vs `dx > 0`
+    going off-right) and they *should* both flip via `dx = -dx`. Clippy
+    was flagging the structural redundancy (`if A { x } else if B { x }`),
+    not a logic error.
+  - Refactored to `let flip_dx = case_a || case_b; if flip_dx { dx = -dx; }`
+    for each axis. Same behavior, one decision per axis, clippy clean.
+  - Did NOT need the UI verify step — pure structural refactor with
+    identical observable behavior.
 
 ### 1.11 Fix `manual_checked_ops` in blur
 
