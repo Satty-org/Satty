@@ -582,6 +582,14 @@ pub struct SketchBoard {
     /// recorded anything yet (initial app state) — the fallback is
     /// Pointer in that case.
     tool_before_crop: Option<Tools>,
+    /// Cumulative canvas-pixel offset already applied via `pan_by`
+    /// during the current Ctrl+drag pan gesture in Crop edit mode
+    /// (Phase 5 of CROP_INSIDE_OUT_PLAN.md). GestureDrag reports each
+    /// UpdateDrag's offset as cumulative-from-begin, but `pan_by`
+    /// takes an incremental delta, so we subtract this accumulator
+    /// to derive the new chunk and update it after applying. Reset
+    /// to zero on each BeginDrag.
+    crop_pan_drag_accum: Vec2D,
     /// Accumulator for the scroll-resize gesture (selection-wheel and
     /// Ctrl+wheel). A notched mouse wheel reports |dy| = 1.0 per
     /// click so a step fires every event, but trackpads emit many
@@ -3806,6 +3814,70 @@ impl Component for SketchBoard {
                         }
                     }
 
+                    // Inside-out crop edit: Ctrl+drag PANS the image
+                    // while the canvas-fixed frame stays put (Phase 5
+                    // of CROP_INSIDE_OUT_PLAN.md). Intercepted at the
+                    // sketch_board level so the crop tool never sees
+                    // the event — handing a Ctrl+drag through would
+                    // have it start a new crop or grab a handle,
+                    // which isn't what the user means. Plain drags
+                    // still go to the crop tool's normal handle / move
+                    // / new-crop dispatch.
+                    let ctrl_pan_consumed = if let InputEvent::Mouse(me) = &ie
+                        && self.active_tool_type() == Tools::Crop
+                        && me.modifier.contains(ModifierType::CONTROL_MASK)
+                        && matches!(
+                            me.type_,
+                            MouseEventType::BeginDrag
+                                | MouseEventType::UpdateDrag
+                                | MouseEventType::EndDrag
+                        )
+                    {
+                        let crop_tool = self.tools.get_crop_tool();
+                        let in_edit = crop_tool.borrow().is_active_edit();
+                        if in_edit {
+                            match me.type_ {
+                                MouseEventType::BeginDrag => {
+                                    // GestureDrag reports each UpdateDrag's
+                                    // offset as cumulative-from-begin;
+                                    // pan_by takes incremental deltas, so
+                                    // reset the accumulator we subtract
+                                    // against on each tick.
+                                    self.crop_pan_drag_accum = Vec2D::zero();
+                                }
+                                MouseEventType::UpdateDrag | MouseEventType::EndDrag => {
+                                    let delta = me.canvas_pos - self.crop_pan_drag_accum;
+                                    self.crop_pan_drag_accum = me.canvas_pos;
+                                    if delta.x != 0.0 || delta.y != 0.0 {
+                                        self.renderer.pan_by(delta.x, delta.y);
+                                        // pan_by → resize → update_transformation;
+                                        // refresh the crop tool's snapshot
+                                        // + re-derive image-from-canvas so
+                                        // the frame stays put against the
+                                        // new offset.
+                                        let (eff_scale, eff_offset) =
+                                            self.renderer.render_transform();
+                                        let dpi = self.renderer.scale_factor() as f32;
+                                        let mut t = crop_tool.borrow_mut();
+                                        t.set_render_transform(eff_scale, eff_offset, dpi);
+                                        t.refresh_image_from_canvas();
+                                    }
+                                }
+                                _ => {}
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if ctrl_pan_consumed {
+                        self.renderer.request_render(&[]);
+                        return;
+                    }
+
                     // Update hover cursor on motion AND on drag-end —
                     // a resize-handle drag hides the cursor (so the user
                     // can see where the dragged edge lands), and the
@@ -4148,6 +4220,7 @@ impl Component for SketchBoard {
             last_synced_selection: None,
             last_was_multi_selection: false,
             tool_before_crop: None,
+            crop_pan_drag_accum: Vec2D::zero(),
             scroll_resize_accum: 0.0,
             last_tool_press: None,
             last_hover_image_pos: None,
