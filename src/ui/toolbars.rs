@@ -4722,10 +4722,20 @@ impl Component for StyleToolbar {
 
                 gtk::Label {
                     add_css_class: "dim-label",
+                    // When the smoothness slider is showing for an
+                    // all-brush multi-selection (Pointer-tool flow),
+                    // the active tool is Pointer so `tool_cluster_label`
+                    // returns "". Force "Smoothing" in that case so the
+                    // label reflects the slider that's actually visible.
                     #[watch]
-                    set_label: tool_cluster_label(model.current_tool),
+                    set_label: if model.brush_smooth_slider_show_for_multi {
+                        "Smoothing"
+                    } else {
+                        tool_cluster_label(model.current_tool)
+                    },
                     #[watch]
-                    set_visible: !tool_cluster_label(model.current_tool).is_empty(),
+                    set_visible: model.brush_smooth_slider_show_for_multi
+                        || !tool_cluster_label(model.current_tool).is_empty(),
                 },
 
                 // Arrow geometry picker. MenuButton + popover of
