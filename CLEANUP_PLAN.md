@@ -89,7 +89,7 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.5 Delete `ToolsToolbarInput::ReorderCustomColor` and its handler
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/ui/toolbars.rs`
   - Remove the variant at line 2041.
   - Remove its handler around line 3404 (the comment confirms it's dead:

@@ -2034,10 +2034,6 @@ pub enum ToolsToolbarInput {
     /// next to its dashed placeholder neighbors. Fired by the inline
     /// picker's "+ Add to My Colors" button.
     SaveCustomColor(Color),
-    /// Move the saved-custom color at `from` to position `to` (clamped
-    /// to the current list length). Fired by drag-and-drop within the
-    /// popover's right column(s).
-    ReorderCustomColor { from: usize, to: usize },
     /// Drop the saved-custom color at the given index. Fired by the
     /// per-swatch right-click → "Delete" menu.
     DeleteCustomColor(usize),
@@ -2667,11 +2663,13 @@ fn build_ghost_placeholder() -> gtk::Widget {
     placeholder.upcast::<gtk::Widget>()
 }
 
-/// Attach a `DropTarget` to a slot widget that, on drop, fires a
-/// `ReorderCustomColor` input with the source slot (drag payload)
-/// and the target slot (closure-captured). Accepting on filled and
-/// empty slots alike means the user can drag a color into any
-/// position, including past the end of the saved list.
+/// Attach a `DropTarget` to a slot widget that drives the live
+/// drag-reorder pipeline. On pointer enter it fires
+/// `LiveReorderCustomColor` so the ghost preview tracks the cursor;
+/// on drop it fires `EndCustomDrag { success: true }` so the model
+/// persists the final order. Accepting on filled and empty slots
+/// alike lets the user drag a color into any position, including
+/// past the end of the saved list.
 fn attach_reorder_drop_target(
     widget: &gtk::Widget,
     target_slot: usize,
@@ -3399,24 +3397,6 @@ impl Component for ToolsToolbar {
                 // Popover closed — drop the pending target without a
                 // refresh so we don't fight the closing animation.
                 self.selected_empty_slot = None;
-            }
-            ToolsToolbarInput::ReorderCustomColor { from, to } => {
-                // Programmatic reorder (currently unused — drag-and-drop
-                // goes through Begin/Live/End directly). Treat as a
-                // move with shift-down: blank the source slot, then
-                // insert the color at the target. Trailing Nones are
-                // trimmed by `save_custom_colors` on disk.
-                if from >= self.custom_colors.len() || from == to {
-                    return;
-                }
-                let Some(color) = self.custom_colors[from].take() else {
-                    return;
-                };
-                let insert_at = to.min(self.custom_colors.len());
-                self.custom_colors.insert(insert_at, Some(color));
-                crate::state::save_custom_colors(&self.custom_colors);
-                self.sync_color_action();
-                self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::DeleteCustomColor(index) => {
                 // Delete blanks the slot, preserving the layout the
