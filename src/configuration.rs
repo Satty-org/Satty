@@ -855,11 +855,12 @@ impl Default for Configuration {
             profile_startup: false,
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
-            // Level 4 = 2 Chaikin passes + RDP at ~2.5px tolerance,
-            // which smooths the typical free-hand stroke noticeably
-            // without flattening intentional curves. Picked as the
+            // Level 5 = 2 Chaikin passes + RDP at ~5px tolerance,
+            // which smooths typical free-hand strokes aggressively
+            // enough to flatten the inevitable mousing jitter while
+            // still preserving intentional curvature. Picked as the
             // built-in after side-by-side comparisons at levels 2–6.
-            brush_post_smooth_iterations: 4,
+            brush_post_smooth_iterations: 5,
             keybinds: Keybinds::default(),
             zoom_factor: 1.1,
             pan_step_size: 50.,
