@@ -247,11 +247,45 @@ After all phases, smoke-test:
 
 ## Progress summary
 
-- Phase 1 (canvas-coords field): 0 / 1
-- Phase 2 (canvas_pos in MouseEventMsg): 0 / 1
-- Phase 3 (drag handlers use canvas): 0 / 1
-- Phase 4 (plain wheel = zoom image): 0 / 1
-- Phase 5 (Ctrl+drag = pan): 0 / 1
-- Phase 6 (edge cases + polish): 0 / 1
+- Phase 1 (canvas-coords field): 1 / 1
+- Phase 2 (canvas_pos in MouseEventMsg): 1 / 1
+- Phase 3 (drag handlers use canvas): 1 / 1
+- Phase 4 (plain wheel = zoom image): 1 / 1
+- Phase 5 (Ctrl+drag = pan): 1 / 1
+- Phase 6 (edge cases + polish): 1 / 1
 
-**Total: 0 / 6.**
+**Total: 6 / 6.**
+
+## Implementation notes / deviations from plan
+
+- **Phase 3 — source of truth direction**: the plan declared canvas
+  the source of truth during edit, with image derived after each
+  change. The shipped Phase 3 inverts that: image stays the source
+  of truth that snap + aspect + clamp math operates on, and canvas
+  is refreshed from image after every drag tick. Phase 4/5 reverse
+  the derivation direction at the wheel + pan hooks (canvas stays
+  put, image re-derives). Both work because each gesture writes one
+  side and re-derives the other, keeping them consistent. Net UX
+  result is the same — drag still snaps and aspect-locks the way
+  it did pre-refactor; wheel + pan still hold the canvas frame.
+
+- **Phase 5 — snap-disable on Ctrl is no longer available in edit
+  mode** since Ctrl is reserved for the pan gesture. Outside edit
+  (or outside Crop tool entirely) the existing Ctrl behavior is
+  intact. If the snap-disable is missed, a follow-up could remap
+  it onto a different modifier (Alt is currently unused inside
+  edit mode beyond the reserved-but-unimplemented axis-lock pan).
+
+- **Phase 6 — transform sync direction policy**:
+  - Wheel zoom (Phase 4): canvas fixed, image re-derives.
+  - Ctrl+drag pan (Phase 5): canvas fixed, image re-derives.
+  - Window resize: image-region fixed, canvas re-derives.
+  - Toolbar zoom (In/Out/FitCanvas/Abs): image-region fixed, canvas
+    re-derives (treated as "frame the canvas around the image"
+    rather than "reflow image under the frame").
+  - Renderer-level `update_transformation` push: always refreshes
+    the cached transform on the crop tool, but only the
+    canvas-size-changed window-resize branch auto-runs the A
+    direction. Caller-triggered transforms still decide their own
+    direction at the call site.
+
