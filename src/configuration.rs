@@ -855,9 +855,11 @@ impl Default for Configuration {
             profile_startup: false,
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
-            // 2 Chaikin passes — visibly smooths typical free-hand
-            // strokes without exploding point counts (~4x).
-            brush_post_smooth_iterations: 2,
+            // Level 4 = 2 Chaikin passes + RDP at ~2.5px tolerance,
+            // which smooths the typical free-hand stroke noticeably
+            // without flattening intentional curves. Picked as the
+            // built-in after side-by-side comparisons at levels 2–6.
+            brush_post_smooth_iterations: 4,
             keybinds: Keybinds::default(),
             zoom_factor: 1.1,
             pan_step_size: 50.,

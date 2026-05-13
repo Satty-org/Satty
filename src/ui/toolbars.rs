@@ -4381,8 +4381,11 @@ impl StyleToolbar {
         slider.clear_marks();
         let saved = crate::state::load_brush_post_smooth_iterations()
             .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations());
-        let label = format!("<span weight=\"heavy\">{}</span>", saved);
-        slider.add_mark(saved as f64, gtk::PositionType::Bottom, Some(&label));
+        // Plain tick at the saved-default position, matching the
+        // spotlight / highlighter sliders' single midpoint mark. The
+        // numeric label that used to ride this mark was redundant —
+        // the slider already snaps to integer detents.
+        slider.add_mark(saved as f64, gtk::PositionType::Bottom, None);
     }
 
     fn refresh_size_slider_marks(&self) {
