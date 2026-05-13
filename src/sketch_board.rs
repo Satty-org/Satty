@@ -2421,6 +2421,90 @@ impl SketchBoard {
         self.sync_toolbar_to_selection(outer_sender);
     }
 
+    /// Bump the active tool's "alternate" slider (the per-tool cluster
+    /// slider that lives in the bottom-right toolbar — brush
+    /// smoothness for Brush, darkness for Spotlight, opacity for
+    /// Highlighter). Other tools don't have an alt slider, so this
+    /// path is a no-op for them. Routes through the same handler as
+    /// the slider drag so selection-apply (where applicable) and
+    /// APP_CONFIG sync happen identically. Also emits the matching
+    /// `*Reset` output so the toolbar's slider widget repositions.
+    fn scroll_alt_slider(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
+        let steps = self.drain_scroll_resize_steps(dy);
+        if steps == 0 {
+            return;
+        }
+        match self.active_tool_type() {
+            Tools::Brush => {
+                // Integer 0..=6 — one notch per wheel step. Source of
+                // truth is APP_CONFIG (the slider's `current` mirror
+                // ignores user drags by design).
+                let cur = APP_CONFIG.read().brush_post_smooth_iterations() as i32;
+                let new_val_i = (cur + steps).clamp(0, 6);
+                if new_val_i == cur {
+                    return;
+                }
+                let new_val = new_val_i as usize;
+                let _ = self.apply_brush_smooth_to_selection(new_val);
+                // No-selection branch: persist as next-stroke default,
+                // matching the slider-drag path.
+                let selected_empty = self
+                    .tools
+                    .get(&Tools::Pointer)
+                    .borrow()
+                    .selected_drawables()
+                    .is_empty();
+                if selected_empty {
+                    APP_CONFIG.write().set_brush_post_smooth_iterations(new_val);
+                }
+                outer_sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::BrushPostSmoothReset(new_val));
+            }
+            Tools::Spotlight => {
+                // 0.10..=0.90 — coarse stride per notch so a typical
+                // wrist-flick of 3–4 clicks traverses meaningful range.
+                const SPOTLIGHT_STEP: f32 = 0.05;
+                let cur = self.style.spotlight_darkness;
+                let new_val = (cur + steps as f32 * SPOTLIGHT_STEP).clamp(0.10, 0.90);
+                if (new_val - cur).abs() < f32::EPSILON {
+                    return;
+                }
+                self.style.spotlight_darkness = new_val;
+                self.renderer.set_spotlight_darkness(new_val);
+                outer_sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SpotlightDarknessReset(new_val));
+                self.refresh_screen();
+            }
+            Tools::Highlighter => {
+                // 0.10..=1.00 — same stride logic as spotlight.
+                const HIGHLIGHTER_STEP: f32 = 0.05;
+                let cur = self.style.highlighter_opacity;
+                let new_val = (cur + steps as f32 * HIGHLIGHTER_STEP).clamp(0.10, 1.00);
+                if (new_val - cur).abs() < f32::EPSILON {
+                    return;
+                }
+                self.style.highlighter_opacity = new_val;
+                outer_sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::HighlighterOpacityReset(new_val));
+                // Push the new style to the active Highlighter tool so
+                // any in-flight stroke + the next stroke use it.
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+                self.refresh_screen();
+            }
+            _ => {
+                // No alt slider for the other tools — silently absorb
+                // the gesture so the user doesn't get a surprise pan
+                // when their fingers slip onto Ctrl+Shift over (say)
+                // the Arrow tool.
+            }
+        }
+    }
+
     /// Bump the active tool's `style.size` by `dy`-derived steps.
     /// Notifies the toolbar so the slider stays in sync.
     fn scroll_resize_tool_size(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
@@ -2882,9 +2966,15 @@ impl Component for SketchBoard {
                             // wheels. Only remap a pure vertical
                             // delta — a trackpad two-finger swipe
                             // already carries `dx` directly and we
-                            // don't want to double-up.
+                            // don't want to double-up. Also skip the
+                            // remap when Ctrl is also held: that
+                            // chord (Ctrl+Shift+wheel) is reserved
+                            // for the alt-slider bump in
+                            // `scroll_alt_slider`, which needs the
+                            // vertical dy to come through intact.
                             let (dx, dy) = if modifier
                                 .contains(gtk::gdk::ModifierType::SHIFT_MASK)
+                                && !modifier.contains(gtk::gdk::ModifierType::CONTROL_MASK)
                                 && dx == 0.0
                             {
                                 (dy, 0.0)
@@ -3202,7 +3292,19 @@ impl Component for SketchBoard {
                             .borrow()
                             .selected_drawables();
                         let ctrl_held = me.modifier.contains(ModifierType::CONTROL_MASK);
-                        if !selected.is_empty() {
+                        let shift_held = me.modifier.contains(ModifierType::SHIFT_MASK);
+                        if ctrl_held && shift_held {
+                            // Ctrl+Shift+wheel → bump the active tool's
+                            // "alternate" slider (the per-tool cluster
+                            // slider that lives in the bottom-right
+                            // — brush smoothness / spotlight darkness
+                            // / highlighter opacity). Always wins over
+                            // the size-resize paths so the user can
+                            // tweak the alt slider mid-selection
+                            // without accidentally resizing.
+                            self.scroll_alt_slider(me.pos.y, &outer_sender);
+                            true
+                        } else if !selected.is_empty() {
                             // Selection + wheel → resize the selected
                             // drawable(s). Modifier-free; ignores Ctrl.
                             self.scroll_resize_selection(&selected, me.pos.y, &outer_sender);
