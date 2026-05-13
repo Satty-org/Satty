@@ -493,6 +493,25 @@ impl InputEvent {
     }
 }
 
+/// Advance a value within a fixed-order cycle by `steps` positions
+/// (wrapping at both ends). Used by the alt-slider wheel handler to
+/// step the arrow / blur / text-background dropdowns from their
+/// current value to a neighbouring one in a single pass — wraps so a
+/// fast wheel flick that overshoots still lands on a real variant.
+/// Returns the unchanged input if it isn't in the order (defensive —
+/// shouldn't happen in practice).
+fn wrap_cycle<T: Copy + PartialEq>(order: &[T], current: T, steps: i32) -> T {
+    let Some(cur_idx) = order.iter().position(|x| *x == current) else {
+        return current;
+    };
+    let n = order.len() as i32;
+    if n <= 0 {
+        return current;
+    }
+    let new_idx = (cur_idx as i32 + steps).rem_euclid(n) as usize;
+    order[new_idx]
+}
+
 /// Apply `steps` discrete bumps to a `Size`, positive = step_up. Used
 /// by the scroll-wheel resize gestures so a single multi-step swipe
 /// (or even a wraparound from a fast trackpad flick) lands on the
@@ -2421,14 +2440,15 @@ impl SketchBoard {
         self.sync_toolbar_to_selection(outer_sender);
     }
 
-    /// Bump the active tool's "alternate" slider (the per-tool cluster
-    /// slider that lives in the bottom-right toolbar — brush
-    /// smoothness for Brush, darkness for Spotlight, opacity for
-    /// Highlighter). Other tools don't have an alt slider, so this
-    /// path is a no-op for them. Routes through the same handler as
-    /// the slider drag so selection-apply (where applicable) and
-    /// APP_CONFIG sync happen identically. Also emits the matching
-    /// `*Reset` output so the toolbar's slider widget repositions.
+    /// Bump or cycle the active tool's "alternate" control — the
+    /// per-tool widget in the bottom-right cluster: brush smoothness
+    /// slider, spotlight darkness slider, highlighter opacity slider,
+    /// or one of the dropdown pickers (arrow style, blur style, text
+    /// background). Applies to a live selection where the property is
+    /// per-drawable, and persists / updates the toolbar widget either
+    /// way. Tools without an alt control (Pointer / Crop / Rect /
+    /// Ellipse) silently absorb the gesture so an accidental
+    /// Ctrl+Shift+wheel doesn't surprise-pan the canvas.
     fn scroll_alt_slider(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
         let steps = self.drain_scroll_resize_steps(dy);
         if steps == 0 {
@@ -2489,18 +2509,103 @@ impl SketchBoard {
                 outer_sender
                     .output_sender()
                     .emit(SketchBoardOutput::HighlighterOpacityReset(new_val));
-                // Push the new style to the active Highlighter tool so
-                // any in-flight stroke + the next stroke use it.
+                // Opacity-only update on selected highlighter
+                // drawables. Skipping the full dispatch_style_change
+                // path (which would replace the entire style on each
+                // selected drawable) so non-highlighter selection
+                // members keep their original style.
+                let selected_ids = self
+                    .tools
+                    .get(&Tools::Pointer)
+                    .borrow()
+                    .selected_drawables();
+                let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+                for id in selected_ids {
+                    if let Some(mut d) = self.renderer.clone_drawable(id)
+                        && d.tool_type() == Some(Tools::Highlighter)
+                        && let Some(mut style) = d.style()
+                    {
+                        style.highlighter_opacity = new_val;
+                        d.set_style(style);
+                        updates.push((id, d));
+                    }
+                }
+                match updates.len() {
+                    0 => {}
+                    1 => {
+                        let (id, d) = updates.pop().unwrap();
+                        self.renderer.modify(id, d);
+                    }
+                    _ => {
+                        self.renderer.modify_many(updates);
+                    }
+                }
+                // Push to the active Highlighter tool so the in-flight
+                // and next strokes use the new opacity.
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style));
                 self.refresh_screen();
             }
+            Tools::Arrow => {
+                use crate::tools::ArrowStyle;
+                let order = [
+                    ArrowStyle::Standard,
+                    ArrowStyle::Fancy,
+                    ArrowStyle::Curved,
+                    ArrowStyle::Double,
+                ];
+                let current = self.cycle_seed_arrow();
+                let next = wrap_cycle(&order, current, steps);
+                if next == current {
+                    return;
+                }
+                // Reuse the regular selection handler so toast,
+                // state.toml save, toolbar mirror and apply-to-
+                // selection all happen identically to a popover click.
+                let _ = self.handle_toolbar_event(
+                    ToolbarEvent::ArrowStyleSelected(next),
+                    outer_sender.clone(),
+                );
+            }
+            Tools::Blur => {
+                use crate::tools::BlurStyle;
+                let order = [
+                    BlurStyle::Pixelate,
+                    BlurStyle::SecureBlur,
+                    BlurStyle::Gaussian,
+                    BlurStyle::BlackOut,
+                ];
+                let current = self.cycle_seed_blur();
+                let next = wrap_cycle(&order, current, steps);
+                if next == current {
+                    return;
+                }
+                let _ = self.handle_toolbar_event(
+                    ToolbarEvent::BlurStyleSelected(next),
+                    outer_sender.clone(),
+                );
+            }
+            Tools::Text => {
+                use crate::tools::TextBackground;
+                let order = [TextBackground::Rounded, TextBackground::Plain];
+                let current = self.cycle_seed_text();
+                let next = wrap_cycle(&order, current, steps);
+                if next == current {
+                    return;
+                }
+                let _ = self.handle_toolbar_event(
+                    ToolbarEvent::TextBackgroundSelected(next),
+                    outer_sender.clone(),
+                );
+            }
             _ => {
-                // No alt slider for the other tools — silently absorb
-                // the gesture so the user doesn't get a surprise pan
-                // when their fingers slip onto Ctrl+Shift over (say)
-                // the Arrow tool.
+                // No alt control for the remaining tools (Pointer /
+                // Crop / Rectangle / Ellipse — the rect/ellipse "Fill
+                // Shape" is a toggle, not naturally wheel-driven).
+                // Silently absorb the gesture so the user doesn't get
+                // a surprise pan when their fingers slip onto
+                // Ctrl+Shift over a non-cluster tool.
             }
         }
     }
