@@ -1627,11 +1627,21 @@ impl SketchBoard {
                 // in `sync_toolbar_to_selection` deliberately skips this
                 // arm and calls `switch_active_tool` directly so the
                 // just-made selection survives.
-                self.tools
-                    .get(&Tools::Pointer)
-                    .borrow_mut()
-                    .set_selected_drawables(Vec::new());
-                self.switch_active_tool(tool, sender)
+                let pointer = self.tools.get(&Tools::Pointer);
+                let had_selection = !pointer.borrow().selected_drawables().is_empty();
+                pointer.borrow_mut().set_selected_drawables(Vec::new());
+                let result = self.switch_active_tool(tool, sender);
+                // `switch_active_tool` typically returns Unmodified
+                // (the tool's Activated/Deactivated handlers don't ask
+                // for a redraw). If we just cleared a non-empty
+                // selection, force a redraw — otherwise the stale
+                // SelectionOverlay handles linger on the canvas until
+                // the next event happens to invalidate them.
+                if had_selection && matches!(result, ToolUpdateResult::Unmodified) {
+                    ToolUpdateResult::Redraw
+                } else {
+                    result
+                }
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
