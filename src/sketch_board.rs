@@ -1438,6 +1438,182 @@ impl SketchBoard {
         }
     }
 
+    /// Switch the active tool with all the snapback / deactivate /
+    /// activate side effects. Does NOT touch the current selection —
+    /// explicit user-driven tool changes (the `ToolbarEvent::ToolSelected`
+    /// arm) clear selection before calling this; selection-driven auto-
+    /// switch (`sync_toolbar_to_selection`) calls this directly so the
+    /// just-made selection survives.
+    fn switch_active_tool(
+        &mut self,
+        tool: Tools,
+        sender: ComponentSender<Self>,
+    ) -> ToolUpdateResult {
+        // Capture the prior non-Crop tool right before we switch — the
+        // Esc handler in `CropTool` uses this to restore the user to
+        // the tool they had before entering Crop, rather than dropping
+        // them on Pointer.
+        let current_tool = self.active_tool_type();
+        if tool == Tools::Crop && current_tool != Tools::Crop {
+            self.tool_before_crop = Some(current_tool);
+        }
+        // Re-entering Spotlight or Highlighter snaps the slider back to
+        // the saved default (or the system detent if no save). In-session
+        // edits during a single tool stretch persist across multiple new
+        // shapes; switching away wipes them so the next entry starts from
+        // a known baseline.
+        if tool != current_tool {
+            match tool {
+                Tools::Spotlight => {
+                    let saved = crate::state::load_spotlight_darkness().unwrap_or(0.50);
+                    self.style.spotlight_darkness = saved;
+                    self.renderer.set_spotlight_darkness(saved);
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::SpotlightDarknessReset(saved));
+                }
+                Tools::Highlighter => {
+                    let saved = crate::state::load_highlighter_opacity().unwrap_or(0.40);
+                    self.style.highlighter_opacity = saved;
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::HighlighterOpacityReset(saved));
+                }
+                Tools::Brush => {
+                    // Same snapback semantics as the other tool-specific
+                    // sliders: re-entering Brush pulls the saved default
+                    // off state.toml (falling back to the config / built-in
+                    // 2) and pushes it into APP_CONFIG so the next stroke
+                    // uses it.
+                    //
+                    // BUT: if the user got here because they clicked an
+                    // existing brush annotation (the selection-driven
+                    // auto-switch via this helper from
+                    // `sync_toolbar_to_selection`), use THAT annotation's
+                    // stored level instead — so the slider lands on the
+                    // value the selected stroke was drawn with. Subsequent
+                    // slider tweaks re-smooth the selected stroke; re-
+                    // entering Brush without a selection (the user-driven
+                    // `ToolbarEvent::ToolSelected` path, which deselects
+                    // first) always falls back to the saved default.
+                    let selected_level = {
+                        let pt = self.tools.get(&Tools::Pointer);
+                        let selected = pt.borrow().selected_drawables();
+                        if selected.len() == 1 {
+                            self.renderer
+                                .clone_drawable(selected[0])
+                                .and_then(|d| d.smooth_level())
+                        } else {
+                            None
+                        }
+                    };
+                    let saved = selected_level.unwrap_or_else(|| {
+                        crate::state::load_brush_post_smooth_iterations()
+                            .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations())
+                    });
+                    // Only update APP_CONFIG when this is a genuine snapback
+                    // (no selection driving the value) — otherwise the user's
+                    // slider tweaks for the selected annotation would bleed
+                    // into the default for the *next* new stroke.
+                    if selected_level.is_none() {
+                        APP_CONFIG.write().set_brush_post_smooth_iterations(saved);
+                    }
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::BrushPostSmoothReset(saved));
+                }
+                Tools::Rectangle | Tools::Ellipse => {
+                    // Same snapback for per-tool fill. Saved default wins
+                    // if the user has explicitly pinned one for THIS shape
+                    // tool; otherwise leave style.fill alone so an in-
+                    // session toggle survives switching between Rectangle
+                    // and Ellipse.
+                    if let Some(saved) = crate::state::load_fill_for_tool(tool)
+                        && saved != self.style.fill
+                    {
+                        self.style.fill = saved;
+                        sender
+                            .output_sender()
+                            .emit(SketchBoardOutput::FillShapesChanged(saved));
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Notify the parent so the style toolbar can re-evaluate
+        // tool-specific controls (e.g. the arrow-style dropdown).
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
+        // deactivate old tool and save drawable, if any
+        let old_tool = self.active_tool.clone();
+        let mut deactivate_result =
+            old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
+
+        old_tool.borrow_mut().set_im_context(None);
+
+        match deactivate_result {
+            ToolUpdateResult::Commit(d) => {
+                self.renderer.commit(d);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                // we handle commit directly and "downgrade" to a simple redraw result
+                deactivate_result = ToolUpdateResult::Redraw;
+            }
+            // TextTool emits ModifyDrawable on tool-switch when finalizing
+            // a re-edit; replace the existing drawable in-place.
+            ToolUpdateResult::ModifyDrawable(id, d) => {
+                self.renderer.modify(id, d);
+                if APP_CONFIG.read().auto_copy() {
+                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                }
+                deactivate_result = ToolUpdateResult::Redraw;
+            }
+            _ => {}
+        }
+
+        // change active tool
+        self.active_tool = self.tools.get(&tool);
+        self.renderer.set_active_tool(self.active_tool.clone());
+        let widget_ref: gtk::Widget = self.renderer.clone().upcast();
+        self.active_tool
+            .borrow_mut()
+            .set_im_context(Some(crate::tools::InputContext {
+                im_context: self.im_context.clone(),
+                widget: widget_ref,
+            }));
+
+        // set sender for tool
+        self.active_tool
+            .borrow_mut()
+            .set_sender(sender.input_sender().clone());
+
+        // give the tool a handle to query the drawable stack (hit-test, etc.)
+        let store: Rc<dyn DrawableStore> = Rc::new(self.renderer.clone());
+        self.active_tool.borrow_mut().set_drawable_store(store);
+
+        // send style event
+        self.active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(self.style));
+
+        // send activated event
+        let activate_result = self
+            .active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::Activated);
+
+        // Update cursor immediately so the user gets the crosshair
+        // (or arrow for pointer/crop) without waiting for mouse move.
+        self.apply_idle_cursor();
+
+        match activate_result {
+            ToolUpdateResult::Unmodified => deactivate_result,
+            _ => activate_result,
+        }
+    }
+
     fn handle_toolbar_event(
         &mut self,
         toolbar_event: ToolbarEvent,
@@ -1445,185 +1621,17 @@ impl SketchBoard {
     ) -> ToolUpdateResult {
         match toolbar_event {
             ToolbarEvent::ToolSelected(tool) => {
-                // Capture the prior non-Crop tool right before we
-                // switch — the Esc handler in `CropTool` uses this to
-                // restore the user to the tool they had before
-                // entering Crop, rather than dropping them on Pointer.
-                let current_tool = self.active_tool_type();
-                if tool == Tools::Crop && current_tool != Tools::Crop {
-                    self.tool_before_crop = Some(current_tool);
-                }
-                // Re-entering Spotlight or Highlighter snaps the
-                // slider back to the saved default (or the system
-                // detent if no save). In-session edits during a
-                // single tool stretch persist across multiple new
-                // shapes; switching away wipes them so the next
-                // entry starts from a known baseline.
-                if tool != current_tool {
-                    match tool {
-                        Tools::Spotlight => {
-                            let saved =
-                                crate::state::load_spotlight_darkness().unwrap_or(0.50);
-                            self.style.spotlight_darkness = saved;
-                            self.renderer.set_spotlight_darkness(saved);
-                            sender
-                                .output_sender()
-                                .emit(SketchBoardOutput::SpotlightDarknessReset(saved));
-                        }
-                        Tools::Highlighter => {
-                            let saved = crate::state::load_highlighter_opacity()
-                                .unwrap_or(0.40);
-                            self.style.highlighter_opacity = saved;
-                            sender
-                                .output_sender()
-                                .emit(SketchBoardOutput::HighlighterOpacityReset(saved));
-                        }
-                        Tools::Brush => {
-                            // Same snapback semantics as the other
-                            // tool-specific sliders: re-entering Brush
-                            // pulls the saved default off state.toml
-                            // (falling back to the config / built-in
-                            // 2) and pushes it into APP_CONFIG so the
-                            // next stroke uses it.
-                            //
-                            // BUT: if the user got here because they
-                            // clicked an existing brush annotation
-                            // (the auto-tool-switch in
-                            // `sync_toolbar_to_selection`), use THAT
-                            // annotation's stored level instead — so
-                            // the slider lands on the value the
-                            // selected stroke was drawn with rather
-                            // than overwriting it with the saved
-                            // default a frame later. Subsequent slider
-                            // tweaks re-smooth the selected stroke;
-                            // re-entering Brush without a selection
-                            // (or selecting nothing) falls back to
-                            // the saved default normally.
-                            let selected_level = {
-                                let pt = self.tools.get(&Tools::Pointer);
-                                let selected = pt.borrow().selected_drawables();
-                                if selected.len() == 1 {
-                                    self.renderer
-                                        .clone_drawable(selected[0])
-                                        .and_then(|d| d.smooth_level())
-                                } else {
-                                    None
-                                }
-                            };
-                            let saved = selected_level.unwrap_or_else(|| {
-                                crate::state::load_brush_post_smooth_iterations()
-                                    .unwrap_or_else(|| {
-                                        APP_CONFIG.read().brush_post_smooth_iterations()
-                                    })
-                            });
-                            // Only update APP_CONFIG when this is a
-                            // genuine snapback (no selection driving
-                            // the value) — otherwise the user's slider
-                            // tweaks for the selected annotation would
-                            // bleed into the default for the *next*
-                            // new stroke.
-                            if selected_level.is_none() {
-                                APP_CONFIG
-                                    .write()
-                                    .set_brush_post_smooth_iterations(saved);
-                            }
-                            sender
-                                .output_sender()
-                                .emit(SketchBoardOutput::BrushPostSmoothReset(saved));
-                        }
-                        Tools::Rectangle | Tools::Ellipse => {
-                            // Same snapback for per-tool fill. Saved
-                            // default wins if the user has explicitly
-                            // pinned one for THIS shape tool;
-                            // otherwise leave style.fill alone so an
-                            // in-session toggle survives switching
-                            // between Rectangle and Ellipse.
-                            if let Some(saved) =
-                                crate::state::load_fill_for_tool(tool)
-                                && saved != self.style.fill
-                            {
-                                self.style.fill = saved;
-                                sender
-                                    .output_sender()
-                                    .emit(SketchBoardOutput::FillShapesChanged(saved));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                // Notify the parent so the style toolbar can re-evaluate
-                // tool-specific controls (e.g. the arrow-style dropdown).
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
-                // deactivate old tool and save drawable, if any
-                let old_tool = self.active_tool.clone();
-                let mut deactivate_result =
-                    old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
-
-                old_tool.borrow_mut().set_im_context(None);
-
-                match deactivate_result {
-                    ToolUpdateResult::Commit(d) => {
-                        self.renderer.commit(d);
-                        if APP_CONFIG.read().auto_copy() {
-                            self.renderer.request_render(&[Action::SaveToClipboard]);
-                        }
-                        // we handle commit directly and "downgrade" to a simple redraw result
-                        deactivate_result = ToolUpdateResult::Redraw;
-                    }
-                    // TextTool emits ModifyDrawable on tool-switch when
-                    // finalizing a re-edit; replace the existing
-                    // drawable in-place.
-                    ToolUpdateResult::ModifyDrawable(id, d) => {
-                        self.renderer.modify(id, d);
-                        if APP_CONFIG.read().auto_copy() {
-                            self.renderer.request_render(&[Action::SaveToClipboard]);
-                        }
-                        deactivate_result = ToolUpdateResult::Redraw;
-                    }
-                    _ => {}
-                }
-
-                // change active tool
-                self.active_tool = self.tools.get(&tool);
-                self.renderer.set_active_tool(self.active_tool.clone());
-                let widget_ref: gtk::Widget = self.renderer.clone().upcast();
-                self.active_tool
+                // Explicit user-driven tool change always clears any
+                // existing selection — "I'm switching tools" reads as a
+                // start-fresh action. The selection-driven auto-switch
+                // in `sync_toolbar_to_selection` deliberately skips this
+                // arm and calls `switch_active_tool` directly so the
+                // just-made selection survives.
+                self.tools
+                    .get(&Tools::Pointer)
                     .borrow_mut()
-                    .set_im_context(Some(crate::tools::InputContext {
-                        im_context: self.im_context.clone(),
-                        widget: widget_ref,
-                    }));
-
-                // set sender for tool
-                self.active_tool
-                    .borrow_mut()
-                    .set_sender(sender.input_sender().clone());
-
-                // give the tool a handle to query the drawable stack (hit-test, etc.)
-                let store: Rc<dyn DrawableStore> = Rc::new(self.renderer.clone());
-                self.active_tool.borrow_mut().set_drawable_store(store);
-
-                // send style event
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style));
-
-                // send activated event
-                let activate_result = self
-                    .active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::Activated);
-
-                // Update cursor immediately so the user gets the crosshair
-                // (or arrow for pointer/crop) without waiting for mouse move.
-                self.apply_idle_cursor();
-
-                match activate_result {
-                    ToolUpdateResult::Unmodified => deactivate_result,
-                    _ => activate_result,
-                }
+                    .set_selected_drawables(Vec::new());
+                self.switch_active_tool(tool, sender)
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
@@ -2175,9 +2183,11 @@ impl SketchBoard {
                 && target != Tools::Crop
                 && target != self.active_tool_type()
             {
-                sender.input(SketchBoardInput::ToolbarEvent(
-                    ToolbarEvent::ToolSelected(target),
-                ));
+                // Selection-driven auto-switch: call `switch_active_tool`
+                // directly (NOT via `ToolbarEvent::ToolSelected`) so the
+                // just-made selection that triggered this branch isn't
+                // cleared by the user-driven deselect at that arm's top.
+                let _ = self.switch_active_tool(target, sender.clone());
             }
         }
     }
