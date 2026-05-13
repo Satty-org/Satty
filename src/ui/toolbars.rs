@@ -366,6 +366,16 @@ impl ToolsToolbar {
         let Some(popover) = self.color_popover.clone() else {
             return;
         };
+        // Prune non-visible pages synchronously before adding the new
+        // one (outside an active drag — see the note above re: keeping
+        // the drag source widget parented). This caps the stack at
+        // 2 children (the previously-visible page + the new page) so
+        // the homogeneous+crossfade sizing can't be inflated by stale
+        // pages from prior refreshes whose scheduled cleanups haven't
+        // fired yet.
+        if self.dragging_color.is_none() {
+            clean_up_old_popover_pages(&stack);
+        }
         let grid = build_color_popover_grid(self, sender, &popover);
         let name = format!("page-{}", self.color_popover_page_id);
         self.color_popover_page_id = self.color_popover_page_id.wrapping_add(1);
