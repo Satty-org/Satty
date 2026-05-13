@@ -301,6 +301,16 @@ dropdown.compact-control > button.combo {
     border: 1px dashed alpha(@headerbar_fg_color, 0.35);
     border-radius: 5px;
 }
+/* Pre-targeted empty slot — set when the user clicks a dashed
+ * placeholder before clicking "+ Add to custom colors", marking it
+ * as the destination for the next save. Brighter solid outline so
+ * it's distinguishable from the inert dashed cells around it and
+ * from a `.color-slot-ghost` drop preview (which uses a similar
+ * tone but appears only during a drag). */
+.color-slot-empty-selected {
+    border: 2px solid alpha(@accent_bg_color, 0.85);
+    background-color: alpha(@accent_bg_color, 0.10);
+}
 /* Drag-preview ghost slot — drawn at `dragging_preview_slot` while a
  * saved-custom swatch is in flight. Brighter solid outline (vs. the
  * dashed empty slots) so the user sees exactly where the swatch will
@@ -310,17 +320,20 @@ dropdown.compact-control > button.combo {
     border-radius: 5px;
     background-color: alpha(@headerbar_fg_color, 0.08);
 }
-/* Color-wheel button at the bottom of the popover keeps a subtle
- * background so it reads as a separate action from the swatches. */
-.color-wheel-button {
-    padding: 2px;
+/* Merged "open the color mixer" button at the bottom of the popover.
+ * Stretches the full width of the swatch grid above it; padding is
+ * zeroed so the paint icon (halign:Start) and caret icon (halign:End)
+ * sit flush with the button's outer bounds — that lines them up
+ * exactly with the centers of the leftmost / rightmost grid columns,
+ * which carry the same SWATCH_DISPLAY_SIZE swatches and use this row
+ * as their column footer. */
+.picker-expand-button {
+    padding: 0;
     min-width: 0;
     min-height: 0;
 }
-.picker-expand-arrow {
-    padding: 2px;
-    min-width: 0;
-    min-height: 0;
+.picker-expand-button > box {
+    padding: 0;
 }
 /* Inline expanded picker panel — the actual sizing of the
  * GtkColorChooserWidget's internal nodes (colorplane, colorscale)

@@ -309,10 +309,19 @@ pub struct ToolsToolbar {
     /// panel. `AddCurrentPickerToCustoms` reads its `rgba` so the
     /// "+ Add to My Colors" button knows what to persist.
     picker_chooser: Option<gtk::ColorChooserWidget>,
-    /// Handle to the bottom-row arrow button so the toggle handler
-    /// can flip its icon between pan-end and pan-start without
-    /// rebuilding the controls.
-    picker_arrow_btn: Option<gtk::Button>,
+    /// Handle to the caret icon inside the merged bottom-row "expand
+    /// picker" button so the toggle handler can flip the caret
+    /// direction (pan-end ↔ pan-start) without rebuilding the button.
+    /// The merged button itself spans both swatch columns and carries
+    /// the paint-bucket icon next to this caret.
+    picker_caret_icon: Option<gtk::Image>,
+    /// Currently-targeted empty saved-custom slot. Set by clicking a
+    /// dashed empty placeholder in the popover; cleared on a successful
+    /// `SaveCustomColor`, on selecting a filled swatch, and on popover
+    /// close. When `Some(slot)` and the user clicks "+ Add to custom
+    /// colors", the new color lands at `slot` instead of the first
+    /// empty slot.
+    selected_empty_slot: Option<usize>,
     /// Color currently being dragged within the saved-custom column,
     /// captured at drag-begin. While set, `custom_colors[origin_slot]`
     /// is `None` (the slot is logically empty while in transit). On
@@ -489,14 +498,15 @@ const PICKER_COLORPLANE_HEIGHT: i32 = 100;
 /// Handles returned by `build_color_popover` so the caller (`init`)
 /// can stash everything it needs on the model — the popover itself,
 /// the swatch-grid stack (for crossfade rebuilds), the inline picker's
-/// revealer + chooser (for live color updates), and the bottom arrow
-/// button (so the toggle handler can flip its icon).
+/// revealer + chooser (for live color updates), and the bottom merged
+/// button's caret icon (so the toggle handler can flip the caret's
+/// direction without rebuilding the button).
 struct ColorPopoverHandles {
     popover: gtk::Popover,
     swatch_stack: gtk::Stack,
     picker_revealer: gtk::Revealer,
     picker_chooser: gtk::ColorChooserWidget,
-    arrow_btn: gtk::Button,
+    caret_icon: gtk::Image,
 }
 
 /// Build the popover that hangs off the unified color-picker MenuButton.
@@ -587,67 +597,71 @@ fn build_color_popover(
     swatch_stack.set_visible_child(&grid);
     left.append(&swatch_stack);
 
-    // Bottom controls: color-wheel under the palette column, expand
-    // arrow under the saved-customs column. Both toggle the inline
-    // picker — the wheel hints at "mix any color"; the arrow is the
-    // explicit collapse/expand affordance (standard convention). The
-    // row uses the swatches grid's column_spacing (14) so each
-    // button lines up with its column instead of hugging opposite
-    // edges of the popover.
+    // Bottom controls: one merged button that stretches the full
+    // width of the swatch grid above it. The paint-bucket icon sits
+    // flush-left so it lands centered under the first (palette)
+    // column; the caret sits flush-right so it lands centered under
+    // the rightmost saved-customs column — whichever column count
+    // the grid currently shows. One button instead of two reads as
+    // one action ("open the mixer"); the caret still flips
+    // pan-end ↔ pan-start on expand/collapse as a direction cue.
     let controls = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(14)
-        .hexpand(false)
+        .hexpand(true)
+        .halign(gtk::Align::Fill)
         .build();
     controls.add_css_class("color-picker-controls");
 
-    let wheel_btn = gtk::Button::builder()
-        .focusable(false)
-        .focus_on_click(false)
-        .hexpand(false)
-        .vexpand(false)
-        .icon_name("color-regular")
-        // Pin to one swatch cell — width + height match the grid's
-        // SWATCH_DISPLAY_SIZE so the icon visually centers under the
-        // palette column above it.
-        .width_request(SWATCH_DISPLAY_SIZE)
-        .height_request(SWATCH_DISPLAY_SIZE)
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
+    let merged_inner = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .hexpand(true)
+        .halign(gtk::Align::Fill)
         .build();
-    wheel_btn.add_css_class("flat");
-    wheel_btn.add_css_class("color-wheel-button");
-    attach_floating_swatch_tooltip(&wheel_btn, "Open color picker");
-    let sender_for_wheel = sender.clone();
-    wheel_btn.connect_clicked(move |_| {
-        sender_for_wheel.input(ToolsToolbarInput::TogglePickerExpansion);
-    });
-
-    let arrow_btn = gtk::Button::builder()
-        .focusable(false)
-        .focus_on_click(false)
-        .hexpand(false)
-        .vexpand(false)
+    let paint_icon = gtk::Image::builder()
+        .icon_name("color-regular")
+        .width_request(SWATCH_DISPLAY_SIZE)
+        .halign(gtk::Align::Start)
+        .build();
+    // Hexpand spacer between the two icons absorbs all the slack so
+    // the icons stay pinned to the left/right edges of the button
+    // (= the centers of the leftmost/rightmost grid columns). Doing
+    // this with a dedicated spacer Box is more reliable than relying
+    // on each icon's `halign` to "drift apart" inside a parent Box —
+    // GTK's box-layout distributes extra width to hexpand children,
+    // and only the spacer is hexpand here.
+    let spacer = gtk::Box::builder().hexpand(true).build();
+    let caret_icon = gtk::Image::builder()
         .icon_name(if model.picker_expanded {
             "pan-start-symbolic"
         } else {
             "pan-end-symbolic"
         })
         .width_request(SWATCH_DISPLAY_SIZE)
-        .height_request(SWATCH_DISPLAY_SIZE)
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
+        .halign(gtk::Align::End)
         .build();
-    arrow_btn.add_css_class("flat");
-    arrow_btn.add_css_class("picker-expand-arrow");
-    attach_floating_swatch_tooltip(&arrow_btn, "Expand picker");
-    let sender_for_arrow = sender.clone();
-    arrow_btn.connect_clicked(move |_| {
-        sender_for_arrow.input(ToolsToolbarInput::TogglePickerExpansion);
+    merged_inner.append(&paint_icon);
+    merged_inner.append(&spacer);
+    merged_inner.append(&caret_icon);
+
+    let merged_btn = gtk::Button::builder()
+        .focusable(false)
+        .focus_on_click(false)
+        .hexpand(true)
+        .vexpand(false)
+        .height_request(SWATCH_DISPLAY_SIZE)
+        .halign(gtk::Align::Fill)
+        .valign(gtk::Align::Center)
+        .child(&merged_inner)
+        .build();
+    merged_btn.add_css_class("flat");
+    merged_btn.add_css_class("picker-expand-button");
+    attach_floating_swatch_tooltip(&merged_btn, "Open color picker");
+    let sender_for_merged = sender.clone();
+    merged_btn.connect_clicked(move |_| {
+        sender_for_merged.input(ToolsToolbarInput::TogglePickerExpansion);
     });
 
-    controls.append(&wheel_btn);
-    controls.append(&arrow_btn);
+    controls.append(&merged_btn);
     left.append(&controls);
 
     // Right side: stack holding the inline picker panel. The
@@ -743,7 +757,7 @@ fn build_color_popover(
         swatch_stack,
         picker_revealer,
         picker_chooser,
-        arrow_btn,
+        caret_icon,
     }
 }
 
@@ -1325,7 +1339,13 @@ fn build_color_popover_grid(
                     };
                     (w, Some(t))
                 }
-                None => (build_dashed_placeholder(), None),
+                None => {
+                    let is_selected = model.selected_empty_slot == Some(visual_slot);
+                    (
+                        build_dashed_placeholder(visual_slot, is_selected, sender),
+                        None,
+                    )
+                }
             }
         };
         if let Some(t) = tooltip {
@@ -2032,6 +2052,15 @@ pub enum ToolsToolbarInput {
     /// logical-pixel values. Handler multiplies by `display_scale`
     /// and emits `ToolbarEvent::ResizeImage` with image pixels.
     ResizeImageRequested { width: i32, height: i32 },
+    /// User clicked a dashed-empty placeholder in the saved-custom
+    /// grid. Stash that slot index as `selected_empty_slot` so the
+    /// next `SaveCustomColor` inserts at that visual position instead
+    /// of appending. Clicking the same slot again clears the marker.
+    SelectEmptySlot(usize),
+    /// Clear `selected_empty_slot` without rebuilding the grid. Fired
+    /// on popover close and on `ColorButtonSelected` so a stale empty
+    /// slot doesn't survive across popover sessions.
+    ClearEmptySlotSelection,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2503,11 +2532,20 @@ fn find_same_column_gap(slots: &[Option<Color>], target: usize) -> Option<usize>
     (target + 1..col_end).find(|&i| slots[i].is_none())
 }
 
-/// Build the dashed empty-slot placeholder. Inert by itself —
-/// drop-target wiring is added separately in
+/// Build the dashed empty-slot placeholder. Clickable: a primary-button
+/// `GestureClick` fires `SelectEmptySlot(slot)` so the user can pre-
+/// target a specific empty cell before clicking "+ Add to custom
+/// colors". When `selected` is true, the placeholder wears the
+/// `.color-slot-empty-selected` class for a brighter outline ring.
+/// Drop-target wiring is added separately in
 /// `attach_reorder_drop_target` so the same code path works for
 /// filled swatches and empty placeholders.
-fn build_dashed_placeholder() -> gtk::Widget {
+fn build_dashed_placeholder(
+    slot: usize,
+    selected: bool,
+    sender: &ComponentSender<ToolsToolbar>,
+) -> gtk::Widget {
+    use relm4::gtk::gdk;
     let placeholder = gtk::Box::builder()
         .width_request(SWATCH_DISPLAY_SIZE)
         .height_request(SWATCH_DISPLAY_SIZE)
@@ -2517,6 +2555,16 @@ fn build_dashed_placeholder() -> gtk::Widget {
         .valign(gtk::Align::Center)
         .build();
     placeholder.add_css_class("color-slot-empty");
+    if selected {
+        placeholder.add_css_class("color-slot-empty-selected");
+    }
+    let click = gtk::GestureClick::new();
+    click.set_button(gdk::BUTTON_PRIMARY);
+    let sender_for_click = sender.clone();
+    click.connect_released(move |_g, _n, _x, _y| {
+        sender_for_click.input(ToolsToolbarInput::SelectEmptySlot(slot));
+    });
+    placeholder.add_controller(click);
     placeholder.upcast::<gtk::Widget>()
 }
 
@@ -3177,6 +3225,11 @@ impl Component for ToolsToolbar {
                 self.current_color = color;
                 self.current_color_pixbuf = create_icon_pixbuf(color);
                 crate::state::save_last_color(color);
+                // Picking a filled swatch consumes any pending empty-slot
+                // intent — the user moved focus to an existing color.
+                if self.selected_empty_slot.take().is_some() {
+                    self.refresh_color_popover(&sender);
+                }
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
@@ -3227,12 +3280,12 @@ impl Component for ToolsToolbar {
                     }
                     rev.set_reveal_child(self.picker_expanded);
                 }
-                if let Some(btn) = &self.picker_arrow_btn {
-                    btn.set_icon_name(if self.picker_expanded {
+                if let Some(icon) = &self.picker_caret_icon {
+                    icon.set_icon_name(Some(if self.picker_expanded {
                         "pan-start-symbolic"
                     } else {
                         "pan-end-symbolic"
-                    });
+                    }));
                 }
                 // Re-seed the chooser to the current color each time
                 // the panel opens so reopening doesn't strand the user
@@ -3250,8 +3303,38 @@ impl Component for ToolsToolbar {
                 self.refresh_color_popover(&sender);
             }
             ToolsToolbarInput::SaveCustomColor(color) => {
-                self.custom_colors = crate::state::append_custom_color(color);
+                // If the user pre-selected an empty slot, drop the new
+                // color there (growing the list with `None` padding so
+                // the visual position is preserved); otherwise fall back
+                // to the original append behavior.
+                if let Some(target) = self.selected_empty_slot.take() {
+                    let mut slots = self.custom_colors.clone();
+                    while slots.len() <= target {
+                        slots.push(None);
+                    }
+                    slots[target] = Some(color);
+                    crate::state::save_custom_colors(&slots);
+                    self.custom_colors = slots;
+                } else {
+                    self.custom_colors = crate::state::append_custom_color(color);
+                }
                 self.refresh_color_popover(&sender);
+            }
+            ToolsToolbarInput::SelectEmptySlot(slot) => {
+                // Toggle: click the same empty slot again to clear,
+                // click a different one to move the target. Refreshes
+                // the grid so the dashed cell renders its selected ring.
+                if self.selected_empty_slot == Some(slot) {
+                    self.selected_empty_slot = None;
+                } else {
+                    self.selected_empty_slot = Some(slot);
+                }
+                self.refresh_color_popover(&sender);
+            }
+            ToolsToolbarInput::ClearEmptySlotSelection => {
+                // Popover closed — drop the pending target without a
+                // refresh so we don't fight the closing animation.
+                self.selected_empty_slot = None;
             }
             ToolsToolbarInput::ReorderCustomColor { from, to } => {
                 // Programmatic reorder (currently unused — drag-and-drop
@@ -3728,7 +3811,8 @@ impl Component for ToolsToolbar {
             picker_expanded: false,
             picker_revealer: None,
             picker_chooser: None,
-            picker_arrow_btn: None,
+            picker_caret_icon: None,
+            selected_empty_slot: None,
         };
         let widgets = view_output!();
 
@@ -4167,13 +4251,16 @@ impl Component for ToolsToolbar {
         model.color_popover_page_id = 1;
         model.picker_revealer = Some(handles.picker_revealer);
         model.picker_chooser = Some(handles.picker_chooser);
-        model.picker_arrow_btn = Some(handles.arrow_btn);
+        model.picker_caret_icon = Some(handles.caret_icon);
 
         // Refocus the canvas when the popover closes so keyboard shortcuts
         // resume working without the user having to click on the canvas.
+        // Also drop any pending empty-slot selection so reopening doesn't
+        // strand the user mid-intent.
         {
             let sender = sender.clone();
             popover.connect_closed(move |_| {
+                sender.input(ToolsToolbarInput::ClearEmptySlotSelection);
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             });
         }
