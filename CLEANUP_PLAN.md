@@ -476,9 +476,8 @@ Things flagged during diagnosis that aren't action items yet:
 Update these numbers as tasks land:
 
 - Tier 1 dead code: 9 / 9 tasks (1.1–1.9) ✅
-- Tier 1.5 clippy: 0 / 3 tasks (1.10–1.12) — 4 sub-items of 1.12 done
-  incidentally by 1.9's cargo fix
+- Tier 1.5 clippy: 3 / 3 tasks (1.10–1.12) ✅ — clippy now 0 warnings
 - Tier 2 dedup: 0 / 5 tasks (2.1–2.5)
 - Tier 3 splits: 1 / 11 tasks (3.5 obsolete after 1.7 cascade)
 
-**Total: 10 / 28 tasks.**
+**Total: 13 / 28 tasks.**

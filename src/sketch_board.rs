@@ -2057,17 +2057,14 @@ impl SketchBoard {
                     // behaves as a normal select — guards against
                     // accidental cycling from a single tap.
                     let now = std::time::Instant::now();
-                    let is_cycle = match self.last_tool_press {
+                    let is_cycle = matches!(
+                        self.last_tool_press,
                         Some((prev_ch, prev_t))
                             if prev_ch == ch
                                 && now.duration_since(prev_t).as_millis()
                                     <= TOOL_CYCLE_MS as u128
-                                && self.active_tool_type() == tool =>
-                        {
-                            true
-                        }
-                        _ => false,
-                    };
+                                && self.active_tool_type() == tool
+                    );
                     self.last_tool_press = Some((ch, now));
                     if is_cycle {
                         self.cycle_tool_style(tool, &sender);

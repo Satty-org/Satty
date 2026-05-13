@@ -483,12 +483,13 @@ const STACK_FADE_MS: u32 = 120;
 const PICKER_CHOOSER_WIDTH: i32 = 330;
 const PICKER_CHOOSER_HEIGHT: i32 = 250;
 /// Side-by-side sat/val + hue layout — `colorplane` width chosen so
-/// the pair fills `PICKER_CHOOSER_WIDTH` exactly (`COLORPLANE_WIDTH`
-/// + hue_width(20) + internal spacing(~6) ≈ chooser_width). With this
+/// the pair fills `PICKER_CHOOSER_WIDTH` exactly (`COLORPLANE_WIDTH` +
+/// hue_width(20) + internal spacing(~6) ≈ chooser_width). With this
 /// match, the sat/val square's right edge lines up with the
 /// chooser's right edge, so the visible gap from sat/val to popover
 /// edge is just the popover's CSS padding — no chooser-internal
 /// dead space.
+///
 /// Saturation/value square — shrunk from the chooser's default 200+
 /// natural so the gradient doesn't dominate. Hue scale on its left
 /// is sized to match this height in `shrink_color_chooser_internals`.
@@ -2187,8 +2188,8 @@ pub enum StyleToolbarInput {
     SetArrowStyle(ArrowStyle),
     /// Same shape for the highlighter style (TextLocked / Normal).
     /// Handler updates local mirror + MenuButton preview and re-emits
-    /// `HighlighterStyleSelected` upstream so sketch_board persists
-    /// + toasts. Fired by both the popover-click path and the
+    /// `HighlighterStyleSelected` upstream so sketch_board persists +
+    /// toasts. Fired by both the popover-click path and the
     /// double-tap-cycle's round-trip from sketch_board.
     SetHighlighterStyle(crate::tools::HighlighterStyle),
     /// Sync the text-background DropDown to the variant sketch_board
@@ -2205,8 +2206,8 @@ pub enum StyleToolbarInput {
     /// selected drawable's background WITHOUT re-applying it (it's
     /// already that way) or showing a toast.
     SetTextBackgroundSilently(crate::tools::TextBackground),
-    /// Selection-sync variants for Arrow / Blur. Update local state
-    /// + the MenuButton's preview without emitting upstream — used
+    /// Selection-sync variants for Arrow / Blur. Update local state +
+    /// the MenuButton's preview without emitting upstream — used
     /// when the user clicks between drawables with different variants
     /// so the picker reflects each one as it's selected.
     SetArrowStyleSilently(ArrowStyle),

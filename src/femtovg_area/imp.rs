@@ -1456,6 +1456,7 @@ impl FemtoVgAreaMut {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

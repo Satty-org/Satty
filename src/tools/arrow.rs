@@ -454,6 +454,7 @@ impl Arrow {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_solid(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

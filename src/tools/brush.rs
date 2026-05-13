@@ -135,6 +135,10 @@ fn rdp_simplify(points: &[Vec2D], tolerance: f32) -> Vec<Vec2D> {
     let end = points.len() - 1;
     let a = points[0];
     let b = points[end];
+    // Plain index loop is clearer than the enumerate-skip-take chain
+    // clippy suggests, and we need both `i` (for the max_idx
+    // assignment) and `points[i]` here.
+    #[allow(clippy::needless_range_loop)]
     for i in 1..end {
         let d = point_to_segment_distance(points[i], a, b);
         if d > max_dist {
