@@ -30,6 +30,17 @@ pub struct BrushDrawable {
     // after this the points are relative to the start point
     start_point: Option<Vec2D>,
     points: Vec<Vec2D>,
+    /// Online-smoothed input snapshot — what `points` looked like the
+    /// first time `smooth_post_stroke` was called. Re-smoothing always
+    /// works from this baseline so the user can nudge the slider with
+    /// the annotation selected and the stroke morphs progressively
+    /// instead of compounding smoothing on already-smoothed data. Empty
+    /// before commit; populated lazily on the first post-smooth pass.
+    raw_points: Vec<Vec2D>,
+    /// Iteration count last applied to `raw_points` to produce
+    /// `points`. Exposed via the `Drawable::smooth_level` trait
+    /// method so the toolbar can mirror it on selection.
+    smooth_level: usize,
     smoother: Smoother,
     style: Style,
 }
@@ -49,12 +60,24 @@ impl BrushDrawable {
     /// tail `points[1..]` is smoothed, and the first/last deltas
     /// stay anchored so the visible start/release positions don't
     /// drift.
+    ///
+    /// Idempotent: the raw baseline is cached on the first call so
+    /// subsequent calls re-smooth from the same input rather than
+    /// re-smoothing previously-smoothed output. That makes the slider
+    /// post-edit safe — every nudge produces the *same* result a
+    /// fresh stroke at that level would.
     fn smooth_post_stroke(&mut self, level: usize) {
-        if level == 0 || self.points.len() < 4 {
+        if self.raw_points.is_empty() {
+            self.raw_points = self.points.clone();
+        }
+        self.smooth_level = level;
+        if level == 0 || self.raw_points.len() < 4 {
+            self.points = self.raw_points.clone();
             return;
         }
-        let smoothed = smooth_polyline(&self.points[1..], level);
-        self.points.truncate(1);
+        let smoothed = smooth_polyline(&self.raw_points[1..], level);
+        self.points = Vec::with_capacity(smoothed.len() + 1);
+        self.points.push(self.raw_points[0]);
         self.points.extend(smoothed);
     }
 }
@@ -71,9 +94,9 @@ impl BrushDrawable {
 /// without flattening intentional wiggles. By the top of the slider
 /// the tolerance is large enough that long swooping strokes
 /// collapse to a handful of control points and re-emerge as
-/// gently-curved arcs — the "almost stylized" end the standard
-/// stronger settings hit.
-fn smooth_polyline(points: &[Vec2D], level: usize) -> Vec<Vec2D> {
+/// gently-curved arcs — the "almost stylized" look at the top end of
+/// the slider.
+pub(crate) fn smooth_polyline(points: &[Vec2D], level: usize) -> Vec<Vec2D> {
     if level == 0 || points.len() < 3 {
         return points.to_vec();
     }
@@ -309,6 +332,14 @@ impl Drawable for BrushDrawable {
         Some(Tools::Brush)
     }
 
+    fn smooth_level(&self) -> Option<usize> {
+        Some(self.smooth_level)
+    }
+
+    fn set_smooth_level(&mut self, level: usize) {
+        self.smooth_post_stroke(level);
+    }
+
     fn render_glow(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -370,6 +401,8 @@ impl Tool for BrushTool {
                     start_point: None,
                     smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
                     points: vec![event.pos],
+                    raw_points: Vec::new(),
+                    smooth_level: 0,
                     style: self.style,
                 });
                 brush.start_point = Some(event.pos);
@@ -413,6 +446,8 @@ impl Tool for BrushTool {
                     start_point: None,
                     smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
                     points: vec![event.pos],
+                    raw_points: Vec::new(),
+                    smooth_level: 0,
                     style: self.style,
                 });
                 ToolUpdateResult::Unmodified

@@ -1046,7 +1046,15 @@ where
     let right_click = gtk::GestureClick::new();
     right_click.set_button(gdk::BUTTON_SECONDARY);
     right_click.set_propagation_phase(gtk::PropagationPhase::Capture);
-    right_click.connect_pressed(move |_g, _n, x, y| {
+    right_click.connect_pressed(move |g, _n, x, y| {
+        // Claim the gesture sequence so descendant widgets with their
+        // own internal gestures (notably `gtk::Scale`, which grabs
+        // every press through its slider handle) can't take over and
+        // suppress this popover. Without the claim, right-click on a
+        // GtkScale fires `connect_pressed` here briefly but the
+        // popover never appears because the scale's internal gesture
+        // group cancels ours mid-sequence.
+        g.set_state(gtk::EventSequenceState::Claimed);
         let menu = gtk::Popover::builder()
             .has_arrow(false)
             .autohide(true)
@@ -1392,6 +1400,13 @@ pub struct StyleToolbar {
     /// `clear_marks` + `add_mark` calls by hand on tool change /
     /// SaveSizeAsDefault.
     size_slider: Option<gtk::Scale>,
+    /// Clone of the brush smoothness slider — held so the handlers
+    /// below can imperatively re-position its single tick mark so the
+    /// mark always points at the current saved default
+    /// (`state::brush_post_smooth_iterations`). Without this the mark
+    /// is stuck at the position it was given at construction time,
+    /// even after the user persists a new default.
+    brush_smooth_slider: Option<gtk::Scale>,
     /// True iff a crop region currently exists (in either edit or
     /// committed state). Drives the "Revert to Original" button's
     /// visibility — pushed via `CropPresenceChanged` from sketch_board.
@@ -2176,6 +2191,12 @@ pub enum StyleToolbarInput {
     SetSpotlightDarkness(f32),
     SetHighlighterOpacity(f32),
     SetBrushPostSmooth(usize),
+    /// Re-read the persisted brush-smoothness default and re-position
+    /// the slider's tick mark to match. Fired right after the user's
+    /// right-click → "Save as default" so the visible mark jumps to
+    /// confirm the save. Idempotent — safe to fire when nothing has
+    /// changed (the mark just re-renders at the same position).
+    RefreshBrushSmoothMarks,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -4358,6 +4379,25 @@ impl StyleToolbar {
     /// and on `SaveSizeAsDefault` so the bold updates the moment
     /// the user persists a new default. Pointer / Crop don't own
     /// a size default; marks stay all-plain in those modes.
+    /// Re-position the brush-smoothness slider's single tick mark so
+    /// it points at the user's currently-persisted default
+    /// (`state.toml :: brush-post-smooth-iterations`, falling back to
+    /// the config / built-in 2). Called on init and after the user
+    /// right-clicks → "Save as default" so the visible feedback
+    /// confirms the save — without this the tick stays where it was
+    /// at construction time and the user can't tell whether the save
+    /// stuck.
+    fn refresh_brush_smooth_slider_marks(&self) {
+        let Some(slider) = self.brush_smooth_slider.as_ref() else {
+            return;
+        };
+        slider.clear_marks();
+        let saved = crate::state::load_brush_post_smooth_iterations()
+            .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations());
+        let label = format!("<span weight=\"heavy\">{}</span>", saved);
+        slider.add_mark(saved as f64, gtk::PositionType::Bottom, Some(&label));
+    }
+
     fn refresh_size_slider_marks(&self) {
         let Some(slider) = self.size_slider.as_ref() else {
             return;
@@ -4831,7 +4871,10 @@ impl Component for StyleToolbar {
                     #[watch]
                     #[block_signal(brush_smooth_value_changed)]
                     set_value: model.brush_post_smooth_iterations as f64,
-                    add_mark: (2.0, gtk::PositionType::Bottom, None),
+                    // The single tick mark moves to the saved-default
+                    // position (see `refresh_brush_smooth_slider_marks`)
+                    // so the user sees clear feedback when they save a
+                    // new default. No static mark here.
                     #[watch]
                     set_visible: model.current_tool == Tools::Brush,
                     connect_value_changed[sender] => move |scale| {
@@ -5222,6 +5265,9 @@ impl Component for StyleToolbar {
                 // suppressed, so we don't bounce back to sketch_board.
                 self.brush_post_smooth_iterations = value;
             }
+            StyleToolbarInput::RefreshBrushSmoothMarks => {
+                self.refresh_brush_smooth_slider_marks();
+            }
         }
     }
 
@@ -5263,8 +5309,10 @@ impl Component for StyleToolbar {
             current_tool: initial_tool,
             spotlight_darkness: crate::state::load_spotlight_darkness().unwrap_or(0.50),
             highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
-            brush_post_smooth_iterations: APP_CONFIG.read().brush_post_smooth_iterations(),
+            brush_post_smooth_iterations: crate::state::load_brush_post_smooth_iterations()
+                .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
             size_slider: None,
+            brush_smooth_slider: None,
             has_crop: false,
             current_size: initial_size,
             fill_shapes: APP_CONFIG.read().default_fill_shapes(),
@@ -5443,6 +5491,14 @@ impl Component for StyleToolbar {
             attach_save_default_popover(&widgets.brush_smooth_slider, move || {
                 s.output_sender()
                     .emit(ToolbarEvent::SaveBrushPostSmoothAsDefault);
+                // Also nudge ourselves to re-position the tick mark
+                // so the user gets immediate visible confirmation
+                // (the mark jumps to the slider's current position).
+                // The state.toml write the output emit triggers is
+                // synchronous in `sketch_board`, so by the time this
+                // input is processed `load_brush_post_smooth_iterations`
+                // returns the just-saved value.
+                s.input(StyleToolbarInput::RefreshBrushSmoothMarks);
             });
         }
         {
@@ -5480,6 +5536,8 @@ impl Component for StyleToolbar {
         // paint matches the active tool's stored default.
         model.size_slider = Some(widgets.size_slider.clone());
         model.refresh_size_slider_marks();
+        model.brush_smooth_slider = Some(widgets.brush_smooth_slider.clone());
+        model.refresh_brush_smooth_slider_marks();
 
         ComponentParts { model, widgets }
     }

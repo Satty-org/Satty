@@ -196,6 +196,12 @@ pub enum SketchBoardOutput {
     /// just-selected state.
     SelectionArrowStyleChanged(crate::tools::ArrowStyle),
     SelectionBlurStyleChanged(crate::tools::BlurStyle),
+    /// Selection-sync for Brush: the just-selected drawable's
+    /// post-stroke smoothing level. Toolbar mirrors it into the
+    /// slider (silent path) so the slider matches the annotation
+    /// clicked — and so subsequent slider drags re-smooth THAT
+    /// annotation rather than fighting an out-of-sync default.
+    SelectionBrushPostSmoothChanged(usize),
     /// Tool switch snapped the spotlight-darkness / highlighter-
     /// opacity slider back to the saved default. Toolbar updates
     /// its slider so the on-screen value matches the now-active
@@ -1167,6 +1173,36 @@ impl SketchBoard {
         }
     }
 
+    /// Re-run the brush smoothing pipeline on every currently-selected
+    /// brush annotation at the given level. Mirrors
+    /// `apply_arrow_style_to_selection` — gates on the drawable's
+    /// `smooth_level()` so the caller can fall through to the
+    /// "treat as default" branch when nothing brush is selected.
+    fn apply_brush_smooth_to_selection(&mut self, level: usize) -> ToolUpdateResult {
+        let selected_ids = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+        for id in selected_ids {
+            if let Some(mut d) = self.renderer.clone_drawable(id)
+                && d.smooth_level().is_some()
+            {
+                d.set_smooth_level(level);
+                updates.push((id, d));
+            }
+        }
+        match updates.len() {
+            0 => ToolUpdateResult::Unmodified,
+            1 => {
+                let (id, d) = updates.pop().unwrap();
+                ToolUpdateResult::ModifyDrawable(id, d)
+            }
+            _ => ToolUpdateResult::ModifyDrawables(updates),
+        }
+    }
+
     /// Read the current variant for the tool's cycle. When a single
     /// drawable of the matching type is selected, prefer its style
     /// over the global default — so cycling operates on the thing
@@ -1343,14 +1379,48 @@ impl SketchBoard {
                             // (falling back to the config / built-in
                             // 2) and pushes it into APP_CONFIG so the
                             // next stroke uses it.
-                            let saved =
+                            //
+                            // BUT: if the user got here because they
+                            // clicked an existing brush annotation
+                            // (the auto-tool-switch in
+                            // `sync_toolbar_to_selection`), use THAT
+                            // annotation's stored level instead — so
+                            // the slider lands on the value the
+                            // selected stroke was drawn with rather
+                            // than overwriting it with the saved
+                            // default a frame later. Subsequent slider
+                            // tweaks re-smooth the selected stroke;
+                            // re-entering Brush without a selection
+                            // (or selecting nothing) falls back to
+                            // the saved default normally.
+                            let selected_level = {
+                                let pt = self.tools.get(&Tools::Pointer);
+                                let selected = pt.borrow().selected_drawables();
+                                if selected.len() == 1 {
+                                    self.renderer
+                                        .clone_drawable(selected[0])
+                                        .and_then(|d| d.smooth_level())
+                                } else {
+                                    None
+                                }
+                            };
+                            let saved = selected_level.unwrap_or_else(|| {
                                 crate::state::load_brush_post_smooth_iterations()
                                     .unwrap_or_else(|| {
                                         APP_CONFIG.read().brush_post_smooth_iterations()
-                                    });
-                            APP_CONFIG
-                                .write()
-                                .set_brush_post_smooth_iterations(saved);
+                                    })
+                            });
+                            // Only update APP_CONFIG when this is a
+                            // genuine snapback (no selection driving
+                            // the value) — otherwise the user's slider
+                            // tweaks for the selected annotation would
+                            // bleed into the default for the *next*
+                            // new stroke.
+                            if selected_level.is_none() {
+                                APP_CONFIG
+                                    .write()
+                                    .set_brush_post_smooth_iterations(saved);
+                            }
                             sender
                                 .output_sender()
                                 .emit(SketchBoardOutput::BrushPostSmoothReset(saved));
@@ -1588,12 +1658,21 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::BrushPostSmoothChanged(value) => {
-                // Live-update APP_CONFIG so the brush tool's
-                // EndDrag handler sees the new iteration count on
-                // the next stroke. No persist on every nudge — the
-                // right-click popover is the persist gate.
-                APP_CONFIG.write().set_brush_post_smooth_iterations(value);
-                ToolUpdateResult::Unmodified
+                // Two paths:
+                //   1. If the user has a brush annotation selected,
+                //      re-smooth THAT annotation in place — the slider
+                //      becomes an "edit this stroke" control.
+                //      `BrushDrawable::smooth_post_stroke` always works
+                //      from the cached raw input so the stroke morphs
+                //      progressively without compounding smoothing.
+                //   2. Otherwise, treat as a default for the next
+                //      stroke and live-update APP_CONFIG. No persist
+                //      on every nudge — right-click is the persist gate.
+                let selection_result = self.apply_brush_smooth_to_selection(value);
+                if matches!(selection_result, ToolUpdateResult::Unmodified) {
+                    APP_CONFIG.write().set_brush_post_smooth_iterations(value);
+                }
+                selection_result
             }
             ToolbarEvent::SaveBrushPostSmoothAsDefault => {
                 crate::state::save_brush_post_smooth_iterations(
@@ -1955,6 +2034,11 @@ impl SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::SelectionBlurStyleChanged(s));
+            }
+            if let Some(level) = d.smooth_level() {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SelectionBrushPostSmoothChanged(level));
             }
             // Auto-switch the active tool to whatever created the
             // selected drawable so the StyleToolbar's tool-specific

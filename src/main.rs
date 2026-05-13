@@ -222,6 +222,11 @@ enum AppInput {
     SelectionTextBackgroundChanged(crate::tools::TextBackground),
     SelectionArrowStyleChanged(crate::tools::ArrowStyle),
     SelectionBlurStyleChanged(crate::tools::BlurStyle),
+    /// Selection-sync for Brush: the just-selected drawable's smoothing
+    /// level. App forwards into `StyleToolbarInput::SetBrushPostSmooth`
+    /// (the silent slider-snap path) so the slider mirrors the selected
+    /// annotation without re-applying anything.
+    SelectionBrushPostSmoothChanged(usize),
     /// Slider snapback events fired by sketch_board's ToolSelected
     /// handler when re-entering Spotlight or Highlighter — discard
     /// the previous session's in-flight slider value and read the
@@ -871,6 +876,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetBlurStyleSilently(style));
             }
+            AppInput::SelectionBrushPostSmoothChanged(value) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetBrushPostSmooth(value));
+            }
             AppInput::SpotlightDarknessReset(value) => {
                 self.style_toolbar
                     .sender()
@@ -989,6 +999,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::SelectionBlurStyleChanged(s) => {
                         AppInput::SelectionBlurStyleChanged(s)
+                    }
+                    SketchBoardOutput::SelectionBrushPostSmoothChanged(v) => {
+                        AppInput::SelectionBrushPostSmoothChanged(v)
                     }
                     SketchBoardOutput::SpotlightDarknessReset(v) => {
                         AppInput::SpotlightDarknessReset(v)

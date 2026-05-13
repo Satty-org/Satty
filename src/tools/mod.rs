@@ -366,6 +366,18 @@ pub trait Drawable: DrawableClone + Debug {
         None
     }
 
+    /// Apply / read the post-stroke smoothing iteration count on a
+    /// Brush drawable. The drawable caches its raw (online-smoothed)
+    /// input so calling `set_smooth_level` after commit re-runs the
+    /// smoothing pipeline from the same baseline — the user can keep
+    /// nudging the slider with the annotation selected and the
+    /// stroke morphs progressively without compounding smoothing on
+    /// already-smoothed data. `None` / no-op for non-brush drawables.
+    fn smooth_level(&self) -> Option<usize> {
+        None
+    }
+    fn set_smooth_level(&mut self, _level: usize) {}
+
     /// Which tool created this drawable. Used by sketch_board to
     /// auto-switch the active tool when the user selects an existing
     /// drawable, so the toolbar's tool-specific controls (arrow
