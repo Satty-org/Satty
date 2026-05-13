@@ -2249,6 +2249,19 @@ impl FemtoVgAreaMut {
         )
     }
 
+    pub fn abs_image_to_canvas_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
+        Vec2D::new(
+            (input.x * self.effective_scale + self.effective_offset.x) / dpi_scale_factor,
+            (input.y * self.effective_scale + self.effective_offset.y) / dpi_scale_factor,
+        )
+    }
+    pub fn rel_image_to_canvas_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
+        Vec2D::new(
+            input.x * self.effective_scale / dpi_scale_factor,
+            input.y * self.effective_scale / dpi_scale_factor,
+        )
+    }
+
     pub fn set_zoom_scale(&mut self, factor: f32, abs: bool) {
         if self.is_drag {
             return;

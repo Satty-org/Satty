@@ -40,6 +40,16 @@ pub struct Crop {
     /// crop without re-pressing Enter (tool switch OR Esc both flow
     /// through deactivation). `None` until the first commit.
     last_committed: Option<(Vec2D, Vec2D)>,
+    /// Position of the crop frame in CANVAS (CSS-pixel) coords,
+    /// populated by `CropTool::sync_canvas_from_image` once an edit
+    /// session starts. Source of truth for the inside-out workflow:
+    /// the frame stays fixed in canvas pixels while plain-wheel
+    /// zoom + Ctrl+drag pan reflow the image beneath it (see
+    /// CROP_INSIDE_OUT_PLAN.md). Outside edit mode the value is
+    /// stale bookkeeping — image-coord `pos`/`size` are authoritative
+    /// then.
+    canvas_pos: Vec2D,
+    canvas_size: Vec2D,
     /// Color of the matte rendered OUTSIDE the crop rectangle. Set
     /// from the top toolbar's background-color dropdown via
     /// `CropTool::set_bg_color`.
@@ -287,6 +297,8 @@ impl Crop {
             committed: false,
             ever_committed: false,
             last_committed: None,
+            canvas_pos: Vec2D::zero(),
+            canvas_size: Vec2D::zero(),
             bg_color,
         }
     }
@@ -762,6 +774,8 @@ impl CropTool {
             committed: false,
             ever_committed: false,
             last_committed: None,
+            canvas_pos: Vec2D::zero(),
+            canvas_size: Vec2D::zero(),
             bg_color: self.bg_color,
         });
         self.action = None;
@@ -841,6 +855,31 @@ impl CropTool {
                 .ok();
         }
         ToolUpdateResult::Redraw
+    }
+
+    /// Populate the live crop's canvas-coord representation from its
+    /// current image-coord rect via the caller-supplied transform.
+    /// Sketch_board calls this on Crop tool activation so the
+    /// inside-out edit workflow has a canvas-fixed frame anchor as
+    /// soon as the user starts editing.
+    ///
+    /// `canvas_pos`/`canvas_size` are pre-computed by the renderer
+    /// (`image_to_canvas_rect`) so this method doesn't need a
+    /// back-reference to the renderer itself.
+    pub fn sync_canvas_from_image(&mut self, canvas_pos: Vec2D, canvas_size: Vec2D) {
+        if let Some(c) = self.crop.as_mut() {
+            c.canvas_pos = canvas_pos;
+            c.canvas_size = canvas_size;
+        }
+    }
+
+    /// Current image-coord rect (canonicalized to positive size) for
+    /// the live crop, or `None` if no crop exists. Sketch_board reads
+    /// this before calling `sync_canvas_from_image` to compute the
+    /// matching canvas rect via the renderer.
+    pub fn current_image_rect(&self) -> Option<(Vec2D, Vec2D)> {
+        let crop = self.crop.as_ref()?;
+        Some(crop.get_rectangle())
     }
 
     /// Toggle whether crop edges snap to image edges during drag.
@@ -1172,6 +1211,8 @@ impl CropTool {
                 committed: false,
                 ever_committed: false,
                 last_committed: None,
+                canvas_pos: Vec2D::zero(),
+                canvas_size: Vec2D::zero(),
                 bg_color: self.bg_color,
             });
             self.emit_crop_presence(true);
@@ -1569,6 +1610,8 @@ impl Tool for CropTool {
                 committed: false,
                 ever_committed: false,
                 last_committed: None,
+                canvas_pos: Vec2D::zero(),
+                canvas_size: Vec2D::zero(),
                 bg_color: self.bg_color,
             });
             // Seeded crop counts as "crop present" — surface Revert

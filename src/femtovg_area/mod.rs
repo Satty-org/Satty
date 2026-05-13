@@ -282,6 +282,50 @@ impl FemtoVGArea {
             .rel_canvas_to_image_coordinates(input, self.scale_factor() as f32)
     }
 
+    pub fn abs_image_to_canvas_coordinates(&self, input: Vec2D) -> Vec2D {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .abs_image_to_canvas_coordinates(input, self.scale_factor() as f32)
+    }
+
+    pub fn rel_image_to_canvas_coordinates(&self, input: Vec2D) -> Vec2D {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .rel_image_to_canvas_coordinates(input, self.scale_factor() as f32)
+    }
+
+    /// Crop's inside-out edit workflow stores the frame in canvas
+    /// coords during edit so the image can zoom + pan beneath a
+    /// canvas-fixed frame. These helpers convert between the two
+    /// representations through the renderer's current effective
+    /// transform — image_to_canvas projects an image-coord rect to
+    /// where it currently lands on canvas, canvas_to_image inverts.
+    pub fn image_to_canvas_rect(
+        &self,
+        image_pos: Vec2D,
+        image_size: Vec2D,
+    ) -> (Vec2D, Vec2D) {
+        (
+            self.abs_image_to_canvas_coordinates(image_pos),
+            self.rel_image_to_canvas_coordinates(image_size),
+        )
+    }
+
+    pub fn canvas_to_image_rect(
+        &self,
+        canvas_pos: Vec2D,
+        canvas_size: Vec2D,
+    ) -> (Vec2D, Vec2D) {
+        (
+            self.abs_canvas_to_image_coordinates(canvas_pos),
+            self.rel_canvas_to_image_coordinates(canvas_size),
+        )
+    }
+
     pub fn init(
         &mut self,
         sender: Sender<SketchBoardInput>,

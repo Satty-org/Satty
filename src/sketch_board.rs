@@ -1725,6 +1725,26 @@ impl SketchBoard {
         // (or arrow for pointer/crop) without waiting for mouse move.
         self.apply_idle_cursor();
 
+        // Seed the crop tool's canvas-coord frame from its image-coord
+        // rect for the inside-out edit workflow (CROP_INSIDE_OUT_PLAN.md).
+        // Done after Activated so any seed-from-bounds or un-commit
+        // mutation in `handle_activated` has finished — we read the
+        // post-activation image rect and project it through the current
+        // renderer transform. The canvas frame stays fixed in canvas
+        // pixels while later phases let plain wheel + Ctrl+drag move
+        // the image beneath it.
+        if tool == Tools::Crop {
+            let crop_tool = self.tools.get_crop_tool();
+            let image_rect = crop_tool.borrow().current_image_rect();
+            if let Some((image_pos, image_size)) = image_rect {
+                let (canvas_pos, canvas_size) =
+                    self.renderer.image_to_canvas_rect(image_pos, image_size);
+                crop_tool
+                    .borrow_mut()
+                    .sync_canvas_from_image(canvas_pos, canvas_size);
+            }
+        }
+
         match activate_result {
             ToolUpdateResult::Unmodified => deactivate_result,
             _ => activate_result,
