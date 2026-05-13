@@ -176,6 +176,12 @@ pub enum SketchBoardOutput {
     /// re-emit, because sketch_board already pushed the size to the
     /// active tool via `dispatch_style_change`.
     ToolSizeChanged(crate::style::Size),
+    /// Sketch board bumped the annotation multiplier programmatically
+    /// (Alt+wheel on the canvas). The toolbar's pill mirrors the new
+    /// value into its display — no `AnnotationSizeChanged` re-emit,
+    /// because sketch_board has already pushed the factor through
+    /// `dispatch_style_change`.
+    AnnotationFactorChanged(f32),
     /// The intrinsic size of what's currently displayed on the canvas
     /// changed — emitted on initial layout, crop commit (cropped
     /// region dims), re-enter of crop edit mode (full image dims), and
@@ -2731,6 +2737,46 @@ impl SketchBoard {
         }
     }
 
+    /// Bump the annotation multiplier (`style.annotation_size_factor`)
+    /// by `dy`-derived steps. Runs the same dispatch path as the
+    /// pill-hover scroll handler so a selection's per-drawable factor
+    /// updates alongside the global default. The toolbar's pill picks
+    /// up the new value via the `AnnotationSizeChanged` output.
+    fn scroll_annotation_multiplier(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
+        let steps = self.drain_scroll_resize_steps(dy);
+        if steps == 0 {
+            return;
+        }
+        // Mirror the toolbar's annotation-pill constants. Inlined
+        // here rather than re-exporting because the values are tied
+        // to the UI design (0.1-unit step matches the pill's quantise
+        // grid; 0.1..=10.0 matches the entry widget's clamp).
+        const ANNOTATION_STEP: f32 = 0.1;
+        const ANNOTATION_MIN: f32 = 0.10;
+        const ANNOTATION_MAX: f32 = 10.0;
+        let cur = self.style.annotation_size_factor;
+        let new_val =
+            (cur + steps as f32 * ANNOTATION_STEP).clamp(ANNOTATION_MIN, ANNOTATION_MAX);
+        // Round to the nearest step so trackpad accumulation doesn't
+        // park between detents (the pill's display would otherwise
+        // show e.g. "1.13×" instead of "1.10×").
+        let new_val = (new_val / ANNOTATION_STEP).round() * ANNOTATION_STEP;
+        if (new_val - cur).abs() < f32::EPSILON {
+            return;
+        }
+        self.style.annotation_size_factor = new_val;
+        self.dispatch_style_change();
+        // The toolbar's pill listens for `SelectionStyleChanged`
+        // (single-select) and `SelectionMultiAgreement` (multi) to
+        // update — but with no selection, neither fires for an
+        // annotation-only change. Push the value explicitly so the
+        // pill always reflects the active multiplier.
+        outer_sender
+            .output_sender()
+            .emit(SketchBoardOutput::AnnotationFactorChanged(new_val));
+        self.refresh_screen();
+    }
+
     /// Bump the active tool's `style.size` by `dy`-derived steps.
     /// Notifies the toolbar so the slider stays in sync.
     fn scroll_resize_tool_size(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
@@ -3207,6 +3253,18 @@ impl Component for SketchBoard {
                             } else {
                                 (dx, dy)
                             };
+                            // Horizontal axis goes through pan_by with
+                            // the OPPOSITE convention of vertical:
+                            // pan_by(+dx, 0) moves the image right
+                            // (the same way pan_by(0, +dy) moves the
+                            // image DOWN), but a GTK swipe-right /
+                            // tilt-right reports dx>0 expecting the
+                            // user to perceive content "scrolling
+                            // right" — i.e., image moving LEFT.
+                            // Negating dx here aligns horizontal
+                            // direction with vertical regardless of
+                            // the OS / app natural-scrolling polarity.
+                            let dx = -dx;
                             sender.input(SketchBoardInput::new_pan_scroll_event(
                                 dx, dy, modifier,
                             ));
@@ -3519,6 +3577,7 @@ impl Component for SketchBoard {
                             .selected_drawables();
                         let ctrl_held = me.modifier.contains(ModifierType::CONTROL_MASK);
                         let shift_held = me.modifier.contains(ModifierType::SHIFT_MASK);
+                        let alt_held = me.modifier.contains(ModifierType::ALT_MASK);
                         if ctrl_held && shift_held {
                             // Ctrl+Shift+wheel → bump the active tool's
                             // "alternate" slider (the per-tool cluster
@@ -3529,6 +3588,18 @@ impl Component for SketchBoard {
                             // tweak the alt slider mid-selection
                             // without accidentally resizing.
                             self.scroll_alt_slider(me.pos.y, &outer_sender);
+                            true
+                        } else if alt_held {
+                            // Alt+wheel → bump the annotation
+                            // multiplier. Matches the existing pill-
+                            // hover scroll binding so the user doesn't
+                            // need to move the pointer over the bottom
+                            // toolbar to nudge the factor. With a
+                            // selection, the bump applies via
+                            // dispatch_style_change (same path as the
+                            // pill drag); without one, it just updates
+                            // the next-stroke default.
+                            self.scroll_annotation_multiplier(me.pos.y, &outer_sender);
                             true
                         } else if !selected.is_empty() {
                             // Selection + wheel → resize the selected

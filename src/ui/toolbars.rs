@@ -2215,6 +2215,12 @@ pub enum StyleToolbarInput {
     /// without re-emitting `SizeSelected` (sketch_board already
     /// pushed the new size to the active tool).
     SetCurrentSize(crate::style::Size),
+    /// Mirror sketch_board's annotation multiplier into the pill
+    /// without re-emitting `AnnotationSizeChanged` (sketch_board has
+    /// already applied the value to selection / next-stroke style).
+    /// Fired by the canvas Alt+wheel binding so the pill stays in
+    /// sync with the wheel.
+    SetAnnotationFactor(f32),
     /// The active drawing tool changed; tool-specific controls re-evaluate
     /// their visibility.
     ToolChanged(Tools),
@@ -5190,6 +5196,15 @@ impl Component for StyleToolbar {
                 // slider without re-broadcasting — sketch_board has
                 // already applied the value via dispatch_style_change.
                 self.current_size = size;
+            }
+            StyleToolbarInput::SetAnnotationFactor(value) => {
+                // Mirror sketch_board's annotation factor change
+                // into the pill. Snap so the display tracks the
+                // detent grid (1.0× / 1.1× / etc.) rather than
+                // showing whatever fractional value floated in.
+                let snapped = quantise_annotation(value);
+                self.annotation_size = snapped;
+                self.annotation_size_formatted = format_annotation(snapped);
             }
             StyleToolbarInput::SyncToToolDefault => {
                 // Fired by main.rs on deselect — slide back to the

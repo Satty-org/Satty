@@ -155,6 +155,9 @@ enum AppInput {
     /// Sketch board changed the active tool's size — forward to the
     /// style toolbar so its slider mirrors the new value.
     ToolSizeChanged(crate::style::Size),
+    /// Annotation multiplier bumped via Alt+wheel on the canvas —
+    /// pill mirrors the new value silently.
+    AnnotationFactorChanged(f32),
     /// The canvas's intrinsic content size changed (crop commit /
     /// re-enter crop edit / revert). Re-fit the window around the
     /// new content with the same padding-and-90 %-cap logic the
@@ -810,6 +813,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetCurrentSize(size));
             }
+            AppInput::AnnotationFactorChanged(value) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetAnnotationFactor(value));
+            }
             AppInput::ContentSizeChanged { width, height } => {
                 // Fit the window around the new content — applied via
                 // `set_default_size`, which Wayland's compositor will
@@ -1024,6 +1032,9 @@ impl Component for App {
                     },
                     SketchBoardOutput::ToolSizeChanged(size) => {
                         AppInput::ToolSizeChanged(size)
+                    }
+                    SketchBoardOutput::AnnotationFactorChanged(v) => {
+                        AppInput::AnnotationFactorChanged(v)
                     }
                     SketchBoardOutput::ContentSizeChanged { width, height } => {
                         AppInput::ContentSizeChanged { width, height }
