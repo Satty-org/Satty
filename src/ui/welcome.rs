@@ -168,7 +168,7 @@ impl Component for WelcomeDialog {
                     set_wrap: true,
                     set_xalign: 0.0,
                     set_use_markup: true,
-                    set_label: "<i>You need to save a value to continue. This dialog won't reappear once a factor is persisted — change it later via the toolbar's “Edit Annotation Size Factor” button.</i>",
+                    set_label: "<i>You need to save a value to continue. This dialog won't reappear once a factor is persisted — change it later in Preferences (Ctrl+,) or via Alt+scroll on the canvas.</i>",
                 },
 
                 gtk::Box {

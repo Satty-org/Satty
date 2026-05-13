@@ -1382,8 +1382,6 @@ fn build_color_popover_grid(
 
 pub struct StyleToolbar {
     visible: bool,
-    annotation_size: f32,
-    annotation_size_formatted: String,
     /// Tracks the currently-active tool so tool-specific controls (e.g. the
     /// arrow-style dropdown) can show/hide reactively.
     current_tool: Tools,
@@ -1405,12 +1403,6 @@ pub struct StyleToolbar {
     /// accidentally collapse the group to a single value. Driven by
     /// `SyncMultiAgreement` (and reset on single-select / empty).
     size_slider_disabled: bool,
-    /// True while a multi-selection has a mixed `annotation_size_factor`
-    /// (the per-drawable multiplier). Greys out the annotation pill so
-    /// a drag/edit can't accidentally collapse the mixed group onto
-    /// one value. Driven by `SyncMultiAgreement` (and reset on
-    /// single-select / empty).
-    annotation_pill_disabled: bool,
     /// True while there is an active selection (single or multi).
     /// Read by the `ToolChanged` handler so its "snap slider to the
     /// new tool's saved default" auto-emit only fires when there is
@@ -1474,32 +1466,6 @@ pub struct StyleToolbar {
     /// "outline only". Mirrored locally so the Fill Shape button's
     /// icon and tooltip can update via `#[watch]`.
     fill_shapes: bool,
-    /// Annotation-size value captured at the start of a drag-to-edit
-    /// gesture on the multiplier pill, in factor units. `AnnotationDragMove`
-    /// adds (delta_x_in_pixels × ANNOTATION_DRAG_GAIN) to this to get the
-    /// new value. Cleared on `AnnotationDragEnd`.
-    annotation_drag_origin: Option<f32>,
-    /// Accumulator for the scroll-over-pill gesture. A notched mouse
-    /// wheel reports |dy| = 1.0 per click so each notch fires one
-    /// `ANNOTATION_STEP` bump; trackpads emit many sub-1 dy events
-    /// per swipe, which would otherwise either undershoot (if we
-    /// require |dy| ≥ 1) or overshoot (if we step on every event).
-    /// Accumulate dy and consume it in whole-notch chunks.
-    annotation_scroll_accum: f32,
-    /// True while the annotation pill is showing its inline `gtk::Entry`
-    /// (click without drag flips this on). Drives the stack's visible
-    /// child via imperative `set_visible_child_name` calls in the
-    /// update handlers — using `#[watch]` here would emit a startup
-    /// warning because the watch fires before the named children have
-    /// been attached.
-    editing_annotation: bool,
-    /// Handle to the inline entry so the update path can grab focus +
-    /// select-all the moment edit mode is entered. Stashed after
-    /// `view_output!` in `init`.
-    annotation_entry: Option<gtk::Entry>,
-    /// Handle to the display ↔ edit stack so update handlers can flip
-    /// the visible child without going through `#[watch]`.
-    annotation_stack: Option<gtk::Stack>,
     /// Inner `Label` of the Fill button's custom-tooltip popover,
     /// captured in init() after `install_dynamic_tooltip` so the
     /// `ToggleFill` handler can refresh the wording every time the
@@ -1897,39 +1863,6 @@ fn size_tooltip_text(has_selection: bool) -> &'static str {
     }
 }
 
-/// How many factor units one pointer-pixel of horizontal drag is worth
-/// on the annotation-size pill before quantising to `ANNOTATION_STEP`.
-/// 0.02 × 5 px = one 0.1 step — so a comfortable wrist-flick of ~50 px
-/// covers a 1.0-unit change without making smaller tweaks awkward.
-const ANNOTATION_DRAG_GAIN: f32 = 0.02;
-/// Quantisation step for the annotation-size value. Both drag and
-/// inline-edit commits snap to this, and the displayed string uses one
-/// decimal place to match.
-const ANNOTATION_STEP: f32 = 0.1;
-/// Pointer-pixel threshold before a press counts as a drag rather than
-/// a plain click. Below this, releasing falls through to the
-/// inline-edit path (the entry takes focus).
-const ANNOTATION_DRAG_THRESHOLD: f64 = 3.0;
-/// Hard limits for the annotation-size factor — keeps both drag and
-/// inline-edit inputs in the same range that the welcome dialog and
-/// state-persistence layers expect.
-const ANNOTATION_MIN: f32 = 0.10;
-const ANNOTATION_MAX: f32 = 10.0;
-
-/// Format a factor value the way the pill (and the entry) should show
-/// it: single decimal, always present, no leading "0" stripping.
-fn format_annotation(value: f32) -> String {
-    format!("{value:.1}")
-}
-
-/// Snap a raw factor to the nearest `ANNOTATION_STEP` and clamp into
-/// `[ANNOTATION_MIN, ANNOTATION_MAX]`. Shared between drag and inline
-/// commits so both paths produce identical, persistable values.
-fn quantise_annotation(value: f32) -> f32 {
-    let stepped = (value / ANNOTATION_STEP).round() * ANNOTATION_STEP;
-    stepped.clamp(ANNOTATION_MIN, ANNOTATION_MAX)
-}
-
 /// Map a `Size` to the size slider's integer position (0..=5). The
 /// helper sits next to its inverse so the two stay in sync.
 fn size_to_slider_value(size: Size) -> f64 {
@@ -2000,7 +1933,6 @@ pub enum ToolbarEvent {
     SaveFile,
     CopyClipboard,
     ToggleFill,
-    AnnotationSizeChanged(f32),
     Reset,
     SaveFileAs,
     Resize,
@@ -2184,41 +2116,6 @@ pub enum ToolsToolbarInput {
 pub enum StyleToolbarInput {
     SetVisibility(bool),
     ToggleVisibility,
-    AnnotationDialogFinished(Option<f32>),
-    /// Drag started on the annotation-size pill. Snapshot the current
-    /// value so subsequent `AnnotationDragMove` events can compute the
-    /// new factor relative to drag-start (avoids drift from repeated
-    /// rounding).
-    AnnotationDragStart,
-    /// In-flight drag delta in pointer-pixels (positive = right). The
-    /// handler converts pixels to factor units and broadcasts a fresh
-    /// `AnnotationSizeChanged` so the change is live, not deferred to
-    /// release.
-    AnnotationDragMove(f64),
-    /// Drag finished. `dragged` is true if the pointer moved enough to
-    /// count as a value-edit; when false we treat the gesture as a
-    /// plain click and flip the pill into inline-edit mode.
-    AnnotationDragEnd { dragged: bool },
-    /// Inline `gtk::Entry` confirmed a value — fires on Enter (the
-    /// entry's `connect_activate`) and on focus-out. The handler reads
-    /// the live text out of the stashed entry handle so we don't have
-    /// to ship the String through the input enum (every event source
-    /// would otherwise need its own widget reference).
-    AnnotationCommitEditFromEntry,
-    /// Esc was pressed while editing — abandon the entry without
-    /// committing, restoring the prior value.
-    AnnotationCancelEdit,
-    /// Right-click → "Save as default" on the multiplier pill.
-    /// Writes the current annotation_size to persisted state so the
-    /// next launch starts at this value instead of falling back to
-    /// the welcome-dialog default or the config.toml fallback.
-    SaveAnnotationAsDefault,
-    /// Scroll wheel over the multiplier pill — `dy` is GTK's signed
-    /// scroll delta (positive = scroll down). The handler accumulates
-    /// and bumps the annotation factor by ±`ANNOTATION_STEP` per
-    /// virtual notch so trackpads don't blow past the value in one
-    /// flick.
-    AnnotationScrollBump(f64),
     /// Right-click → "Save as default" on the size slider. Writes
     /// the current size as the saved default for the currently-active
     /// tool. Future tool-switches into that tool (and the next
@@ -2233,12 +2130,6 @@ pub enum StyleToolbarInput {
     /// without re-emitting `SizeSelected` (sketch_board already
     /// pushed the new size to the active tool).
     SetCurrentSize(crate::style::Size),
-    /// Mirror sketch_board's annotation multiplier into the pill
-    /// without re-emitting `AnnotationSizeChanged` (sketch_board has
-    /// already applied the value to selection / next-stroke style).
-    /// Fired by the canvas Alt+wheel binding so the pill stays in
-    /// sync with the wheel.
-    SetAnnotationFactor(f32),
     /// The active drawing tool changed; tool-specific controls re-evaluate
     /// their visibility.
     ToolChanged(Tools),
@@ -2262,7 +2153,6 @@ pub enum StyleToolbarInput {
     SyncMultiAgreement {
         size: Option<crate::style::Size>,
         smooth: crate::sketch_board::SmoothLevelMulti,
-        annotation: Option<f32>,
     },
     /// Fill-shape button clicked. Mirrors `ToolbarEvent::ToggleFill`
     /// upstream and flips the local `fill_shapes` flag so the icon +
@@ -4643,128 +4533,14 @@ impl Component for StyleToolbar {
                     sender.input(StyleToolbarInput::SizeChanged(size));
                 } @size_changed,
             },
-            // (Tool-specific controls — arrow style, blur style,
-            // text background, spotlight darkness, highlighter
-            // opacity — used to sit inline here. They've been moved
-            // to the fixed-width right cluster below so toggling
-            // between tools doesn't make the central toolbar's
-            // width pulse.)
-            gtk::Label {
-                set_focusable: false,
-                set_hexpand: false,
-                set_margin_start: 12,
-                set_margin_end: 6,
-
-                set_text: "x",
-            },
-            // Multiplier pill: a Stack with the drag-edit Button visible
-            // most of the time, swapping in a `gtk::Entry` for inline
-            // typing when the user single-clicks the pill. Both children
-            // share the same outer width so the cluster doesn't reflow
-            // mid-edit. The Stack's transition is `None` because the
-            // flip is meant to feel instantaneous (focus has to land in
-            // the entry the same frame the user clicked).
-            #[name = "annotation_stack"]
-            gtk::Stack {
-                set_transition_type: gtk::StackTransitionType::None,
-                set_hhomogeneous: true,
-                set_vhomogeneous: true,
-                set_valign: gtk::Align::Center,
-
-                #[name = "annotation_pill"]
-                add_named[Some("display")] = &gtk::Button {
-                    add_css_class: "compact-control",
-                    add_css_class: "drag-edit",
-                    set_focusable: false,
-                    set_hexpand: false,
-                    set_valign: gtk::Align::Center,
-                    set_height_request: 34,
-                    // Greyed out when a multi-selection has mixed
-                    // per-drawable annotation factors — same rule as
-                    // the size slider's disabled state. Also when
-                    // the active tool is Spotlight (which doesn't
-                    // read `style.annotation_size_factor`).
-                    #[watch]
-                    set_sensitive: !model.annotation_pill_disabled
-                        && model.current_tool != Tools::Spotlight,
-                    // ew-resize cursor signals "horizontal scrub" the moment
-                    // the pointer enters the pill; combined with the
-                    // GestureDrag below this gives the same feel as the
-                    // numeric inputs in Blender / web devtools.
-                    set_cursor_from_name: Some("ew-resize"),
-
-                    #[watch]
-                    set_label: &model.annotation_size_formatted,
-                    install_tooltip_above: "Drag to change · click to type a value",
-
-                    add_controller = gtk::GestureDrag {
-                        connect_drag_begin[sender] => move |_gesture, _x, _y| {
-                            sender.input(StyleToolbarInput::AnnotationDragStart);
-                        },
-                        connect_drag_update[sender, dragged] => move |_gesture, offset_x, _offset_y| {
-                            if offset_x.abs() >= ANNOTATION_DRAG_THRESHOLD {
-                                dragged.set(true);
-                            }
-                            sender.input(StyleToolbarInput::AnnotationDragMove(offset_x));
-                        },
-                        connect_drag_end[sender, dragged] => move |_gesture, _x, _y| {
-                            let was_dragged = dragged.replace(false);
-                            sender.input(StyleToolbarInput::AnnotationDragEnd { dragged: was_dragged });
-                        },
-                    },
-                },
-
-                #[name = "annotation_entry"]
-                add_named[Some("edit")] = &gtk::Entry {
-                    add_css_class: "compact-control",
-                    add_css_class: "annotation-entry",
-                    set_hexpand: false,
-                    set_valign: gtk::Align::Center,
-                    set_height_request: 34,
-                    // `EntryExt::set_alignment` and `EditableExt::set_alignment`
-                    // both exist on `Entry` and the relm4 view-macro can't
-                    // pick between them — call the editable one
-                    // explicitly post-construction in init().
-                    set_max_length: 6,
-                    set_width_chars: 4,
-                    set_max_width_chars: 5,
-                    set_input_purpose: gtk::InputPurpose::Number,
-                    set_text: &model.annotation_size_formatted,
-                    install_tooltip_above: "Enter a multiplier (0.1–10.0)",
-
-                    // Enter commits; focus-out below routes through the
-                    // same path so clicking away persists whatever the
-                    // user typed. Both signals dispatch the variant
-                    // that reads the entry text from the stashed handle
-                    // rather than threading it through the input enum.
-                    connect_activate[sender] => move |_entry| {
-                        sender.input(StyleToolbarInput::AnnotationCommitEditFromEntry);
-                    },
-
-                    // Focus-out commits — feels more forgiving than
-                    // discarding the entry text when the user tabs
-                    // away or clicks elsewhere.
-                    add_controller = gtk::EventControllerFocus {
-                        connect_leave[sender] => move |_| {
-                            sender.input(StyleToolbarInput::AnnotationCommitEditFromEntry);
-                        },
-                    },
-
-                    // Esc cancels — explicit escape hatch in case the
-                    // user wants to bail out without saving whatever
-                    // they typed.
-                    add_controller = gtk::EventControllerKey {
-                        connect_key_pressed[sender] => move |_, key, _, _| {
-                            if key == gtk::gdk::Key::Escape {
-                                sender.input(StyleToolbarInput::AnnotationCancelEdit);
-                                gtk::glib::Propagation::Stop
-                            } else {
-                                gtk::glib::Propagation::Proceed
-                            }
-                        },
-                    },
-                },
-            },
+            // (The annotation-size-factor pill used to live here, with
+            // an "x" label preceding it. It moved into Preferences
+            // because the factor is fundamentally a one-time
+            // display-scale calibration, not a per-stroke knob — the
+            // toolbar surface was inviting confusion every time it
+            // re-synced from a selection. Alt+scroll on the canvas
+            // still nudges the live factor (sketch_board emits a
+            // toast for feedback).)
             // (Output dimensions moved out of the center cluster into
             // `bottom_row.end_widget` so they live opposite the zoom
             // indicator and stay visible during Crop mode, where the
@@ -5060,158 +4836,6 @@ impl Component for StyleToolbar {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            StyleToolbarInput::AnnotationDialogFinished(value) => {
-                if let Some(value) = value {
-                    let snapped = quantise_annotation(value);
-                    self.annotation_size = snapped;
-                    self.annotation_size_formatted = format_annotation(snapped);
-
-                    sender
-                        .output_sender()
-                        .emit(ToolbarEvent::AnnotationSizeChanged(snapped));
-                }
-            }
-            StyleToolbarInput::AnnotationDragStart => {
-                self.annotation_drag_origin = Some(self.annotation_size);
-            }
-            StyleToolbarInput::AnnotationDragMove(dx) => {
-                if let Some(origin) = self.annotation_drag_origin {
-                    let raw = origin + dx as f32 * ANNOTATION_DRAG_GAIN;
-                    let new_value = quantise_annotation(raw);
-                    if (new_value - self.annotation_size).abs() >= ANNOTATION_STEP / 2.0 {
-                        self.annotation_size = new_value;
-                        self.annotation_size_formatted = format_annotation(new_value);
-                        sender
-                            .output_sender()
-                            .emit(ToolbarEvent::AnnotationSizeChanged(new_value));
-                    }
-                }
-            }
-            StyleToolbarInput::AnnotationDragEnd { dragged } => {
-                self.annotation_drag_origin = None;
-                if !dragged {
-                    // Click without drag → flip into inline-edit mode and
-                    // hand keyboard focus to the entry. Stack swap is
-                    // synchronous; the focus+select needs an idle tick
-                    // because the entry's first realize happens during
-                    // this same event-loop turn and grab_focus before
-                    // realize is a no-op.
-                    self.editing_annotation = true;
-                    if let Some(stack) = &self.annotation_stack {
-                        stack.set_visible_child_name("edit");
-                    }
-                    if let Some(entry) = self.annotation_entry.clone() {
-                        entry.set_text(&self.annotation_size_formatted);
-                        gtk::glib::idle_add_local_once(move || {
-                            entry.grab_focus();
-                            entry.select_region(0, -1);
-                        });
-                    }
-                } else {
-                    sender.output_sender().emit(ToolbarEvent::FocusCanvas);
-                }
-            }
-            StyleToolbarInput::AnnotationCommitEditFromEntry => {
-                // Idempotent: focus-out can fire after we've already
-                // exited edit mode (e.g. Enter committed first, then
-                // focus moves out). Skip the work in that case so we
-                // don't double-emit AnnotationSizeChanged.
-                if !self.editing_annotation {
-                    return;
-                }
-                let text = self
-                    .annotation_entry
-                    .as_ref()
-                    .map(|e| e.text().to_string())
-                    .unwrap_or_default();
-                // Parse leniently, snap to the 0.1 step, clamp into the
-                // supported range. Unparseable text just restores the
-                // prior value (no error, no toast).
-                let parsed = text.trim().parse::<f32>().ok();
-                if let Some(value) = parsed {
-                    let snapped = quantise_annotation(value);
-                    if (snapped - self.annotation_size).abs() >= ANNOTATION_STEP / 2.0 {
-                        self.annotation_size = snapped;
-                        self.annotation_size_formatted = format_annotation(snapped);
-                        sender
-                            .output_sender()
-                            .emit(ToolbarEvent::AnnotationSizeChanged(snapped));
-                    } else {
-                        // Even when the value didn't actually change, the
-                        // formatted string we display might have drifted
-                        // (e.g. user typed "2" → "2.0"); refresh so the
-                        // pill reads back canonically on exit.
-                        self.annotation_size_formatted = format_annotation(self.annotation_size);
-                    }
-                } else {
-                    self.annotation_size_formatted = format_annotation(self.annotation_size);
-                }
-                self.editing_annotation = false;
-                if let Some(stack) = &self.annotation_stack {
-                    stack.set_visible_child_name("display");
-                }
-                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
-            }
-            StyleToolbarInput::AnnotationCancelEdit => {
-                // Drop edit mode and re-sync the entry text to the live
-                // model value so re-opening starts clean.
-                self.editing_annotation = false;
-                if let Some(entry) = &self.annotation_entry {
-                    entry.set_text(&self.annotation_size_formatted);
-                }
-                if let Some(stack) = &self.annotation_stack {
-                    stack.set_visible_child_name("display");
-                }
-                sender.output_sender().emit(ToolbarEvent::FocusCanvas);
-            }
-            StyleToolbarInput::SaveAnnotationAsDefault => {
-                // Persist the live multiplier to state so next launch
-                // starts here. Side-effect-only — we don't re-emit
-                // AnnotationSizeChanged because the value already IS
-                // the live value (the drag/entry path emitted it on
-                // change).
-                crate::state::save_annotation_size_factor(self.annotation_size);
-            }
-            StyleToolbarInput::AnnotationScrollBump(dy) => {
-                // Drop the editing-entry case — if the user is mid-edit
-                // we shouldn't be hijacking their input.
-                if self.editing_annotation {
-                    return;
-                }
-                // Reset on direction reversal so a flick the other way
-                // doesn't have to chew through the previous direction's
-                // leftover (mirrors the canvas scroll-resize behavior).
-                let dy = dy as f32;
-                if self.annotation_scroll_accum != 0.0
-                    && self.annotation_scroll_accum.signum() != (-dy).signum()
-                {
-                    self.annotation_scroll_accum = 0.0;
-                }
-                // GTK: dy>0 is scroll-down. User asked for scroll-up =
-                // higher, so negate the sign.
-                self.annotation_scroll_accum += -dy;
-                let mut steps = 0i32;
-                while self.annotation_scroll_accum >= 1.0 {
-                    self.annotation_scroll_accum -= 1.0;
-                    steps += 1;
-                }
-                while self.annotation_scroll_accum <= -1.0 {
-                    self.annotation_scroll_accum += 1.0;
-                    steps -= 1;
-                }
-                if steps == 0 {
-                    return;
-                }
-                let raw = self.annotation_size + steps as f32 * ANNOTATION_STEP;
-                let snapped = quantise_annotation(raw);
-                if (snapped - self.annotation_size).abs() >= ANNOTATION_STEP / 2.0 {
-                    self.annotation_size = snapped;
-                    self.annotation_size_formatted = format_annotation(snapped);
-                    sender
-                        .output_sender()
-                        .emit(ToolbarEvent::AnnotationSizeChanged(snapped));
-                }
-            }
             StyleToolbarInput::SaveSizeAsDefault => {
                 // Persist the live size as the default for THE
                 // CURRENT TOOL only — different tools each get their
@@ -5282,15 +4906,6 @@ impl Component for StyleToolbar {
                         .insert(self.current_tool, size);
                 }
             }
-            StyleToolbarInput::SetAnnotationFactor(value) => {
-                // Mirror sketch_board's annotation factor change
-                // into the pill. Snap so the display tracks the
-                // detent grid (1.0× / 1.1× / etc.) rather than
-                // showing whatever fractional value floated in.
-                let snapped = quantise_annotation(value);
-                self.annotation_size = snapped;
-                self.annotation_size_formatted = format_annotation(snapped);
-            }
             StyleToolbarInput::SyncToToolDefault => {
                 // Fired by main.rs on deselect — slide back to the
                 // active tool's saved default. Same fall-through
@@ -5313,25 +4928,7 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
-                self.annotation_pill_disabled = false;
                 self.has_selection = false;
-                // Snap the multiplier pill back to the global saved
-                // default. The pill picks up per-drawable factors via
-                // `SyncFromSelection` and per-group shared factors via
-                // `SyncMultiAgreement`; without this snap it would
-                // strand at the last-selected drawable's value, which
-                // is asymmetric vs the size slider's per-tool
-                // snap-back. Emit upstream so sketch_board's
-                // self.style.annotation_size_factor follows for the
-                // next stroke.
-                let global_default = APP_CONFIG.read().annotation_size_factor();
-                if (global_default - self.annotation_size).abs() > ANNOTATION_STEP / 2.0 {
-                    self.annotation_size = global_default;
-                    self.annotation_size_formatted = format_annotation(global_default);
-                    sender
-                        .output_sender()
-                        .emit(ToolbarEvent::AnnotationSizeChanged(global_default));
-                }
                 // No selection → wheel-resize requires Ctrl;
                 // tooltip says so.
                 if let Some(label) = &self.size_tooltip_label {
@@ -5365,9 +4962,6 @@ impl Component for StyleToolbar {
                 // back to sketch_board would feedback into the same
                 // selection and clobber its other style fields.
                 self.current_size = style.size;
-                self.annotation_size = style.annotation_size_factor;
-                self.annotation_size_formatted =
-                    format_annotation(style.annotation_size_factor);
                 self.fill_shapes = style.fill;
                 if let Some(label) = &self.fill_tooltip_label {
                     label.set_text(fill_tooltip_text(self.fill_shapes));
@@ -5380,7 +4974,6 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
-                self.annotation_pill_disabled = false;
                 self.has_selection = true;
                 // Selection is active → wheel resizes it; tooltip
                 // points at the unmodified-wheel gesture.
@@ -5391,7 +4984,6 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SyncMultiAgreement {
                 size,
                 smooth,
-                annotation,
             } => {
                 // Size: `Some(v)` → reflect on slider + enable it (so
                 // a slider drag will group-update); `None` → disable
@@ -5426,19 +5018,6 @@ impl Component for StyleToolbar {
                         self.brush_smooth_slider_show_for_multi = true;
                         self.brush_smooth_slider_disabled = true;
                     }
-                }
-                // Annotation multiplier follows the same shared / mixed
-                // pattern as size: snap the pill display to the shared
-                // factor when all selected drawables agree, otherwise
-                // grey it out so a stray drag doesn't homogenize the
-                // group's per-drawable factors.
-                match annotation {
-                    Some(v) => {
-                        self.annotation_size = v;
-                        self.annotation_size_formatted = format_annotation(v);
-                        self.annotation_pill_disabled = false;
-                    }
-                    None => self.annotation_pill_disabled = true,
                 }
                 self.has_selection = true;
                 // Multi-selection counts as "selection active" for
@@ -5568,12 +5147,6 @@ impl Component for StyleToolbar {
         // view! block. The old `SizeAction` for the 6-button radio
         // bank is no longer needed.)
 
-        // Captured by the annotation-pill GestureDrag closures so they
-        // can carry the "did the pointer move far enough to count as a
-        // drag?" bit across begin/update/end without poking model state
-        // (which would force a view rebuild on every update).
-        let dragged = std::rc::Rc::new(std::cell::Cell::new(false));
-
         // Captured by the text-background DropDown's `connect_selected_notify`
         // so the selection-sync path (`SetTextBackground { emit_upstream: false }`)
         // can suppress the upstream emit. Lives outside the model field
@@ -5588,17 +5161,12 @@ impl Component for StyleToolbar {
             crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
         let mut model = StyleToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
-            annotation_size: APP_CONFIG.read().annotation_size_factor(),
-            annotation_size_formatted: format_annotation(
-                APP_CONFIG.read().annotation_size_factor(),
-            ),
             current_tool: initial_tool,
             spotlight_darkness: crate::state::load_spotlight_darkness().unwrap_or(0.50),
             highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
             brush_post_smooth_iterations: crate::state::load_brush_post_smooth_iterations()
                 .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
             size_slider_disabled: false,
-            annotation_pill_disabled: false,
             has_selection: false,
             size_tooltip_label: None,
             brush_smooth_slider_disabled: false,
@@ -5608,11 +5176,6 @@ impl Component for StyleToolbar {
             has_crop: false,
             current_size: initial_size,
             fill_shapes: APP_CONFIG.read().default_fill_shapes(),
-            annotation_drag_origin: None,
-            annotation_scroll_accum: 0.0,
-            editing_annotation: false,
-            annotation_entry: None,
-            annotation_stack: None,
             fill_tooltip_label: None,
             blur_style: crate::state::load_blur_style().unwrap_or_default(),
             blur_style_popover: None,
@@ -5633,21 +5196,6 @@ impl Component for StyleToolbar {
 
         // create widgets
         let widgets = view_output!();
-
-        // Center-align the inline entry's text — done here rather than
-        // in the view! block because both `EntryExt::set_alignment` and
-        // `EditableExt::set_alignment` resolve to the same name and the
-        // relm4 macro can't disambiguate. They do the same thing; call
-        // the Editable one explicitly.
-        gtk::prelude::EditableExt::set_alignment(&widgets.annotation_entry, 0.5);
-
-        // Stash the inline Entry + Stack so update() can drive focus +
-        // select on edit-mode entry, and flip the visible child without
-        // going through `#[watch]` (which would warn about missing
-        // children if it ran before add_named).
-        model.annotation_entry = Some(widgets.annotation_entry.clone());
-        model.annotation_stack = Some(widgets.annotation_stack.clone());
-        widgets.annotation_stack.set_visible_child_name("display");
 
         // Build the arrow- and blur-style popovers programmatically.
         // relm4's view! macro can't iterate enum variants, and we want
@@ -5759,44 +5307,11 @@ impl Component for StyleToolbar {
         model.text_background_dropdown = Some(widgets.text_background_dropdown.clone());
 
         // Right-click → "Save as default" on the controls users
-        // tweak in the central / right cluster. The multiplier pill
-        // and size slider each persist their value through a
-        // StyleToolbar internal input (the toolbar owns the live
-        // value); the opacity / darkness sliders' live values live
-        // in sketch_board, so they go out as ToolbarEvents and the
-        // sketch_board handler writes to state.toml.
-        {
-            let s = sender.clone();
-            attach_save_default_popover(&widgets.annotation_pill, move || {
-                s.input(StyleToolbarInput::SaveAnnotationAsDefault);
-            });
-        }
-        // Hover + scroll over the multiplier pill nudges the factor
-        // by ±ANNOTATION_STEP per notch (up = larger, down = smaller).
-        // Saves the user from having to click → type → enter for small
-        // tweaks. The pill's existing drag-edit gesture only
-        // responds to button-1 motion, so a scroll event passes
-        // through without conflict.
-        {
-            let scroll = gtk::EventControllerScroll::new(
-                gtk::EventControllerScrollFlags::VERTICAL,
-            );
-            let sender_for_scroll = sender.clone();
-            scroll.connect_scroll(move |_c, _dx, dy| {
-                // Apply the global invert-scrolling preference at the
-                // entry point so the pill's bump direction agrees with
-                // the canvas's zoom / pan / resize after a flip.
-                let dy = if APP_CONFIG.read().invert_scrolling() {
-                    -dy
-                } else {
-                    dy
-                };
-                sender_for_scroll
-                    .input(StyleToolbarInput::AnnotationScrollBump(dy));
-                relm4::gtk::glib::Propagation::Stop
-            });
-            widgets.annotation_pill.add_controller(scroll);
-        }
+        // tweak in the central / right cluster. The size slider
+        // persists through a StyleToolbar internal input (the toolbar
+        // owns the live value); the opacity / darkness sliders' live
+        // values live in sketch_board, so they go out as ToolbarEvents
+        // and the sketch_board handler writes to state.toml.
         {
             let s = sender.clone();
             attach_save_default_popover(&widgets.size_slider, move || {

@@ -155,9 +155,6 @@ enum AppInput {
     /// Sketch board changed the active tool's size — forward to the
     /// style toolbar so its slider mirrors the new value.
     ToolSizeChanged(crate::style::Size),
-    /// Annotation multiplier bumped via Alt+wheel on the canvas —
-    /// pill mirrors the new value silently.
-    AnnotationFactorChanged(f32),
     /// The canvas's intrinsic content size changed (crop commit /
     /// re-enter crop edit / revert). Re-fit the window around the
     /// new content with the same padding-and-90 %-cap logic the
@@ -217,7 +214,6 @@ enum AppInput {
     SelectionMultiAgreement {
         size: Option<style::Size>,
         smooth: sketch_board::SmoothLevelMulti,
-        annotation: Option<f32>,
     },
     /// Tool-specific style was cycled in sketch_board via the
     /// double-tap keyboard shortcut. The StyleToolbar's menu /
@@ -648,12 +644,13 @@ impl Component for App {
             AppInput::WelcomeDialogSaved(value) => {
                 state::save_annotation_size_factor(value);
                 APP_CONFIG.write().set_annotation_size_factor(value);
-                // Update the toolbar display + emit the standard
-                // AnnotationSizeChanged event so sketch_board picks it
-                // up (the existing dialog uses the same handler).
-                self.style_toolbar.sender().emit(
-                    StyleToolbarInput::AnnotationDialogFinished(Some(value)),
-                );
+                // Push directly to sketch_board so `self.style` and the
+                // active tool's preview pick up the new factor. The
+                // toolbar no longer hosts a multiplier widget — the
+                // value lives in Preferences and APP_CONFIG only.
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::SetAnnotationFactor(value));
                 self.welcome_controller = None;
             }
             AppInput::SnapToEdgesToggled(value) => {
@@ -798,25 +795,18 @@ impl Component for App {
             AppInput::SelectionMultiAgreement {
                 size,
                 smooth,
-                annotation,
             } => {
                 self.style_toolbar
                     .sender()
                     .emit(StyleToolbarInput::SyncMultiAgreement {
                         size,
                         smooth,
-                        annotation,
                     });
             }
             AppInput::ToolSizeChanged(size) => {
                 self.style_toolbar
                     .sender()
                     .emit(StyleToolbarInput::SetCurrentSize(size));
-            }
-            AppInput::AnnotationFactorChanged(value) => {
-                self.style_toolbar
-                    .sender()
-                    .emit(StyleToolbarInput::SetAnnotationFactor(value));
             }
             AppInput::ContentSizeChanged { width, height } => {
                 // Fit the window around the new content — applied via
@@ -1021,20 +1011,11 @@ impl Component for App {
                     SketchBoardOutput::SelectionStyleChanged(style) => {
                         AppInput::SelectionStyleChanged(style)
                     }
-                    SketchBoardOutput::SelectionMultiAgreement {
-                        size,
-                        smooth,
-                        annotation,
-                    } => AppInput::SelectionMultiAgreement {
-                        size,
-                        smooth,
-                        annotation,
-                    },
+                    SketchBoardOutput::SelectionMultiAgreement { size, smooth } => {
+                        AppInput::SelectionMultiAgreement { size, smooth }
+                    }
                     SketchBoardOutput::ToolSizeChanged(size) => {
                         AppInput::ToolSizeChanged(size)
-                    }
-                    SketchBoardOutput::AnnotationFactorChanged(v) => {
-                        AppInput::AnnotationFactorChanged(v)
                     }
                     SketchBoardOutput::ContentSizeChanged { width, height } => {
                         AppInput::ContentSizeChanged { width, height }

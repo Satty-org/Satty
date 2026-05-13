@@ -171,10 +171,6 @@ pub enum SketchBoardOutput {
     SelectionMultiAgreement {
         size: Option<crate::style::Size>,
         smooth: SmoothLevelMulti,
-        /// Shared `annotation_size_factor` across the multi-selection
-        /// (None when mixed). Drives the multiplier pill's value +
-        /// sensitivity in the same way `size` drives the size slider.
-        annotation: Option<f32>,
     },
     /// Sketch board changed the active tool's size programmatically
     /// (e.g. Ctrl+wheel over the canvas with no selection). The
@@ -182,12 +178,6 @@ pub enum SketchBoardOutput {
     /// re-emit, because sketch_board already pushed the size to the
     /// active tool via `dispatch_style_change`.
     ToolSizeChanged(crate::style::Size),
-    /// Sketch board bumped the annotation multiplier programmatically
-    /// (Alt+wheel on the canvas). The toolbar's pill mirrors the new
-    /// value into its display — no `AnnotationSizeChanged` re-emit,
-    /// because sketch_board has already pushed the factor through
-    /// `dispatch_style_change`.
-    AnnotationFactorChanged(f32),
     /// The intrinsic size of what's currently displayed on the canvas
     /// changed — emitted on initial layout, crop commit (cropped
     /// region dims), re-enter of crop edit mode (full image dims), and
@@ -578,7 +568,7 @@ pub struct SketchBoard {
     /// mutations of the currently selected shape's sizing (e.g. the
     /// scroll-wheel resize gesture) — so the size slider stays in
     /// sync without re-emitting on every redraw.
-    last_synced_selection: Option<(DrawableId, crate::style::Size, f32)>,
+    last_synced_selection: Option<(DrawableId, crate::style::Size)>,
     /// `true` while the previous sync saw a multi-selection (2+ ids).
     /// Read alongside `last_synced_selection` so multi→empty and
     /// multi→single transitions emit `SelectionStyleChanged` even
@@ -1899,10 +1889,6 @@ impl SketchBoard {
                     true
                 })
             }
-            ToolbarEvent::AnnotationSizeChanged(value) => {
-                self.style.annotation_size_factor = value;
-                self.dispatch_style_change()
-            }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
@@ -2382,7 +2368,7 @@ impl SketchBoard {
         };
         let new_key = new_style
             .as_ref()
-            .map(|(id, s)| (*id, s.size, s.annotation_size_factor));
+            .map(|(id, s)| (*id, s.size));
         let single_changed = new_key != self.last_synced_selection;
         // Detect multi-state transitions even when both the previous
         // and current sync had a `None` key (multi → empty looks like
@@ -2424,23 +2410,6 @@ impl SketchBoard {
                         .iter()
                         .all(|d| d.style().map(|s| s.size) == Some(*first_size))
                 });
-            // Annotation factor agreement. Compared with a small
-            // epsilon because the pill's stepped quantisation can
-            // leave imperceptible float drift between drawables that
-            // the user would consider equal.
-            const ANNOTATION_AGREE_EPS: f32 = 1e-4;
-            let shared_annotation = drawables
-                .first()
-                .and_then(|d| d.style())
-                .map(|s| s.annotation_size_factor)
-                .filter(|first| {
-                    drawables.iter().all(|d| {
-                        d.style()
-                            .map(|s| (s.annotation_size_factor - *first).abs())
-                            .map(|delta| delta <= ANNOTATION_AGREE_EPS)
-                            .unwrap_or(false)
-                    })
-                });
             // smooth_level only exists on brush strokes. Three cases:
             // every drawable is a brush + all same level → Shared;
             // every drawable is a brush + differing levels → Mixed;
@@ -2464,7 +2433,6 @@ impl SketchBoard {
                 .emit(SketchBoardOutput::SelectionMultiAgreement {
                     size: shared_size,
                     smooth,
-                    annotation: shared_annotation,
                 });
         }
         // If the just-selected drawable carries a variant (text
@@ -2882,19 +2850,20 @@ impl SketchBoard {
     }
 
     /// Bump the annotation multiplier (`style.annotation_size_factor`)
-    /// by `dy`-derived steps. Runs the same dispatch path as the
-    /// pill-hover scroll handler so a selection's per-drawable factor
-    /// updates alongside the global default. The toolbar's pill picks
-    /// up the new value via the `AnnotationSizeChanged` output.
+    /// by `dy`-derived steps. Applies the new factor to every selected
+    /// drawable, to the active tool's next-stroke style, and persists
+    /// it to state.toml (the multiplier no longer has a toolbar surface,
+    /// so persistence on every adjust keeps a fresh launch picking up
+    /// the user's last in-session value). A toast announces the new
+    /// value since there's no pill to read it off of anymore.
     fn scroll_annotation_multiplier(&mut self, dy: f32, outer_sender: &ComponentSender<Self>) {
         let steps = self.drain_scroll_resize_steps(dy);
         if steps == 0 {
             return;
         }
-        // Mirror the toolbar's annotation-pill constants. Inlined
-        // here rather than re-exporting because the values are tied
-        // to the UI design (0.1-unit step matches the pill's quantise
-        // grid; 0.1..=10.0 matches the entry widget's clamp).
+        // 0.1-unit detents with a 0.1..=10.0 clamp — mirrors the
+        // Preferences SpinButton's adjustment so canvas-side bumps and
+        // Preferences-side edits land on the same grid.
         const ANNOTATION_STEP: f32 = 0.1;
         const ANNOTATION_MIN: f32 = 0.10;
         const ANNOTATION_MAX: f32 = 10.0;
@@ -2902,22 +2871,15 @@ impl SketchBoard {
         let new_val =
             (cur + steps as f32 * ANNOTATION_STEP).clamp(ANNOTATION_MIN, ANNOTATION_MAX);
         // Round to the nearest step so trackpad accumulation doesn't
-        // park between detents (the pill's display would otherwise
-        // show e.g. "1.13×" instead of "1.10×").
+        // park between detents.
         let new_val = (new_val / ANNOTATION_STEP).round() * ANNOTATION_STEP;
         if (new_val - cur).abs() < f32::EPSILON {
             return;
         }
         self.style.annotation_size_factor = new_val;
-        // dispatch_style_change returns a ToolUpdateResult the
-        // framework normally feeds back into the update-loop match
-        // for `renderer.modify*` — but this function is invoked
-        // from a side path (input event handler) where that result
-        // is discarded. So apply factor-only updates manually to
-        // every selected drawable. Skipping the full
-        // dispatch_style_change path also avoids the side effect of
-        // replacing other style fields on non-selection-target
-        // drawables.
+        // Apply factor-only updates manually to every selected
+        // drawable. Going through `dispatch_style_change` would
+        // replace other style fields on selected drawables too.
         let selected_ids = self
             .tools
             .get(&Tools::Pointer)
@@ -2946,19 +2908,24 @@ impl SketchBoard {
                 self.renderer.modify_many(updates);
             }
         }
-        // Also push the new style to the active tool so its next
-        // stroke picks up the new factor.
+        // Push the new style to the active tool so its next stroke
+        // picks up the new factor.
         self.active_tool
             .borrow_mut()
             .handle_event(ToolEvent::StyleChanged(self.style));
-        // The toolbar's pill listens for `SelectionStyleChanged`
-        // (single-select) and `SelectionMultiAgreement` (multi) to
-        // update — but with no selection, neither fires for an
-        // annotation-only change. Push the value explicitly so the
-        // pill always reflects the active multiplier.
+        // Persist + update APP_CONFIG so the value survives a
+        // restart and any subsequent welcome-dialog logic sees the
+        // current live value.
+        crate::state::save_annotation_size_factor(new_val);
+        APP_CONFIG.write().set_annotation_size_factor(new_val);
+        // The user has no on-screen value indicator now that the pill
+        // is gone — surface a transient toast announcing the new
+        // factor so the bump isn't silent.
         outer_sender
             .output_sender()
-            .emit(SketchBoardOutput::AnnotationFactorChanged(new_val));
+            .emit(SketchBoardOutput::ShowCycleToast(format!(
+                "Annotation size: {new_val:.1}×"
+            )));
         self.refresh_screen();
     }
 
