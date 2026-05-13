@@ -1959,8 +1959,14 @@ pub enum ToolbarEvent {
     /// re-smoothed.
     BrushPostSmoothChanged(usize),
     /// User picked "Save as default" from the brush smoothing
-    /// slider's right-click menu — write the live value to state.toml.
-    SaveBrushPostSmoothAsDefault,
+    /// slider's right-click menu — write the carried value (read
+    /// from the slider widget at click time) to state.toml and
+    /// promote it to APP_CONFIG. The value is carried explicitly
+    /// because the slider's position can diverge from APP_CONFIG
+    /// when the user adjusts smoothness with a brush stroke
+    /// selected (those edits don't update APP_CONFIG by design,
+    /// so reading from APP_CONFIG would persist a stale value).
+    SaveBrushPostSmoothAsDefault(usize),
     /// User picked "Save as default" from the fill button's
     /// right-click menu — persist the live fill state as the saved
     /// default for the current tool (Rectangle / Ellipse).
@@ -5469,9 +5475,15 @@ impl Component for StyleToolbar {
         }
         {
             let s = sender.clone();
+            let slider = widgets.brush_smooth_slider.clone();
             attach_save_default_popover(&widgets.brush_smooth_slider, move || {
+                // Read the slider's CURRENT value rather than the local
+                // model field — the field doesn't update on user drag
+                // (the value_changed callback only emits upstream), so
+                // it can lag the visible position.
+                let v = slider.value().round().clamp(0.0, 6.0) as usize;
                 s.output_sender()
-                    .emit(ToolbarEvent::SaveBrushPostSmoothAsDefault);
+                    .emit(ToolbarEvent::SaveBrushPostSmoothAsDefault(v));
                 // Also nudge ourselves to re-position the tick mark
                 // so the user gets immediate visible confirmation
                 // (the mark jumps to the slider's current position).

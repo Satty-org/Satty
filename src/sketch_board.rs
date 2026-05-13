@@ -1809,10 +1809,16 @@ impl SketchBoard {
                 }
                 selection_result
             }
-            ToolbarEvent::SaveBrushPostSmoothAsDefault => {
-                crate::state::save_brush_post_smooth_iterations(
-                    APP_CONFIG.read().brush_post_smooth_iterations(),
-                );
+            ToolbarEvent::SaveBrushPostSmoothAsDefault(value) => {
+                // Persist the slider's current value (carried in the
+                // event) AND promote it to APP_CONFIG so the snapback
+                // on the next Brush re-entry sees the just-saved
+                // default. Reading APP_CONFIG here would be wrong: when
+                // the user adjusts smoothness with a brush stroke
+                // selected, those edits intentionally don't bleed into
+                // APP_CONFIG, so APP_CONFIG carries a stale value.
+                crate::state::save_brush_post_smooth_iterations(value);
+                APP_CONFIG.write().set_brush_post_smooth_iterations(value);
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::SaveFillAsDefault => {
