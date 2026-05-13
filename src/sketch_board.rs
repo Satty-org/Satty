@@ -2456,30 +2456,84 @@ impl SketchBoard {
         }
         match self.active_tool_type() {
             Tools::Brush => {
-                // Integer 0..=6 — one notch per wheel step. Source of
-                // truth is APP_CONFIG (the slider's `current` mirror
-                // ignores user drags by design).
-                let cur = APP_CONFIG.read().brush_post_smooth_iterations() as i32;
-                let new_val_i = (cur + steps).clamp(0, 6);
-                if new_val_i == cur {
-                    return;
-                }
-                let new_val = new_val_i as usize;
-                let _ = self.apply_brush_smooth_to_selection(new_val);
-                // No-selection branch: persist as next-stroke default,
-                // matching the slider-drag path.
-                let selected_empty = self
+                // Integer 0..=6 — one notch per wheel step. Seed
+                // depends on whether the user has brush strokes
+                // selected: with selection, start from the selected
+                // brush's current level (so wheel-up nudges UP from
+                // what they're editing); without selection, start
+                // from APP_CONFIG (the next-stroke default).
+                let selected_ids = self
                     .tools
                     .get(&Tools::Pointer)
                     .borrow()
-                    .selected_drawables()
-                    .is_empty();
-                if selected_empty {
-                    APP_CONFIG.write().set_brush_post_smooth_iterations(new_val);
+                    .selected_drawables();
+                let levels: Vec<Option<usize>> = selected_ids
+                    .iter()
+                    .map(|id| {
+                        self.renderer
+                            .clone_drawable(*id)
+                            .and_then(|d| d.smooth_level())
+                    })
+                    .collect();
+                let cur = if selected_ids.is_empty() {
+                    APP_CONFIG.read().brush_post_smooth_iterations()
+                } else {
+                    // Refuse to operate on a mixed-or-non-brush
+                    // selection — same gate as the slider's
+                    // `brush_smooth_slider_disabled` state.
+                    if levels.iter().any(|l| l.is_none()) {
+                        return;
+                    }
+                    let first = levels[0].unwrap();
+                    if !levels.iter().all(|l| *l == Some(first)) {
+                        return;
+                    }
+                    first
+                };
+                let new_val_i = (cur as i32 + steps).clamp(0, 6);
+                if new_val_i == cur as i32 {
+                    return;
+                }
+                let new_val = new_val_i as usize;
+                // Apply directly via renderer.modify* — the
+                // `apply_brush_smooth_to_selection` helper returns
+                // a `ToolUpdateResult` for callers that thread it
+                // back to the framework's update-loop, but
+                // `scroll_alt_slider` is invoked from a side path
+                // (input event handler) where that result would be
+                // discarded — which would leave the drawable
+                // unmodified and the sync_toolbar_to_selection at
+                // the end of update() would bounce the slider back
+                // to the old value.
+                let mut updates: Vec<(DrawableId, Box<dyn Drawable>)> = Vec::new();
+                for id in selected_ids {
+                    if let Some(mut d) = self.renderer.clone_drawable(id)
+                        && d.smooth_level().is_some()
+                    {
+                        d.set_smooth_level(new_val);
+                        updates.push((id, d));
+                    }
+                }
+                match updates.len() {
+                    0 => {
+                        // No selection or no brush-typed drawable —
+                        // wheel updates the next-stroke default.
+                        APP_CONFIG
+                            .write()
+                            .set_brush_post_smooth_iterations(new_val);
+                    }
+                    1 => {
+                        let (id, d) = updates.pop().unwrap();
+                        self.renderer.modify(id, d);
+                    }
+                    _ => {
+                        self.renderer.modify_many(updates);
+                    }
                 }
                 outer_sender
                     .output_sender()
                     .emit(SketchBoardOutput::BrushPostSmoothReset(new_val));
+                self.refresh_screen();
             }
             Tools::Spotlight => {
                 // 0.10..=0.90 — coarse stride per notch so a typical
@@ -2560,13 +2614,19 @@ impl SketchBoard {
                 if next == current {
                     return;
                 }
-                // Reuse the regular selection handler so toast,
-                // state.toml save, toolbar mirror and apply-to-
-                // selection all happen identically to a popover click.
-                let _ = self.handle_toolbar_event(
-                    ToolbarEvent::ArrowStyleSelected(next),
-                    outer_sender.clone(),
-                );
+                // Emit `*Cycled` rather than synthesizing the
+                // `*Selected` event via `handle_toolbar_event`:
+                // *Selected updates sketch_board state (tool style,
+                // save, toast, apply-to-selection) but DOES NOT
+                // update the toolbar's dropdown widget visually.
+                // *Cycled rides through main.rs → toolbar
+                // `SetArrowStyle { emit_upstream: true }`, which both
+                // refreshes the dropdown's displayed value AND
+                // re-emits *Selected upstream so the sketch_board
+                // side effects still happen.
+                outer_sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ArrowStyleCycled(next));
             }
             Tools::Blur => {
                 use crate::tools::BlurStyle;
@@ -2581,10 +2641,9 @@ impl SketchBoard {
                 if next == current {
                     return;
                 }
-                let _ = self.handle_toolbar_event(
-                    ToolbarEvent::BlurStyleSelected(next),
-                    outer_sender.clone(),
-                );
+                outer_sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::BlurStyleCycled(next));
             }
             Tools::Text => {
                 use crate::tools::TextBackground;
@@ -2594,10 +2653,9 @@ impl SketchBoard {
                 if next == current {
                     return;
                 }
-                let _ = self.handle_toolbar_event(
-                    ToolbarEvent::TextBackgroundSelected(next),
-                    outer_sender.clone(),
-                );
+                outer_sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::TextBackgroundCycled(next));
             }
             _ => {
                 // No alt control for the remaining tools (Pointer /
