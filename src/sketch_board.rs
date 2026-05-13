@@ -1388,7 +1388,7 @@ impl SketchBoard {
         // own the toast emission, so a single user action shows a
         // single toast regardless of whether the trigger was the
         // double-tap, the popover row, or the dropdown.
-        use crate::tools::{ArrowStyle, BlurStyle, HighlighterStyle, TextBackground};
+        use crate::tools::{ArrowStyle, BlurStyle, TextBackground};
         match tool {
             Tools::Arrow => {
                 // Seed off the selected arrow (if any) so cycling
