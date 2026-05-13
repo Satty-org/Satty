@@ -1397,6 +1397,15 @@ pub struct StyleToolbar {
     /// accidentally collapse the group to a single value. Driven by
     /// `SyncMultiAgreement` (and reset on single-select / empty).
     size_slider_disabled: bool,
+    /// True while there is an active selection (single or multi).
+    /// Read by the `ToolChanged` handler so its "snap slider to the
+    /// new tool's saved default" auto-emit only fires when there is
+    /// no selection — otherwise the auto-emit cascades through
+    /// `dispatch_style_change` and rewrites the just-selected
+    /// drawable's size back to the tool default. Set from
+    /// `SyncFromSelection` / `SyncMultiAgreement` (true) and
+    /// `SyncToToolDefault` (false).
+    has_selection: bool,
     /// Tooltip label stashed from `install_dynamic_tooltip` so the
     /// SelectionStyleChanged / SyncMultiAgreement / SyncToToolDefault
     /// handlers can flip its text between the with-selection and
@@ -5141,7 +5150,17 @@ impl Component for StyleToolbar {
                 // own a meaningful "size" — leave the slider where
                 // it was so coming back to a drawing tool isn't
                 // disorienting.
-                if !matches!(tool, Tools::Pointer | Tools::Crop)
+                //
+                // Crucially, skip when there's a live selection:
+                // the auto-tool-switch path fires `ToolChanged` after
+                // `SyncFromSelection` / `SyncMultiAgreement` have
+                // already set the slider to the selected drawables'
+                // size, and emitting `SizeSelected` here would cascade
+                // through `dispatch_style_change` and rewrite the
+                // selection back to the tool default — silently undoing
+                // any size edit the user just made.
+                if !self.has_selection
+                    && !matches!(tool, Tools::Pointer | Tools::Crop)
                     && let Some(default_size) = crate::state::load_size_for_tool(tool)
                     && default_size != self.current_size
                 {
@@ -5183,6 +5202,7 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
+                self.has_selection = false;
                 // No selection → wheel-resize requires Ctrl;
                 // tooltip says so.
                 if let Some(label) = &self.size_tooltip_label {
@@ -5220,6 +5240,7 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
+                self.has_selection = true;
                 // Selection is active → wheel resizes it; tooltip
                 // points at the unmodified-wheel gesture.
                 if let Some(label) = &self.size_tooltip_label {
@@ -5261,6 +5282,7 @@ impl Component for StyleToolbar {
                         self.brush_smooth_slider_disabled = true;
                     }
                 }
+                self.has_selection = true;
                 // Multi-selection counts as "selection active" for
                 // tooltip purposes — wheel still resizes the group.
                 if let Some(label) = &self.size_tooltip_label {
@@ -5418,6 +5440,7 @@ impl Component for StyleToolbar {
             brush_post_smooth_iterations: crate::state::load_brush_post_smooth_iterations()
                 .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
             size_slider_disabled: false,
+            has_selection: false,
             size_tooltip_label: None,
             brush_smooth_slider_disabled: false,
             brush_smooth_slider_show_for_multi: false,
