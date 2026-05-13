@@ -4929,6 +4929,16 @@ impl Component for StyleToolbar {
                             v = 0.50;
                             scale.set_value(0.50);
                         }
+                        // Keep the model field in sync with the live
+                        // slider value. Without this, the `#[watch]` on
+                        // `set_value: model.spotlight_darkness` re-applies
+                        // the stale model value on the next model update
+                        // (e.g., when `current_tool` changes during a
+                        // tool switch), snapping the slider back to its
+                        // pre-drag value when the user returns to
+                        // Spotlight. The block_signal stops the watch
+                        // re-application from re-firing this handler.
+                        sender.input_sender().emit(StyleToolbarInput::SetSpotlightDarkness(v));
                         sender.output_sender().emit(ToolbarEvent::SpotlightDarknessChanged(v));
                     } @spotlight_value_changed,
                 },
