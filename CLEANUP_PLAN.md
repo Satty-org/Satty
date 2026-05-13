@@ -73,7 +73,7 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.3 Delete `band_at_y()`
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/text_bands.rs:182`
   - Re-check: `grep -rn "band_at_y" src/` — only the definition.
   - Delete the function and its doc comment.

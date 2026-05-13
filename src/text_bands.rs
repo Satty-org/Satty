@@ -164,42 +164,6 @@ pub fn bands() -> &'static [TextBand] {
     BANDS.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
-/// Find the best-match band for image-space y. Magnetic: snaps to
-/// the band whose vertical extent is closest to `y` within
-/// `SNAP_DISTANCE_PX`, even when `y` sits in the gap between two
-/// detected bands. Mirrors the standard smart-highlighter feel —
-/// the user can hover slightly above or below a text row and the
-/// cursor still locks to that row. Outside the snap distance the
-/// function returns `None`, so the cursor reverts to its style-
-/// derived size and the user can still draw free-form strokes.
-///
-/// `SNAP_DISTANCE_PX` is roughly half a typical line gap — gaps
-/// between text rows on screenshots range ~30–45 image pixels, so
-/// 25 px from each band's edge usually covers the whole inter-line
-/// space. Wider gaps (e.g. blank paragraph breaks) leave a small
-/// dead zone in the middle where no band wins, which is the
-/// correct behavior — the user isn't near any specific line.
-pub fn band_at_y(y: f32) -> Option<TextBand> {
-    const SNAP_DISTANCE_PX: f32 = 25.0;
-    bands()
-        .iter()
-        .copied()
-        .filter_map(|b| {
-            let dist = if b.contains_y(y) {
-                0.0_f32
-            } else if y < b.y_start {
-                b.y_start - y
-            } else {
-                y - b.y_end
-            };
-            (dist <= SNAP_DISTANCE_PX).then_some((b, dist))
-        })
-        .min_by(|(_, da), (_, db)| {
-            da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|(b, _)| b)
-}
-
 #[derive(Clone)]
 struct BandCacheEntry {
     band: TextBand,
