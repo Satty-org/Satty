@@ -1397,6 +1397,12 @@ pub struct StyleToolbar {
     /// accidentally collapse the group to a single value. Driven by
     /// `SyncMultiAgreement` (and reset on single-select / empty).
     size_slider_disabled: bool,
+    /// Tooltip label stashed from `install_dynamic_tooltip` so the
+    /// SelectionStyleChanged / SyncMultiAgreement / SyncToToolDefault
+    /// handlers can flip its text between the with-selection and
+    /// without-selection variants. The two variants point the user
+    /// at different keystrokes (plain wheel vs Ctrl+wheel).
+    size_tooltip_label: Option<gtk::Label>,
     /// True while a multi-selection of brush strokes has a mixed
     /// `smooth_level` — disables the smoothness slider so a stray
     /// drag can't collapse them to a single value. Stays false (and
@@ -1843,6 +1849,19 @@ fn fill_tooltip_text(fill_shapes: bool) -> &'static str {
         "Currently filling shapes — click to switch to outline only (F)"
     } else {
         "Currently outlining shapes — click to switch to filled (F)"
+    }
+}
+
+/// Size-slider tooltip text. The wheel-resize gesture's modifier
+/// depends on whether anything is selected: with a selection, plain
+/// wheel resizes it; without one, Ctrl+wheel changes the next-stroke
+/// size. Reflecting that in the tooltip surfaces the right keystroke
+/// for the user's current state.
+fn size_tooltip_text(has_selection: bool) -> &'static str {
+    if has_selection {
+        "Annotation size — scroll on canvas to adjust"
+    } else {
+        "Annotation size — Ctrl+scroll on canvas to adjust"
     }
 }
 
@@ -4528,7 +4547,9 @@ impl Component for StyleToolbar {
                 set_round_digits: 0,
                 set_digits: 0,
                 set_draw_value: false,
-                install_tooltip_above: "Annotation size — Ctrl+scroll on canvas to adjust",
+                // Tooltip is installed dynamically in `init` so the
+                // text can flip between the with-selection and no-
+                // selection variants (different wheel modifiers).
                 // Marks are added imperatively in init() via
                 // `refresh_size_slider_marks` so the letter for the
                 // current tool's saved default can be bolded.
@@ -5152,6 +5173,11 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
+                // No selection → wheel-resize requires Ctrl;
+                // tooltip says so.
+                if let Some(label) = &self.size_tooltip_label {
+                    label.set_label(size_tooltip_text(false));
+                }
             }
             StyleToolbarInput::CropPresenceChanged(present) => {
                 self.has_crop = present;
@@ -5184,6 +5210,11 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
+                // Selection is active → wheel resizes it; tooltip
+                // points at the unmodified-wheel gesture.
+                if let Some(label) = &self.size_tooltip_label {
+                    label.set_label(size_tooltip_text(true));
+                }
             }
             StyleToolbarInput::SyncMultiAgreement { size, smooth } => {
                 // Size: `Some(v)` → reflect on slider + enable it (so
@@ -5219,6 +5250,11 @@ impl Component for StyleToolbar {
                         self.brush_smooth_slider_show_for_multi = true;
                         self.brush_smooth_slider_disabled = true;
                     }
+                }
+                // Multi-selection counts as "selection active" for
+                // tooltip purposes — wheel still resizes the group.
+                if let Some(label) = &self.size_tooltip_label {
+                    label.set_label(size_tooltip_text(true));
                 }
             }
             StyleToolbarInput::ToggleFill => {
@@ -5372,6 +5408,7 @@ impl Component for StyleToolbar {
             brush_post_smooth_iterations: crate::state::load_brush_post_smooth_iterations()
                 .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
             size_slider_disabled: false,
+            size_tooltip_label: None,
             brush_smooth_slider_disabled: false,
             brush_smooth_slider_show_for_multi: false,
             size_slider: None,
@@ -5488,6 +5525,14 @@ impl Component for StyleToolbar {
         // names the *active* variant; SetArrowStyle / SetBlurStyle (and
         // their handlers) refresh the label so a second hover reflects
         // the new selection.
+        // Size-slider tooltip starts in the "no selection" variant —
+        // that's the initial state and the most common cold-start.
+        let size_tooltip = install_dynamic_tooltip(
+            &widgets.size_slider,
+            size_tooltip_text(false),
+            gtk::PositionType::Top,
+        );
+        model.size_tooltip_label = Some(size_tooltip);
         let arrow_tooltip = install_dynamic_tooltip(
             &widgets.arrow_style_menu,
             &arrow_tooltip_text(model.arrow_style),
