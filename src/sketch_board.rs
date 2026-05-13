@@ -1525,21 +1525,19 @@ impl SketchBoard {
         if tool == Tools::Crop && current_tool != Tools::Crop {
             self.tool_before_crop = Some(current_tool);
         }
-        // Re-entering Spotlight or Highlighter snaps the slider back to
-        // the saved default (or the system detent if no save). In-session
-        // edits during a single tool stretch persist across multiple new
-        // shapes; switching away wipes them so the next entry starts from
-        // a known baseline.
+        // Re-entering Highlighter snaps the slider back to the saved
+        // default (or the system detent if no save). In-session edits
+        // during a single tool stretch persist across multiple new
+        // strokes; switching away wipes them so the next entry starts
+        // from a known baseline.
+        //
+        // Spotlight is the exception: its darkness is a global property
+        // of the canvas, not a per-stroke setting (all spotlight shapes
+        // share one inverse-mask overlay), so an in-session adjustment
+        // is meant to stick for the whole session — switching tools and
+        // coming back must NOT reset it.
         if tool != current_tool {
             match tool {
-                Tools::Spotlight => {
-                    let saved = crate::state::load_spotlight_darkness().unwrap_or(0.50);
-                    self.style.spotlight_darkness = saved;
-                    self.renderer.set_spotlight_darkness(saved);
-                    sender
-                        .output_sender()
-                        .emit(SketchBoardOutput::SpotlightDarknessReset(saved));
-                }
                 Tools::Highlighter => {
                     let saved = crate::state::load_highlighter_opacity().unwrap_or(0.40);
                     self.style.highlighter_opacity = saved;
