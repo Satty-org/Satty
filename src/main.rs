@@ -207,10 +207,13 @@ enum AppInput {
     /// Per-property "do all the multi-selected drawables share this
     /// value?" report from sketch_board, forwarded to the toolbar so
     /// its sliders can either reflect a shared value (Some) or
-    /// disable themselves (None) when the selection is mixed.
+    /// disable themselves (None) when the selection is mixed. The
+    /// smoothness slider additionally hides entirely when the
+    /// selection contains a non-brush drawable
+    /// (`SmoothLevelMulti::NotApplicable`).
     SelectionMultiAgreement {
         size: Option<style::Size>,
-        smooth_level: Option<usize>,
+        smooth: sketch_board::SmoothLevelMulti,
     },
     /// Tool-specific style was cycled in sketch_board via the
     /// double-tap keyboard shortcut. The StyleToolbar's menu /
@@ -788,16 +791,10 @@ impl Component for App {
                         .emit(StyleToolbarInput::SyncToToolDefault);
                 }
             }
-            AppInput::SelectionMultiAgreement {
-                size,
-                smooth_level,
-            } => {
+            AppInput::SelectionMultiAgreement { size, smooth } => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SyncMultiAgreement {
-                        size,
-                        smooth_level,
-                    });
+                    .emit(StyleToolbarInput::SyncMultiAgreement { size, smooth });
             }
             AppInput::ToolSizeChanged(size) => {
                 self.style_toolbar
@@ -1007,10 +1004,9 @@ impl Component for App {
                     SketchBoardOutput::SelectionStyleChanged(style) => {
                         AppInput::SelectionStyleChanged(style)
                     }
-                    SketchBoardOutput::SelectionMultiAgreement {
-                        size,
-                        smooth_level,
-                    } => AppInput::SelectionMultiAgreement { size, smooth_level },
+                    SketchBoardOutput::SelectionMultiAgreement { size, smooth } => {
+                        AppInput::SelectionMultiAgreement { size, smooth }
+                    }
                     SketchBoardOutput::ToolSizeChanged(size) => {
                         AppInput::ToolSizeChanged(size)
                     }

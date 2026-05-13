@@ -86,6 +86,24 @@ pub enum SketchBoardInput {
     Output(SketchBoardOutput),
 }
 
+/// Multi-select agreement for the brush-smoothness slider. The slider
+/// has three states unlike the size slider's binary shared/mixed:
+///
+/// - `NotApplicable` — at least one selected drawable doesn't carry a
+///   `smooth_level` (i.e., the selection includes a non-brush). Hide
+///   the slider entirely.
+/// - `Shared(v)` — every selected drawable is a brush AND they all
+///   have the same level. Show the slider, reflect `v`, allow drag.
+/// - `Mixed` — every selected drawable is a brush BUT levels differ.
+///   Show the slider but disable it so a stray drag can't collapse
+///   the group onto a single value.
+#[derive(Debug, Clone, Copy)]
+pub enum SmoothLevelMulti {
+    NotApplicable,
+    Shared(usize),
+    Mixed,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ZoomCommand {
     /// Multiplicative zoom-in by `zoom_factor` from the configuration.
@@ -139,14 +157,14 @@ pub enum SketchBoardOutput {
     SelectionStyleChanged(Option<Style>),
     /// Per-property "do all the multi-selected drawables share this
     /// value?" report. Emitted whenever a multi-selection is live or
-    /// changes. `Some(v)` means all selected agree on `v` and the
-    /// toolbar should reflect it (and let the user group-edit it).
-    /// `None` means the selected drawables disagree, so the toolbar
-    /// disables that specific control — prevents accidentally
-    /// collapsing a mixed selection onto a single value.
+    /// changes. For `size`: `Some(v)` means all selected agree on
+    /// `v` (toolbar reflects + enables group-edit), `None` means
+    /// they disagree (toolbar disables the slider). For smoothness:
+    /// see `SmoothLevelMulti` — the slider also has a "no brushes
+    /// in selection, hide entirely" state that `size` doesn't.
     SelectionMultiAgreement {
         size: Option<crate::style::Size>,
-        smooth_level: Option<usize>,
+        smooth: SmoothLevelMulti,
     },
     /// Sketch board changed the active tool's size programmatically
     /// (e.g. Ctrl+wheel over the canvas with no selection). The
@@ -2193,22 +2211,29 @@ impl SketchBoard {
                         .iter()
                         .all(|d| d.style().map(|s| s.size) == Some(*first_size))
                 });
-            // smooth_level only exists on brush strokes; if any
-            // selected drawable lacks one, they "disagree" by
-            // definition — the slider has no shared value to drive.
-            let shared_smooth_level = drawables
-                .first()
-                .and_then(|d| d.smooth_level())
-                .filter(|first_level| {
-                    drawables
-                        .iter()
-                        .all(|d| d.smooth_level() == Some(*first_level))
-                });
+            // smooth_level only exists on brush strokes. Three cases:
+            // every drawable is a brush + all same level → Shared;
+            // every drawable is a brush + differing levels → Mixed;
+            // any non-brush in the selection → NotApplicable (hide
+            // the slider, since smoothness is meaningless for the
+            // current set).
+            let levels: Vec<Option<usize>> =
+                drawables.iter().map(|d| d.smooth_level()).collect();
+            let smooth = if levels.iter().any(|l| l.is_none()) {
+                SmoothLevelMulti::NotApplicable
+            } else {
+                let first = levels[0].unwrap();
+                if levels.iter().all(|l| *l == Some(first)) {
+                    SmoothLevelMulti::Shared(first)
+                } else {
+                    SmoothLevelMulti::Mixed
+                }
+            };
             sender
                 .output_sender()
                 .emit(SketchBoardOutput::SelectionMultiAgreement {
                     size: shared_size,
-                    smooth_level: shared_smooth_level,
+                    smooth,
                 });
         }
         // If the just-selected drawable carries a variant (text

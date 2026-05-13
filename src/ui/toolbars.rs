@@ -1397,10 +1397,21 @@ pub struct StyleToolbar {
     /// accidentally collapse the group to a single value. Driven by
     /// `SyncMultiAgreement` (and reset on single-select / empty).
     size_slider_disabled: bool,
-    /// True while a multi-selection has a mixed `smooth_level` (or
-    /// includes drawables that don't carry one) — disables the brush
-    /// smoothness slider for the same reason.
+    /// True while a multi-selection of brush strokes has a mixed
+    /// `smooth_level` — disables the smoothness slider so a stray
+    /// drag can't collapse them to a single value. Stays false (and
+    /// the slider remains usable) when a multi-select agrees on its
+    /// level. When the selection contains any non-brush drawable
+    /// the smoothness slider hides entirely — that's
+    /// `brush_smooth_slider_show_for_multi` below, not this flag.
     brush_smooth_slider_disabled: bool,
+    /// True while a multi-selection is made entirely of brush strokes
+    /// (regardless of whether their levels agree). Forces the
+    /// smoothness slider visible even when `current_tool != Brush`
+    /// — typical Pointer-tool multi-edit flow. Reset to false on
+    /// single-select / empty-select so the slider falls back to its
+    /// usual "visible iff current_tool == Brush" rule.
+    brush_smooth_slider_show_for_multi: bool,
     /// Clone of the size slider widget — held in the model so the
     /// handlers below can imperatively refresh its mark labels
     /// (bolding the letter that matches the current tool's saved
@@ -2193,7 +2204,7 @@ pub enum StyleToolbarInput {
     /// can't collapse the mixed set onto one value.
     SyncMultiAgreement {
         size: Option<crate::style::Size>,
-        smooth_level: Option<usize>,
+        smooth: crate::sketch_board::SmoothLevelMulti,
     },
     /// Fill-shape button clicked. Mirrors `ToolbarEvent::ToggleFill`
     /// upstream and flips the local `fill_shapes` flag so the icon +
@@ -4894,8 +4905,16 @@ impl Component for StyleToolbar {
                     // position (see `refresh_brush_smooth_slider_marks`)
                     // so the user sees clear feedback when they save a
                     // new default. No static mark here.
+                    // Visible whenever brush smoothness is meaningful:
+                    // either the active tool is Brush (new-stroke
+                    // path) or a Pointer-tool multi-selection has
+                    // brush strokes (group-edit path). The
+                    // multi-flag is gated on "all selected are
+                    // brushes" so we don't show the slider for a
+                    // mixed selection that includes arrows / text.
                     #[watch]
-                    set_visible: model.current_tool == Tools::Brush,
+                    set_visible: model.current_tool == Tools::Brush
+                        || model.brush_smooth_slider_show_for_multi,
                     connect_value_changed[sender] => move |scale| {
                         let v = scale.value().round().clamp(0.0, 6.0) as usize;
                         sender.output_sender().emit(ToolbarEvent::BrushPostSmoothChanged(v));
@@ -5126,10 +5145,13 @@ impl Component for StyleToolbar {
                         .output_sender()
                         .emit(ToolbarEvent::SizeSelected(default_size));
                 }
-                // Empty selection — re-enable sliders so the user can
-                // adjust the next-stroke defaults.
+                // Empty selection — re-enable sliders so the user
+                // can adjust the next-stroke defaults, and drop the
+                // multi-show flag so the smoothness slider returns
+                // to its usual `current_tool == Brush` visibility.
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
+                self.brush_smooth_slider_show_for_multi = false;
             }
             StyleToolbarInput::CropPresenceChanged(present) => {
                 self.has_crop = present;
@@ -5156,19 +5178,19 @@ impl Component for StyleToolbar {
                 }
                 // Single selection has by definition one value for
                 // each property — re-enable any slider that a prior
-                // multi-select had disabled.
+                // multi-select had disabled, and drop the multi-show
+                // flag so the smoothness slider falls back to its
+                // usual `current_tool == Brush` visibility rule.
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
+                self.brush_smooth_slider_show_for_multi = false;
             }
-            StyleToolbarInput::SyncMultiAgreement {
-                size,
-                smooth_level,
-            } => {
-                // For each property: `Some(v)` → reflect on slider +
-                // enable it (so a slider drag will group-update);
-                // `None` → disable so a stray drag can't collapse a
-                // mixed selection. The matching `set_sensitive` watch
-                // in view! consumes these flags.
+            StyleToolbarInput::SyncMultiAgreement { size, smooth } => {
+                // Size: `Some(v)` → reflect on slider + enable it (so
+                // a slider drag will group-update); `None` → disable
+                // so a stray drag can't collapse a mixed selection.
+                // The matching `set_sensitive` watch in view!
+                // consumes the flag.
                 match size {
                     Some(s) => {
                         self.current_size = s;
@@ -5176,12 +5198,27 @@ impl Component for StyleToolbar {
                     }
                     None => self.size_slider_disabled = true,
                 }
-                match smooth_level {
-                    Some(level) => {
-                        self.brush_post_smooth_iterations = level;
+                // Smoothness has three states: hide entirely when
+                // selection isn't all-brush (NotApplicable); show
+                // disabled when all brushes but levels differ
+                // (Mixed); show enabled at the shared value when
+                // they agree (Shared). Drives both `set_visible` and
+                // `set_sensitive` on the slider.
+                use crate::sketch_board::SmoothLevelMulti;
+                match smooth {
+                    SmoothLevelMulti::NotApplicable => {
+                        self.brush_smooth_slider_show_for_multi = false;
                         self.brush_smooth_slider_disabled = false;
                     }
-                    None => self.brush_smooth_slider_disabled = true,
+                    SmoothLevelMulti::Shared(level) => {
+                        self.brush_post_smooth_iterations = level;
+                        self.brush_smooth_slider_show_for_multi = true;
+                        self.brush_smooth_slider_disabled = false;
+                    }
+                    SmoothLevelMulti::Mixed => {
+                        self.brush_smooth_slider_show_for_multi = true;
+                        self.brush_smooth_slider_disabled = true;
+                    }
                 }
             }
             StyleToolbarInput::ToggleFill => {
@@ -5336,6 +5373,7 @@ impl Component for StyleToolbar {
                 .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
             size_slider_disabled: false,
             brush_smooth_slider_disabled: false,
+            brush_smooth_slider_show_for_multi: false,
             size_slider: None,
             brush_smooth_slider: None,
             has_crop: false,
