@@ -217,10 +217,6 @@ impl ColorPalette {
         &self.palette
     }
 
-    pub fn custom(&self) -> &[Color] {
-        &self.custom
-    }
-
     fn merge(&mut self, file_palette: ColorPaletteFile) {
         if let Some(v) = file_palette.palette {
             self.palette = v.into_iter().map(Color::from).collect();

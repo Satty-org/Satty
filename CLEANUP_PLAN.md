@@ -57,12 +57,19 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.2 Delete `ColorPalette::custom()`
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/configuration.rs:215–222` (the `custom()` method).
   - Re-check before deleting: `grep -rn "\.custom()\|ColorPalette::custom" src/`
     — should only match the definition.
   - Delete the method.
   - Verify: `cargo build` → one fewer warning.
+  - **Note**: the underlying `ColorPalette.custom: Vec<Color>` field is now
+    write-only (populated from the config file's `custom = [...]` entry but
+    never read). Compiler doesn't flag it (probably the `From`/serde glue
+    counts as a use). Open question for later: should `custom` and
+    `ColorPaletteFile.custom` be removed entirely (breaks user config-file
+    compat) or kept as a no-op (silent acceptance of stale config)? Add
+    to "Open questions" below if not handled in Tier 1.5.
 
 ### 1.3 Delete `band_at_y()`
 
