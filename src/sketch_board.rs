@@ -318,7 +318,20 @@ pub struct MouseEventMsg {
     pub type_: MouseEventType,
     pub button: MouseButton,
     pub modifier: ModifierType,
+    /// Image-coord position. For Click/Release/BeginDrag this is an
+    /// absolute image-space point; for UpdateDrag/EndDrag it's a
+    /// delta in image-space units. `handle_event_mouse_input`
+    /// converts the raw widget value into this image-coord form
+    /// before dispatch.
     pub pos: Vec2D,
+    /// Same position in canvas (widget CSS-pixel) coordinates, kept
+    /// unconverted so the crop tool's inside-out edit workflow can
+    /// read it without re-running the inverse transform. Mirrors
+    /// `pos`'s nature: absolute for absolute event types, delta for
+    /// drag-update / drag-end. Scroll-style events pack their delta
+    /// into `pos` and leave this zero — Crop reads the cursor
+    /// position through `renderer.pointer_offset` instead.
+    pub canvas_pos: Vec2D,
     pub n_pressed: i32,
     pub release: bool,
 }
@@ -332,12 +345,18 @@ impl SketchBoardInput {
         pos: Vec2D,
         release: bool,
     ) -> SketchBoardInput {
+        // GTK gesture callbacks hand us the position in widget CSS
+        // pixels. `handle_event_mouse_input` will rewrite `pos` to
+        // image coords before tool dispatch; `canvas_pos` keeps the
+        // original widget value so the crop tool's inside-out edit
+        // workflow has a direct read.
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: event_type,
             button: button.into(),
             n_pressed,
             modifier,
             pos,
+            canvas_pos: pos,
             release,
         }))
     }
@@ -364,6 +383,7 @@ impl SketchBoardInput {
             n_pressed: 0,
             modifier: ModifierType::empty(),
             pos: Vec2D::new(0.0, delta_y as f32),
+            canvas_pos: Vec2D::zero(),
             release: false,
         }))
     }
@@ -379,6 +399,7 @@ impl SketchBoardInput {
             n_pressed: 0,
             modifier,
             pos: Vec2D::new(delta_x as f32, delta_y as f32),
+            canvas_pos: Vec2D::zero(),
             release: false,
         }))
     }
