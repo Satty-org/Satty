@@ -5216,6 +5216,23 @@ impl Component for StyleToolbar {
                 self.brush_smooth_slider_show_for_multi = false;
                 self.annotation_pill_disabled = false;
                 self.has_selection = false;
+                // Snap the multiplier pill back to the global saved
+                // default. The pill picks up per-drawable factors via
+                // `SyncFromSelection` and per-group shared factors via
+                // `SyncMultiAgreement`; without this snap it would
+                // strand at the last-selected drawable's value, which
+                // is asymmetric vs the size slider's per-tool
+                // snap-back. Emit upstream so sketch_board's
+                // self.style.annotation_size_factor follows for the
+                // next stroke.
+                let global_default = APP_CONFIG.read().annotation_size_factor();
+                if (global_default - self.annotation_size).abs() > ANNOTATION_STEP / 2.0 {
+                    self.annotation_size = global_default;
+                    self.annotation_size_formatted = format_annotation(global_default);
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::AnnotationSizeChanged(global_default));
+                }
                 // No selection → wheel-resize requires Ctrl;
                 // tooltip says so.
                 if let Some(label) = &self.size_tooltip_label {
