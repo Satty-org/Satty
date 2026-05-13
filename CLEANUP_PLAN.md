@@ -244,7 +244,7 @@ Behavior-preserving consolidation. Each task is verifiable independently.
 
 ### 2.2 Generic `cycle_seed` helper
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/sketch_board.rs:1226–1287`
   - `cycle_seed_arrow`, `cycle_seed_blur`, `cycle_seed_text` (and to a
     lesser extent `cycle_seed_highlighter`) share the same pattern: query

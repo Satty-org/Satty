@@ -1303,53 +1303,40 @@ impl SketchBoard {
     /// the user has on screen, not the stale tool default. Falls
     /// back to the persisted default when nothing relevant is
     /// selected.
-    fn cycle_seed_arrow(&self) -> crate::tools::ArrowStyle {
+    /// Resolve the seed value for a style cycle. If exactly one
+    /// drawable is selected and it exposes a property (`extract`
+    /// returns Some), use that — so cycling operates on the thing
+    /// the user has on screen. Otherwise fall back to the persisted
+    /// default loaded via `fallback`, or `S::default()` if even that
+    /// returns None.
+    fn cycle_seed_from_selection<S, F, G>(&self, extract: F, fallback: G) -> S
+    where
+        S: Default,
+        F: FnOnce(&dyn Drawable) -> Option<S>,
+        G: FnOnce() -> Option<S>,
+    {
         let selected = self
             .tools
             .get(&Tools::Pointer)
             .borrow()
             .selected_drawables();
         if selected.len() == 1
-            && let Some(s) = self
-                .renderer
-                .clone_drawable(selected[0])
-                .and_then(|d| d.arrow_style())
+            && let Some(d) = self.renderer.clone_drawable(selected[0])
+            && let Some(s) = extract(d.as_ref())
         {
             return s;
         }
-        crate::state::load_arrow_style().unwrap_or_default()
+        fallback().unwrap_or_default()
+    }
+
+    fn cycle_seed_arrow(&self) -> crate::tools::ArrowStyle {
+        self.cycle_seed_from_selection(|d| d.arrow_style(), crate::state::load_arrow_style)
     }
     fn cycle_seed_blur(&self) -> crate::tools::BlurStyle {
-        let selected = self
-            .tools
-            .get(&Tools::Pointer)
-            .borrow()
-            .selected_drawables();
-        if selected.len() == 1
-            && let Some(s) = self
-                .renderer
-                .clone_drawable(selected[0])
-                .and_then(|d| d.blur_style())
-        {
-            return s;
-        }
-        crate::state::load_blur_style().unwrap_or_default()
+        self.cycle_seed_from_selection(|d| d.blur_style(), crate::state::load_blur_style)
     }
     fn cycle_seed_text(&self) -> crate::tools::TextBackground {
-        let selected = self
-            .tools
-            .get(&Tools::Pointer)
-            .borrow()
-            .selected_drawables();
-        if selected.len() == 1
-            && let Some(s) = self
-                .renderer
-                .clone_drawable(selected[0])
-                .and_then(|d| d.text_background())
-        {
-            return s;
-        }
-        crate::state::load_text_background().unwrap_or_default()
+        self.cycle_seed_from_selection(|d| d.text_background(), crate::state::load_text_background)
     }
 
     /// Seed for the highlighter style cycle. Unlike Arrow/Blur/Text
