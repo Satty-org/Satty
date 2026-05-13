@@ -214,6 +214,7 @@ enum AppInput {
     SelectionMultiAgreement {
         size: Option<style::Size>,
         smooth: sketch_board::SmoothLevelMulti,
+        annotation: Option<f32>,
     },
     /// Tool-specific style was cycled in sketch_board via the
     /// double-tap keyboard shortcut. The StyleToolbar's menu /
@@ -791,10 +792,18 @@ impl Component for App {
                         .emit(StyleToolbarInput::SyncToToolDefault);
                 }
             }
-            AppInput::SelectionMultiAgreement { size, smooth } => {
+            AppInput::SelectionMultiAgreement {
+                size,
+                smooth,
+                annotation,
+            } => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SyncMultiAgreement { size, smooth });
+                    .emit(StyleToolbarInput::SyncMultiAgreement {
+                        size,
+                        smooth,
+                        annotation,
+                    });
             }
             AppInput::ToolSizeChanged(size) => {
                 self.style_toolbar
@@ -1004,9 +1013,15 @@ impl Component for App {
                     SketchBoardOutput::SelectionStyleChanged(style) => {
                         AppInput::SelectionStyleChanged(style)
                     }
-                    SketchBoardOutput::SelectionMultiAgreement { size, smooth } => {
-                        AppInput::SelectionMultiAgreement { size, smooth }
-                    }
+                    SketchBoardOutput::SelectionMultiAgreement {
+                        size,
+                        smooth,
+                        annotation,
+                    } => AppInput::SelectionMultiAgreement {
+                        size,
+                        smooth,
+                        annotation,
+                    },
                     SketchBoardOutput::ToolSizeChanged(size) => {
                         AppInput::ToolSizeChanged(size)
                     }

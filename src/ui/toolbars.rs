@@ -1397,6 +1397,12 @@ pub struct StyleToolbar {
     /// accidentally collapse the group to a single value. Driven by
     /// `SyncMultiAgreement` (and reset on single-select / empty).
     size_slider_disabled: bool,
+    /// True while a multi-selection has a mixed `annotation_size_factor`
+    /// (the per-drawable multiplier). Greys out the annotation pill so
+    /// a drag/edit can't accidentally collapse the mixed group onto
+    /// one value. Driven by `SyncMultiAgreement` (and reset on
+    /// single-select / empty).
+    annotation_pill_disabled: bool,
     /// True while there is an active selection (single or multi).
     /// Read by the `ToolChanged` handler so its "snap slider to the
     /// new tool's saved default" auto-emit only fires when there is
@@ -2233,6 +2239,7 @@ pub enum StyleToolbarInput {
     SyncMultiAgreement {
         size: Option<crate::style::Size>,
         smooth: crate::sketch_board::SmoothLevelMulti,
+        annotation: Option<f32>,
     },
     /// Fill-shape button clicked. Mirrors `ToolbarEvent::ToggleFill`
     /// upstream and flips the local `fill_shapes` flag so the icon +
@@ -4606,6 +4613,11 @@ impl Component for StyleToolbar {
                     set_hexpand: false,
                     set_valign: gtk::Align::Center,
                     set_height_request: 34,
+                    // Greyed out when a multi-selection has mixed
+                    // per-drawable annotation factors — same rule as
+                    // the size slider's disabled state.
+                    #[watch]
+                    set_sensitive: !model.annotation_pill_disabled,
                     // ew-resize cursor signals "horizontal scrub" the moment
                     // the pointer enters the pill; combined with the
                     // GestureDrag below this gives the same feel as the
@@ -5202,6 +5214,7 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
+                self.annotation_pill_disabled = false;
                 self.has_selection = false;
                 // No selection → wheel-resize requires Ctrl;
                 // tooltip says so.
@@ -5240,6 +5253,7 @@ impl Component for StyleToolbar {
                 self.size_slider_disabled = false;
                 self.brush_smooth_slider_disabled = false;
                 self.brush_smooth_slider_show_for_multi = false;
+                self.annotation_pill_disabled = false;
                 self.has_selection = true;
                 // Selection is active → wheel resizes it; tooltip
                 // points at the unmodified-wheel gesture.
@@ -5247,7 +5261,11 @@ impl Component for StyleToolbar {
                     label.set_label(size_tooltip_text(true));
                 }
             }
-            StyleToolbarInput::SyncMultiAgreement { size, smooth } => {
+            StyleToolbarInput::SyncMultiAgreement {
+                size,
+                smooth,
+                annotation,
+            } => {
                 // Size: `Some(v)` → reflect on slider + enable it (so
                 // a slider drag will group-update); `None` → disable
                 // so a stray drag can't collapse a mixed selection.
@@ -5281,6 +5299,19 @@ impl Component for StyleToolbar {
                         self.brush_smooth_slider_show_for_multi = true;
                         self.brush_smooth_slider_disabled = true;
                     }
+                }
+                // Annotation multiplier follows the same shared / mixed
+                // pattern as size: snap the pill display to the shared
+                // factor when all selected drawables agree, otherwise
+                // grey it out so a stray drag doesn't homogenize the
+                // group's per-drawable factors.
+                match annotation {
+                    Some(v) => {
+                        self.annotation_size = v;
+                        self.annotation_size_formatted = format_annotation(v);
+                        self.annotation_pill_disabled = false;
+                    }
+                    None => self.annotation_pill_disabled = true,
                 }
                 self.has_selection = true;
                 // Multi-selection counts as "selection active" for
@@ -5440,6 +5471,7 @@ impl Component for StyleToolbar {
             brush_post_smooth_iterations: crate::state::load_brush_post_smooth_iterations()
                 .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
             size_slider_disabled: false,
+            annotation_pill_disabled: false,
             has_selection: false,
             size_tooltip_label: None,
             brush_smooth_slider_disabled: false,

@@ -165,6 +165,10 @@ pub enum SketchBoardOutput {
     SelectionMultiAgreement {
         size: Option<crate::style::Size>,
         smooth: SmoothLevelMulti,
+        /// Shared `annotation_size_factor` across the multi-selection
+        /// (None when mixed). Drives the multiplier pill's value +
+        /// sensitivity in the same way `size` drives the size slider.
+        annotation: Option<f32>,
     },
     /// Sketch board changed the active tool's size programmatically
     /// (e.g. Ctrl+wheel over the canvas with no selection). The
@@ -2211,6 +2215,23 @@ impl SketchBoard {
                         .iter()
                         .all(|d| d.style().map(|s| s.size) == Some(*first_size))
                 });
+            // Annotation factor agreement. Compared with a small
+            // epsilon because the pill's stepped quantisation can
+            // leave imperceptible float drift between drawables that
+            // the user would consider equal.
+            const ANNOTATION_AGREE_EPS: f32 = 1e-4;
+            let shared_annotation = drawables
+                .first()
+                .and_then(|d| d.style())
+                .map(|s| s.annotation_size_factor)
+                .filter(|first| {
+                    drawables.iter().all(|d| {
+                        d.style()
+                            .map(|s| (s.annotation_size_factor - *first).abs())
+                            .map(|delta| delta <= ANNOTATION_AGREE_EPS)
+                            .unwrap_or(false)
+                    })
+                });
             // smooth_level only exists on brush strokes. Three cases:
             // every drawable is a brush + all same level → Shared;
             // every drawable is a brush + differing levels → Mixed;
@@ -2234,6 +2255,7 @@ impl SketchBoard {
                 .emit(SketchBoardOutput::SelectionMultiAgreement {
                     size: shared_size,
                     smooth,
+                    annotation: shared_annotation,
                 });
         }
         // If the just-selected drawable carries a variant (text
