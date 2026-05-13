@@ -543,6 +543,12 @@ pub struct SketchBoard {
     /// scroll-wheel resize gesture) — so the size slider stays in
     /// sync without re-emitting on every redraw.
     last_synced_selection: Option<(DrawableId, crate::style::Size, f32)>,
+    /// `true` while the previous sync saw a multi-selection (2+ ids).
+    /// Read alongside `last_synced_selection` so multi→empty and
+    /// multi→single transitions emit `SelectionStyleChanged` even
+    /// when the cache key alone doesn't change (multi and empty both
+    /// produce `None` in `last_synced_selection`).
+    last_was_multi_selection: bool,
     /// The tool that was active just before the user switched into
     /// Crop. Captured in `handle_toolbar_event` and used by the Esc
     /// path in `CropTool` to return the user to where they were
@@ -2251,7 +2257,17 @@ impl SketchBoard {
             .as_ref()
             .map(|(id, s)| (*id, s.size, s.annotation_size_factor));
         let single_changed = new_key != self.last_synced_selection;
-        if single_changed {
+        // Detect multi-state transitions even when both the previous
+        // and current sync had a `None` key (multi → empty looks like
+        // None → None on the cache alone). Without this, ToolChanged-
+        // initiated multi→empty transitions wouldn't fire
+        // `SyncToToolDefault`, leaving stale multi-only flags like
+        // `brush_smooth_slider_show_for_multi` stuck and the
+        // smoothness slider visible after the user switched tools.
+        let was_multi = self.last_was_multi_selection;
+        let is_multi = selected.len() >= 2;
+        self.last_was_multi_selection = is_multi;
+        if single_changed || was_multi != is_multi {
             self.last_synced_selection = new_key;
             sender
                 .output_sender()
@@ -2448,6 +2464,38 @@ impl SketchBoard {
         self.sync_toolbar_to_selection(outer_sender);
     }
 
+    /// Pick which tool's "alt" control the Ctrl+Shift+wheel gesture
+    /// should drive. With a live selection that's all-one-tool, the
+    /// alt follows the selection (a Pointer-tool multi-brush selection
+    /// targets `Brush`). With an empty selection (or a mixed-tool
+    /// selection that doesn't agree), fall back to the active tool.
+    fn alt_slider_target_tool(&self) -> Option<Tools> {
+        let selected = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables();
+        if selected.is_empty() {
+            return Some(self.active_tool_type());
+        }
+        // All selected drawables share a tool_type → use it.
+        let tools: Vec<Option<Tools>> = selected
+            .iter()
+            .map(|id| {
+                self.renderer
+                    .clone_drawable(*id)
+                    .and_then(|d| d.tool_type())
+            })
+            .collect();
+        let first = tools.first().and_then(|t| *t)?;
+        if tools.iter().all(|t| *t == Some(first)) {
+            Some(first)
+        } else {
+            // Mixed selection — no single alt control makes sense.
+            None
+        }
+    }
+
     /// Bump or cycle the active tool's "alternate" control — the
     /// per-tool widget in the bottom-right cluster: brush smoothness
     /// slider, spotlight darkness slider, highlighter opacity slider,
@@ -2462,8 +2510,15 @@ impl SketchBoard {
         if steps == 0 {
             return;
         }
-        match self.active_tool_type() {
-            Tools::Brush => {
+        // Dispatch by the *target* tool — when the user has a
+        // selection, the alt control follows the selected drawables
+        // (a Pointer-tool multi-brush selection should bump
+        // smoothness, not "Pointer has no alt control"). With no
+        // selection, fall back to the active tool's alt control for
+        // the next-stroke default.
+        let target_tool = self.alt_slider_target_tool();
+        match target_tool {
+            Some(Tools::Brush) => {
                 // Integer 0..=6 — one notch per wheel step. Seed
                 // depends on whether the user has brush strokes
                 // selected: with selection, start from the selected
@@ -2543,7 +2598,7 @@ impl SketchBoard {
                     .emit(SketchBoardOutput::BrushPostSmoothReset(new_val));
                 self.refresh_screen();
             }
-            Tools::Spotlight => {
+            Some(Tools::Spotlight) => {
                 // 0.10..=0.90 — coarse stride per notch so a typical
                 // wrist-flick of 3–4 clicks traverses meaningful range.
                 const SPOTLIGHT_STEP: f32 = 0.05;
@@ -2559,7 +2614,7 @@ impl SketchBoard {
                     .emit(SketchBoardOutput::SpotlightDarknessReset(new_val));
                 self.refresh_screen();
             }
-            Tools::Highlighter => {
+            Some(Tools::Highlighter) => {
                 // 0.10..=1.00 — same stride logic as spotlight.
                 const HIGHLIGHTER_STEP: f32 = 0.05;
                 let cur = self.style.highlighter_opacity;
@@ -2609,7 +2664,7 @@ impl SketchBoard {
                     .handle_event(ToolEvent::StyleChanged(self.style));
                 self.refresh_screen();
             }
-            Tools::Arrow => {
+            Some(Tools::Arrow) => {
                 use crate::tools::ArrowStyle;
                 let order = [
                     ArrowStyle::Standard,
@@ -2636,7 +2691,7 @@ impl SketchBoard {
                     .output_sender()
                     .emit(SketchBoardOutput::ArrowStyleCycled(next));
             }
-            Tools::Blur => {
+            Some(Tools::Blur) => {
                 use crate::tools::BlurStyle;
                 let order = [
                     BlurStyle::Pixelate,
@@ -2653,7 +2708,7 @@ impl SketchBoard {
                     .output_sender()
                     .emit(SketchBoardOutput::BlurStyleCycled(next));
             }
-            Tools::Text => {
+            Some(Tools::Text) => {
                 use crate::tools::TextBackground;
                 let order = [TextBackground::Rounded, TextBackground::Plain];
                 let current = self.cycle_seed_text();
@@ -3831,6 +3886,7 @@ impl Component for SketchBoard {
             im_context,
             last_saved_filepath: RefCell::new(None),
             last_synced_selection: None,
+            last_was_multi_selection: false,
             tool_before_crop: None,
             scroll_resize_accum: 0.0,
             last_tool_press: None,
