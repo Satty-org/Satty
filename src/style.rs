@@ -216,17 +216,6 @@ impl Color {
         }
     }
 
-    pub fn to_rgba_f64(self) -> (f64, f64, f64, f64) {
-        (
-            (self.r as f64) / 255.0,
-            (self.g as f64) / 255.0,
-            (self.b as f64) / 255.0,
-            (self.a as f64) / 255.0,
-        )
-    }
-    pub fn to_rgba_u32(self) -> u32 {
-        ((self.r as u32) << 24) | ((self.g as u32) << 16) | ((self.b as u32) << 8) | (self.a as u32)
-    }
 }
 
 impl From<RGBA> for Color {

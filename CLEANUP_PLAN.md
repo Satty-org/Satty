@@ -81,7 +81,7 @@ Zero behavior change. Each task is independently safe.
 
 ### 1.4 Delete `Color::to_rgba_f64()` and `Color::to_rgba_u32()`
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/style.rs:219` and `src/style.rs:227`.
   - Re-check: `grep -rn "to_rgba_f64\|to_rgba_u32" src/` — only definitions.
   - Delete both methods.
