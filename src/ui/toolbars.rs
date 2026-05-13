@@ -5484,13 +5484,22 @@ impl Component for StyleToolbar {
                 let v = slider.value().round().clamp(0.0, 6.0) as usize;
                 s.output_sender()
                     .emit(ToolbarEvent::SaveBrushPostSmoothAsDefault(v));
-                // Also nudge ourselves to re-position the tick mark
-                // so the user gets immediate visible confirmation
-                // (the mark jumps to the slider's current position).
-                // The state.toml write the output emit triggers is
-                // synchronous in `sketch_board`, so by the time this
-                // input is processed `load_brush_post_smooth_iterations`
-                // returns the just-saved value.
+                // Mirror the slider value into the local model field.
+                // Necessary because the next input we emit
+                // (RefreshBrushSmoothMarks) triggers a view-tree
+                // re-evaluation, and the `#[watch]` `set_value:
+                // model.brush_post_smooth_iterations` would otherwise
+                // push the stale model value (still at whatever it was
+                // before the user dragged) back to the slider, snapping
+                // it visibly away from the user's intent.
+                s.input(StyleToolbarInput::SetBrushPostSmooth(v));
+                // Re-position the tick mark so the user gets immediate
+                // visible confirmation (the mark jumps to the slider's
+                // current position). The state.toml write the output
+                // emit triggered is synchronous in `sketch_board`, so
+                // by the time this input is processed
+                // `load_brush_post_smooth_iterations` returns the
+                // just-saved value.
                 s.input(StyleToolbarInput::RefreshBrushSmoothMarks);
             });
         }
