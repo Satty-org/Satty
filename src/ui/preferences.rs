@@ -1,19 +1,25 @@
-//! Preferences dialog — keyboard-shortcut customization.
+//! Preferences dialog — keyboard-shortcut customization and other
+//! session-wide settings (annotation size factor, scroll inversion,
+//! Esc behavior, palette visibility, sticky in-session defaults).
 //!
 //! Lays out one row per tool with a recorder button that captures a
 //! single keypress and writes it into the working keybind map. Save
-//! commits to `APP_CONFIG`; Cancel discards. Persistence to
-//! `state.toml` is wired in a follow-up commit.
+//! commits keybinds to `APP_CONFIG`; Cancel discards keybind edits.
+//! The behavior toggles apply immediately on change and persist to
+//! `state.toml` on the spot — they're not part of the keybind
+//! Cancel/Save transaction.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use relm4::Sender;
 use relm4::gtk;
 use relm4::gtk::gdk;
 use relm4::gtk::prelude::*;
 
 use crate::configuration::APP_CONFIG;
+use crate::sketch_board::SketchBoardInput;
 use crate::tools::Tools;
 
 /// Order tools appear in the prefs dialog. Mirrors the top
@@ -79,7 +85,13 @@ fn label_for(ch: Option<char>) -> String {
 
 /// Open the Preferences dialog, parented (transient) to `root` so the
 /// window manager treats it as a modal child of the main satty window.
-pub fn open<W: IsA<gtk::Widget>>(root: &W) {
+///
+/// `sketch_board_sender` is the channel by which the annotation-size
+/// SpinButton pushes its live value into sketch_board's `self.style`
+/// so a change takes effect immediately for the next stroke (otherwise
+/// APP_CONFIG would update but sketch_board's already-captured value
+/// wouldn't refresh until the next launch).
+pub fn open<W: IsA<gtk::Widget>>(root: &W, sketch_board_sender: Sender<SketchBoardInput>) {
     let toplevel = root
         .root()
         .and_then(|r| r.downcast::<gtk::Window>().ok());
@@ -346,6 +358,53 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W) {
         .build();
     behavior_heading.add_css_class("title-3");
     outer.append(&behavior_heading);
+
+    // Annotation size factor — the multiplier that scales every
+    // Size-based metric (text height, line width, arrow heads, blur
+    // radius). Mostly set once during onboarding to match the user's
+    // display scale; this row lets them tune it later without hunting
+    // through config files. Changes write to state.toml + APP_CONFIG
+    // immediately and push directly into sketch_board so the very
+    // next stroke uses the new factor.
+    let factor_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    let factor_label = gtk::Label::builder()
+        .label("Annotation size factor")
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .build();
+    factor_row.append(&factor_label);
+    let factor_spin = gtk::SpinButton::builder()
+        .adjustment(&gtk::Adjustment::new(
+            APP_CONFIG.read().annotation_size_factor().into(),
+            // 0.10..=10.0 with 0.1 detents matches the canvas-side
+            // Alt+scroll constants in `scroll_annotation_multiplier`
+            // so both paths land on the same grid.
+            0.10,
+            10.0,
+            0.10,
+            0.50,
+            0.0,
+        ))
+        .climb_rate(0.1)
+        .digits(1)
+        .numeric(true)
+        .build();
+    let factor_sender = sketch_board_sender.clone();
+    factor_spin.connect_value_changed(move |btn| {
+        let value = btn.value() as f32;
+        crate::state::save_annotation_size_factor(value);
+        APP_CONFIG.write().set_annotation_size_factor(value);
+        let _ = factor_sender.send(SketchBoardInput::SetAnnotationFactor(value));
+    });
+    factor_spin.set_tooltip_text(Some(
+        "Scales the size of every annotation (text, line width, arrow heads, …). \
+         Set this to roughly match your display scale; values above 1 enlarge.",
+    ));
+    factor_row.append(&factor_spin);
+    outer.append(&factor_row);
 
     let invert_scroll_check = gtk::CheckButton::builder()
         .label("Invert scrolling direction")

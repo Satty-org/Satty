@@ -755,7 +755,7 @@ impl Component for App {
                 );
             }
             AppInput::OpenPreferences => {
-                ui::preferences::open(root);
+                ui::preferences::open(root, self.sketch_board.sender().clone());
             }
             AppInput::ZoomChanged(scale) => {
                 self.zoom_indicator

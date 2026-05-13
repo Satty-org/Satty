@@ -84,6 +84,11 @@ pub enum SketchBoardInput {
     /// `style.fill` but doesn't touch the toolbar's mirror — that's
     /// done lazily on button click; this sync signal closes the loop).
     SyncFillToToolbar,
+    /// External components (the welcome dialog, Preferences) pushed a
+    /// new `annotation_size_factor`. Update `self.style` so the next
+    /// drawn shape stamps the new factor, then re-broadcast the active
+    /// style to every tool so cursors / in-progress strokes resize too.
+    SetAnnotationFactor(f32),
     Output(SketchBoardOutput),
 }
 
@@ -3992,6 +3997,22 @@ impl Component for SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::FillShapesChanged(self.style.fill));
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::SetAnnotationFactor(value) => {
+                // Pushed by the welcome dialog Save handler and the
+                // Preferences row when the user adjusts the factor.
+                // Updates `self.style` so the next stroke is stamped
+                // with the new factor and re-broadcasts the style to
+                // the active tool so any in-progress preview (brush
+                // cursor diameter, etc.) re-derives from it.
+                if (self.style.annotation_size_factor - value).abs() >= f32::EPSILON {
+                    self.style.annotation_size_factor = value;
+                    self.active_tool
+                        .borrow_mut()
+                        .handle_event(ToolEvent::StyleChanged(self.style));
+                    self.refresh_screen();
+                }
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::ExitCropToPreviousTool => {
