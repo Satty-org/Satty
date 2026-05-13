@@ -2726,13 +2726,27 @@ impl SketchBoard {
                     .output_sender()
                     .emit(SketchBoardOutput::TextBackgroundCycled(next));
             }
+            Some(Tools::Rectangle) | Some(Tools::Ellipse) => {
+                // Rect/Ellipse alt control is the fill toggle.
+                // Map wheel direction to a definite state (up = filled,
+                // down = outline) rather than a step-by-step flip —
+                // a multi-notch wheel would otherwise zig-zag the
+                // state and surprise the user. The toggle is no-op
+                // when already in the requested state.
+                let want_filled = steps > 0;
+                if want_filled == self.style.fill {
+                    return;
+                }
+                let _ = self.handle_toolbar_event(
+                    ToolbarEvent::ToggleFill,
+                    outer_sender.clone(),
+                );
+            }
             _ => {
                 // No alt control for the remaining tools (Pointer /
-                // Crop / Rectangle / Ellipse — the rect/ellipse "Fill
-                // Shape" is a toggle, not naturally wheel-driven).
-                // Silently absorb the gesture so the user doesn't get
-                // a surprise pan when their fingers slip onto
-                // Ctrl+Shift over a non-cluster tool.
+                // Crop). Silently absorb the gesture so the user
+                // doesn't get a surprise pan when their fingers slip
+                // onto Ctrl+Shift over a non-cluster tool.
             }
         }
     }
