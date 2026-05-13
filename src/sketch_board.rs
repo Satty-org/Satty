@@ -1795,7 +1795,15 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::FocusCanvas => {
+                // Same idle re-grab as the SketchBoardInput variant —
+                // popover-dismissal focus restores override an
+                // immediate-only grab, so schedule a second attempt
+                // after GTK's pending focus work has settled.
                 self.renderer.grab_focus();
+                let renderer = self.renderer.clone();
+                relm4::gtk::glib::idle_add_local_once(move || {
+                    renderer.grab_focus();
+                });
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::ArrowStyleSelected(style) => {
@@ -3679,7 +3687,20 @@ impl Component for SketchBoard {
                 ToolUpdateResult::Redraw
             }
             SketchBoardInput::FocusCanvas => {
+                // Grab immediately AND on the next idle tick. GTK
+                // queues a focus restore when a popover (e.g. the
+                // arrow-style dropdown) dismisses, and that restore
+                // runs *after* this handler returns — so an
+                // immediate-only grab loses the race and focus
+                // lands back on whatever the popover came from. The
+                // idle re-grab runs after the restore, reclaiming
+                // focus for the canvas so the next keystroke / wheel
+                // gesture works without an extra click.
                 self.renderer.grab_focus();
+                let renderer = self.renderer.clone();
+                relm4::gtk::glib::idle_add_local_once(move || {
+                    renderer.grab_focus();
+                });
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::SyncFillToToolbar => {

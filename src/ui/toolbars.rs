@@ -1591,16 +1591,15 @@ fn arrow_style_label(s: ArrowStyle) -> &'static str {
     }
 }
 
-/// Dimensions for the arrow-style preview shown on the MenuButton chip.
-/// Tuned so the body and head are recognizably distinct at this size
-/// while still fitting inside the 34 px MenuButton.
-const ARROW_PREVIEW_W: i32 = 30;
+/// Dimensions for the arrow-style preview. The chip in the bottom-
+/// right cluster and the popover rows share a single longer width
+/// — the short stubby chip was hard to distinguish between Standard
+/// and Fancy at a glance, and the cluster has plenty of room to fit
+/// the longer rendering. Height stays low so neither the chip nor
+/// the rows tower over the rest of the toolbar.
+const ARROW_PREVIEW_W: i32 = 60;
 const ARROW_PREVIEW_H: i32 = 16;
-/// Wider preview for the popover-row variant — same drawing code, just
-/// 2× the chip width so the body has enough room for the user to read
-/// the actual stroke shape. Height stays at the chip's value so the
-/// rows don't tower.
-const ARROW_ROW_PREVIEW_W: i32 = ARROW_PREVIEW_W * 2;
+const ARROW_ROW_PREVIEW_W: i32 = ARROW_PREVIEW_W;
 const ARROW_ROW_PREVIEW_H: i32 = ARROW_PREVIEW_H;
 
 /// Paint a small arrow preview into `ctx` using cairo, matching the shape
