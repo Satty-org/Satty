@@ -204,6 +204,14 @@ enum AppInput {
     /// the StyleToolbar (size slider, etc.) can sync to whatever
     /// shape the user just selected. `None` means cleared / multi.
     SelectionStyleChanged(Option<style::Style>),
+    /// Per-property "do all the multi-selected drawables share this
+    /// value?" report from sketch_board, forwarded to the toolbar so
+    /// its sliders can either reflect a shared value (Some) or
+    /// disable themselves (None) when the selection is mixed.
+    SelectionMultiAgreement {
+        size: Option<style::Size>,
+        smooth_level: Option<usize>,
+    },
     /// Tool-specific style was cycled in sketch_board via the
     /// double-tap keyboard shortcut. The StyleToolbar's menu /
     /// dropdown for that tool follows so the on-screen affordance
@@ -780,6 +788,17 @@ impl Component for App {
                         .emit(StyleToolbarInput::SyncToToolDefault);
                 }
             }
+            AppInput::SelectionMultiAgreement {
+                size,
+                smooth_level,
+            } => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SyncMultiAgreement {
+                        size,
+                        smooth_level,
+                    });
+            }
             AppInput::ToolSizeChanged(size) => {
                 self.style_toolbar
                     .sender()
@@ -988,6 +1007,10 @@ impl Component for App {
                     SketchBoardOutput::SelectionStyleChanged(style) => {
                         AppInput::SelectionStyleChanged(style)
                     }
+                    SketchBoardOutput::SelectionMultiAgreement {
+                        size,
+                        smooth_level,
+                    } => AppInput::SelectionMultiAgreement { size, smooth_level },
                     SketchBoardOutput::ToolSizeChanged(size) => {
                         AppInput::ToolSizeChanged(size)
                     }

@@ -1392,6 +1392,15 @@ pub struct StyleToolbar {
     /// 0–4). Snaps back to the saved default on re-entering the
     /// brush tool; right-click → "Save as default" persists.
     brush_post_smooth_iterations: usize,
+    /// True while a multi-selection has a mixed `size` across its
+    /// drawables — disables the size slider so the user can't
+    /// accidentally collapse the group to a single value. Driven by
+    /// `SyncMultiAgreement` (and reset on single-select / empty).
+    size_slider_disabled: bool,
+    /// True while a multi-selection has a mixed `smooth_level` (or
+    /// includes drawables that don't carry one) — disables the brush
+    /// smoothness slider for the same reason.
+    brush_smooth_slider_disabled: bool,
     /// Clone of the size slider widget — held in the model so the
     /// handlers below can imperatively refresh its mark labels
     /// (bolding the letter that matches the current tool's saved
@@ -2177,6 +2186,15 @@ pub enum StyleToolbarInput {
     /// the user typed. Does NOT re-broadcast — applying the value
     /// back to the selection would loop forever.
     SyncFromSelection(crate::style::Style),
+    /// Multi-select per-property agreement report. For each property,
+    /// `Some(v)` says "all selected drawables share `v`" → reflect it
+    /// on the matching slider and let the user group-edit. `None`
+    /// means "they disagree" → disable that slider so a stray drag
+    /// can't collapse the mixed set onto one value.
+    SyncMultiAgreement {
+        size: Option<crate::style::Size>,
+        smooth_level: Option<usize>,
+    },
     /// Fill-shape button clicked. Mirrors `ToolbarEvent::ToggleFill`
     /// upstream and flips the local `fill_shapes` flag so the icon +
     /// tooltip in the right cluster update reactively.
@@ -4482,6 +4500,11 @@ impl Component for StyleToolbar {
                 set_hexpand: false,
                 set_width_request: 200,
                 set_valign: gtk::Align::Center,
+                // Greyed out when a multi-selection's drawables have
+                // mixed sizes — prevents an accidental drag from
+                // collapsing them all to a single value.
+                #[watch]
+                set_sensitive: !model.size_slider_disabled,
                 // GTK's valign:Center splits remaining space evenly above
                 // and below the widget, but the slider's mark labels
                 // hang below the trough — so the "visual center" (the
@@ -4848,6 +4871,13 @@ impl Component for StyleToolbar {
                 #[name(brush_smooth_slider)]
                 gtk::Scale {
                     add_css_class: "compact-slider",
+                    // Greyed out when a multi-selection of brush
+                    // strokes has mixed smoothness levels (or when the
+                    // selection includes non-brush drawables that have
+                    // no smoothness property) — same rule as the size
+                    // slider above.
+                    #[watch]
+                    set_sensitive: !model.brush_smooth_slider_disabled,
                     set_orientation: gtk::Orientation::Horizontal,
                     set_focusable: false,
                     set_hexpand: false,
@@ -5096,6 +5126,10 @@ impl Component for StyleToolbar {
                         .output_sender()
                         .emit(ToolbarEvent::SizeSelected(default_size));
                 }
+                // Empty selection — re-enable sliders so the user can
+                // adjust the next-stroke defaults.
+                self.size_slider_disabled = false;
+                self.brush_smooth_slider_disabled = false;
             }
             StyleToolbarInput::CropPresenceChanged(present) => {
                 self.has_crop = present;
@@ -5119,6 +5153,35 @@ impl Component for StyleToolbar {
                 self.fill_shapes = style.fill;
                 if let Some(label) = &self.fill_tooltip_label {
                     label.set_text(fill_tooltip_text(self.fill_shapes));
+                }
+                // Single selection has by definition one value for
+                // each property — re-enable any slider that a prior
+                // multi-select had disabled.
+                self.size_slider_disabled = false;
+                self.brush_smooth_slider_disabled = false;
+            }
+            StyleToolbarInput::SyncMultiAgreement {
+                size,
+                smooth_level,
+            } => {
+                // For each property: `Some(v)` → reflect on slider +
+                // enable it (so a slider drag will group-update);
+                // `None` → disable so a stray drag can't collapse a
+                // mixed selection. The matching `set_sensitive` watch
+                // in view! consumes these flags.
+                match size {
+                    Some(s) => {
+                        self.current_size = s;
+                        self.size_slider_disabled = false;
+                    }
+                    None => self.size_slider_disabled = true,
+                }
+                match smooth_level {
+                    Some(level) => {
+                        self.brush_post_smooth_iterations = level;
+                        self.brush_smooth_slider_disabled = false;
+                    }
+                    None => self.brush_smooth_slider_disabled = true,
                 }
             }
             StyleToolbarInput::ToggleFill => {
@@ -5271,6 +5334,8 @@ impl Component for StyleToolbar {
             highlighter_opacity: crate::state::load_highlighter_opacity().unwrap_or(0.40),
             brush_post_smooth_iterations: crate::state::load_brush_post_smooth_iterations()
                 .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations()),
+            size_slider_disabled: false,
+            brush_smooth_slider_disabled: false,
             size_slider: None,
             brush_smooth_slider: None,
             has_crop: false,

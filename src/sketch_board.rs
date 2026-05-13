@@ -133,9 +133,21 @@ pub enum SketchBoardOutput {
     /// The single selected drawable changed (or its style mutated) —
     /// emitted so the StyleToolbar's size slider, color chip, fill
     /// toggle, etc., follow whatever shape is currently picked.
-    /// `None` means selection has been cleared (multi-select or
-    /// nothing selected) — the toolbar then keeps its last value.
+    /// `None` means selection has been cleared (nothing selected, or
+    /// multi-select — see also `SelectionMultiAgreement`) — the
+    /// toolbar then keeps its last single-select value.
     SelectionStyleChanged(Option<Style>),
+    /// Per-property "do all the multi-selected drawables share this
+    /// value?" report. Emitted whenever a multi-selection is live or
+    /// changes. `Some(v)` means all selected agree on `v` and the
+    /// toolbar should reflect it (and let the user group-edit it).
+    /// `None` means the selected drawables disagree, so the toolbar
+    /// disables that specific control — prevents accidentally
+    /// collapsing a mixed selection onto a single value.
+    SelectionMultiAgreement {
+        size: Option<crate::style::Size>,
+        smooth_level: Option<usize>,
+    },
     /// Sketch board changed the active tool's size programmatically
     /// (e.g. Ctrl+wheel over the canvas with no selection). The
     /// toolbar mirrors the new value into its slider — no SizeSelected
@@ -2132,9 +2144,10 @@ impl SketchBoard {
     /// If the pointer tool's selection has changed since we last
     /// synced the toolbar — either the selected drawable id flipped
     /// or its sizing was mutated (scroll-resize) — emit
-    /// `SelectionStyleChanged` with the new drawable's style. Skips
-    /// re-emit for multi-select or empty selection so the toolbar
-    /// keeps its last value in those cases.
+    /// `SelectionStyleChanged` with the new drawable's style for the
+    /// single-select case, and `SelectionMultiAgreement` for the
+    /// multi-select case (per-property "do they all share this?"
+    /// report driving slider enable/disable + value).
     fn sync_toolbar_to_selection(&mut self, sender: &ComponentSender<Self>) {
         let pointer_tool = self.tools.get(&Tools::Pointer);
         let selected = pointer_tool.borrow().selected_drawables();
@@ -2149,15 +2162,55 @@ impl SketchBoard {
         let new_key = new_style
             .as_ref()
             .map(|(id, s)| (*id, s.size, s.annotation_size_factor));
-        if new_key == self.last_synced_selection {
-            return;
+        let single_changed = new_key != self.last_synced_selection;
+        if single_changed {
+            self.last_synced_selection = new_key;
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SelectionStyleChanged(
+                    new_style.map(|(_, s)| s),
+                ));
         }
-        self.last_synced_selection = new_key;
-        sender
-            .output_sender()
-            .emit(SketchBoardOutput::SelectionStyleChanged(
-                new_style.map(|(_, s)| s),
-            ));
+        // Multi-select per-property agreement: when 2+ drawables are
+        // selected, walk each and check whether they all share the
+        // same size / smooth_level. Some(v) for "yes, they share v";
+        // None for "they disagree, disable that control." Always
+        // emitted in the multi case, regardless of `single_changed` —
+        // the agreement can shift while the single-select cache key
+        // stays `None` (e.g., scroll-resize on a multi-selection
+        // mutates values without changing the selected ids).
+        if selected.len() >= 2 {
+            let drawables: Vec<Box<dyn Drawable>> = selected
+                .iter()
+                .filter_map(|id| self.renderer.clone_drawable(*id))
+                .collect();
+            let shared_size = drawables
+                .first()
+                .and_then(|d| d.style())
+                .map(|s| s.size)
+                .filter(|first_size| {
+                    drawables
+                        .iter()
+                        .all(|d| d.style().map(|s| s.size) == Some(*first_size))
+                });
+            // smooth_level only exists on brush strokes; if any
+            // selected drawable lacks one, they "disagree" by
+            // definition — the slider has no shared value to drive.
+            let shared_smooth_level = drawables
+                .first()
+                .and_then(|d| d.smooth_level())
+                .filter(|first_level| {
+                    drawables
+                        .iter()
+                        .all(|d| d.smooth_level() == Some(*first_level))
+                });
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::SelectionMultiAgreement {
+                    size: shared_size,
+                    smooth_level: shared_smooth_level,
+                });
+        }
         // If the just-selected drawable carries a variant (text
         // background, arrow geometry, blur algorithm), push that
         // value into the toolbar so its menu / dropdown reflects
