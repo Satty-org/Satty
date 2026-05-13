@@ -425,6 +425,29 @@ impl App {
             (final_w, final_h)
         };
 
+        // Force a real resize, not just a default-size hint. By the
+        // time `connect_show` fires the window is already mapped at
+        // the construction-time `set_default_size: (500, 500)`, and
+        // Wayland compositors generally ignore later `set_default_size`
+        // calls on a mapped surface — they only honor the initial
+        // configure. So we hard-pin the size via `set_size_request`
+        // to force the next configure round-trip to use these
+        // dimensions, then clear the request 50 ms later so the user
+        // can still drag the window's edges to resize. Same pattern
+        // we use in `ContentSizeChanged` (crop commit / revert) —
+        // documented there at length.
+        let pin_size = |w: i32, h: i32| {
+            root.set_default_size(w, h);
+            root.set_size_request(w, h);
+            let root_clone = root.clone();
+            gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(50),
+                move || {
+                    root_clone.set_size_request(-1, -1);
+                },
+            );
+        };
+
         match resize {
             Some(Resize::Smart) if monitor_size_opt.is_some() => {
                 let monitor_size = monitor_size_opt.unwrap();
@@ -435,10 +458,10 @@ impl App {
                 let max_w = monitor_size.width() as f64 * 0.90;
                 let max_h = monitor_size.height() as f64 * 0.90;
                 let (w, h) = size_with_screen_cap(max_w, max_h);
-                root.set_default_size(w as i32, h as i32);
+                pin_size(w as i32, h as i32);
             }
             Some(Resize::Size { width, height }) => {
-                root.set_default_size(width, height);
+                pin_size(width, height);
             }
             _ => {
                 // Default path (no `--resize` flag): same 90%-cap +
@@ -448,9 +471,9 @@ impl App {
                     let max_w = monitor_size.width() as f64 * 0.90;
                     let max_h = monitor_size.height() as f64 * 0.90;
                     let (w, h) = size_with_screen_cap(max_w, max_h);
-                    root.set_default_size(w as i32, h as i32);
+                    pin_size(w as i32, h as i32);
                 } else {
-                    root.set_default_size(padded_image_w as i32, padded_image_h as i32);
+                    pin_size(padded_image_w as i32, padded_image_h as i32);
                 }
             }
         }
