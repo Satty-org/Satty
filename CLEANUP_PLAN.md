@@ -184,13 +184,13 @@ errors that happen to be self-cancelling.
 
 ### 1.11 Fix `manual_checked_ops` in blur
 
-- [ ] **Task**
+- [x] **Task**
   - File: `src/tools/blur.rs:307`
-  - Either use `checked_div` per clippy's suggestion, or add a
-    `#[allow(clippy::manual_checked_ops)]` with a comment explaining the
-    `count > 0` guard above already covers it (which it does — the lint
-    is technically wrong here, but pick one and move on).
-  - Verify: `cargo clippy --no-deps`.
+  - Used `sum.checked_div(count).unwrap_or(0)` per clippy. Replaces a
+    9-line if/else with 4 lines — also drops the now-redundant
+    `(0, 0, 0, 0)` default because `unwrap_or(0)` per component
+    produces the same transparent-black fallback.
+  - Verified: clippy clean (1 warning gone).
 
 ### 1.12 Other small clippy cleanups
 

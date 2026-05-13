@@ -304,16 +304,10 @@ impl Blur {
                         count += 1;
                     }
                 }
-                let (r, g, b, a) = if count > 0 {
-                    (
-                        (sum_r / count) as u8,
-                        (sum_g / count) as u8,
-                        (sum_b / count) as u8,
-                        (sum_a / count) as u8,
-                    )
-                } else {
-                    (0, 0, 0, 0)
-                };
+                let r = sum_r.checked_div(count).unwrap_or(0) as u8;
+                let g = sum_g.checked_div(count).unwrap_or(0) as u8;
+                let b = sum_b.checked_div(count).unwrap_or(0) as u8;
+                let a = sum_a.checked_div(count).unwrap_or(0) as u8;
                 // 4-bit-per-channel quantization. `c & 0xF0` zeroes the
                 // low nibble; `| c >> 4` smears the high nibble into it
                 // so the 16 representable values span 0..=255 evenly
