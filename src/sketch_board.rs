@@ -6,6 +6,7 @@ use keycode::{KeyMap, KeyMappingId};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -590,6 +591,22 @@ pub struct SketchBoard {
     /// style-derived size + pointer-anchored position until the user
     /// nudged the mouse and the next motion event re-detected.
     last_hover_image_pos: Option<crate::math::Vec2D>,
+    /// In-session memory for highlighter opacity. When the user has
+    /// `sticky_session_defaults` on, re-entering Highlighter restores
+    /// this value instead of `state::load_highlighter_opacity()`.
+    /// `None` = user hasn't touched the opacity slider this session
+    /// yet — fall back to the persisted default. Single Option (not
+    /// a per-tool map) because only one tool uses opacity.
+    session_highlighter_opacity: Option<f32>,
+    /// Same shape for the brush post-stroke smoothing slider. Only
+    /// the Brush tool consumes this, so a single Option suffices.
+    session_brush_smooth: Option<usize>,
+    /// In-session memory for per-tool fill state. Keyed by `Tools`
+    /// (only Rectangle / Ellipse populate entries today). Used by
+    /// the `switch_active_tool` snap-back path when
+    /// `sticky_session_defaults` is on; a missing entry falls back
+    /// to `state::load_fill_for_tool` (the saved default).
+    session_fill_per_tool: HashMap<Tools, bool>,
 }
 
 /// Max gap (ms) between two presses of the same tool-shortcut key
@@ -1537,9 +1554,21 @@ impl SketchBoard {
         // is meant to stick for the whole session — switching tools and
         // coming back must NOT reset it.
         if tool != current_tool {
+            let sticky = APP_CONFIG.read().sticky_session_defaults();
             match tool {
                 Tools::Highlighter => {
-                    let saved = crate::state::load_highlighter_opacity().unwrap_or(0.40);
+                    // When sticky-defaults is on AND the user has
+                    // touched the opacity slider this session, restore
+                    // that value instead of the saved persistent
+                    // default — same intent as the size slider's
+                    // session memory.
+                    let saved = if sticky
+                        && let Some(v) = self.session_highlighter_opacity
+                    {
+                        v
+                    } else {
+                        crate::state::load_highlighter_opacity().unwrap_or(0.40)
+                    };
                     self.style.highlighter_opacity = saved;
                     sender
                         .output_sender()
@@ -1574,8 +1603,17 @@ impl SketchBoard {
                         }
                     };
                     let saved = selected_level.unwrap_or_else(|| {
-                        crate::state::load_brush_post_smooth_iterations()
-                            .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations())
+                        // Sticky-defaults: prefer the in-session value
+                        // when present, falling through to the saved
+                        // default → config / built-in.
+                        if sticky
+                            && let Some(v) = self.session_brush_smooth
+                        {
+                            v
+                        } else {
+                            crate::state::load_brush_post_smooth_iterations()
+                                .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations())
+                        }
                     });
                     // Only update APP_CONFIG when this is a genuine snapback
                     // (no selection driving the value) — otherwise the user's
@@ -1594,7 +1632,20 @@ impl SketchBoard {
                     // tool; otherwise leave style.fill alone so an in-
                     // session toggle survives switching between Rectangle
                     // and Ellipse.
-                    if let Some(saved) = crate::state::load_fill_for_tool(tool)
+                    //
+                    // Sticky-defaults: prefer the in-session value for
+                    // THIS specific shape tool (Rect ≠ Ellipse here, even
+                    // though they share `style.fill`) over the saved
+                    // default, so the user's in-session toggle survives
+                    // a round trip through other tools.
+                    let saved_default = if sticky
+                        && let Some(v) = self.session_fill_per_tool.get(&tool).copied()
+                    {
+                        Some(v)
+                    } else {
+                        crate::state::load_fill_for_tool(tool)
+                    };
+                    if let Some(saved) = saved_default
                         && saved != self.style.fill
                     {
                         self.style.fill = saved;
@@ -1751,6 +1802,14 @@ impl SketchBoard {
                 }
                 self.style.fill = !self.style.fill;
                 let new_fill = self.style.fill;
+                // Record the in-session per-tool fill so the
+                // sticky-defaults snap-back uses this on return.
+                // Only relevant to Rect / Ellipse — those are the
+                // only tools whose snap-back consults this map.
+                let active = self.active_tool_type();
+                if matches!(active, Tools::Rectangle | Tools::Ellipse) {
+                    self.session_fill_per_tool.insert(active, new_fill);
+                }
                 // Toast announces the new state so a keyboard toggle
                 // (`F`) reads as feedback, not a silent change.
                 let label = if new_fill { "Fill shape" } else { "No fill" };
@@ -1904,6 +1963,14 @@ impl SketchBoard {
             }
             ToolbarEvent::HighlighterOpacityChanged(value) => {
                 self.style.highlighter_opacity = value;
+                // Record the in-session value so the next time the
+                // Highlighter tool is re-entered (with sticky-defaults
+                // on) it restores this opacity instead of snapping
+                // back to the saved default. Unconditional record —
+                // costs nothing while the pref is off, and lets
+                // toggling the pref mid-session pick up the user's
+                // already-made tweak.
+                self.session_highlighter_opacity = Some(value);
                 // Same no-auto-save rule as spotlight darkness.
                 self.dispatch_style_change()
             }
@@ -1929,6 +1996,13 @@ impl SketchBoard {
                 let selection_result = self.apply_brush_smooth_to_selection(value);
                 if matches!(selection_result, ToolUpdateResult::Unmodified) {
                     APP_CONFIG.write().set_brush_post_smooth_iterations(value);
+                    // No selection → this IS a next-stroke default
+                    // adjustment, so record into the session cache for
+                    // sticky-defaults restoration. We deliberately
+                    // skip the with-selection branch: those edits
+                    // intentionally don't bleed into APP_CONFIG and
+                    // shouldn't bleed into the session cache either.
+                    self.session_brush_smooth = Some(value);
                 }
                 selection_result
             }
@@ -2587,10 +2661,14 @@ impl SketchBoard {
                 match updates.len() {
                     0 => {
                         // No selection or no brush-typed drawable —
-                        // wheel updates the next-stroke default.
+                        // wheel updates the next-stroke default. Also
+                        // record into the session cache so the next
+                        // Brush re-entry restores this value when
+                        // sticky-defaults is on.
                         APP_CONFIG
                             .write()
                             .set_brush_post_smooth_iterations(new_val);
+                        self.session_brush_smooth = Some(new_val);
                     }
                     1 => {
                         let (id, d) = updates.pop().unwrap();
@@ -2630,6 +2708,11 @@ impl SketchBoard {
                     return;
                 }
                 self.style.highlighter_opacity = new_val;
+                // Wheel updates the next-stroke default in addition
+                // to any selected highlighters below — mirror the
+                // slider-driven path and record into the session
+                // cache for sticky-defaults restoration.
+                self.session_highlighter_opacity = Some(new_val);
                 outer_sender
                     .output_sender()
                     .emit(SketchBoardOutput::HighlighterOpacityReset(new_val));
@@ -4018,6 +4101,9 @@ impl Component for SketchBoard {
             scroll_resize_accum: 0.0,
             last_tool_press: None,
             last_hover_image_pos: None,
+            session_highlighter_opacity: None,
+            session_brush_smooth: None,
+            session_fill_per_tool: HashMap::new(),
         };
 
         let pointer_tool = model.tools.get(&Tools::Pointer);
