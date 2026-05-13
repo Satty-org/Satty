@@ -1426,6 +1426,16 @@ pub struct StyleToolbar {
     /// without-selection variants. The two variants point the user
     /// at different keystrokes (plain wheel vs Ctrl+wheel).
     size_tooltip_label: Option<gtk::Label>,
+    /// Per-tool in-session size memory used when the user has the
+    /// `sticky_session_defaults` preference enabled. Records the last
+    /// size the slider showed for each tool during this session;
+    /// `ToolChanged` / `SyncToToolDefault` consult this map (falling
+    /// back to `state::load_size_for_tool` if the tool hasn't been
+    /// touched yet) instead of always re-loading the saved default.
+    /// Lives only in memory — a fresh launch starts empty, which is
+    /// exactly the "reset on each load" semantics the preference
+    /// promises.
+    session_size_per_tool: HashMap<Tools, Size>,
     /// True while a multi-selection of brush strokes has a mixed
     /// `smooth_level` — disables the smoothness slider so a stray
     /// drag can't collapse them to a single value. Stays false (and
@@ -4472,6 +4482,24 @@ impl StyleToolbar {
     /// confirms the save — without this the tick stays where it was
     /// at construction time and the user can't tell whether the save
     /// stuck.
+    /// The size the slider should snap to when entering or
+    /// deselecting from `tool`, honoring the
+    /// `sticky_session_defaults` preference. When the preference is
+    /// on AND the user has touched the slider for `tool` already in
+    /// this session, return that in-session value; otherwise fall
+    /// back to `state.toml`'s saved default. Returns `None` for tools
+    /// without a saved default (or sticky-off + never-saved), matching
+    /// the prior `load_size_for_tool` semantics so the existing
+    /// callers can keep their `if let Some` shape.
+    fn effective_size_for_tool(&self, tool: Tools) -> Option<Size> {
+        if APP_CONFIG.read().sticky_session_defaults()
+            && let Some(s) = self.session_size_per_tool.get(&tool).copied()
+        {
+            return Some(s);
+        }
+        crate::state::load_size_for_tool(tool)
+    }
+
     fn refresh_brush_smooth_slider_marks(&self) {
         let Some(slider) = self.brush_smooth_slider.as_ref() else {
             return;
@@ -5224,7 +5252,7 @@ impl Component for StyleToolbar {
                 // any size edit the user just made.
                 if !self.has_selection
                     && !matches!(tool, Tools::Pointer | Tools::Crop)
-                    && let Some(default_size) = crate::state::load_size_for_tool(tool)
+                    && let Some(default_size) = self.effective_size_for_tool(tool)
                     && default_size != self.current_size
                 {
                     self.current_size = default_size;
@@ -5242,6 +5270,17 @@ impl Component for StyleToolbar {
                 // slider without re-broadcasting — sketch_board has
                 // already applied the value via dispatch_style_change.
                 self.current_size = size;
+                // This input is only fired from the canvas-side
+                // wheel-resize path (Ctrl+wheel with no selection),
+                // which is by definition a user-driven adjustment to
+                // the active tool's next-stroke size — record it so
+                // the sticky-defaults pref preserves it on tool
+                // switch. (Selection-driven size changes go through
+                // SyncFromSelection / SyncMultiAgreement, not here.)
+                if !matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
+                    self.session_size_per_tool
+                        .insert(self.current_tool, size);
+                }
             }
             StyleToolbarInput::SetAnnotationFactor(value) => {
                 // Mirror sketch_board's annotation factor change
@@ -5259,7 +5298,7 @@ impl Component for StyleToolbar {
                 // act if the user has actually saved a default for
                 // this tool.
                 if !matches!(self.current_tool, Tools::Pointer | Tools::Crop)
-                    && let Some(default_size) = crate::state::load_size_for_tool(self.current_tool)
+                    && let Some(default_size) = self.effective_size_for_tool(self.current_tool)
                     && default_size != self.current_size
                 {
                     self.current_size = default_size;
@@ -5304,6 +5343,17 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::SizeChanged(size) => {
                 self.current_size = size;
+                // Remember the in-session size for this tool so
+                // `effective_size_for_tool` (used by ToolChanged /
+                // SyncToToolDefault) can prefer it over the saved
+                // default when `sticky_session_defaults` is on.
+                // Recorded unconditionally — costs nothing while the
+                // pref is off, and lets toggling the pref mid-session
+                // pick up the user's already-made adjustments.
+                if !matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
+                    self.session_size_per_tool
+                        .insert(self.current_tool, size);
+                }
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::SizeSelected(size));
@@ -5578,6 +5628,7 @@ impl Component for StyleToolbar {
                 .unwrap_or_default(),
             highlighter_style_popover: None,
             highlighter_style_tooltip_label: None,
+            session_size_per_tool: HashMap::new(),
         };
 
         // create widgets

@@ -380,6 +380,26 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W) {
     });
     outer.append(&hide_palette_check);
 
+    // When on, per-tool adjustments (size, fill, highlighter opacity,
+    // brush smoothness) stick across tool switches and only re-seed
+    // from saved defaults on a fresh app launch. Off (default) keeps
+    // the original snap-back-on-tool-switch behavior.
+    let sticky_defaults_check = gtk::CheckButton::builder()
+        .label("Keep in-session tool adjustments across tool switches")
+        .tooltip_text(
+            "When off, switching tools snaps each tool back to its saved default.\n\
+             When on, your in-session size / fill / opacity tweaks persist until \
+             you close the app.",
+        )
+        .active(APP_CONFIG.read().sticky_session_defaults())
+        .build();
+    sticky_defaults_check.connect_toggled(|btn| {
+        let value = btn.is_active();
+        crate::state::save_sticky_session_defaults(value);
+        APP_CONFIG.write().set_sticky_session_defaults(value);
+    });
+    outer.append(&sticky_defaults_check);
+
     let button_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(8)
