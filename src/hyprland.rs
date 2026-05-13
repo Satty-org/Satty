@@ -15,6 +15,12 @@
 //! the moment Satty exits (or that the user can clear with
 //! `hyprctl reload` if a crash strands Satty mid-focus).
 //!
+//! Super+keyboard chords (Super+D, etc.) intentionally are NOT
+//! hijacked here. In testing the compositor still consumed the
+//! modifier before GTK saw the press — even when the bind had been
+//! cleared via `hyprctl keyword unbind`. Satty's keyboard shortcuts
+//! stick to Ctrl chords, which reach GTK reliably.
+//!
 //! We deliberately avoid pulling in `serde_json` for this one-shot
 //! lookup; the JSON is flat and an inline parser like
 //! `display::parse_scale` is plenty.
@@ -41,10 +47,22 @@ pub struct BindEntry {
 /// Hyprland's modmask bit for the Super (MOD4 / logo) key on its own.
 const MOD_SUPER: u32 = 64;
 
-/// Read every Super+mouse_up / mouse_down bind in the default submap.
-/// Returns empty on non-Hyprland systems, on `hyprctl` failures, or
-/// when no matching binds exist (e.g. user doesn't bind workspace
-/// switching to the wheel — nothing for us to suppress).
+/// Super-modified keys that Satty reserves for its own use while
+/// focused. Any Hyprland bind on a key in this list with modmask =
+/// pure Super (no Shift/Ctrl/Alt extras) gets snapshotted at startup,
+/// unbound on focus-in, and restored on focus-out / destroy.
+///
+/// `mouse_up` / `mouse_down` — Super+scroll zoom on the canvas.
+/// Keyboard chords like Super+D *would* go here too, but the
+/// compositor consumes the Super flag before GTK sees the press
+/// even after the unbind — so Satty's keyboard shortcuts stick to
+/// Ctrl chords instead.
+const KEYS_TO_HIJACK: &[&str] = &["mouse_up", "mouse_down"];
+
+/// Read every Super+key bind in `KEYS_TO_HIJACK` from the default
+/// submap. Returns empty on non-Hyprland systems, on `hyprctl`
+/// failures, or when no matching binds exist (nothing for us to
+/// suppress).
 pub fn read_super_mouse_binds() -> Vec<BindEntry> {
     if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
         return Vec::new();
@@ -117,7 +135,7 @@ fn parse_binds(text: &str) -> Vec<BindEntry> {
         if modmask != MOD_SUPER || !submap.is_empty() || catch_all {
             continue;
         }
-        if key != "mouse_up" && key != "mouse_down" {
+        if !KEYS_TO_HIJACK.iter().any(|k| *k == key.as_str()) {
             continue;
         }
         out.push(BindEntry {
@@ -139,15 +157,15 @@ fn unquote(s: &str) -> Option<String> {
     Some(s.to_string())
 }
 
-/// Unbind Super+mouse_up and Super+mouse_down at the Hyprland level.
-/// Idempotent — repeated calls on the same focus cycle are a no-op.
-/// Safe on non-Hyprland (the env-var gate short-circuits before we
-/// shell out).
+/// Unbind every Super+key listed in `KEYS_TO_HIJACK` at the Hyprland
+/// level. Idempotent — repeated calls on the same focus cycle are a
+/// no-op. Safe on non-Hyprland (the env-var gate short-circuits
+/// before we shell out).
 pub fn unbind_super_mouse() {
     if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
         return;
     }
-    for key in ["mouse_up", "mouse_down"] {
+    for key in KEYS_TO_HIJACK {
         let _ = Command::new("hyprctl")
             .args(["keyword", "unbind", &format!("SUPER,{key}")])
             .status();

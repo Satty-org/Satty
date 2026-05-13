@@ -214,6 +214,13 @@ pub trait Tool {
         None
     }
 
+    /// Replace the tool's selected-drawable set. Only the PointerTool
+    /// owns a selection; default no-op for the rest. Used by
+    /// `SketchBoard::duplicate_selection` to move the active
+    /// selection onto the newly-created copies so subsequent edits
+    /// (Delete, nudge, etc.) operate on the duplicates.
+    fn set_selected_drawables(&mut self, _ids: Vec<DrawableId>) {}
+
     /// Resume editing an existing committed text drawable. Only `TextTool`
     /// implements this; the default no-op lets sketch_board dispatch
     /// uniformly. Returns true if the tool accepted the request.

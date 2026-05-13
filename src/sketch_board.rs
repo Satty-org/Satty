@@ -1074,6 +1074,99 @@ impl SketchBoard {
         }
     }
 
+    /// Delete every currently-selected drawable. Same effect as the
+    /// existing Backspace / Delete path through the PointerTool —
+    /// wired here as a sketch_board-level handler so it can fire
+    /// from any active tool's hotkey cascade (e.g. Ctrl+D while a
+    /// drawing tool is active and a previous shape is implicitly
+    /// selected). Returns `Unmodified` when nothing is selected;
+    /// otherwise emits the matching `DeleteDrawable(s)` result so
+    /// the update-result loop applies it through the renderer.
+    fn delete_selection(&mut self) -> ToolUpdateResult {
+        let pointer_tool = self.tools.get(&Tools::Pointer);
+        let selected = pointer_tool.borrow().selected_drawables();
+        if selected.is_empty() {
+            return ToolUpdateResult::Unmodified;
+        }
+        // Clear pointer's selection state so the post-delete frame
+        // doesn't render handles around now-deleted IDs.
+        pointer_tool.borrow_mut().set_selected_drawables(Vec::new());
+        if selected.len() == 1 {
+            ToolUpdateResult::DeleteDrawable(selected[0])
+        } else {
+            ToolUpdateResult::DeleteDrawables(selected)
+        }
+    }
+
+    /// Duplicate every currently-selected drawable. Each copy is
+    /// offset by `(DUPLICATE_DX_PX, DUPLICATE_DY_PX)` — diagonal
+    /// enough to read as "another one over here" but close enough
+    /// that chained Alt+D's don't fly off the canvas. Per-axis sign
+    /// flips when the default direction would push the duplicate
+    /// off-canvas and the opposite direction has room. Selection
+    /// moves onto the new copies so subsequent edits operate on
+    /// the duplicates rather than the originals.
+    fn duplicate_selection(&mut self, sender: &ComponentSender<Self>) -> ToolUpdateResult {
+        const DUPLICATE_DX_PX: f32 = -100.0;
+        const DUPLICATE_DY_PX: f32 = 100.0;
+        let pointer_tool = self.tools.get(&Tools::Pointer);
+        let selected_ids = pointer_tool.borrow().selected_drawables();
+        if selected_ids.is_empty() {
+            return ToolUpdateResult::Unmodified;
+        }
+        let (img_w, img_h) = self.renderer.image_dimensions();
+        let (img_w, img_h) = (img_w as f32, img_h as f32);
+        let mut new_ids = Vec::with_capacity(selected_ids.len());
+        for id in selected_ids {
+            let Some(mut d) = self.renderer.clone_drawable(id) else {
+                continue;
+            };
+            // Ergonomics nudge: if the default direction (down-left)
+            // would put the duplicate's leading edge past the canvas
+            // and there's room to flip that axis to the opposite
+            // direction, flip it.
+            let (mut dx, mut dy) = (DUPLICATE_DX_PX, DUPLICATE_DY_PX);
+            if let Some(b) = d.bounds() {
+                if dx < 0.0
+                    && b.pos.x + dx < 0.0
+                    && b.pos.x + b.size.x - dx <= img_w
+                {
+                    dx = -dx;
+                } else if dx > 0.0
+                    && b.pos.x + b.size.x + dx > img_w
+                    && b.pos.x - dx >= 0.0
+                {
+                    dx = -dx;
+                }
+                if dy > 0.0
+                    && b.pos.y + b.size.y + dy > img_h
+                    && b.pos.y - dy >= 0.0
+                {
+                    dy = -dy;
+                } else if dy < 0.0
+                    && b.pos.y + dy < 0.0
+                    && b.pos.y + b.size.y - dy <= img_h
+                {
+                    dy = -dy;
+                }
+            }
+            let offset = crate::math::Vec2D::new(dx, dy);
+            d.translate(offset);
+            let new_id = self.renderer.commit(d);
+            new_ids.push(new_id);
+        }
+        if new_ids.is_empty() {
+            return ToolUpdateResult::Unmodified;
+        }
+        pointer_tool.borrow_mut().set_selected_drawables(new_ids);
+        if APP_CONFIG.read().auto_copy() {
+            self.renderer.request_render(&[Action::SaveToClipboard]);
+        }
+        self.refresh_screen();
+        self.sync_toolbar_to_selection(sender);
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_reset(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
         if self.deactivate_active_tool() | self.renderer.reset() {
@@ -2785,6 +2878,31 @@ impl Component for SketchBoard {
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_redo()
+                            } else if ke.is_one_of(Key::d, KeyMappingId::UsD)
+                                && ke.modifier == ModifierType::ALT_MASK
+                            {
+                                // Alt+D = duplicate selection.
+                                // Originally wanted Shift+D for the
+                                // single-handed-ergonomics reason,
+                                // but fcitx5 (and IMs in general)
+                                // intercept Shift+letter at the
+                                // Wayland text-input level — the
+                                // keypress never reaches GTK, so
+                                // satty can't see it. Alt+letter
+                                // chords reach the application
+                                // reliably and are still a left-hand
+                                // single-key press.
+                                self.duplicate_selection(&outer_sender)
+                            } else if ke.is_one_of(Key::d, KeyMappingId::UsD)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                // Ctrl+D = delete currently-selected
+                                // drawable(s). Same effect as the
+                                // Delete / Backspace keys, just an
+                                // alternative for single-handed
+                                // operation (no reach to the far
+                                // side of the keyboard).
+                                self.delete_selection()
                             } else if ke.is_one_of(Key::t, KeyMappingId::UsT)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {

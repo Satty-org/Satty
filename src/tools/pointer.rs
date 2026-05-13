@@ -334,6 +334,17 @@ impl Tool for PointerTool {
         self.store = Some(store);
     }
 
+    fn set_selected_drawables(&mut self, ids: Vec<DrawableId>) {
+        // Drop any in-flight drag / marquee state — the caller is
+        // typically replacing the selection wholesale (e.g. after a
+        // Super+D duplicate just put fresh ids on the canvas), and
+        // continuing an old drag against the new selection would
+        // mutate the new drawables.
+        self.selected = ids;
+        self.drag = None;
+        self.marquee = None;
+    }
+
     fn handle_activated(&mut self) -> ToolUpdateResult {
         self.active_as_primary = true;
         ToolUpdateResult::Unmodified
