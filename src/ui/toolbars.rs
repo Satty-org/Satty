@@ -698,17 +698,15 @@ fn build_color_popover(
 
     popover.set_child(Some(&outer));
 
-    // Rebuild the swatch grid every time the popover is shown so
-    // preferences that affect the layout (e.g. "hide default
-    // palette" toggling whether column 0 is the palette or the
-    // first column of saved-customs) take effect on the next open.
-    // Without this, the grid is built once at init and cached in
-    // the `swatch_stack` — a config change wouldn't appear until
-    // the next color-list mutation refreshed the stack anyway.
-    let sender_for_show = sender.clone();
-    popover.connect_show(move |_| {
-        sender_for_show.input(ToolsToolbarInput::RefreshColorPopover);
-    });
+    // The "rebuild on open" refresh is wired up on the parent
+    // MenuButton's `notify::active` in `init`, not on the popover's
+    // `connect_show` — that handler fires AFTER GTK has already mapped
+    // the popover surface and asked Wayland to position it, so a
+    // refresh from there mutates the stack mid-fade and the Wayland
+    // surface gets reconfigured to a different size/position one
+    // frame later (the "glitch render" flash). Running the refresh
+    // from `notify::active` lets the rebuild settle before the
+    // surface maps so the popover's first measurement is final.
 
     // Keyboard delete on the popover: Backspace / Delete drops the
     // currently-selected saved-custom color (if any). Bubble phase so
@@ -4340,6 +4338,27 @@ impl Component for ToolsToolbar {
                 sender.input(ToolsToolbarInput::ClearEmptySlotSelection);
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             });
+        }
+
+        // Rebuild the swatch grid every time the popover is about to
+        // open so preferences that affect the layout (e.g. "hide
+        // default palette" toggling whether column 0 is the palette
+        // or the first column of saved-customs) take effect on the
+        // next open. Hooked on `notify::active` on the MenuButton
+        // rather than `popover.connect_show` so the rebuild runs
+        // BEFORE GTK maps the popover surface — otherwise the stack
+        // mutation lands mid-fade and the Wayland surface gets
+        // reconfigured to a different size/position one frame later,
+        // producing a visible glitch render.
+        {
+            let sender = sender.clone();
+            widgets
+                .color_button
+                .connect_notify_local(Some("active"), move |btn, _| {
+                    if btn.property::<bool>("active") {
+                        sender.input(ToolsToolbarInput::RefreshColorPopover);
+                    }
+                });
         }
 
         model.tool_buttons = HashMap::from([
