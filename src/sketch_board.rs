@@ -3253,18 +3253,6 @@ impl Component for SketchBoard {
                             } else {
                                 (dx, dy)
                             };
-                            // Horizontal axis goes through pan_by with
-                            // the OPPOSITE convention of vertical:
-                            // pan_by(+dx, 0) moves the image right
-                            // (the same way pan_by(0, +dy) moves the
-                            // image DOWN), but a GTK swipe-right /
-                            // tilt-right reports dx>0 expecting the
-                            // user to perceive content "scrolling
-                            // right" — i.e., image moving LEFT.
-                            // Negating dx here aligns horizontal
-                            // direction with vertical regardless of
-                            // the OS / app natural-scrolling polarity.
-                            let dx = -dx;
                             sender.input(SketchBoardInput::new_pan_scroll_event(
                                 dx, dy, modifier,
                             ));
