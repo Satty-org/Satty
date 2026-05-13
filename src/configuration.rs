@@ -97,6 +97,13 @@ pub struct Configuration {
     /// the 1–9, 0 number-key shortcuts pick from the first column
     /// of saved-custom colors instead.
     hide_default_palette: bool,
+    /// User preference: when true, in-session per-tool adjustments
+    /// (size slider, fill toggle, highlighter opacity, brush
+    /// smoothness) survive tool switches — only a fresh app launch
+    /// resets to the saved defaults. When false (default), the saved
+    /// defaults snap back on every tool switch. Spotlight darkness
+    /// is unaffected — it's already global per-session.
+    sticky_session_defaults: bool,
 }
 
 pub struct Keybinds {
@@ -340,6 +347,13 @@ impl Configuration {
         APP_CONFIG
             .write()
             .set_hide_default_palette(crate::state::load_hide_default_palette());
+
+        // Sticky-session-defaults preference: when on, in-session
+        // per-tool adjustments don't get clobbered on tool switch.
+        // Default false (legacy snap-back behavior).
+        APP_CONFIG
+            .write()
+            .set_sticky_session_defaults(crate::state::load_sticky_session_defaults());
 
         // Brush post-stroke smoothing iterations: if the user has
         // saved a default via the slider's right-click menu, fold
@@ -793,6 +807,20 @@ impl Configuration {
         self.hide_default_palette = value;
     }
 
+    pub fn sticky_session_defaults(&self) -> bool {
+        self.sticky_session_defaults
+    }
+
+    /// Toggle the "sticky session defaults" preference. Wired from
+    /// the Preferences dialog and persisted to `state.toml`. When on,
+    /// the per-tool snap-back code paths in `switch_active_tool` and
+    /// the size-slider's `ToolChanged` / `SyncToToolDefault` handlers
+    /// prefer the in-session cached value over `state.toml`'s saved
+    /// default — only a fresh app launch re-seeds from saved defaults.
+    pub fn set_sticky_session_defaults(&mut self, value: bool) {
+        self.sticky_session_defaults = value;
+    }
+
     pub fn zoom_factor(&self) -> f32 {
         self.zoom_factor
     }
@@ -873,6 +901,7 @@ impl Default for Configuration {
             invert_scrolling: true,
             close_on_esc: false,
             hide_default_palette: false,
+            sticky_session_defaults: false,
         }
     }
 }

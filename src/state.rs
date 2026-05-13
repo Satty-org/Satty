@@ -102,6 +102,16 @@ pub struct PersistedState {
     /// `default-fill-shapes` config value".
     #[serde(default)]
     pub fill_per_tool: HashMap<Tools, bool>,
+    /// When true, in-session adjustments to per-tool defaults (size,
+    /// fill, highlighter opacity, brush smoothness) stick across tool
+    /// switches for the duration of the session — only a fresh app
+    /// launch re-applies the saved defaults. When false (default), the
+    /// saved defaults snap back every time the user switches into a
+    /// tool.
+    /// Spotlight darkness is unaffected — it's already global
+    /// per-session and lives in `spotlight_darkness`.
+    #[serde(default)]
+    pub sticky_session_defaults: Option<bool>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -378,6 +388,20 @@ pub fn load_fill_for_tool(tool: Tools) -> Option<bool> {
 pub fn save_fill_for_tool(tool: Tools, fill: bool) {
     let mut state = load();
     state.fill_per_tool.insert(tool, fill);
+    save(&state);
+}
+
+/// Whether the user has opted into "sticky session defaults" —
+/// in-session per-tool adjustments survive tool switches and only
+/// reset on a fresh app launch. Defaults to false (snap-back on
+/// every tool switch, the original behavior).
+pub fn load_sticky_session_defaults() -> bool {
+    load().sticky_session_defaults.unwrap_or(false)
+}
+
+pub fn save_sticky_session_defaults(value: bool) {
+    let mut state = load();
+    state.sticky_session_defaults = Some(value);
     save(&state);
 }
 
