@@ -2264,15 +2264,26 @@ impl FemtoVgAreaMut {
             return;
         }
 
+        // User-zoom range: 10% to 500%. Anything outside is either too
+        // dot-like to make out (below 10%) or so blown up that the
+        // user can only see a sliver of the image (above 500%).
+        // `factor == 0.0` is the FitCanvas sentinel — preserved as-is
+        // so `update_transformation` re-enters the auto-fit branch.
+        const MIN_ZOOM: f32 = 0.10;
+        const MAX_ZOOM: f32 = 5.00;
+
         if abs {
-            self.zoom_scale = factor;
+            if factor == 0.0 {
+                self.zoom_scale = 0.0;
+            } else {
+                self.zoom_scale = factor.clamp(MIN_ZOOM, MAX_ZOOM);
+            }
         } else {
             if self.zoom_scale == 0.0 {
                 self.zoom_scale = self.scale_factor;
             }
 
-            self.zoom_scale *= factor;
-            self.zoom_scale = self.zoom_scale.max(0.);
+            self.zoom_scale = (self.zoom_scale * factor).clamp(MIN_ZOOM, MAX_ZOOM);
         }
     }
 
