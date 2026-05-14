@@ -24,7 +24,7 @@ use ui::toolbars::{
     RobustTooltipExt, StyleToolbar, StyleToolbarInput, ToolbarEvent, ToolsToolbar,
     ToolsToolbarInput,
 };
-use ui::welcome::{WelcomeDialog, WelcomeDialogInit, WelcomeDialogOutput};
+use ui::welcome::{WelcomeDialog, WelcomeDialogInit, WelcomeDialogInput, WelcomeDialogOutput};
 use ui::zoom_indicator::{ZoomIndicator, ZoomIndicatorInput, ZoomIndicatorOutput};
 use xdg::BaseDirectories;
 
@@ -85,12 +85,20 @@ struct App {
     /// Holds the welcome dialog controller alive while it's showing.
     /// Cleared on Saved so the window's widgets can be dropped.
     welcome_controller: Option<Controller<WelcomeDialog>>,
+    /// Shared handle to the Preferences dialog's annotation-size SpinButton
+    /// (plus its `value-changed` signal id, used to block re-emission when
+    /// App pushes a value in). `None` while Preferences isn't open. The
+    /// dialog populates this on open and clears it on close so App's
+    /// cross-update from the welcome modal can safely no-op when the
+    /// other surface isn't visible.
+    prefs_factor_spin:
+        std::rc::Rc<std::cell::RefCell<Option<(gtk::SpinButton, gtk::glib::SignalHandlerId)>>>,
     /// "Snap to edges" checkbox for the crop tool, mounted in the
     /// bottom-left cluster alongside the zoom indicator. Visible only
-    /// when the crop tool is active — uses the standard placement.
+    /// when the crop tool is active — follows the convention of aplacement.
     snap_to_edges_check: gtk::CheckButton,
     /// Hint label that appears next to the snap checkbox while crop
-    /// is active. Keeps the affordance discoverable like a polished desktop tool.
+    /// is active. Keeps the affordance discoverable.
     snap_to_edges_hint: gtk::Label,
     /// Horizontal cluster used as `bottom_row.start_widget`: zoom
     /// indicator + snap checkbox + "Hold Alt…" hint. Stored so the
@@ -187,10 +195,20 @@ enum AppInput {
     CropEditDimensions { width: i32, height: i32 },
     /// Open the Preferences dialog (gear button or Ctrl+,).
     OpenPreferences,
+    /// Re-launch the welcome dialog. Triggered by the "?" button
+    /// next to the annotation size factor in Preferences so the
+    /// user can revisit the onboarding explanation after the
+    /// first-run.
+    OpenWelcomeDialog,
     /// First-run welcome dialog Save handler. Persists the chosen
     /// `annotation_size_factor`, pushes it into `APP_CONFIG`, and
     /// notifies the style toolbar so its display matches.
     WelcomeDialogSaved(f32),
+    /// Centralized annotation-factor change. Either the Preferences
+    /// spin or the welcome dialog's spin emits this on every value
+    /// change; App persists once and pushes the value into whichever
+    /// surface didn't originate the change so both stay in sync.
+    AnnotationFactorChanged(f32),
     /// "Snap to edges" checkbox toggled. Forwards as a toolbar event
     /// so sketch_board can route it into `CropTool::set_snap_to_edges`
     /// and persist via `state::save_snap_to_edges`.
@@ -278,6 +296,39 @@ impl App {
         let visible = self.current_tool == Tools::Crop
             && matches!(self.tools_toolbar_layout, TopBarLayout::Normal);
         self.snap_to_edges_hint.set_visible(visible);
+    }
+
+    /// Launch the first-run welcome dialog. Shared between the
+    /// initial `welcome_pending` path and the "?" help button next
+    /// to the annotation size factor row in Preferences — Save
+    /// always re-persists the chosen factor (idempotent for an
+    /// unchanged value), so reuse is safe.
+    fn show_welcome_dialog(&mut self, root: &Window, sender: ComponentSender<Self>) {
+        let connector = WelcomeDialog::builder()
+            .transient_for(root)
+            .launch(WelcomeDialogInit {
+                detected_scale: self.detected_scale,
+                detected: self.scale_detected,
+            });
+        let controller = connector.forward(sender.input_sender(), |out| match out {
+            WelcomeDialogOutput::Saved(value) => AppInput::WelcomeDialogSaved(value),
+            WelcomeDialogOutput::ValueChanged(value) => {
+                // Live-mirror into Preferences. Same handler as the
+                // Preferences spin change so persistence + push-back
+                // happens exactly once regardless of which surface
+                // the user is interacting with.
+                AppInput::AnnotationFactorChanged(value)
+            }
+        });
+        // If the Preferences dialog is open with the current factor in
+        // its spin, the welcome modal's pre-fill (detected_scale, not
+        // necessarily what the user previously saved) would otherwise
+        // visibly disagree on launch. Push the just-rendered value back
+        // out to keep them in lockstep.
+        let _ = controller
+            .sender()
+            .send(WelcomeDialogInput::SetValue(APP_CONFIG.read().annotation_size_factor()));
+        self.welcome_controller = Some(controller);
     }
 
     /// Revert is shown only on the dedicated crop bottom bar — i.e.
@@ -660,20 +711,11 @@ impl Component for App {
                 // committed value.
                 if self.welcome_pending {
                     self.welcome_pending = false;
-                    let connector = WelcomeDialog::builder()
-                        .transient_for(root)
-                        .launch(WelcomeDialogInit {
-                            detected_scale: self.detected_scale,
-                            detected: self.scale_detected,
-                        });
-                    let controller =
-                        connector.forward(sender.input_sender(), |out| match out {
-                            WelcomeDialogOutput::Saved(value) => {
-                                AppInput::WelcomeDialogSaved(value)
-                            }
-                        });
-                    self.welcome_controller = Some(controller);
+                    self.show_welcome_dialog(root, sender.clone());
                 }
+            }
+            AppInput::OpenWelcomeDialog => {
+                self.show_welcome_dialog(root, sender.clone());
             }
             AppInput::WelcomeDialogSaved(value) => {
                 state::save_annotation_size_factor(value);
@@ -841,7 +883,39 @@ impl Component for App {
                 );
             }
             AppInput::OpenPreferences => {
-                ui::preferences::open(root, self.sketch_board.sender().clone());
+                ui::preferences::open(
+                    root,
+                    self.sketch_board.sender().clone(),
+                    self.prefs_factor_spin.clone(),
+                );
+            }
+            AppInput::AnnotationFactorChanged(value) => {
+                // Persist + broadcast — same effect as the
+                // WelcomeDialogSaved path but driven by either
+                // surface's live edits.
+                state::save_annotation_size_factor(value);
+                APP_CONFIG.write().set_annotation_size_factor(value);
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::SetAnnotationFactor(value));
+                // Mirror into the OTHER surface so both stay in sync.
+                // Block the prefs spin's `value-changed` while we
+                // programmatically set it; otherwise this handler
+                // would re-trigger and bounce the value back into the
+                // welcome dialog, etc. Setting to the same float value
+                // is technically a no-op (GTK only fires when the
+                // value actually changes), but block-then-set is the
+                // robust way to prove the loop can't close.
+                if let Some((spin, handler)) = self.prefs_factor_spin.borrow().as_ref() {
+                    spin.block_signal(handler);
+                    spin.set_value(value as f64);
+                    spin.unblock_signal(handler);
+                }
+                if let Some(controller) = self.welcome_controller.as_ref() {
+                    let _ = controller
+                        .sender()
+                        .send(WelcomeDialogInput::SetValue(value));
+                }
             }
             AppInput::ZoomChanged(scale) => {
                 self.zoom_indicator
@@ -1119,6 +1193,10 @@ impl Component for App {
                         AppInput::CropEditDimensions { width, height }
                     }
                     SketchBoardOutput::OpenPreferences => AppInput::OpenPreferences,
+                    SketchBoardOutput::OpenWelcomeDialog => AppInput::OpenWelcomeDialog,
+                    SketchBoardOutput::AnnotationFactorChanged(v) => {
+                        AppInput::AnnotationFactorChanged(v)
+                    }
                     SketchBoardOutput::ArrowStyleCycled(style) => {
                         AppInput::ArrowStyleCycled(style)
                     }
@@ -1397,6 +1475,7 @@ impl Component for App {
             detected_scale,
             scale_detected,
             welcome_controller: None,
+            prefs_factor_spin: std::rc::Rc::new(std::cell::RefCell::new(None)),
             snap_to_edges_check,
             snap_to_edges_hint,
             start_cluster,

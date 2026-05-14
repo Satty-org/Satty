@@ -208,6 +208,17 @@ pub enum SketchBoardOutput {
     /// Ctrl+,). The dialog isn't a child of sketch_board, so we
     /// just forward the intent up to App.
     OpenPreferences,
+    /// User clicked the "?" help button next to the annotation
+    /// size factor row in Preferences. App re-launches the first-
+    /// run welcome dialog so the user can re-read the explanation
+    /// and re-pick the factor through the same UI as initial setup.
+    OpenWelcomeDialog,
+    /// Prefs spin button reported a new annotation size factor.
+    /// App centralizes the persist + cross-update (push the new
+    /// value into the welcome dialog's spin if it's open) so both
+    /// surfaces stay in lockstep without each dialog knowing about
+    /// the other.
+    AnnotationFactorChanged(f32),
     /// Tool-specific style cycled (double-tap of the tool's
     /// shortcut). Drives the matching StyleToolbar menu/dropdown
     /// so the on-screen affordance keeps up with the variant that

@@ -19,7 +19,7 @@ use relm4::gtk::gdk;
 use relm4::gtk::prelude::*;
 
 use crate::configuration::APP_CONFIG;
-use crate::sketch_board::SketchBoardInput;
+use crate::sketch_board::{SketchBoardInput, SketchBoardOutput};
 use crate::tools::Tools;
 
 /// Order tools appear in the prefs dialog. Mirrors the top
@@ -91,7 +91,20 @@ fn label_for(ch: Option<char>) -> String {
 /// so a change takes effect immediately for the next stroke (otherwise
 /// APP_CONFIG would update but sketch_board's already-captured value
 /// wouldn't refresh until the next launch).
-pub fn open<W: IsA<gtk::Widget>>(root: &W, sketch_board_sender: Sender<SketchBoardInput>) {
+///
+/// `prefs_factor_spin_slot` is App's shared handle to this dialog's
+/// annotation-size SpinButton + its `value-changed` signal id. The
+/// dialog populates it on open and clears it on close so the welcome
+/// modal's live updates can push values straight into this spin (and
+/// be told whether to bother — `None` means "Preferences isn't open,
+/// no UI to sync").
+pub fn open<W: IsA<gtk::Widget>>(
+    root: &W,
+    sketch_board_sender: Sender<SketchBoardInput>,
+    prefs_factor_spin_slot: std::rc::Rc<
+        std::cell::RefCell<Option<(gtk::SpinButton, gtk::glib::SignalHandlerId)>>,
+    >,
+) {
     let toplevel = root
         .root()
         .and_then(|r| r.downcast::<gtk::Window>().ok());
@@ -373,9 +386,34 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W, sketch_board_sender: Sender<SketchBoa
     let factor_label = gtk::Label::builder()
         .label("Annotation size factor")
         .halign(gtk::Align::Start)
-        .hexpand(true)
         .build();
     factor_row.append(&factor_label);
+    // "?" help button — re-launches the first-run welcome dialog so the
+    // user can revisit the explanation of what this factor controls and
+    // re-pick a value through the onboarding UI (including the
+    // "Use detected" / "1.00×" reset shortcuts that this spin button
+    // alone doesn't expose). Sits right next to the label so the
+    // affordance reads as "what is this setting?" rather than as a
+    // sibling control of the spin.
+    let factor_help = gtk::Button::builder()
+        .label("?")
+        .tooltip_text("What does this do? Re-open the welcome guide.")
+        .valign(gtk::Align::Center)
+        .hexpand(false)
+        .build();
+    factor_help.add_css_class("circular");
+    factor_help.add_css_class("flat");
+    let factor_help_sender = sketch_board_sender.clone();
+    factor_help.connect_clicked(move |_| {
+        let _ = factor_help_sender
+            .send(SketchBoardInput::Output(SketchBoardOutput::OpenWelcomeDialog));
+    });
+    factor_row.append(&factor_help);
+    // Spacer so the spin lands flush against the right edge instead of
+    // hugging the help button. `hexpand` on a blank Label is the most
+    // compact way to flex-fill the gap without dragging in an Adw box.
+    let factor_row_spacer = gtk::Label::builder().hexpand(true).build();
+    factor_row.append(&factor_row_spacer);
     let factor_spin = gtk::SpinButton::builder()
         .adjustment(&gtk::Adjustment::new(
             APP_CONFIG.read().annotation_size_factor().into(),
@@ -393,11 +431,14 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W, sketch_board_sender: Sender<SketchBoa
         .numeric(true)
         .build();
     let factor_sender = sketch_board_sender.clone();
-    factor_spin.connect_value_changed(move |btn| {
+    let factor_handler = factor_spin.connect_value_changed(move |btn| {
+        // Persist + broadcast happens centrally in App's
+        // AnnotationFactorChanged handler so the welcome modal (if
+        // open) gets the value pushed in too.
         let value = btn.value() as f32;
-        crate::state::save_annotation_size_factor(value);
-        APP_CONFIG.write().set_annotation_size_factor(value);
-        let _ = factor_sender.send(SketchBoardInput::SetAnnotationFactor(value));
+        let _ = factor_sender.send(SketchBoardInput::Output(
+            SketchBoardOutput::AnnotationFactorChanged(value),
+        ));
     });
     factor_spin.set_tooltip_text(Some(
         "Scales the size of every annotation (text, line width, arrow heads, …). \
@@ -405,6 +446,16 @@ pub fn open<W: IsA<gtk::Widget>>(root: &W, sketch_board_sender: Sender<SketchBoa
     ));
     factor_row.append(&factor_spin);
     outer.append(&factor_row);
+
+    // Hand App a clone of the spin + its signal id so the welcome
+    // dialog's live updates can push values in here. Clear on close so
+    // App stops trying to update a destroyed widget.
+    *prefs_factor_spin_slot.borrow_mut() = Some((factor_spin.clone(), factor_handler));
+    let slot_for_close = prefs_factor_spin_slot.clone();
+    dialog.connect_close_request(move |_| {
+        slot_for_close.borrow_mut().take();
+        relm4::gtk::glib::Propagation::Proceed
+    });
 
     let invert_scroll_check = gtk::CheckButton::builder()
         .label("Invert scrolling direction")

@@ -48,6 +48,12 @@ pub struct WelcomeDialogInit {
 #[derive(Debug)]
 pub enum WelcomeDialogInput {
     ValueChanged(f32),
+    /// Push a new value in from outside (e.g. the user just edited
+    /// the matching SpinButton in the Preferences dialog). Updates
+    /// `self.value` so the watched `set_value` binding re-renders;
+    /// `#[block_signal(value_changed)]` on the view! suppresses the
+    /// re-emission so this doesn't loop back out as `ValueChanged`.
+    SetValue(f32),
     UseDetected,
     UseDefault,
     Save,
@@ -58,6 +64,11 @@ pub enum WelcomeDialogOutput {
     /// User clicked Save. Carries the value that should be persisted
     /// and applied as the live annotation factor.
     Saved(f32),
+    /// User edited the spin without (yet) saving. Emitted on every
+    /// change so the Preferences dialog can mirror the value live —
+    /// the welcome modal isn't isolated from APP_CONFIG, and we don't
+    /// want the two surfaces to drift while both are open.
+    ValueChanged(f32),
 }
 
 #[relm4::component(pub)]
@@ -133,9 +144,15 @@ impl Component for WelcomeDialog {
                     gtk::SpinButton {
                         set_editable: true,
                         set_numeric: true,
-                        set_adjustment: &gtk::Adjustment::new(1.0, 0.10, 8.0, 0.05, 0.25, 0.0),
+                        // Range / step / digits all match the
+                        // Preferences spin so values round-trip cleanly
+                        // between the two surfaces — a 0.05 step here
+                        // would let the welcome modal land on values
+                        // (e.g. 1.45) that the 1-digit prefs spin can't
+                        // represent, breaking the live-sync invariant.
+                        set_adjustment: &gtk::Adjustment::new(1.0, 0.10, 10.0, 0.10, 0.50, 0.0),
                         set_climb_rate: 0.1,
-                        set_digits: 2,
+                        set_digits: 1,
                         set_hexpand: true,
 
                         #[watch]
@@ -243,12 +260,34 @@ impl Component for WelcomeDialog {
         root: &Self::Root,
     ) {
         match message {
-            WelcomeDialogInput::ValueChanged(v) => self.value = v,
+            WelcomeDialogInput::ValueChanged(v) => {
+                self.value = v;
+                // Notify the outside world so the Preferences dialog
+                // (if open) can mirror this value live. The watched
+                // `set_value` binding in the view won't fire because
+                // `self.value` already matches what the spin reports.
+                let _ = sender
+                    .output_sender()
+                    .send(WelcomeDialogOutput::ValueChanged(v));
+            }
+            WelcomeDialogInput::SetValue(v) => {
+                // Don't re-emit ValueChanged here — we got pushed FROM
+                // the outside, echoing back would loop. The view's
+                // `#[block_signal(value_changed)]` on `set_value`
+                // covers the spin-button signal layer.
+                self.value = v;
+            }
             WelcomeDialogInput::UseDetected => {
                 self.value = self.detected_scale;
+                let _ = sender
+                    .output_sender()
+                    .send(WelcomeDialogOutput::ValueChanged(self.value));
             }
             WelcomeDialogInput::UseDefault => {
                 self.value = 1.0;
+                let _ = sender
+                    .output_sender()
+                    .send(WelcomeDialogOutput::ValueChanged(self.value));
             }
             WelcomeDialogInput::Save => {
                 if self.saving.get() {
