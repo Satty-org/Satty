@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::hash::Hasher;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -58,6 +60,10 @@ struct OverlayState {
     selection: Selection,
     frames: Vec<CapturedFrame>,
     capture_timer: Option<glib::SourceId>,
+    auto_scroll_stop: Option<Arc<AtomicBool>>,
+    auto_scroll_baseline_frames: usize,
+    auto_scroll_quiet_ticks: u32,
+    auto_scroll_monitor: Option<glib::SourceId>,
 }
 
 pub fn run() -> Result<()> {
@@ -87,6 +93,10 @@ fn build_overlay(app: &gtk::Application) {
         selection: Selection::default(),
         frames: Vec::new(),
         capture_timer: None,
+        auto_scroll_stop: None,
+        auto_scroll_baseline_frames: 0,
+        auto_scroll_quiet_ticks: 0,
+        auto_scroll_monitor: None,
     }));
 
     let window = gtk::ApplicationWindow::new(app);
@@ -196,6 +206,7 @@ fn build_overlay(app: &gtk::Application) {
         let state = Rc::clone(&state);
         let drawing_w = drawing.clone();
         let overlay_w = overlay.clone();
+        let window_w = window.clone();
         let action_pill_w = action_pill.clone();
         let prompt_w = prompt.clone();
         drag.connect_drag_end(move |_, _dx, _dy| {
@@ -211,7 +222,11 @@ fn build_overlay(app: &gtk::Application) {
                 let sel = s.selection;
                 drop(s);
                 action_pill_w.set_visible(true);
-                position_action_pill(&overlay_w, &action_pill_w, sel);
+                // Drop keyboard exclusivity and restrict the input region to
+                // just the pill, so the user can scroll-reposition the
+                // underlying content before clicking Start Capture.
+                window_w.set_keyboard_mode(KeyboardMode::OnDemand);
+                position_action_pill_and_input(&window_w, &overlay_w, &action_pill_w, sel);
                 prompt_w.set_visible(false);
             } else {
                 s.phase = Phase::AwaitingDrag;
@@ -301,20 +316,20 @@ fn start_capture(
     let sel = state.borrow().selection;
     state.borrow_mut().phase = Phase::Capturing;
 
+    // Drop keyboard exclusivity. On Hyprland (and possibly other wlroots
+    // compositors), an Exclusive-keyboard layer surface appears to consume
+    // pointer events too — set_input_region's restriction is ignored and
+    // everything inside the surface bounds gets captured. OnDemand mode
+    // routes pointer events according to the surface's input region as we
+    // expect. Esc only works while the overlay has focus (i.e. right after
+    // a click or while hovering a pill button) — Cancel/Done are the primary
+    // exits anyway.
+    window.set_keyboard_mode(KeyboardMode::OnDemand);
+
     action_pill.set_visible(false);
     capturing_pill.set_visible(true);
-    position_capturing_pill(overlay, capturing_pill, sel);
+    position_capturing_pill_and_input(window, overlay, capturing_pill, sel);
     drawing.queue_draw();
-
-    // Defer the input-region update until after the pill has been laid out
-    // by GTK so its allocated bounds are valid.
-    {
-        let window = window.clone();
-        let capturing_pill = capturing_pill.clone();
-        glib::idle_add_local_once(move || {
-            apply_pill_input_region(&window, &capturing_pill);
-        });
-    }
 
     // Start the capture timer.
     let timer = glib::timeout_add_local(Duration::from_millis(CAPTURE_INTERVAL_MS), {
@@ -375,10 +390,14 @@ fn wire_capturing_pill(
                     });
                 }
                 1 => {
-                    // Auto-Scroll (Phase 4 will wire libei). For now a no-op
-                    // log so the button still visibly registers presses.
-                    button.connect_clicked(|_| {
-                        eprintln!("scroll-capture: Auto-Scroll pressed (Phase 4 TODO)");
+                    // Auto-Scroll: spawn worker that sends wheel events via
+                    // wlr-virtual-pointer, plus a monitor timer that watches
+                    // for end-of-content (no new retained frames for ~1.5s).
+                    let state = Rc::clone(state);
+                    let capturing_pill = pill.clone();
+                    let window_w = window.clone();
+                    button.connect_clicked(move |_| {
+                        start_auto_scroll(&state, &window_w, &capturing_pill);
                     });
                 }
                 2 => {
@@ -406,26 +425,92 @@ fn stop_capture(state: &Rc<RefCell<OverlayState>>) {
     if let Some(t) = timer {
         t.remove();
     }
+    let monitor = state.borrow_mut().auto_scroll_monitor.take();
+    if let Some(m) = monitor {
+        m.remove();
+    }
+    if let Some(stop) = state.borrow_mut().auto_scroll_stop.take() {
+        stop.store(true, Ordering::Relaxed);
+    }
     state.borrow_mut().phase = Phase::Selected;
 }
 
-fn apply_pill_input_region(window: &gtk::ApplicationWindow, pill: &gtk::Box) {
-    let Some(surface) = window.surface() else {
+fn start_auto_scroll(
+    state: &Rc<RefCell<OverlayState>>,
+    window: &gtk::ApplicationWindow,
+    capturing_pill: &gtk::Box,
+) {
+    if state.borrow().auto_scroll_stop.is_some() {
         return;
-    };
-    // compute_bounds gives the pill's bounds relative to the window root.
-    let Some(rect) = pill.compute_bounds(window) else {
+    }
+    let scale = capturing_pill.scale_factor().max(1);
+    let pill_top_logical = capturing_pill.margin_top();
+    let target_y_logical = (pill_top_logical - 16).max(0);
+    let sel = state.borrow().selection;
+    let cursor_x = ((sel.x + sel.w / 2.0) as i32) * scale;
+    let cursor_y = target_y_logical * scale;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    if let Err(e) = auto_scroll::spawn_worker(Arc::clone(&stop), cursor_x, cursor_y) {
+        eprintln!("scroll-capture: auto-scroll failed to start: {e}");
         return;
+    }
+    let _ = window;
+    let baseline = state.borrow().frames.len();
+    {
+        let mut s = state.borrow_mut();
+        s.auto_scroll_stop = Some(stop);
+        s.auto_scroll_baseline_frames = baseline;
+        s.auto_scroll_quiet_ticks = 0;
+    }
+
+    let monitor = {
+        let state = Rc::clone(state);
+        let pill = capturing_pill.clone();
+        let window = window.clone();
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            let mut s = state.borrow_mut();
+            let Some(stop) = s.auto_scroll_stop.clone() else {
+                return glib::ControlFlow::Break;
+            };
+            let cur = s.frames.len();
+            if cur > s.auto_scroll_baseline_frames {
+                s.auto_scroll_quiet_ticks = 0;
+                s.auto_scroll_baseline_frames = cur;
+                return glib::ControlFlow::Continue;
+            }
+            s.auto_scroll_quiet_ticks += 1;
+            // 3 monitor ticks × 500ms = 1.5s of no new frames retained.
+            if s.auto_scroll_quiet_ticks < 3 {
+                return glib::ControlFlow::Continue;
+            }
+            stop.store(true, Ordering::Relaxed);
+            s.auto_scroll_stop = None;
+            s.auto_scroll_monitor = None;
+            drop(s);
+            let _ = window;
+            end_of_content_ui(&pill);
+            glib::ControlFlow::Break
+        })
     };
-    let pad = 4.0_f32;
-    let x = (rect.x() - pad).max(0.0) as i32;
-    let y = (rect.y() - pad).max(0.0) as i32;
-    let w = (rect.width() + 2.0 * pad) as i32;
-    let h = (rect.height() + 2.0 * pad) as i32;
-    let cairo_rect = cairo::RectangleInt::new(x, y, w, h);
-    let region = cairo::Region::create_rectangle(&cairo_rect);
-    surface.set_input_region(&region);
+    state.borrow_mut().auto_scroll_monitor = Some(monitor);
 }
+
+fn end_of_content_ui(capturing_pill: &gtk::Box) {
+    let mut child = capturing_pill.first_child();
+    let mut idx = 0;
+    while let Some(c) = child {
+        let next = c.next_sibling();
+        match idx {
+            1 => c.set_visible(false), // Auto-Scroll button hidden
+            2 => c.add_css_class("scroll-capture-done-highlight"), // Done emphasized
+            _ => {}
+        }
+        idx += 1;
+        child = next;
+    }
+}
+
 
 fn build_prompt_pill() -> gtk::Box {
     let pill = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -484,8 +569,13 @@ fn pill_natural_size(pill: &gtk::Box) -> (f64, f64) {
     (w_nat as f64, h_nat as f64)
 }
 
-fn position_action_pill(overlay: &gtk::Overlay, pill: &gtk::Box, sel: Selection) {
-    // Defer to idle so the pill's allocation is valid when we measure it.
+fn position_action_pill_and_input(
+    window: &gtk::ApplicationWindow,
+    overlay: &gtk::Overlay,
+    pill: &gtk::Box,
+    sel: Selection,
+) {
+    let window = window.clone();
     let overlay = overlay.clone();
     let pill = pill.clone();
     glib::idle_add_local_once(move || {
@@ -494,19 +584,45 @@ fn position_action_pill(overlay: &gtk::Overlay, pill: &gtk::Box, sel: Selection)
         let y = (sel.y + sel.h + PILL_GAP)
             .min(overlay.allocated_height() as f64 - ph - 8.0)
             .max(8.0);
-        pill.set_margin_start(x.max(8.0) as i32);
+        let x = x.max(8.0);
+        pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
+        set_pill_input_region(&window, x, y, pw, ph);
     });
 }
 
-fn position_capturing_pill(overlay: &gtk::Overlay, pill: &gtk::Box, sel: Selection) {
+fn set_pill_input_region(window: &gtk::ApplicationWindow, x: f64, y: f64, w: f64, h: f64) {
+    if let Some(surface) = window.surface() {
+        let pad: i32 = 6;
+        let rect = cairo::RectangleInt::new(
+            (x as i32) - pad,
+            (y as i32) - pad,
+            (w as i32) + 2 * pad,
+            (h as i32) + 2 * pad,
+        );
+        let region = cairo::Region::create_rectangle(&rect);
+        surface.set_input_region(&region);
+        eprintln!(
+            "scroll-capture: input region set to ({},{}) {}x{}",
+            rect.x(), rect.y(), rect.width(), rect.height()
+        );
+    }
+}
+
+fn position_capturing_pill_and_input(
+    window: &gtk::ApplicationWindow,
+    overlay: &gtk::Overlay,
+    pill: &gtk::Box,
+    sel: Selection,
+) {
+    let window = window.clone();
     let overlay = overlay.clone();
     let pill = pill.clone();
     glib::idle_add_local_once(move || {
         let (pw, ph) = measured_pill_size(&pill);
         let x = sel.x + (sel.w - pw) / 2.0;
         // Inside the selection, bottom-centered, so clicking Auto-Scroll parks
-        // the cursor inside the scrollable region for virtual-pointer wheel events.
+        // the cursor inside the scrollable region for virtual-pointer events.
         let inside_y = sel.y + sel.h - ph - PILL_GAP;
         let y = if inside_y < sel.y + 8.0 {
             sel.y + sel.h + PILL_GAP
@@ -516,8 +632,10 @@ fn position_capturing_pill(overlay: &gtk::Overlay, pill: &gtk::Box, sel: Selecti
         let y = y
             .min(overlay.allocated_height() as f64 - ph - 8.0)
             .max(8.0);
-        pill.set_margin_start(x.max(8.0) as i32);
+        let x = x.max(8.0);
+        pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
+        set_pill_input_region(&window, x, y, pw, ph);
     });
 }
 

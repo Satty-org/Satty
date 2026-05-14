@@ -1514,6 +1514,7 @@ dependencies = [
  "relm4-icons",
  "relm4-icons-build",
  "resource",
+ "rustix 1.1.4",
  "satty_cli",
  "serde",
  "serde_derive",
@@ -1522,6 +1523,7 @@ dependencies = [
  "tokio",
  "toml 1.1.0+spec-1.1.0",
  "wayland-client",
+ "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "xdg",
 ]
@@ -2076,6 +2078,19 @@ dependencies = [
  "bitflags 2.11.0",
  "wayland-backend",
  "wayland-client",
+ "wayland-scanner",
+]
+
+[[package]]
+name = "wayland-protocols-misc"
+version = "0.3.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
+dependencies = [
+ "bitflags 2.11.0",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
  "wayland-scanner",
 ]
 

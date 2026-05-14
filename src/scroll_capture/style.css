@@ -54,3 +54,9 @@
   background-color: rgba(255, 120, 120, 0.18);
   color: rgba(255, 200, 200, 0.95);
 }
+
+.scroll-capture-done-highlight {
+  background-color: rgba(120, 220, 160, 0.18);
+  color: rgba(220, 255, 230, 1.0);
+  font-weight: 600;
+}
