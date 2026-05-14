@@ -2170,7 +2170,7 @@ impl SketchBoard {
                 //     the committed-rect transform clears and the
                 //     Revert button disappears with it.
                 if self.active_tool_type() == Tools::Crop {
-                    self.tools.get_crop_tool().borrow_mut().revert_to_seed();
+                    self.tools.get_crop_tool().borrow_mut().revert_to_seed(true);
                 } else {
                     self.tools.get_crop_tool().borrow_mut().revert();
                     sender
@@ -2204,6 +2204,13 @@ impl SketchBoard {
                 ToolUpdateResult::Redraw
             }
             ToolbarEvent::RotateImage => {
+                // Snapshot the on-screen scale BEFORE the rotation
+                // so the post-rotation `reset_size` can restore it
+                // verbatim instead of dropping back to auto-fit.
+                // `current_render_scale` returns the same number
+                // the zoom indicator was showing, so the user's
+                // "22%" stays 22% across the turn.
+                let preserved_zoom = self.renderer.current_render_scale();
                 if let Some((new_w, new_h)) = self.renderer.rotate_image_ccw() {
                     let crop_tool = self.tools.get_crop_tool();
                     let mut ct = crop_tool.borrow_mut();
@@ -2212,36 +2219,40 @@ impl SketchBoard {
                     // fresh on the rotated image (the old rect's
                     // (pos, size) refer to coordinates that no
                     // longer exist in the new orientation).
+                    // `emit_resize: false` because we emit our own
+                    // zoom-scaled ContentSizeChanged below — the
+                    // seed path's native-pixel emit would otherwise
+                    // win the race and blow the window up to the
+                    // rotated image's full size.
                     ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
-                    ct.revert_to_seed();
+                    ct.revert_to_seed(false);
                     drop(ct);
-                    // Drop any prior user zoom / drag offset so the
-                    // rotated image re-engages auto-fit against the
-                    // canvas. Without this, a 90 ° turn from landscape
-                    // to portrait leaves the image partially clipped
-                    // by the now-too-narrow canvas — same fit logic
-                    // ResizeImage already applies for the same reason.
-                    self.renderer.reset_size(0.0);
+                    // Drop the drag offset (the old offset points
+                    // at image-space coords that no longer exist
+                    // in the rotated orientation) but keep the
+                    // pre-rotation zoom so the on-screen scale
+                    // doesn't snap back to auto-fit mid-edit.
+                    self.renderer.reset_size(preserved_zoom);
                     sender
                         .output_sender()
                         .emit(SketchBoardOutput::ImageDimensionsChanged {
                             width: new_w as i32,
                             height: new_h as i32,
                         });
-                    // Ask the window to fit the rotated content (up to
-                    // 90 % of the monitor — `window_size_for_content`
-                    // applies that cap). If the rotated image still
-                    // fits at 1:1 within the cap, the on-screen zoom
-                    // stays the same; only when it can't does auto-fit
-                    // shrink it. `revert_to_seed` already emits this,
-                    // but the crop-tool sender path doesn't seem to
-                    // make it back here, so emit directly on the
-                    // output sender we already have in hand.
+                    // Re-fit the window around the rotated content
+                    // AT THE PRESERVED ZOOM, not at native pixels.
+                    // Otherwise a 22 % preview rotated from
+                    // portrait → landscape would blow the window
+                    // up to the full landscape pixel size and the
+                    // user would see a tiny image floating in a
+                    // huge canvas. Scaling by `preserved_zoom`
+                    // means the window only grows by the small
+                    // aspect-flip delta in on-screen pixels.
                     sender
                         .output_sender()
                         .emit(SketchBoardOutput::ContentSizeChanged {
-                            width: new_w,
-                            height: new_h,
+                            width: new_w * preserved_zoom,
+                            height: new_h * preserved_zoom,
                         });
                 }
                 ToolUpdateResult::Redraw
@@ -2251,7 +2262,7 @@ impl SketchBoard {
                     let crop_tool = self.tools.get_crop_tool();
                     let mut ct = crop_tool.borrow_mut();
                     ct.set_image_bounds(crate::math::Vec2D::new(new_w, new_h));
-                    ct.revert_to_seed();
+                    ct.revert_to_seed(true);
                     drop(ct);
                     // Drop any prior user zoom so the renderer's
                     // auto-fit-with-padding cascade re-engages for the
@@ -2354,17 +2365,41 @@ impl SketchBoard {
                 } else if let Some(hotkey_digit) =
                     txt.chars().next().and_then(|char| char.to_digit(10))
                 {
-                    let index_digit = if hotkey_digit == 0 {
-                        9
-                    } else {
-                        hotkey_digit - 1
-                    };
-                    if APP_CONFIG.read().color_palette().palette().len()
-                        >= (index_digit + 1) as usize
+                    // Crop tool claims 1–5 as quadrant presets
+                    // (1=UL, 2=UR, 3=LL, 4=LR, 5=centered quarter).
+                    // Combined with Shift+arrow nudging, this lets
+                    // the whole crop flow run from the keyboard
+                    // without ever touching the mouse. Other digits
+                    // (6–9, 0) and 1–5 outside Crop still fall
+                    // through to the color-picker shortcut.
+                    let crop_consumed = if self.active_tool_type() == Tools::Crop
+                        && (1..=5).contains(&hotkey_digit)
                     {
-                        sender
-                            .output_sender()
-                            .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
+                        let crop_tool = self.tools.get_crop_tool();
+                        let applied =
+                            crop_tool.borrow_mut().apply_quadrant_preset(hotkey_digit);
+                        if applied {
+                            self.renderer.request_render(&[]);
+                        }
+                        applied
+                    } else {
+                        false
+                    };
+                    if !crop_consumed {
+                        let index_digit = if hotkey_digit == 0 {
+                            9
+                        } else {
+                            hotkey_digit - 1
+                        };
+                        if APP_CONFIG.read().color_palette().palette().len()
+                            >= (index_digit + 1) as usize
+                        {
+                            sender
+                                .output_sender()
+                                .emit(SketchBoardOutput::ColorSwitchShortcut(
+                                    index_digit as u64,
+                                ));
+                        }
                     }
                 }
             }
@@ -4333,6 +4368,27 @@ impl Component for SketchBoard {
             .get(&Tools::Pointer)
             .borrow_mut()
             .set_drawable_store(store);
+
+        // Fire the initial tool's `Activated` hook (and the
+        // matching renderer/sender plumbing) so tools that seed
+        // state on first entry — Crop's "create a full-image
+        // seed rectangle with handles" being the canonical
+        // example — actually run that seed code on launch. Without
+        // this, `--initial-tool crop` boots without any visible
+        // crop frame until the user exits the tool and re-enters.
+        model.renderer.set_active_tool(model.active_tool.clone());
+        model
+            .active_tool
+            .borrow_mut()
+            .set_sender(sender.input_sender().clone());
+        model
+            .active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(model.style));
+        let _ = model
+            .active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::Activated);
 
         ComponentParts { model, widgets }
     }
