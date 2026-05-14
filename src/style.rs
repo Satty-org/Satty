@@ -353,10 +353,8 @@ impl Size {
         }
     }
 
-    /// Visible body width at the head intersection for the Fancy arrow style.
-    /// Matches a reference exactly
-    /// (3-run-zone middle-run widths halved from 2× DPR).
-    pub fn to_arrow_fancy_tail_width(self, size_factor: f32) -> f32 {
+    /// Visible body width at the head intersection for the Pointy arrow style.
+    pub fn to_arrow_pointy_tail_width(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 8.0 * size_factor,
             Size::Small => 10.0 * size_factor,
@@ -367,13 +365,10 @@ impl Size {
         }
     }
 
-    /// Flat-edge thickness of the Fancy arrow's tail back, in 1× logical px.
-    /// the standard fancy arrows do not taper to a perfect needle — there is
-    /// a thin finite back edge that scales with size. Calibrated against the
-    /// reference using a screen pixel ruler; the smaller sizes were a touch
-    /// too thin in the first pass (target ruler readings: 2.5, 2.5, 3.5, 4,
-    /// 4.5, 6.5 at 2× DPR), so XS/S/M were nudged up to match.
-    pub fn to_arrow_fancy_tail_back_width(self, size_factor: f32) -> f32 {
+    /// Flat-edge thickness of the Pointy arrow's tail back, in 1× logical px.
+    /// Pointy arrows do not taper to a perfect needle — there is a thin
+    /// finite back edge that scales with size.
+    pub fn to_arrow_pointy_tail_back_width(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 1.5 * size_factor,
             Size::Small => 1.5 * size_factor,
@@ -414,11 +409,10 @@ impl Size {
     }
 
     /// Full perpendicular head height (path-space, before rounded outline
-    /// stroke widens it). Reference visible heights (1× DPR): 15.5, 21, 32.5,
-    /// 40.5, 55, 83.5; subtract `to_arrow_tail_back_width` (the rounded stroke
-    /// adds that to the visible height). REF heads are slightly *squatter*
-    /// than the body length suggests — full apex ≈ 49°, not 53° — so we
-    /// store these per-size like Fancy does, not derive from a single angle.
+    /// stroke widens it). The rounded outline stroke widens the visible
+    /// height by `to_arrow_tail_back_width`. Heads are slightly squatter
+    /// than the body length suggests (apex ≈ 49°, not 53°), so this is
+    /// a per-size table rather than derived from a single angle.
     pub fn to_arrow_head_full_height(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 14.0 * size_factor,
@@ -463,12 +457,8 @@ impl Size {
         }
     }
 
-    /// Head length (along the shaft) for Fancy arrows. Exact the standard
-    /// reference *head triangle* widths (standard 2026-05-09 at
-    /// 11.45.11@2x.png), halved from 2× DPR (31, 44, 69, 86, 118, 179).
-    /// Excludes the reference's swept-back ear, which is a separate feature
-    /// we don't model.
-    pub fn to_arrow_fancy_head_length(self, size_factor: f32) -> f32 {
+    /// Head length (along the shaft) for Pointy arrows. Per-size table.
+    pub fn to_arrow_pointy_head_length(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 15.5 * size_factor,
             Size::Small => 22.0 * size_factor,
@@ -479,12 +469,11 @@ impl Size {
         }
     }
 
-    /// Full perpendicular head height for Fancy. Stored independently of
-    /// `to_arrow_fancy_head_length` because standard uses a per-size apex:
+    /// Full perpendicular head height for Pointy. Stored independently of
+    /// `to_arrow_pointy_head_length` because the apex angle is per-size:
     /// nearly 1:1 (apex ≈ 53°) at XSmall/Small, squatter (apex ≈ 51°) at
-    /// larger sizes. Exact reference values halved from 2× DPR (31, 44, 66,
-    /// 83, 113, 171).
-    pub fn to_arrow_fancy_head_full_height(self, size_factor: f32) -> f32 {
+    /// larger sizes.
+    pub fn to_arrow_pointy_head_full_height(self, size_factor: f32) -> f32 {
         match self {
             Size::XSmall => 15.5 * size_factor,
             Size::Small => 22.0 * size_factor,

@@ -26,7 +26,7 @@ pub enum ArrowStyle {
     #[default]
     Standard,
     /// Thin stroked shaft with a filled triangular head.
-    Fancy,
+    Pointy,
     /// Quadratic Bezier curve with a single filled head at the end.
     Curved,
     /// Quadratic Bezier curve with filled heads at both ends.
@@ -37,8 +37,8 @@ impl ArrowStyle {
     pub fn next(self) -> Self {
         use ArrowStyle::*;
         match self {
-            Standard => Fancy,
-            Fancy => Curved,
+            Standard => Pointy,
+            Pointy => Curved,
             Curved => Double,
             Double => Standard,
         }
@@ -48,8 +48,8 @@ impl ArrowStyle {
         use ArrowStyle::*;
         match self {
             Standard => Double,
-            Fancy => Standard,
-            Curved => Fancy,
+            Pointy => Standard,
+            Curved => Pointy,
             Double => Curved,
         }
     }
@@ -60,7 +60,7 @@ impl ArrowStyle {
         use ArrowStyle::*;
         match self {
             Standard => "Standard",
-            Fancy => "Fancy",
+            Pointy => "Pointy",
             Curved => "Curved",
             Double => "Double",
         }
@@ -195,44 +195,38 @@ impl Tool for ArrowTool {
 /// triangle whose length along the shaft equals its full base width.
 const HEAD_FULL_ANGLE_DEG: f32 = 53.13;
 /// Apex angle of the open V-tip used by Curved/Double arrows (path-space).
-/// the standard V-tips render at ~85° visible apex; the round line-join
-/// narrows the visible angle vs the path angle slightly. Empirically tuned
-/// to 90° to minimize per-pixel diff against the reference across all sizes.
+/// The round line-join narrows the visible angle vs the path angle, so the
+/// path-space value is slightly wider than the rendered apex.
 const CURVED_HEAD_FULL_ANGLE_DEG: f32 = 90.0;
 /// Forward slant of the back-of-head edge for Standard, expressed as a
 /// fraction of head_length. 0.0 = perpendicular cut (sharp shoulder); larger
 /// values rake the back of the head forward toward the tip.
 const STANDARD_SHOULDER_RATIO: f32 = 0.05;
-/// Forward slant for Fancy. Zero means the body shoulder sits at the same
-/// column as the head's outer corner — matching the reference where
-/// body and head meet via a vertical step plus a swept-back ear (rather
-/// than a slanted forward shoulder).
+/// Forward slant for Pointy. Zero means the body shoulder sits at the same
+/// column as the head's outer corner — body and head meet via a vertical
+/// step plus a swept-back ear (rather than a slanted forward shoulder).
 const FANCY_SHOULDER_RATIO: f32 = 0.0;
-/// Fancy wing: how far behind the head's perpendicular base the wing tip
-/// sits, as a fraction of head_length. Matches convention's per-size
-/// geometric ratios (averaged ~0.213 across sizes), with a small bump for
-/// anti-aliased edge coverage.
+/// Pointy wing: how far behind the head's perpendicular base the wing tip
+/// sits, as a fraction of head_length.
 const FANCY_WING_BACK_RATIO: f32 = 0.22;
-/// Fancy wing: how much higher the wing tip sits than the head's plain
-/// outer corner, expressed as a fraction of `head_half_height`. Matches
-/// the standard per-size ratios (averaged ~0.212), with a small bump for
-/// AA coverage. Pairing this with `FANCY_WING_BACK_RATIO` at the same
-/// value keeps the wing's front-edge slope equal to the head triangle's
-/// natural angle (head_half_height / head_length).
+/// Pointy wing: how much higher the wing tip sits than the head's plain
+/// outer corner, expressed as a fraction of `head_half_height`. Pairing
+/// this with `FANCY_WING_BACK_RATIO` at the same value keeps the wing's
+/// front-edge slope equal to the head triangle's natural angle
+/// (head_half_height / head_length).
 const FANCY_WING_HEIGHT_RATIO: f32 = 0.22;
 /// Curvature of curved/double arrows as a fraction of the chord length.
 const CURVE_AMOUNT: f32 = 0.25;
 
 impl Arrow {
     /// Length of the arrowhead along the shaft (tip → back of head triangle).
-    /// Fancy uses a slightly longer head than Standard (calibrated separately
-    /// against the design reference).
+    /// Pointy uses a slightly longer head than Standard (per-style table).
     fn head_length(&self) -> f32 {
         match self.arrow_style {
-            ArrowStyle::Fancy => self
+            ArrowStyle::Pointy => self
                 .style
                 .size
-                .to_arrow_fancy_head_length(self.style.annotation_size_factor),
+                .to_arrow_pointy_head_length(self.style.annotation_size_factor),
             _ => self
                 .style
                 .size
@@ -241,16 +235,16 @@ impl Arrow {
     }
 
     /// Half of the head's full perpendicular height at its base. Standard
-    /// and Fancy each store their own per-size table — the standard heads
-    /// don't match a single apex angle (Standard uses ~49°, Fancy ranges
-    /// 51-53° per size). Curved/Double fall back to the 53° apex constant
-    /// for the open V-tip path.
+    /// and Pointy each store their own per-size table — heads don't share a
+    /// single apex angle (Standard ≈ 49°, Pointy ranges 51-53° per size).
+    /// Curved/Double fall back to the 53° apex constant for the open V-tip
+    /// path.
     fn head_half_height(&self) -> f32 {
         match self.arrow_style {
-            ArrowStyle::Fancy => {
+            ArrowStyle::Pointy => {
                 self.style
                     .size
-                    .to_arrow_fancy_head_full_height(self.style.annotation_size_factor)
+                    .to_arrow_pointy_head_full_height(self.style.annotation_size_factor)
                     * 0.5
             }
             ArrowStyle::Standard => {
@@ -266,16 +260,16 @@ impl Arrow {
         }
     }
 
-    /// Visible body width at the head intersection. Standard and Fancy
-    /// pull from separate calibration tables in `style.rs`; Fancy is wider
+    /// Visible body width at the head intersection. Standard and Pointy
+    /// pull from separate per-size tables in `style.rs`; Pointy is wider
     /// so the body reads as a long continuous taper into the swept-back
-    /// head, matching the design reference.
+    /// head.
     fn body_max_width(&self) -> f32 {
         match self.arrow_style {
-            ArrowStyle::Fancy => self
+            ArrowStyle::Pointy => self
                 .style
                 .size
-                .to_arrow_fancy_tail_width(self.style.annotation_size_factor),
+                .to_arrow_pointy_tail_width(self.style.annotation_size_factor),
             _ => self
                 .style
                 .size
@@ -286,15 +280,15 @@ impl Arrow {
     /// Visible thickness of the back of the tail. For Standard, this is the
     /// rounded-cap diameter (the body tapers to a sharp point in the path
     /// and the rounded-outline stroke widens that point into a half-circle
-    /// of this diameter). For Fancy, this is the flat back-edge thickness —
+    /// of this diameter). For Pointy, this is the flat back-edge thickness —
     /// the path closes with a vertical edge of this height instead of a
-    /// single back point, matching the standard fancy tails.
+    /// single back point.
     fn body_back_width(&self) -> f32 {
         match self.arrow_style {
-            ArrowStyle::Fancy => self
+            ArrowStyle::Pointy => self
                 .style
                 .size
-                .to_arrow_fancy_tail_back_width(self.style.annotation_size_factor),
+                .to_arrow_pointy_tail_back_width(self.style.annotation_size_factor),
             _ => self
                 .style
                 .size
@@ -357,10 +351,10 @@ impl Arrow {
     ///   single swept-back wing tip per side (no kink). When 0/0, the head
     ///   is a plain isoceles triangle (Standard).
     /// - `stroke_compensation`: inset for the body so the rounded outline
-    ///   stroke (Standard) widens it back to `body_max_width`. 0 for Fancy.
+    ///   stroke (Standard) widens it back to `body_max_width`. 0 for Pointy.
     /// - `back_half_width`: 0 → single back point (Standard, widened into
     ///   a rounded cap by the stroke); positive → flat back edge of
-    ///   thickness `2 × back_half_width` (Fancy).
+    ///   thickness `2 × back_half_width` (Pointy).
     ///
     /// Head dimensions come from `self.head_length()` and
     /// `self.head_half_height()`, both style-aware.
@@ -412,7 +406,7 @@ impl Arrow {
 
     /// Paint configured for the rounded outline overlay applied on top of the
     /// solid fill — produces visually-rounded triangle/tail corners. Only
-    /// used by Standard; Fancy keeps sharp polygon corners.
+    /// used by Standard; Pointy keeps sharp polygon corners.
     fn rounded_outline_paint(&self) -> Paint {
         let mut p: Paint = self.style.into();
         p.set_line_join(LineJoin::Round);
@@ -476,9 +470,9 @@ impl Arrow {
         canvas.rotate(direction.angle().radians);
         // Standard's path is inset by the stroke width so that, once the
         // rounded-outline stroke is drawn on top, the visible body matches
-        // `body_max_width` at the head. Fancy uses no stroke, so no inset.
+        // `body_max_width` at the head. Pointy uses no stroke, so no inset.
         // Standard collapses the back to a single point so the round stroke
-        // can grow it into a cap; Fancy keeps a finite flat back edge.
+        // can grow it into a cap; Pointy keeps a finite flat back edge.
         let (stroke_compensation, back_half_width) = if round_corners {
             (self.rounded_outline_stroke(), 0.0)
         } else {
@@ -573,7 +567,7 @@ impl Drawable for Arrow {
                 0.0,
                 true,
             ),
-            ArrowStyle::Fancy => self.draw_solid(
+            ArrowStyle::Pointy => self.draw_solid(
                 canvas,
                 end,
                 &paint,
@@ -593,7 +587,7 @@ impl Drawable for Arrow {
         let body = self.body_max_width();
         let pad = head.max(body) / 2.0 + 2.0;
         match self.arrow_style {
-            ArrowStyle::Standard | ArrowStyle::Fancy => {
+            ArrowStyle::Standard | ArrowStyle::Pointy => {
                 Some(Rect::from_corners(self.start, end).inflated(pad))
             }
             ArrowStyle::Curved | ArrowStyle::Double => {
@@ -628,11 +622,11 @@ impl Drawable for Arrow {
         let body = self.body_max_width();
         let shaft = self.shaft_width();
         let pick = match self.arrow_style {
-            ArrowStyle::Standard | ArrowStyle::Fancy => body.max(head) / 2.0 + tolerance,
+            ArrowStyle::Standard | ArrowStyle::Pointy => body.max(head) / 2.0 + tolerance,
             ArrowStyle::Curved | ArrowStyle::Double => shaft.max(head) / 2.0 + tolerance,
         };
         match self.arrow_style {
-            ArrowStyle::Standard | ArrowStyle::Fancy => {
+            ArrowStyle::Standard | ArrowStyle::Pointy => {
                 point_to_segment_distance(point, self.start, end) <= pick
             }
             ArrowStyle::Curved | ArrowStyle::Double => {
@@ -751,7 +745,7 @@ impl Drawable for Arrow {
         glow_paint.set_line_join(LineJoin::Round);
 
         match self.arrow_style {
-            ArrowStyle::Standard | ArrowStyle::Fancy => {
+            ArrowStyle::Standard | ArrowStyle::Pointy => {
                 let (
                     shoulder_ratio,
                     wing_back_ratio,
@@ -760,7 +754,7 @@ impl Drawable for Arrow {
                     outline_half,
                     back_half_width,
                 ) = match self.arrow_style {
-                    ArrowStyle::Fancy => (
+                    ArrowStyle::Pointy => (
                         FANCY_SHOULDER_RATIO,
                         FANCY_WING_BACK_RATIO,
                         FANCY_WING_HEIGHT_RATIO,

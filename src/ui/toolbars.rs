@@ -1569,7 +1569,7 @@ fn highlighter_style_label(s: crate::tools::HighlighterStyle) -> &'static str {
 fn arrow_style_label(s: ArrowStyle) -> &'static str {
     match s {
         ArrowStyle::Standard => "Standard",
-        ArrowStyle::Fancy => "Fancy",
+        ArrowStyle::Pointy => "Pointy",
         ArrowStyle::Curved => "Curved",
         ArrowStyle::Double => "Double",
     }
@@ -1578,7 +1578,7 @@ fn arrow_style_label(s: ArrowStyle) -> &'static str {
 /// Dimensions for the arrow-style preview. The chip in the bottom-
 /// right cluster and the popover rows share a single longer width
 /// — the short stubby chip was hard to distinguish between Standard
-/// and Fancy at a glance, and the cluster has plenty of room to fit
+/// and Pointy at a glance, and the cluster has plenty of room to fit
 /// the longer rendering. Height stays low so neither the chip nor
 /// the rows tower over the rest of the toolbar.
 const ARROW_PREVIEW_W: i32 = 60;
@@ -1646,7 +1646,7 @@ fn draw_arrow_preview_cairo(
             ctx.fill_preserve().ok();
             ctx.stroke().ok();
         }
-        ArrowStyle::Fancy => {
+        ArrowStyle::Pointy => {
             // Wider body, swept-back wing ears, flat-back tail. No stroke.
             // Head is a touch wider than tall; body fills the rest.
             let head_length = (usable_h * 1.05).min(length - 2.0);
@@ -5208,7 +5208,7 @@ impl Component for StyleToolbar {
             &sender,
             &[
                 ArrowStyle::Standard,
-                ArrowStyle::Fancy,
+                ArrowStyle::Pointy,
                 ArrowStyle::Curved,
                 ArrowStyle::Double,
             ],

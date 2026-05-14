@@ -74,13 +74,13 @@ were immutable and could only be removed via undo.
   → `FemtoVgAreaMut::modify_many` (also a Batch).
 
 ### Arrow geometry & styles
-- Four `ArrowStyle` variants: `Standard`, `Fancy`, `Curved`, `Double`
+- Four `ArrowStyle` variants: `Standard`, `Pointy`, `Curved`, `Double`
   (`src/tools/arrow.rs`).
 - **Standard** — tapered tail (small back stub at ~7 % of tail width),
   rounded-corner triangle head with a "shoulder notch" where head meets tail
   (the inner corner is slightly forward of the head's outer base, ~12 % of
   head length).
-- **Fancy** — thin stroked shaft + filled triangular head.
+- **Pointy** — thin stroked shaft + filled triangular head.
 - **Curved** — quadratic Bezier shaft + filled head at the end. Default
   curvature = 25 % of chord length, but the user can drag a `Control`
   handle (mid-curve) to bend the arc to any angle. The control point is

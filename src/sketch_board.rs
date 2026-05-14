@@ -1502,8 +1502,8 @@ impl SketchBoard {
                 // Falls back to the persisted default when nothing
                 // matching is selected.
                 let next = match self.cycle_seed_arrow() {
-                    ArrowStyle::Standard => ArrowStyle::Fancy,
-                    ArrowStyle::Fancy => ArrowStyle::Curved,
+                    ArrowStyle::Standard => ArrowStyle::Pointy,
+                    ArrowStyle::Pointy => ArrowStyle::Curved,
                     ArrowStyle::Curved => ArrowStyle::Double,
                     ArrowStyle::Double => ArrowStyle::Standard,
                 };
@@ -2803,7 +2803,7 @@ impl SketchBoard {
                 use crate::tools::ArrowStyle;
                 let order = [
                     ArrowStyle::Standard,
-                    ArrowStyle::Fancy,
+                    ArrowStyle::Pointy,
                     ArrowStyle::Curved,
                     ArrowStyle::Double,
                 ];

@@ -45,7 +45,7 @@ pub struct PersistedState {
     /// live value isn't persisted on every drag.
     #[serde(default)]
     pub size_per_tool: HashMap<Tools, Size>,
-    /// Last-chosen arrow geometry (Standard / Fancy / Curved / Double).
+    /// Last-chosen arrow geometry (Standard / Pointy / Curved / Double).
     /// Auto-saved on every selection so re-opening the Arrow tool
     /// picks up where the user left off.
     #[serde(default)]
