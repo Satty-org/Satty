@@ -19,7 +19,9 @@ use crate::{
     tools::{Highlighters, Tools},
 };
 
-use satty_cli::command_line::{Action as CommandLineAction, CommandLine, Fullscreen, Resize};
+use satty_cli::command_line::{
+    Action as CommandLineAction, CommandLine, Fullscreen, Resize, ScrollCaptureTest,
+};
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
 
@@ -109,6 +111,7 @@ pub struct Configuration {
     /// "ctrl+shift+t", "f7". Unrecognised values silently fall back
     /// to "no binding" — the toolbar button still works.
     layer_panel_shortcut: String,
+    scroll_capture_test: Option<ScrollCaptureTest>,
 }
 
 pub struct Keybinds {
@@ -598,6 +601,9 @@ impl Configuration {
         if let Some(v) = command_line.app_id {
             self.app_id = Some(v);
         }
+        if let Some(v) = command_line.scroll_capture_test {
+            self.scroll_capture_test = Some(v);
+        }
 
         // --- deprecated options ---
         if command_line.right_click_copy
@@ -856,6 +862,10 @@ impl Configuration {
     pub fn app_id(&self) -> Option<&String> {
         self.app_id.as_ref()
     }
+
+    pub fn scroll_capture_test(&self) -> Option<&ScrollCaptureTest> {
+        self.scroll_capture_test.as_ref()
+    }
 }
 
 impl Default for Configuration {
@@ -915,6 +925,7 @@ impl Default for Configuration {
             hide_default_palette: false,
             sticky_session_defaults: false,
             layer_panel_shortcut: "ctrl+l".into(),
+            scroll_capture_test: None,
         }
     }
 }

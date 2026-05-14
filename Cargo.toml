@@ -49,6 +49,11 @@ resource = "0.6.1"  # font emedding
 fontconfig = "0.10.2"  # font loading
 keycode = "1.0.0"
 
+# wayland capture (scrolling screenshots)
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+smithay-client-toolkit = { version = "0.19", default-features = false }
+
 [dependencies.relm4-icons]
 version = "0.10.0"
 

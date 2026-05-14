@@ -18,8 +18,14 @@ pub struct CommandLine {
     pub config: Option<String>,
 
     /// Path to input image or '-' to read from stdin
-    #[arg(short, long, required = true)]
+    #[arg(short, long, required_unless_present = "scroll_capture_test")]
     pub filename: Option<String>,
+
+    /// Dev-only smoke test for the scrolling-screenshot capture pipeline.
+    /// `FULL` captures the whole focused output; `x,y,w,h` captures a region.
+    /// The captured frame is fed into satty's normal annotation canvas.
+    #[arg(long, value_name = "FULL|X,Y,W,H", value_parser = ScrollCaptureTest::from_str)]
+    pub scroll_capture_test: Option<ScrollCaptureTest>,
 
     /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
@@ -238,6 +244,37 @@ pub enum Action {
     SaveToFileAs,
     CopyFilepathToClipboard,
     Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollCaptureTest {
+    Full,
+    Region { x: i32, y: i32, width: i32, height: i32 },
+}
+
+impl FromStr for ScrollCaptureTest {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.eq_ignore_ascii_case("full") {
+            return Ok(ScrollCaptureTest::Full);
+        }
+        let parts: Vec<&str> = trimmed.split(',').collect();
+        if parts.len() != 4 {
+            return Err("expected FULL or x,y,w,h".into());
+        }
+        let parse_i = |label: &str, v: &str| -> Result<i32, String> {
+            v.trim()
+                .parse::<i32>()
+                .map_err(|_| format!("invalid {label}: {v}"))
+        };
+        Ok(ScrollCaptureTest::Region {
+            x: parse_i("x", parts[0])?,
+            y: parse_i("y", parts[1])?,
+            width: parse_i("w", parts[2])?,
+            height: parse_i("h", parts[3])?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]

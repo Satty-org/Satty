@@ -17,7 +17,7 @@ use relm4::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use satty_cli::command_line::{Fullscreen, Resize};
+use satty_cli::command_line::{Fullscreen, Resize, ScrollCaptureTest};
 
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{
@@ -28,6 +28,7 @@ use ui::welcome::{WelcomeDialog, WelcomeDialogInit, WelcomeDialogInput, WelcomeD
 use ui::zoom_indicator::{ZoomIndicator, ZoomIndicatorInput, ZoomIndicatorOutput};
 use xdg::BaseDirectories;
 
+mod capture;
 mod configuration;
 mod display;
 mod femtovg_area;
@@ -1731,7 +1732,15 @@ fn run_satty() -> Result<()> {
 
     generate_profile_output!("loading image");
     // load input image
-    let image = if input_filename == "-" {
+    let scroll_capture_test = APP_CONFIG.read().scroll_capture_test().copied();
+    let image = if let Some(spec) = scroll_capture_test {
+        match spec {
+            ScrollCaptureTest::Full => capture::capture_output()?,
+            ScrollCaptureTest::Region { x, y, width, height } => {
+                capture::capture_region(capture::Rect { x, y, width, height })?
+            }
+        }
+    } else if input_filename == "-" {
         let mut buf = Vec::<u8>::new();
         io::stdin().lock().read_to_end(&mut buf)?;
         let pb_loader = PixbufLoader::new();
