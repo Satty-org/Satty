@@ -92,6 +92,9 @@ fn build_overlay(app: &gtk::Application) {
     for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         window.set_anchor(edge, true);
     }
+    // -1 = ignore other layer-shell exclusive zones (e.g. waybar) so we cover
+    // the entire output edge-to-edge.
+    window.set_exclusive_zone(-1);
     window.add_css_class("scroll-capture-overlay");
 
     install_css(app);
@@ -452,29 +455,55 @@ fn pill_natural_size(pill: &gtk::Box) -> (f64, f64) {
 }
 
 fn position_action_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) {
-    let (pw, ph) = pill_natural_size(pill);
-    let x = sel.x + (sel.w - pw) / 2.0;
-    let y = sel.y + sel.h + PILL_GAP;
-    // Clamp so the pill stays roughly on-screen even for selections near the bottom.
-    let y = y.min(fixed.allocated_height() as f64 - ph - 8.0).max(8.0);
-    fixed.move_(pill, x.max(8.0), y);
+    // Park off-screen first; the pill's natural-size measurement is unreliable
+    // before its first layout pass, so we re-position in an idle callback once
+    // GTK has actually allocated it.
+    fixed.move_(pill, -10_000.0, -10_000.0);
+    let f = fixed.clone();
+    let p = pill.clone();
+    glib::idle_add_local_once(move || {
+        let (pw, ph) = measured_pill_size(&p);
+        let x = sel.x + (sel.w - pw) / 2.0;
+        let y = (sel.y + sel.h + PILL_GAP)
+            .min(f.allocated_height() as f64 - ph - 8.0)
+            .max(8.0);
+        f.move_(&p, x.max(8.0), y);
+    });
 }
 
 fn position_capturing_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) {
-    // Place inside the selection, bottom-centered. This deliberately parks
-    // the cursor inside the scrollable region when the user clicks Auto-Scroll
-    // (Phase 4), so libei wheel events land on the right window.
-    let (pw, ph) = pill_natural_size(pill);
-    let x = sel.x + (sel.w - pw) / 2.0;
-    let y = sel.y + sel.h - ph - PILL_GAP;
-    // If the selection is too short, fall back to below-selection placement.
-    let y = if y < sel.y + 8.0 {
-        sel.y + sel.h + PILL_GAP
-    } else {
-        y
-    };
-    let y = y.min(fixed.allocated_height() as f64 - ph - 8.0).max(8.0);
-    fixed.move_(pill, x.max(8.0), y);
+    fixed.move_(pill, -10_000.0, -10_000.0);
+    let f = fixed.clone();
+    let p = pill.clone();
+    glib::idle_add_local_once(move || {
+        let (pw, ph) = measured_pill_size(&p);
+        let x = sel.x + (sel.w - pw) / 2.0;
+        // Inside the selection, bottom-centered, so clicking Auto-Scroll parks
+        // the cursor inside the scrollable region for libei wheel synthesis.
+        let inside_y = sel.y + sel.h - ph - PILL_GAP;
+        let y = if inside_y < sel.y + 8.0 {
+            sel.y + sel.h + PILL_GAP
+        } else {
+            inside_y
+        };
+        let y = y
+            .min(f.allocated_height() as f64 - ph - 8.0)
+            .max(8.0);
+        f.move_(&p, x.max(8.0), y);
+    });
+}
+
+fn measured_pill_size(pill: &gtk::Box) -> (f64, f64) {
+    // Prefer the actual allocation when layout has run; fall back to the
+    // measure() natural size if not yet allocated.
+    let aw = pill.allocated_width();
+    let ah = pill.allocated_height();
+    if aw > 1 && ah > 1 {
+        return (aw as f64, ah as f64);
+    }
+    let (_, w_nat, _, _) = pill.measure(gtk::Orientation::Horizontal, -1);
+    let (_, h_nat, _, _) = pill.measure(gtk::Orientation::Vertical, w_nat);
+    (w_nat as f64, h_nat as f64)
 }
 
 fn stripe_hash(pixbuf: &Pixbuf) -> u64 {
