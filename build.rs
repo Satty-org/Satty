@@ -88,6 +88,11 @@ fn main() -> Result<(), io::Error> {
             "tetris-app-regular",
             "shield-lock-regular",
             "weather-moon-regular",
+            // Highlighter-style picker — i-beam (vertical stem with
+            // serifs top and bottom) signals the text-locked / snap-
+            // to-text-rows mode that pairs with the i-beam cursor the
+            // tool puts on screen.
+            "text-regular",
             // (The arrow-style picker uses cairo-drawn previews
             // matching the real arrow shapes; no icons needed.)
         ],

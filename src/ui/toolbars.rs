@@ -1550,10 +1550,11 @@ fn highlighter_style_icon(s: crate::tools::HighlighterStyle) -> &'static str {
     use crate::tools::HighlighterStyle::*;
     match s {
         // Text-locked = "smart" highlighter that snaps to text rows.
-        // The paragraph glyph (stacked lines of text) reads as the
-        // text-snap behavior; pairs with the thick i-beam cursor the
-        // tool puts on screen when this mode is active.
-        TextLocked => "text-paragraph-regular",
+        // The i-beam glyph (vertical stem with serifs top and bottom)
+        // mirrors the thick i-beam cursor the tool puts on screen
+        // when this mode is active, so the chip and the cursor speak
+        // the same visual language.
+        TextLocked => "text-regular",
         // Normal = freeform highlighter. The marker/highlight glyph
         // is the canonical highlighter affordance.
         Normal => "highlight-regular",
