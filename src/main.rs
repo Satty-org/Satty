@@ -140,6 +140,11 @@ struct App {
     cycle_toast_label: gtk::Label,
     cycle_toast_revealer: gtk::Revealer,
     cycle_toast_timer: std::rc::Rc<std::cell::RefCell<Option<gtk::glib::SourceId>>>,
+    /// Mirror of the top toolbar's responsive layout. Lives on
+    /// App so the resize handler can apply hysteresis around each
+    /// breakpoint without round-tripping through the toolbar
+    /// Controller every frame width moves.
+    tools_toolbar_layout: ui::toolbars::TopBarLayout,
 }
 
 #[derive(Debug)]
@@ -147,6 +152,13 @@ enum AppInput {
     Realized,
     SetToolbarsDisplay(bool),
     ToggleToolbarsDisplay,
+    /// Window width changed (interactive resize). The handler
+    /// applies a small hysteresis around the top toolbar's
+    /// three-section natural minimum and only emits
+    /// `ToolsToolbarInput::SetNarrowMode` when the mode actually
+    /// flips, so notify-storms during a drag-resize don't spam
+    /// the toolbar with re-parent work.
+    WindowWidthChanged(i32),
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
     ScaleFactorChanged,
@@ -255,6 +267,19 @@ enum AppCommandOutput {
 }
 
 impl App {
+    /// Inline "Hold Alt to disable snapping." hint visibility. It
+    /// only ever shows in Crop mode AND when the top bar still
+    /// fits in its 3-section Normal layout — once the window
+    /// narrows enough to wrap the top bar, the hint collapses
+    /// (the tooltip on the snap checkbox carries the wording from
+    /// there).
+    fn update_snap_hint_visibility(&self) {
+        use ui::toolbars::TopBarLayout;
+        let visible = self.current_tool == Tools::Crop
+            && matches!(self.tools_toolbar_layout, TopBarLayout::Normal);
+        self.snap_to_edges_hint.set_visible(visible);
+    }
+
     /// Revert is shown only on the dedicated crop bottom bar — i.e.
     /// when there's a crop AND the crop tool is active. Switching to
     /// any other tool hides it (the crop persists; the user reverts
@@ -588,6 +613,15 @@ impl Component for App {
                     add_overlay: &model.scrollbar_h,
                     add_overlay: &model.scrollbar_v,
                 },
+                // Bottom row CenterBox places the StyleToolbar
+                // at the window's geometric center (the request:
+                // centered on the window, not on the midpoint
+                // between zoom and dims). The min-width clamp on
+                // `outer_box` keeps the floating-window floor
+                // above the point where the centered toolbar
+                // would visually collide with the side widgets,
+                // so the row never needs to wrap to a second
+                // line under interactive resize.
                 #[local_ref]
                 bottom_row_clone -> gtk::CenterBox {
                     add_css_class: "bottom_row",
@@ -663,6 +697,55 @@ impl Component for App {
                     SketchBoardInput::ToolbarEvent(ToolbarEvent::SnapToEdgesChanged(value)),
                 );
             }
+            AppInput::WindowWidthChanged(width) => {
+                use ui::toolbars::TopBarLayout;
+                // Two-state hysteresis. Below `WRAP_ENTER` the top
+                // toolbar collapses to two rows (left + right
+                // clusters drop below the 12-tool row); above
+                // `WRAP_LEAVE` it returns to the single-row
+                // three-section layout. The 60 px gap between
+                // enter / leave keeps a wiggle near the boundary
+                // from oscillating. Numbers come from the measured
+                // natural-min of the three-section bar (~780 px) —
+                // tune if the toolbar contents change.
+                const WRAP_ENTER: i32 = 820;
+                const WRAP_LEAVE: i32 = 880;
+                let target = match self.tools_toolbar_layout {
+                    TopBarLayout::Normal => {
+                        if width < WRAP_ENTER {
+                            TopBarLayout::Wrap
+                        } else {
+                            TopBarLayout::Normal
+                        }
+                    }
+                    TopBarLayout::Wrap => {
+                        if width >= WRAP_LEAVE {
+                            TopBarLayout::Normal
+                        } else {
+                            TopBarLayout::Wrap
+                        }
+                    }
+                };
+                if target != self.tools_toolbar_layout {
+                    self.tools_toolbar_layout = target;
+                    self.tools_toolbar
+                        .sender()
+                        .emit(ToolsToolbarInput::SetLayout(target));
+                    // Top bar's wrap state also drives the inline
+                    // crop-mode snap hint — once the bar wraps,
+                    // the hint collapses into a tooltip.
+                    self.update_snap_hint_visibility();
+                }
+
+                // Bottom bar stays single-row at every width.
+                // The min-width clamp on `outer_box` keeps the
+                // floating-window floor above where the centered
+                // StyleToolbar would collide with the side
+                // widgets; below that floor (tiled / non-floating
+                // mode where the compositor overrides the hint)
+                // we accept some clipping rather than jump to a
+                // second row mid-resize.
+            }
             AppInput::SetToolbarsDisplay(visible) => {
                 self.tools_toolbar
                     .sender()
@@ -688,12 +771,18 @@ impl Component for App {
                 self.style_toolbar
                     .sender()
                     .emit(StyleToolbarInput::ToolChanged(tool));
+                // Update `current_tool` BEFORE the visibility refreshes
+                // — both `update_snap_hint_visibility` and
+                // `update_revert_visibility` read it, so the order
+                // matters. Without this the hint and Revert button
+                // tracked the prior tool for one beat (e.g. Crop →
+                // Pointer left the "Hold Alt…" hint stuck visible).
+                self.current_tool = tool;
                 // Show the snap-to-edges checkbox + hint only while
-                // cropping, matching the standard UX.
+                // cropping.
                 let is_crop = tool == Tools::Crop;
                 self.snap_to_edges_check.set_visible(is_crop);
-                self.snap_to_edges_hint.set_visible(is_crop);
-                self.current_tool = tool;
+                self.update_snap_hint_visibility();
                 self.update_revert_visibility();
             }
             AppInput::ColorSwitchShortcut(index) => {
@@ -1086,13 +1175,14 @@ impl Component for App {
         );
 
         let outer_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        // Hard minimum width for the whole window. Below this the
-        // bottom StyleToolbar's fixed-width slots (mirror spacer,
-        // size slider, tool cluster) start to clip and the top
-        // toolbar's right-side buttons fall off the visible edge.
-        // GTK forwards this to the compositor as the toplevel's
-        // min-size hint.
-        outer_box.set_width_request(1060);
+        // Hard min-width clamps interactive (floating-window) drag
+        // resize to the wrap-layout floor where every tool icon
+        // still renders without clipping. Both bars wrap by then;
+        // shrinking further only makes sense in tiled / non-
+        // floating mode where the compositor overrides GTK's
+        // min-size hint anyway, so the "super narrow" path is
+        // implicitly the tile-mode path. Floating drags clamp here.
+        outer_box.set_width_request(600);
         let outer_box_clone = outer_box.clone();
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
@@ -1162,10 +1252,20 @@ impl Component for App {
         // compact bottom-row chrome — defaults are sized for full-window
         // dialogs and read as oversized in the slim crop bar.
         snap_to_edges_check.add_css_class("snap-toggle");
+        // The inline "Hold Alt…" hint moonlights as a tooltip on the
+        // checkbox itself so the affordance survives the narrow-mode
+        // hide of the hint label.
+        snap_to_edges_check.install_tooltip_above("Hold Alt to disable snapping.");
         let snap_to_edges_hint = gtk::Label::builder()
             .label("Hold Alt to disable snapping.")
             .visible(false)
             .margin_start(8)
+            // No wrapping + ellipsize at the right edge so a narrow
+            // crop-bottom-row stays single-line even when the hint
+            // text would otherwise overflow into a second line and
+            // grow the whole row's height.
+            .wrap(false)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
         snap_to_edges_hint.add_css_class("dim-label");
         snap_to_edges_hint.add_css_class("snap-hint");
@@ -1311,7 +1411,17 @@ impl Component for App {
             cycle_toast_label,
             cycle_toast_revealer,
             cycle_toast_timer,
+            tools_toolbar_layout: ui::toolbars::TopBarLayout::Normal,
         };
+
+        // Apply the initial tool's snap-control visibility — these
+        // are otherwise only refreshed by `ToolSwitchShortcut`,
+        // which doesn't fire on first launch. Without this, an
+        // app started with `--initial-tool crop` boots with the
+        // snap checkbox and hint stuck hidden.
+        model.snap_to_edges_check
+            .set_visible(model.current_tool == Tools::Crop);
+        model.update_snap_hint_visibility();
 
         // Seed the bottom-right output dimensions label with the
         // full image size so something's visible immediately —
@@ -1380,6 +1490,29 @@ impl Component for App {
             } else {
                 sender_clone.input(AppInput::FullscreenChanged(false));
             }
+        });
+
+        // Responsive top toolbar: poll the toplevel's allocated
+        // width every frame and emit `WindowWidthChanged`. Two
+        // reasons we always fire (rather than only on width
+        // change): (1) `notify::default-width` doesn't track
+        // compositor-driven resize on Wayland (Hyprland in
+        // particular), so we need a polled signal anyway, and
+        // (2) the StyleToolbar's natural width changes on tool /
+        // selection changes too — width may stay constant while
+        // the bar's collision threshold drops, and the
+        // re-evaluation needs to catch that to unwrap the bottom
+        // bar when the new tool's controls fit. The handler
+        // short-circuits when the target layout matches the
+        // current, so the per-frame measure + compare is the
+        // entire cost on a steady-state frame.
+        let sender_clone = sender.clone();
+        root.add_tick_callback(move |window, _clock| {
+            let width = window.width();
+            if width > 0 {
+                sender_clone.input(AppInput::WindowWidthChanged(width));
+            }
+            gtk::glib::ControlFlow::Continue
         });
 
         // Hyprland Super+wheel override. Omarchy's tiling-v2.conf

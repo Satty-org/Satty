@@ -344,6 +344,35 @@ pub struct ToolsToolbar {
     /// `build_color_popover_grid` as a brighter outlined placeholder
     /// so the user sees where other swatches will shift to make room.
     dragging_preview_slot: Option<usize>,
+    /// Active responsive layout. Driven by `SetLayout` from
+    /// main.rs's window-resize listener. See `TopBarLayout` for
+    /// what each variant does to the three clusters.
+    layout: TopBarLayout,
+    /// The Box wrapping the right cluster (color picker +
+    /// separator + settings/copy/save/save-as). Captured in init
+    /// so `SetLayout` can imperatively re-parent it between
+    /// `normal_end_host` (Normal) and `top_wrap_row`'s end slot
+    /// (Wrap).
+    right_cluster: Option<gtk::Box>,
+    /// The `set_end_widget` outer Box. Hosts `right_cluster` in
+    /// Normal layout.
+    normal_end_host: Option<gtk::Box>,
+    /// Second row sitting below the main CenterBox in the
+    /// toolbar's vertical wrapper. In Wrap layout it hosts
+    /// `left_cluster` in its start slot and `right_cluster` in
+    /// its end slot; hidden otherwise. CenterBox is the right
+    /// shape here because we want flush-left / flush-right
+    /// pinning without an explicit spacer.
+    top_wrap_row: Option<gtk::CenterBox>,
+    /// The Box wrapping the left cluster (1:1 / fit / reset /
+    /// undo / redo). Captured in init so `SetLayout` can move it
+    /// between its Normal home (`start_widget_box`) and its
+    /// Wrap home (`top_wrap_row`'s start slot).
+    left_cluster: Option<gtk::Box>,
+    /// The CenterBox's start slot Box. Hosts `left_cluster` in
+    /// Normal layout; the cluster is unparented from here on
+    /// transition into Wrap.
+    start_widget_box: Option<gtk::Box>,
 }
 
 impl ToolsToolbar {
@@ -1219,6 +1248,16 @@ fn build_color_popover_grid(
             btn.add_css_class("flat");
             btn.add_css_class("color-swatch");
             btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
+            // Dismiss the popover after the user picks a color —
+            // matches the typical "swatch tap = commit + close"
+            // expectation. The action fires the
+            // `ColorButtonSelected` input alongside this click, so
+            // by the time the popover is down the model has
+            // already taken the pick.
+            let popover_for_dismiss = popover.clone();
+            btn.connect_clicked(move |_| {
+                popover_for_dismiss.popdown();
+            });
             let shortcut = if i < 9 {
                 format!("{}", i + 1)
             } else {
@@ -1331,7 +1370,7 @@ fn build_color_popover_grid(
             match saved.get(saved_idx).copied().flatten() {
                 Some(color) => {
                     let selected = color == model.current_color;
-                    let w = build_saved_custom_swatch(color, saved_idx, selected, sender);
+                    let w = build_saved_custom_swatch(color, saved_idx, selected, sender, popover);
                     // First-column swatches inherit the 1–9, 0 shortcut
                     // tooltip when the default palette is hidden — that
                     // column is the picker's primary set, and main.rs's
@@ -1837,7 +1876,32 @@ where
     }
     popover.set_child(Some(&list));
     menu.set_popover(Some(&popover));
+    // Same MenuButton-with-focus_on_click(false) toggle workaround
+    // as the color picker: a capture-phase click on the chip pops
+    // the popover down if it's currently open, instead of letting
+    // the autohide-then-re-popup chain blink it back open.
+    install_menu_toggle_dismiss(menu, &popover);
     popover
+}
+
+/// Make a second click on `menu` dismiss `popover` cleanly when
+/// the MenuButton has `focus_on_click: false`. Without this, the
+/// autohide closes the popover but the same click re-opens it via
+/// the menu-button gesture. The capture-phase click intercepts the
+/// second press before either of those gestures runs and claims
+/// the sequence if the popover is currently shown.
+fn install_menu_toggle_dismiss(menu: &gtk::MenuButton, popover: &gtk::Popover) {
+    let popover_for_click = popover.clone();
+    let click = gtk::GestureClick::new();
+    click.set_button(gtk::gdk::BUTTON_PRIMARY);
+    click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    click.connect_pressed(move |g, _, _, _| {
+        if popover_for_click.is_visible() {
+            popover_for_click.popdown();
+            g.set_state(gtk::EventSequenceState::Claimed);
+        }
+    });
+    menu.add_controller(click);
 }
 
 /// Tooltip wording for the Fill button — describes the *current* state
@@ -1903,20 +1967,11 @@ fn tool_cluster_label(tool: Tools) -> &'static str {
     }
 }
 
-/// Total horizontal width reserved for the bottom bar's centering
-/// hardware: the left mirror spacer + right tool cluster each get
-/// half of this, so the content (size slider, x, factor, dims,
-/// fill) stays centered between two equal-width slots regardless
-/// of which tool's controls are showing. Set to roughly match the
-/// top bar's natural width so the window's natural-min stays
-/// consistent top-vs-bottom and there's no width oscillation
-/// during compositor-driven resize negotiations.
-const TOOL_CLUSTER_WIDTH: i32 = 220;
 /// Width of the Spotlight darkness / Highlighter opacity sliders
 /// inside the cluster. Narrower than they used to be — wide enough
 /// to drag precisely, slim enough that they don't dominate the
 /// cluster slot.
-const CLUSTER_SLIDER_WIDTH: i32 = 140;
+const CLUSTER_SLIDER_WIDTH: i32 = 100;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ToolbarEvent {
@@ -2021,6 +2076,27 @@ pub enum ToolbarEvent {
     TextBackgroundSelected(crate::tools::TextBackground),
 }
 
+/// Two responsive layouts the top toolbar can take, driven by a
+/// width threshold + hysteresis from main.rs's window-resize
+/// listener — never user-toggleable.
+///
+/// Below the wrap threshold the left + right clusters drop to a
+/// second row (left flush-left, right flush-right) so every
+/// control stays reachable even on tiny windows; previously the
+/// transition went through an intermediate "hide just the left
+/// cluster" state but that lost icons the user might still want.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TopBarLayout {
+    /// Wide windows. All three clusters horizontal, left/center/
+    /// right at their CenterBox slots.
+    Normal,
+    /// Narrow windows. Center cluster keeps the top row to itself;
+    /// left and right clusters drop to a second row (left
+    /// flush-left, right flush-right). Trades vertical canvas
+    /// height for keeping every control reachable.
+    Wrap,
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum ToolsToolbarInput {
     SetVisibility(bool),
@@ -2111,6 +2187,12 @@ pub enum ToolsToolbarInput {
     /// on popover close and on `ColorButtonSelected` so a stale empty
     /// slot doesn't survive across popover sessions.
     ClearEmptySlotSelection,
+    /// Apply a responsive layout. Fired by main.rs from the
+    /// window-resize listener whenever the width crosses a
+    /// breakpoint. The handler is the single place that knows how
+    /// to re-parent the right cluster between its three hosts;
+    /// idempotent when the requested layout matches the current.
+    SetLayout(TopBarLayout),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2390,6 +2472,7 @@ fn build_saved_custom_swatch(
     slot: usize,
     selected: bool,
     sender: &ComponentSender<ToolsToolbar>,
+    popover: &gtk::Popover,
 ) -> gtk::Widget {
     use relm4::gtk::gdk;
 
@@ -2410,6 +2493,14 @@ fn build_saved_custom_swatch(
     btn.add_css_class("flat");
     btn.add_css_class("color-swatch");
     btn.set_action::<ColorAction>(ColorButtons::CustomSaved(slot as u64));
+    // Dismiss the popover after the user picks a color — matches
+    // the palette-swatch behavior above. The action fires
+    // `ColorButtonSelected` alongside this click so the model has
+    // already committed the pick by the time the popover is down.
+    let popover_for_dismiss = popover.clone();
+    btn.connect_clicked(move |_| {
+        popover_for_dismiss.popdown();
+    });
     // Tooltip is attached by the caller via
     // `attach_floating_swatch_tooltip` — one shared popover for all
     // swatches in the grid.
@@ -2660,13 +2751,13 @@ impl Component for ToolsToolbar {
     type CommandOutput = ();
 
     view! {
-        // CenterBox mirrors the bottom row's layout so the toolbar's
-        // three logical clusters (view+history on the left, drawing
-        // tools in the middle, color+save on the right) sit at the
-        // window's left/center/right edges instead of clustering in
-        // the middle with empty space on each side. The cluster
-        // pattern matches convention's editor toolbar.
-        root = gtk::CenterBox {
+        // Vertical wrapper so the toolbar can grow a second row in
+        // Wrap layout (left and right clusters move down to their
+        // own row below the main CenterBox). In Normal the wrap
+        // row stays hidden and this is visually identical to a
+        // plain CenterBox.
+        root = gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
             set_valign: Align::Start,
             add_css_class: "toolbar",
             add_css_class: "toolbar-top",
@@ -2674,14 +2765,33 @@ impl Component for ToolsToolbar {
             #[watch]
             set_visible: model.visible,
 
+            // CenterBox mirrors the bottom row's layout so the toolbar's
+            // three logical clusters (view+history on the left, drawing
+            // tools in the middle, color+save on the right) sit at the
+            // window's left/center/right edges instead of clustering in
+            // the middle with empty space on each side. The cluster
+            // pattern matches a typical editor toolbar.
+            gtk::CenterBox {
+
             #[wrap(Some)]
+            #[name(start_widget_box)]
             set_start_widget = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
+
+                // Hidden in Wrap layout (the left cluster moves
+                // to the second row); visible in Normal where it
+                // sits in the CenterBox's natural start slot.
+                #[watch]
+                set_visible: matches!(model.layout, TopBarLayout::Normal),
 
                 // Normal start cluster — view + history ops. Hidden
                 // when the Crop tool is active so the crop-mode top
                 // toolbar can show its own start contents (just the
                 // Crop indicator) without these competing for width.
+                // In Wrap layout this Box is re-parented into
+                // `top_wrap_row` (start slot) so the left buttons
+                // stay reachable from the second row.
+                #[name(left_cluster)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 2,
@@ -3053,8 +3163,17 @@ impl Component for ToolsToolbar {
                         },
                     },
 
+                    // Hide the separator and the inline "Image
+                    // size:" label once the bar has wrapped — the
+                    // resize MenuButton still carries the
+                    // dimensions ("1536 × 1728 px") so the
+                    // affordance survives without the header label,
+                    // and the saved width keeps Cancel/Crop on the
+                    // same row at narrow widths.
                     gtk::Separator {
                         set_orientation: gtk::Orientation::Vertical,
+                        #[watch]
+                        set_visible: matches!(model.layout, TopBarLayout::Normal),
                     },
 
                     // "Image size: W × H px" MenuButton. The popover
@@ -3068,6 +3187,8 @@ impl Component for ToolsToolbar {
                         set_hexpand: false,
                         set_label: "Image size:",
                         add_css_class: "dim-label",
+                        #[watch]
+                        set_visible: matches!(model.layout, TopBarLayout::Normal),
                     },
                     #[name(resize_menu_btn)]
                     gtk::MenuButton {
@@ -3098,15 +3219,23 @@ impl Component for ToolsToolbar {
                         ),
                     },
                 },
+
             },
 
             #[wrap(Some)]
+            #[name(normal_end_host)]
             set_end_widget = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
 
                 // Normal end cluster — color picker + copy/save
                 // actions. Hidden in Crop mode; the Cancel/Crop
-                // buttons take over the right edge instead.
+                // buttons take over the right edge instead. The
+                // OUTER `gtk::Box` named `right_cluster` is the
+                // single re-parentable handle for Wrap layout:
+                // `SetLayout(Wrap)` unparents it from
+                // `normal_end_host` and hands it to the wrap row
+                // below, then reverses on exit.
+                #[name(right_cluster)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 2,
@@ -3213,6 +3342,24 @@ impl Component for ToolsToolbar {
                         },
                     },
                 },
+            },
+            },
+
+            // Second-row container for Wrap layout. Empty in
+            // Normal and Narrow layouts; when the `SetLayout(Wrap)`
+            // handler fires it receives `left_cluster` in its
+            // start slot and `right_cluster` in its end slot,
+            // pinning them flush-left / flush-right via the
+            // CenterBox's native start/end behavior — no spacer
+            // widget needed. `set_visible` is toggled imperatively
+            // alongside the re-parenting so the row only takes
+            // vertical space when there's content in it.
+            #[name(top_wrap_row)]
+            gtk::CenterBox {
+                set_halign: gtk::Align::Fill,
+                set_hexpand: true,
+                #[watch]
+                set_visible: matches!(model.layout, TopBarLayout::Wrap),
             },
         },
     }
@@ -3696,6 +3843,51 @@ impl Component for ToolsToolbar {
                     d.set(s);
                 }
             }
+            ToolsToolbarInput::SetLayout(target) => {
+                if self.layout == target {
+                    return;
+                }
+                let (
+                    Some(right),
+                    Some(end_host),
+                    Some(wrap_row),
+                    Some(left),
+                    Some(start_box),
+                ) = (
+                    self.right_cluster.as_ref(),
+                    self.normal_end_host.as_ref(),
+                    self.top_wrap_row.as_ref(),
+                    self.left_cluster.as_ref(),
+                    self.start_widget_box.as_ref(),
+                ) else {
+                    // Init hasn't run yet — stash the target and
+                    // let the next post-init `SetLayout` (the
+                    // resize handler fires every frame width
+                    // moves, so this is harmless) drive the work.
+                    self.layout = target;
+                    return;
+                };
+                match target {
+                    TopBarLayout::Normal => {
+                        wrap_row.set_start_widget(None::<&gtk::Widget>);
+                        wrap_row.set_end_widget(None::<&gtk::Widget>);
+                        start_box.prepend(left);
+                        // Prepend the right cluster so it sits
+                        // ahead of the crop-mode end cluster
+                        // sibling (preserves the original
+                        // z-order between regular and crop
+                        // content).
+                        end_host.prepend(right);
+                    }
+                    TopBarLayout::Wrap => {
+                        start_box.remove(left);
+                        end_host.remove(right);
+                        wrap_row.set_start_widget(Some(left));
+                        wrap_row.set_end_widget(Some(right));
+                    }
+                }
+                self.layout = target;
+            }
         }
     }
 
@@ -3799,6 +3991,12 @@ impl Component for ToolsToolbar {
             picker_chooser: None,
             picker_caret_icon: None,
             selected_empty_slot: None,
+            layout: TopBarLayout::Normal,
+            right_cluster: None,
+            normal_end_host: None,
+            top_wrap_row: None,
+            left_cluster: None,
+            start_widget_box: None,
         };
         let widgets = view_output!();
 
@@ -3806,6 +4004,16 @@ impl Component for ToolsToolbar {
         // handler can has-focus-check before refreshing their text.
         model.crop_width_entry = Some(widgets.crop_width_entry.clone());
         model.crop_height_entry = Some(widgets.crop_height_entry.clone());
+
+        // Wrap-layout plumbing. We capture the host containers and
+        // the two re-parentable cluster Boxes so `SetLayout` can
+        // imperatively move left/right clusters between their
+        // Normal and Wrap homes.
+        model.right_cluster = Some(widgets.right_cluster.clone());
+        model.normal_end_host = Some(widgets.normal_end_host.clone());
+        model.top_wrap_row = Some(widgets.top_wrap_row.clone());
+        model.left_cluster = Some(widgets.left_cluster.clone());
+        model.start_widget_box = Some(widgets.start_widget_box.clone());
 
         // Build the "Image size" popover imperatively and attach to
         // the MenuButton in the crop-mode center cluster. Built here
@@ -3918,6 +4126,7 @@ impl Component for ToolsToolbar {
         popover_box.append(&button_row);
         resize_popover.set_child(Some(&popover_box));
         widgets.resize_menu_btn.set_popover(Some(&resize_popover));
+        install_menu_toggle_dismiss(&widgets.resize_menu_btn, &resize_popover);
 
         // Helper Rc<Cell> to break the W↔H change-feedback loop:
         // when aspect-lock is on and the W handler updates H (or
@@ -4224,6 +4433,7 @@ impl Component for ToolsToolbar {
         model.crop_bg_custom_rgb = Some(custom_rgb_cell);
         bg_popover.set_child(Some(&bg_box));
         widgets.crop_bg_color_menu_btn.set_popover(Some(&bg_popover));
+        install_menu_toggle_dismiss(&widgets.crop_bg_color_menu_btn, &bg_popover);
 
         // Build the popover for the unified color picker. Stash the
         // popover, the swatch_stack (for crossfade rebuilds), and the
@@ -4250,6 +4460,12 @@ impl Component for ToolsToolbar {
                 sender.output_sender().emit(ToolbarEvent::FocusCanvas);
             });
         }
+
+        // Toggle the color popover on a second click of the
+        // MenuButton — same `focus_on_click: false` workaround as
+        // the style-picker MenuButtons (see
+        // `install_menu_toggle_dismiss`).
+        install_menu_toggle_dismiss(&widgets.color_button, &popover);
 
         // Rebuild the swatch grid every time the popover is about to
         // open so preferences that affect the layout (e.g. "hide
@@ -4396,13 +4612,21 @@ impl StyleToolbar {
             return;
         };
         slider.clear_marks();
+        // "Smoothing" label rides the midpoint (3 out of 0..=6) —
+        // same below-trough rhythm as the size / spotlight /
+        // highlighter sliders so all the sliders end up the same
+        // height when the cluster swaps between them.
+        slider.add_mark(3.0, gtk::PositionType::Bottom, Some("Smoothing"));
         let saved = crate::state::load_brush_post_smooth_iterations()
             .unwrap_or_else(|| APP_CONFIG.read().brush_post_smooth_iterations());
-        // Plain tick at the saved-default position, matching the
-        // spotlight / highlighter sliders' single midpoint mark. The
-        // numeric label that used to ride this mark was redundant —
-        // the slider already snaps to integer detents.
-        slider.add_mark(saved as f64, gtk::PositionType::Bottom, None);
+        // Plain tick at the saved-default position. Tickless when
+        // the default IS the midpoint — otherwise the "Smoothing"
+        // label mark already carries that position's tick and
+        // adding a second one there would render as a doubled
+        // glyph in the same slot.
+        if saved != 3 {
+            slider.add_mark(saved as f64, gtk::PositionType::Bottom, None);
+        }
     }
 
     fn refresh_size_slider_marks(&self) {
@@ -4456,7 +4680,15 @@ impl Component for StyleToolbar {
     view! {
         root = gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 2,
+            // 12 px sits between the size slider and the
+            // tool-specific cluster when BOTH are visible. GTK
+            // skips spacing for hidden children, so when one side
+            // is hidden (Spotlight hides the size slider; Pointer
+            // and Line/Marker hide the cluster) the natural width
+            // tracks the visible content exactly. Trimmed from
+            // 18 px to claw back a bit more of the bottom row so
+            // the single-row layout survives at narrower windows.
+            set_spacing: 12,
             // Center the toolbar vertically in the bottom row so the
             // slider's trough lines up with the visual midline (and the
             // compact buttons stay aligned to it). Was Align::End — that
@@ -4475,15 +4707,13 @@ impl Component for StyleToolbar {
             #[watch]
             set_visible: model.visible && model.current_tool != Tools::Crop,
 
-            // Mirror spacer. Reserves `TOOL_CLUSTER_WIDTH` on the
-            // left so the visible "main controls" (size slider, x,
-            // factor, dimensions, fill) stay centered between the
-            // empty left zone and the right tool-specific cluster.
-            // Without this, the cluster's reserved width on the
-            // right would visually pull all content left of center.
-            gtk::Box {
-                set_width_request: TOOL_CLUSTER_WIDTH,
-            },
+            // (A left mirror spacer used to live here to counter the
+            // right cluster's reserved width when the annotation-size-
+            // factor pill sat between the size slider and the right
+            // cluster. With the pill gone, the size slider and the
+            // tool-specific cluster sit together as a single visual
+            // group and the parent CenterBox slot self-centers them —
+            // no mirror needed.)
 
             // Size slider with detents at each step (XS, S, M, L, XL,
             // XXL). Replaces a row of six ToggleButtons — takes less
@@ -4497,17 +4727,24 @@ impl Component for StyleToolbar {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_focusable: false,
                 set_hexpand: false,
-                set_width_request: 200,
+                // Slimmer than the original 200 px so the whole
+                // bottom row fits on a single line down to
+                // narrower window widths before the wrap kicks
+                // in. 140 px still spreads the six detents (XS …
+                // XXL) far enough apart to drag precisely.
+                set_width_request: 140,
                 set_valign: gtk::Align::Center,
-                // Greyed out when a multi-selection's drawables have
-                // mixed sizes — prevents an accidental drag from
-                // collapsing them all to a single value. Also when
-                // the active tool is Spotlight (which doesn't read
-                // `style.size`), so the slider visually matches the
-                // fact that scrolling here has no effect.
+                // Hidden when the slider doesn't apply: Spotlight
+                // (no `style.size`), a multi-selection with mixed
+                // sizes (no single value to set), or Pointer with
+                // nothing selected (the slider would change the
+                // size of what, exactly?). With a selection the
+                // Pointer-tool slider DOES do something — it
+                // resizes the picked drawable — so it stays.
                 #[watch]
-                set_sensitive: !model.size_slider_disabled
-                    && model.current_tool != Tools::Spotlight,
+                set_visible: !model.size_slider_disabled
+                    && model.current_tool != Tools::Spotlight
+                    && (model.current_tool != Tools::Pointer || model.has_selection),
                 // GTK's valign:Center splits remaining space evenly above
                 // and below the widget, but the slider's mark labels
                 // hang below the trough — so the "visual center" (the
@@ -4548,19 +4785,37 @@ impl Component for StyleToolbar {
             // whole StyleToolbar is hidden. The Fill button moved
             // into the right cluster below as the tool-specific
             // control for Rectangle/Ellipse.)
-            // Right cluster: every tool-specific control lives here,
-            // pinned to a fixed minimum width so swapping between
-            // tools (Arrow → Blur → Text → Spotlight → Highlighter
-            // → nothing) doesn't make the toolbar reflow. Exactly
-            // one inner widget is visible at a time; the leading
-            // label re-targets per tool via
-            // `tool_cluster_label(current_tool)`.
+            // Right cluster: every tool-specific control lives here.
+            // Exactly one inner widget is visible at a time; the
+            // leading label re-targets per tool via
+            // `tool_cluster_label(current_tool)`. The cluster sizes
+            // to its natural width — switching tools shifts the
+            // centered group slightly, but the alternative (a fixed-
+            // width slot) leaves invisible trailing space inside the
+            // cluster on short-content tools and that broke the
+            // "size slider + cluster as one centered group" feel the
+            // bar needs after the mirror spacer was retired. Hidden
+            // outright for tools that have no cluster content
+            // (Pointer / Line / Marker / Crop) so an empty Box
+            // doesn't contribute phantom width to the StyleToolbar's
+            // natural-min — which would knock the bar's center off
+            // the row midpoint under hexpand-spacer centering.
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 6,
-                set_margin_start: 16,
-                set_width_request: TOOL_CLUSTER_WIDTH,
                 set_halign: gtk::Align::Start,
+                #[watch]
+                set_visible: matches!(
+                    model.current_tool,
+                    Tools::Highlighter
+                        | Tools::Arrow
+                        | Tools::Blur
+                        | Tools::Text
+                        | Tools::Spotlight
+                        | Tools::Rectangle
+                        | Tools::Ellipse
+                        | Tools::Brush
+                ) || model.brush_smooth_slider_show_for_multi,
 
                 // Highlighter style picker — placed BEFORE the
                 // cluster label so the picker reads as the primary
@@ -4589,20 +4844,25 @@ impl Component for StyleToolbar {
 
                 gtk::Label {
                     add_css_class: "dim-label",
-                    // When the smoothness slider is showing for an
-                    // all-brush multi-selection (Pointer-tool flow),
-                    // the active tool is Pointer so `tool_cluster_label`
-                    // returns "". Force "Smoothing" in that case so the
-                    // label reflects the slider that's actually visible.
+                    // Inline header for the chip-tool clusters
+                    // (Arrow / Blur / Text / Rectangle / Ellipse).
+                    // Slider-tool clusters (Spotlight / Highlighter
+                    // / Brush) now carry their label as a mark
+                    // below the slider trough — same visual rhythm
+                    // as the size slider's XS–XXL letters — so the
+                    // inline label collapses for those to keep both
+                    // sliders at the same height.
                     #[watch]
-                    set_label: if model.brush_smooth_slider_show_for_multi {
-                        "Smoothing"
-                    } else {
-                        tool_cluster_label(model.current_tool)
-                    },
+                    set_label: tool_cluster_label(model.current_tool),
                     #[watch]
-                    set_visible: model.brush_smooth_slider_show_for_multi
-                        || !tool_cluster_label(model.current_tool).is_empty(),
+                    set_visible: matches!(
+                        model.current_tool,
+                        Tools::Arrow
+                            | Tools::Blur
+                            | Tools::Text
+                            | Tools::Rectangle
+                            | Tools::Ellipse
+                    ),
                 },
 
                 // Arrow geometry picker. MenuButton + popover of
@@ -4720,7 +4980,12 @@ impl Component for StyleToolbar {
                     #[watch]
                     #[block_signal(spotlight_value_changed)]
                     set_value: model.spotlight_darkness as f64,
-                    add_mark: (0.50, gtk::PositionType::Bottom, None),
+                    // "Darkness" rides below the trough at the
+                    // midpoint mark — same below-trough rhythm as
+                    // the size slider's letter labels, so both
+                    // sliders end up the same height when the
+                    // cluster swaps between them.
+                    add_mark: (0.50, gtk::PositionType::Bottom, Some("Darkness")),
                     #[watch]
                     set_visible: model.current_tool == Tools::Spotlight,
                     connect_value_changed[sender] => move |scale| {
@@ -4762,12 +5027,10 @@ impl Component for StyleToolbar {
                     #[watch]
                     #[block_signal(highlighter_value_changed)]
                     set_value: model.highlighter_opacity as f64,
-                    // Visual parity with the spotlight darkness slider:
-                    // a single midpoint mark gives both sliders the same
-                    // natural height (the mark indicator adds bottom
-                    // chrome below the trough), so they line up
-                    // vertically when the cluster swaps between them.
-                    add_mark: (0.50, gtk::PositionType::Bottom, None),
+                    // "Opacity" label sits below the midpoint —
+                    // see the spotlight slider's note for the
+                    // shared-height rationale.
+                    add_mark: (0.50, gtk::PositionType::Bottom, Some("Opacity")),
                     #[watch]
                     set_visible: model.current_tool == Tools::Highlighter,
                     connect_value_changed[sender] => move |scale| {
@@ -4790,13 +5053,6 @@ impl Component for StyleToolbar {
                 #[name(brush_smooth_slider)]
                 gtk::Scale {
                     add_css_class: "compact-slider",
-                    // Greyed out when a multi-selection of brush
-                    // strokes has mixed smoothness levels (or when the
-                    // selection includes non-brush drawables that have
-                    // no smoothness property) — same rule as the size
-                    // slider above.
-                    #[watch]
-                    set_sensitive: !model.brush_smooth_slider_disabled,
                     set_orientation: gtk::Orientation::Horizontal,
                     set_focusable: false,
                     set_hexpand: false,
@@ -4820,9 +5076,13 @@ impl Component for StyleToolbar {
                     // multi-flag is gated on "all selected are
                     // brushes" so we don't show the slider for a
                     // mixed selection that includes arrows / text.
+                    // Hide outright when a multi-selection's
+                    // smoothness levels disagree — same rationale
+                    // as the size slider's mixed-multi hide above.
                     #[watch]
-                    set_visible: model.current_tool == Tools::Brush
-                        || model.brush_smooth_slider_show_for_multi,
+                    set_visible: (model.current_tool == Tools::Brush
+                        || model.brush_smooth_slider_show_for_multi)
+                        && !model.brush_smooth_slider_disabled,
                     connect_value_changed[sender] => move |scale| {
                         let v = scale.value().round().clamp(0.0, 6.0) as usize;
                         sender.output_sender().emit(ToolbarEvent::BrushPostSmoothChanged(v));
