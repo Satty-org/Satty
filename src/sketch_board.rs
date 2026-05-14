@@ -1853,6 +1853,33 @@ impl SketchBoard {
                     .get(&Tools::Pointer)
                     .borrow()
                     .selected_drawables();
+                // F (and the alt-cycle / button paths that fan in
+                // here) is a Rect/Ellipse-only gesture. Bail when the
+                // active tool isn't fillable AND there's no fillable
+                // shape in the selection — without this, pressing F
+                // while Line / Brush / Arrow / Text / etc. is active
+                // would still flip the global fill flag, fire the
+                // "Fill shape" toast, and refresh the (hidden) button
+                // mirror, even though no fillable shape exists in the
+                // current context. Mirrors the gating that already
+                // skips fill for those tools elsewhere (button
+                // visibility, alt-slider cycle, save-as-default).
+                let active = self.active_tool_type();
+                let fillable_active = matches!(active, Tools::Rectangle | Tools::Ellipse);
+                let selection_has_fillable = selected.iter().any(|id| {
+                    self.renderer
+                        .clone_drawable(*id)
+                        .map(|d| {
+                            matches!(
+                                d.tool_type(),
+                                Some(Tools::Rectangle) | Some(Tools::Ellipse)
+                            )
+                        })
+                        .unwrap_or(false)
+                });
+                if !fillable_active && !selection_has_fillable {
+                    return ToolUpdateResult::Unmodified;
+                }
                 if let Some(fill) = selected.iter().find_map(|id| {
                     self.renderer.clone_drawable(*id).and_then(|d| {
                         if matches!(
