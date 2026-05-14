@@ -143,14 +143,17 @@ primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false
 # Actions to trigger on right click (order is important)
-# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-right-click = []
 # Actions to trigger on Enter key (order is important)
-# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-enter = ["save-to-clipboard"]
 # Actions to trigger on Escape key (order is important)
-# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
 actions-on-escape = ["exit"]
+# experimental: Actions to trigger on double-click (order is important)
+# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
+actions-on-double-click = []
 # Action to perform when the Enter key is pressed [possible values: save-to-clipboard, save-to-file]
 # Deprecated: use actions-on-enter instead
 action-on-enter = "save-to-clipboard"
@@ -277,11 +280,13 @@ Options:
       --auto-copy
           Automatically copy to clipboard after every annotation change (NEXTRELEASE)
       --actions-on-enter <ACTIONS_ON_ENTER>
-          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
       --actions-on-escape <ACTIONS_ON_ESCAPE>
-          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
       --actions-on-right-click <ACTIONS_ON_RIGHT_CLICK>
-          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
+      --actions-on-double-click <ACTIONS_ON_DOUBLE_CLICK>
+          Experimental (NEXTRELEASE): Actions to perform on double-click [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
   -d, --default-hide-toolbars
           Hide toolbars by default
       --focus-toggles-toolbars
@@ -317,7 +322,7 @@ Options:
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit, undo, undo-or-exit]
   -h, --help
           Print help
   -V, --version
