@@ -85,9 +85,12 @@ impl SimpleComponent for ZoomIndicator {
         let zoom_in = make_row("Zoom In", Some("Ctrl  ="));
         let zoom_out = make_row("Zoom Out", Some("Ctrl  −"));
         let fit = make_row("Fit Canvas", Some("Ctrl  1"));
-        let p50 = make_row("50%", None);
+        let p50 = make_row("50%", Some("Ctrl  9"));
         let p100 = make_row("100%", Some("Ctrl  0"));
-        let p200 = make_row("200%", None);
+        let p200 = make_row("200%", Some("Ctrl  2"));
+        let p300 = make_row("300%", Some("Ctrl  3"));
+        let p400 = make_row("400%", Some("Ctrl  4"));
+        let p500 = make_row("500%", Some("Ctrl  5"));
 
         list.append(&zoom_in);
         list.append(&zoom_out);
@@ -97,9 +100,30 @@ impl SimpleComponent for ZoomIndicator {
         list.append(&p50);
         list.append(&p100);
         list.append(&p200);
+        list.append(&p300);
+        list.append(&p400);
+        list.append(&p500);
 
         popover.set_child(Some(&list));
         widgets.menu_button.set_popover(Some(&popover));
+
+        // Same focus_on_click(false) → "second click doesn't
+        // dismiss" workaround as the color picker in toolbars.rs.
+        // Capture-phase click pops the popover down before the
+        // autohide-then-re-popup chain has a chance to re-open it.
+        {
+            let popover_for_click = popover.clone();
+            let click = gtk::GestureClick::new();
+            click.set_button(gtk::gdk::BUTTON_PRIMARY);
+            click.set_propagation_phase(gtk::PropagationPhase::Capture);
+            click.connect_pressed(move |g, _, _, _| {
+                if popover_for_click.is_visible() {
+                    popover_for_click.popdown();
+                    g.set_state(gtk::EventSequenceState::Claimed);
+                }
+            });
+            widgets.menu_button.add_controller(click);
+        }
 
         // Refocus the canvas when the popover closes so keyboard
         // shortcuts resume working without the user having to click the
@@ -118,6 +142,9 @@ impl SimpleComponent for ZoomIndicator {
         wire_row(&p50, &popover, sender.clone(), ZoomCommand::Abs(0.5));
         wire_row(&p100, &popover, sender.clone(), ZoomCommand::Abs(1.0));
         wire_row(&p200, &popover, sender.clone(), ZoomCommand::Abs(2.0));
+        wire_row(&p300, &popover, sender.clone(), ZoomCommand::Abs(3.0));
+        wire_row(&p400, &popover, sender.clone(), ZoomCommand::Abs(4.0));
+        wire_row(&p500, &popover, sender.clone(), ZoomCommand::Abs(5.0));
 
         ComponentParts { model, widgets }
     }

@@ -3706,6 +3706,31 @@ impl Component for SketchBoard {
                             {
                                 self.handle_zoom_command(ZoomCommand::FitCanvas);
                                 ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_2, KeyMappingId::Digit2)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Abs(2.0));
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_3, KeyMappingId::Digit3)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Abs(3.0));
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_4, KeyMappingId::Digit4)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Abs(4.0));
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_5, KeyMappingId::Digit5)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Abs(5.0));
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::_9, KeyMappingId::Digit9)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_zoom_command(ZoomCommand::Abs(0.5));
+                                ToolUpdateResult::Unmodified
                             } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
                                 || ke.is_one_of(Key::i, KeyMappingId::UsI))
                                 && ke.modifier
