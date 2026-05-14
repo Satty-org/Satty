@@ -423,8 +423,13 @@ impl FemtoVgAreaMut {
         canvas.reset_transform();
         canvas.set_transform(&transform);
 
-        //TODO: make background color configurable
-        self.render(canvas, font, true, femtovg::Color::black(), true)?;
+        self.render(
+            canvas,
+            font,
+            true,
+            femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+            true,
+        )?;
 
         Ok(())
     }

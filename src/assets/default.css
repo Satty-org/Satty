@@ -7,6 +7,10 @@
     background-color: @headerbar_bg_color;
 }
 
+.inner_box {
+    background-color: #000000;
+}
+
 .toolbar {
     color: @headerbar_fg_color;
     background-color: @headerbar_bg_color;
