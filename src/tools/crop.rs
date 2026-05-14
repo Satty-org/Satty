@@ -1183,6 +1183,30 @@ impl CropTool {
         changed
     }
 
+    /// Scale the crop rect by `factor` around its geometric center,
+    /// applying the same multiplier to both axes so the aspect ratio
+    /// is preserved (until one side hits a clamp). Used by the Ctrl+
+    /// wheel gesture in Crop edit mode — scroll up grows toward the
+    /// canvas outsides (clamped to image bounds), scroll down shrinks
+    /// toward the crop's middle. Returns whether anything changed.
+    pub fn resize_proportional(&mut self, factor: f32) -> bool {
+        if !factor.is_finite() || factor <= 0.0 || (factor - 1.0).abs() < f32::EPSILON {
+            return false;
+        }
+        let (cur_w, cur_h, bounds) = match (&self.crop, self.image_bounds) {
+            (Some(c), Some(b)) => (c.size.x, c.size.y, b),
+            _ => return false,
+        };
+        let new_w = (cur_w * factor).clamp(1.0, bounds.x);
+        let new_h = (cur_h * factor).clamp(1.0, bounds.y);
+        let dw = new_w - cur_w;
+        let dh = new_h - cur_h;
+        if dw.abs() < f32::EPSILON && dh.abs() < f32::EPSILON {
+            return false;
+        }
+        self.resize_symmetric(dw, dh)
+    }
+
     /// Snap the crop to one of five preset positions sized at a
     /// quarter of the image:
     ///   1 = upper-left,   2 = upper-right,

@@ -3843,6 +3843,31 @@ impl Component for SketchBoard {
                             // drawable(s). Modifier-free; ignores Ctrl.
                             self.scroll_resize_selection(&selected, me.pos.y, &outer_sender);
                             true
+                        } else if ctrl_held && self.active_tool_type() == Tools::Crop {
+                            // No selection + Ctrl + wheel in Crop edit
+                            // → shrink / grow the crop rect from all
+                            // four sides, anchored on the crop's center
+                            // and clamped to the image bounds. Scroll
+                            // up grows toward the canvas outsides;
+                            // scroll down shrinks toward the middle.
+                            // Plain wheel and Shift+wheel stay on the
+                            // pan path so the user can still navigate
+                            // a zoomed-in image while shaping the crop.
+                            let crop_tool = self.tools.get_crop_tool();
+                            let in_edit = crop_tool.borrow().is_active_edit();
+                            if in_edit {
+                                let factor = APP_CONFIG.read().zoom_factor();
+                                let multiplier = factor.powf(-me.pos.y);
+                                if crop_tool
+                                    .borrow_mut()
+                                    .resize_proportional(multiplier)
+                                {
+                                    self.renderer.request_render(&[]);
+                                }
+                                true
+                            } else {
+                                false
+                            }
                         } else if ctrl_held {
                             // No selection + Ctrl + wheel → bump the
                             // active tool's size for the next stroke.
