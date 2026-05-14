@@ -13,6 +13,8 @@ use relm4::gtk::prelude::*;
 
 use crate::capture;
 
+pub mod auto_scroll;
+
 const BACKDROP_ALPHA: f64 = 0.55;
 const BRACKET_LEN: f64 = 22.0;
 const BRACKET_WIDTH: f64 = 3.0;

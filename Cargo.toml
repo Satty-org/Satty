@@ -55,9 +55,7 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 smithay-client-toolkit = { version = "0.19", default-features = false }
 gtk4-layer-shell = "0.7"
 
-# auto-scroll via libei through xdg-desktop-portal RemoteDesktop
-reis = { version = "0.6", features = ["tokio"] }
-ashpd = { version = "0.13", default-features = false, features = ["tokio"] }
+# auto-scroll uses zwlr_virtual_pointer_manager_v1 from wayland-protocols-wlr above
 
 [dependencies.relm4-icons]
 version = "0.10.0"

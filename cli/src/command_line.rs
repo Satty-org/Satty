@@ -21,9 +21,15 @@ pub struct CommandLine {
     #[arg(
         short,
         long,
-        required_unless_present_any = ["scroll_capture_test", "scroll_capture"]
+        required_unless_present_any = ["scroll_capture_test", "scroll_capture", "auto_scroll_test"]
     )]
     pub filename: Option<String>,
+
+    /// Dev-only smoke test for the xdg-desktop-portal RemoteDesktop / libei
+    /// handshake used by Auto-Scroll. Opens a portal session, requests pointer
+    /// capability, reads back the EIS file descriptor, and exits.
+    #[arg(long)]
+    pub auto_scroll_test: bool,
 
     /// Enter scrolling-screenshot capture mode: opens a fullscreen overlay,
     /// drag to select a region, then capture by manual scroll or auto-scroll.

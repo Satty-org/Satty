@@ -1817,6 +1817,16 @@ fn main() -> Result<()> {
         };
     }
 
+    if APP_CONFIG.read().auto_scroll_test() {
+        return match scroll_capture::auto_scroll::smoke_test() {
+            Err(e) => {
+                eprintln!("Error: {e}");
+                Err(e)
+            }
+            Ok(()) => Ok(()),
+        };
+    }
+
     // run the application
     match run_satty() {
         Err(e) => {

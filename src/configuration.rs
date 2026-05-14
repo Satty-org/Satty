@@ -113,6 +113,7 @@ pub struct Configuration {
     layer_panel_shortcut: String,
     scroll_capture_test: Option<ScrollCaptureTest>,
     scroll_capture: bool,
+    auto_scroll_test: bool,
 }
 
 pub struct Keybinds {
@@ -608,6 +609,9 @@ impl Configuration {
         if command_line.scroll_capture {
             self.scroll_capture = true;
         }
+        if command_line.auto_scroll_test {
+            self.auto_scroll_test = true;
+        }
 
         // --- deprecated options ---
         if command_line.right_click_copy
@@ -874,6 +878,10 @@ impl Configuration {
     pub fn scroll_capture(&self) -> bool {
         self.scroll_capture
     }
+
+    pub fn auto_scroll_test(&self) -> bool {
+        self.auto_scroll_test
+    }
 }
 
 impl Default for Configuration {
@@ -935,6 +943,7 @@ impl Default for Configuration {
             layer_panel_shortcut: "ctrl+l".into(),
             scroll_capture_test: None,
             scroll_capture: false,
+            auto_scroll_test: false,
         }
     }
 }
