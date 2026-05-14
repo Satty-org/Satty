@@ -53,6 +53,7 @@ keycode = "1.0.0"
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 smithay-client-toolkit = { version = "0.19", default-features = false }
+gtk4-layer-shell = "0.7"
 
 [dependencies.relm4-icons]
 version = "0.10.0"

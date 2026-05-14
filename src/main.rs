@@ -37,6 +37,7 @@ mod icons;
 mod ime;
 mod math;
 mod notification;
+mod scroll_capture;
 mod sketch_board;
 mod state;
 mod style;
@@ -1805,6 +1806,16 @@ fn main() -> Result<()> {
         );
     }
     generate_profile_output!("configuration loaded");
+
+    if APP_CONFIG.read().scroll_capture() {
+        return match scroll_capture::run() {
+            Err(e) => {
+                eprintln!("Error: {e}");
+                Err(e)
+            }
+            Ok(()) => Ok(()),
+        };
+    }
 
     // run the application
     match run_satty() {

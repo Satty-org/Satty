@@ -18,8 +18,17 @@ pub struct CommandLine {
     pub config: Option<String>,
 
     /// Path to input image or '-' to read from stdin
-    #[arg(short, long, required_unless_present = "scroll_capture_test")]
+    #[arg(
+        short,
+        long,
+        required_unless_present_any = ["scroll_capture_test", "scroll_capture"]
+    )]
     pub filename: Option<String>,
+
+    /// Enter scrolling-screenshot capture mode: opens a fullscreen overlay,
+    /// drag to select a region, then capture by manual scroll or auto-scroll.
+    #[arg(long)]
+    pub scroll_capture: bool,
 
     /// Dev-only smoke test for the scrolling-screenshot capture pipeline.
     /// `FULL` captures the whole focused output; `x,y,w,h` captures a region.

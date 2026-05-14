@@ -1,0 +1,48 @@
+.scroll-capture-overlay {
+  background: transparent;
+}
+
+.scroll-capture-pill {
+  background-color: rgba(28, 28, 30, 0.92);
+  border-radius: 999px;
+  padding: 10px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.scroll-capture-prompt-label {
+  color: rgba(245, 245, 247, 0.92);
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+.scroll-capture-actions {
+  padding: 6px 8px;
+}
+
+.scroll-capture-button {
+  background: transparent;
+  color: rgba(245, 245, 247, 0.92);
+  border: none;
+  box-shadow: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.scroll-capture-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.scroll-capture-primary {
+  color: rgba(180, 240, 200, 0.95);
+}
+
+.scroll-capture-primary:hover {
+  background-color: rgba(120, 220, 160, 0.18);
+}
+
+.scroll-capture-cancel:hover {
+  background-color: rgba(255, 120, 120, 0.18);
+  color: rgba(255, 200, 200, 0.95);
+}

@@ -112,6 +112,7 @@ pub struct Configuration {
     /// to "no binding" — the toolbar button still works.
     layer_panel_shortcut: String,
     scroll_capture_test: Option<ScrollCaptureTest>,
+    scroll_capture: bool,
 }
 
 pub struct Keybinds {
@@ -604,6 +605,9 @@ impl Configuration {
         if let Some(v) = command_line.scroll_capture_test {
             self.scroll_capture_test = Some(v);
         }
+        if command_line.scroll_capture {
+            self.scroll_capture = true;
+        }
 
         // --- deprecated options ---
         if command_line.right_click_copy
@@ -866,6 +870,10 @@ impl Configuration {
     pub fn scroll_capture_test(&self) -> Option<&ScrollCaptureTest> {
         self.scroll_capture_test.as_ref()
     }
+
+    pub fn scroll_capture(&self) -> bool {
+        self.scroll_capture
+    }
 }
 
 impl Default for Configuration {
@@ -926,6 +934,7 @@ impl Default for Configuration {
             sticky_session_defaults: false,
             layer_panel_shortcut: "ctrl+l".into(),
             scroll_capture_test: None,
+            scroll_capture: false,
         }
     }
 }
