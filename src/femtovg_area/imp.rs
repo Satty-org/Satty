@@ -532,21 +532,17 @@ impl GLAreaImpl for FemtoVGArea {
                 .as_mut()
                 .expect("Did you call init before using FemtoVgArea?");
             inner.device_pixel_ratio = dpr;
-            let old_canvas_size = inner.last_canvas_size;
             inner.update_transformation(canvas);
-            // Inside-out crop edit (CROP_INSIDE_OUT_PLAN.md): refresh
-            // the cached transform snapshot on the crop tool so its
+            // Refresh the cached transform on the crop tool so its
             // canvas/image rect round-trip helpers stay accurate
-            // against the freshly-recomputed transform. On a window
-            // resize (canvas size actually changed), also re-derive
-            // canvas-from-image — image-coord rect is the durable
-            // intent across window resizes, so the frame should keep
-            // covering the same image region. Caller-triggered
-            // re-layouts (zoom/pan with width==height==0) leave the
-            // canvas size unchanged; whichever caller knows the
-            // intent there picks the sync direction explicitly.
-            let new_canvas_size = inner.last_canvas_size;
-            let canvas_size_changed = old_canvas_size != new_canvas_size;
+            // against the freshly-recomputed transform. Image-coord
+            // rect is the durable intent (committed crop output is in
+            // image pixels), so we always re-derive canvas-from-image
+            // on every transform update — zoom, pan, window resize.
+            // The on-screen frame visibly scales with the image as
+            // the user zooms, instead of staying glued to the screen
+            // (the inside-out behavior was scrapped because the user
+            // found it confusing).
             let eff_scale_for_crop = inner.effective_scale;
             let eff_offset_for_crop = inner.effective_offset;
             let crop_tool = inner.crop_tool.clone();
@@ -554,9 +550,7 @@ impl GLAreaImpl for FemtoVGArea {
                 let mut ct = crop_tool.borrow_mut();
                 if ct.is_active_edit() {
                     ct.set_render_transform(eff_scale_for_crop, eff_offset_for_crop, dpr);
-                    if canvas_size_changed {
-                        ct.refresh_canvas_from_image();
-                    }
+                    ct.refresh_canvas_from_image();
                 }
             }
             let image_w = inner.background_image.width() as f32;
