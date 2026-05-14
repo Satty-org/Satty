@@ -22,6 +22,7 @@ const PILL_GAP: f64 = 18.0;
 const MIN_SELECTION: f64 = 8.0;
 const CAPTURE_INTERVAL_MS: u64 = 100;
 const STRIPE_ROWS: i32 = 6;
+const DRAG_THRESHOLD: f64 = 4.0;
 
 #[derive(Default, Clone, Copy, Debug)]
 struct Selection {
@@ -53,6 +54,7 @@ struct CapturedFrame {
 struct OverlayState {
     phase: Phase,
     drag_origin: (f64, f64),
+    drag_active: bool,
     selection: Selection,
     frames: Vec<CapturedFrame>,
     capture_timer: Option<glib::SourceId>,
@@ -81,6 +83,7 @@ fn build_overlay(app: &gtk::Application) {
     let state = Rc::new(RefCell::new(OverlayState {
         phase: Phase::AwaitingDrag,
         drag_origin: (0.0, 0.0),
+        drag_active: false,
         selection: Selection::default(),
         frames: Vec::new(),
         capture_timer: None,
@@ -109,19 +112,20 @@ fn build_overlay(app: &gtk::Application) {
     drawing.set_vexpand(true);
     overlay.set_child(Some(&drawing));
 
-    // Fixed container for absolutely-positioned pill widgets. Itself not a
-    // click target so empty space passes through to the DrawingArea below;
-    // the child widgets (buttons, label) remain targetable by default.
-    let fixed = gtk::Fixed::new();
-    fixed.set_can_target(false);
-    overlay.add_overlay(&fixed);
-
+    // Pill widgets go directly into the gtk::Overlay (not into a gtk::Fixed):
+    // Fixed allocates itself 0x0 since children are transform-positioned,
+    // which leaves transformed children outside the pick rect even though
+    // they render fine. Overlay children sized via halign+valign+margins are
+    // pickable by the same allocation that draws them.
     let prompt = build_prompt_pill();
     let action_pill = build_action_pill();
     let capturing_pill = build_capturing_pill();
-    fixed.put(&prompt, 0.0, 0.0);
-    fixed.put(&action_pill, 0.0, 0.0);
-    fixed.put(&capturing_pill, 0.0, 0.0);
+
+    for pill in [&prompt, &action_pill, &capturing_pill] {
+        pill.set_halign(gtk::Align::Start);
+        pill.set_valign(gtk::Align::Start);
+        overlay.add_overlay(pill);
+    }
     action_pill.set_visible(false);
     capturing_pill.set_visible(false);
 
@@ -142,30 +146,48 @@ fn build_overlay(app: &gtk::Application) {
         let prompt_w = prompt.clone();
         let action_pill_w = action_pill.clone();
         drag.connect_drag_begin(move |_, x, y| {
+            // Record origin only. Phase/selection changes happen lazily in
+            // drag_update once the user crosses DRAG_THRESHOLD of motion. A
+            // tap (zero/tiny motion) is a no-op, so missing a pill button by
+            // a few px doesn't reset existing state.
             let mut s = state.borrow_mut();
-            s.phase = Phase::Dragging;
             s.drag_origin = (x, y);
-            s.selection = Selection { x, y, w: 0.0, h: 0.0 };
-            drop(s);
-            prompt_w.set_visible(false);
-            action_pill_w.set_visible(false);
-            drawing_w.queue_draw();
+            s.drag_active = false;
+            let _ = (&prompt_w, &action_pill_w, &drawing_w);
         });
     }
     {
         let state = Rc::clone(&state);
         let drawing_w = drawing.clone();
+        let prompt_w = prompt.clone();
+        let action_pill_w = action_pill.clone();
+        let capturing_pill_w = capturing_pill.clone();
         drag.connect_drag_update(move |_, dx, dy| {
             let mut s = state.borrow_mut();
+            if !s.drag_active {
+                if dx.abs() < DRAG_THRESHOLD && dy.abs() < DRAG_THRESHOLD {
+                    return;
+                }
+                // Threshold crossed — commit to a real drag.
+                s.drag_active = true;
+                s.phase = Phase::Dragging;
+                drop(s);
+                prompt_w.set_visible(false);
+                action_pill_w.set_visible(false);
+                capturing_pill_w.set_visible(false);
+                let mut s = state.borrow_mut();
+                let (ox, oy) = s.drag_origin;
+                let x = ox.min(ox + dx);
+                let y = oy.min(oy + dy);
+                s.selection = Selection { x, y, w: dx.abs(), h: dy.abs() };
+                drop(s);
+                drawing_w.queue_draw();
+                return;
+            }
             let (ox, oy) = s.drag_origin;
             let x = ox.min(ox + dx);
             let y = oy.min(oy + dy);
-            s.selection = Selection {
-                x,
-                y,
-                w: dx.abs(),
-                h: dy.abs(),
-            };
+            s.selection = Selection { x, y, w: dx.abs(), h: dy.abs() };
             drop(s);
             drawing_w.queue_draw();
         });
@@ -173,17 +195,23 @@ fn build_overlay(app: &gtk::Application) {
     {
         let state = Rc::clone(&state);
         let drawing_w = drawing.clone();
-        let fixed_w = fixed.clone();
+        let overlay_w = overlay.clone();
         let action_pill_w = action_pill.clone();
         let prompt_w = prompt.clone();
-        drag.connect_drag_end(move |_, _, _| {
+        drag.connect_drag_end(move |_, _dx, _dy| {
             let mut s = state.borrow_mut();
+            if !s.drag_active {
+                // Tap that missed a button: leave state alone so the existing
+                // pill (if any) remains and the user can try again.
+                return;
+            }
+            s.drag_active = false;
             if s.selection.is_valid() {
                 s.phase = Phase::Selected;
                 let sel = s.selection;
                 drop(s);
-                position_action_pill(&fixed_w, &action_pill_w, sel);
                 action_pill_w.set_visible(true);
+                position_action_pill(&overlay_w, &action_pill_w, sel);
                 prompt_w.set_visible(false);
             } else {
                 s.phase = Phase::AwaitingDrag;
@@ -200,12 +228,12 @@ fn build_overlay(app: &gtk::Application) {
     // Center the prompt once we know the surface size.
     {
         let prompt_w = prompt.clone();
-        let fixed_w = fixed.clone();
         drawing.connect_resize(move |_, w, h| {
             let (pw, ph) = pill_natural_size(&prompt_w);
             let x = ((w as f64 - pw) / 2.0).max(0.0);
             let y = ((h as f64 - ph) / 2.0).max(0.0);
-            fixed_w.move_(&prompt_w, x, y);
+            prompt_w.set_margin_start(x as i32);
+            prompt_w.set_margin_top(y as i32);
         });
     }
 
@@ -238,7 +266,7 @@ fn build_overlay(app: &gtk::Application) {
         let window_w = window.clone();
         let action_pill_w = action_pill.clone();
         let capturing_pill_w = capturing_pill.clone();
-        let fixed_w = fixed.clone();
+        let overlay_w = overlay.clone();
         let drawing_w = drawing.clone();
         let start: gtk::Button = action_pill
             .last_child()
@@ -248,7 +276,7 @@ fn build_overlay(app: &gtk::Application) {
             start_capture(
                 &state,
                 &window_w,
-                &fixed_w,
+                &overlay_w,
                 &action_pill_w,
                 &capturing_pill_w,
                 &drawing_w,
@@ -265,7 +293,7 @@ fn build_overlay(app: &gtk::Application) {
 fn start_capture(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
-    fixed: &gtk::Fixed,
+    overlay: &gtk::Overlay,
     action_pill: &gtk::Box,
     capturing_pill: &gtk::Box,
     drawing: &gtk::DrawingArea,
@@ -274,8 +302,8 @@ fn start_capture(
     state.borrow_mut().phase = Phase::Capturing;
 
     action_pill.set_visible(false);
-    position_capturing_pill(fixed, capturing_pill, sel);
     capturing_pill.set_visible(true);
+    position_capturing_pill(overlay, capturing_pill, sel);
     drawing.queue_draw();
 
     // Defer the input-region update until after the pill has been laid out
@@ -456,32 +484,29 @@ fn pill_natural_size(pill: &gtk::Box) -> (f64, f64) {
     (w_nat as f64, h_nat as f64)
 }
 
-fn position_action_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) {
-    // Park off-screen first; the pill's natural-size measurement is unreliable
-    // before its first layout pass, so we re-position in an idle callback once
-    // GTK has actually allocated it.
-    fixed.move_(pill, -10_000.0, -10_000.0);
-    let f = fixed.clone();
-    let p = pill.clone();
+fn position_action_pill(overlay: &gtk::Overlay, pill: &gtk::Box, sel: Selection) {
+    // Defer to idle so the pill's allocation is valid when we measure it.
+    let overlay = overlay.clone();
+    let pill = pill.clone();
     glib::idle_add_local_once(move || {
-        let (pw, ph) = measured_pill_size(&p);
+        let (pw, ph) = measured_pill_size(&pill);
         let x = sel.x + (sel.w - pw) / 2.0;
         let y = (sel.y + sel.h + PILL_GAP)
-            .min(f.allocated_height() as f64 - ph - 8.0)
+            .min(overlay.allocated_height() as f64 - ph - 8.0)
             .max(8.0);
-        f.move_(&p, x.max(8.0), y);
+        pill.set_margin_start(x.max(8.0) as i32);
+        pill.set_margin_top(y as i32);
     });
 }
 
-fn position_capturing_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) {
-    fixed.move_(pill, -10_000.0, -10_000.0);
-    let f = fixed.clone();
-    let p = pill.clone();
+fn position_capturing_pill(overlay: &gtk::Overlay, pill: &gtk::Box, sel: Selection) {
+    let overlay = overlay.clone();
+    let pill = pill.clone();
     glib::idle_add_local_once(move || {
-        let (pw, ph) = measured_pill_size(&p);
+        let (pw, ph) = measured_pill_size(&pill);
         let x = sel.x + (sel.w - pw) / 2.0;
         // Inside the selection, bottom-centered, so clicking Auto-Scroll parks
-        // the cursor inside the scrollable region for libei wheel synthesis.
+        // the cursor inside the scrollable region for virtual-pointer wheel events.
         let inside_y = sel.y + sel.h - ph - PILL_GAP;
         let y = if inside_y < sel.y + 8.0 {
             sel.y + sel.h + PILL_GAP
@@ -489,9 +514,10 @@ fn position_capturing_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) 
             inside_y
         };
         let y = y
-            .min(f.allocated_height() as f64 - ph - 8.0)
+            .min(overlay.allocated_height() as f64 - ph - 8.0)
             .max(8.0);
-        f.move_(&p, x.max(8.0), y);
+        pill.set_margin_start(x.max(8.0) as i32);
+        pill.set_margin_top(y as i32);
     });
 }
 
