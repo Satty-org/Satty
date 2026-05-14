@@ -164,18 +164,18 @@ impl Keybinds {
 impl Default for Keybinds {
     fn default() -> Self {
         let mut shortcuts = HashMap::new();
-        shortcuts.insert('p', Tools::Pointer);
-        shortcuts.insert('c', Tools::Crop);
-        shortcuts.insert('b', Tools::Brush);
-        shortcuts.insert('i', Tools::Line);
-        shortcuts.insert('z', Tools::Arrow);
+        shortcuts.insert('v', Tools::Pointer);
+        shortcuts.insert('x', Tools::Crop);
+        shortcuts.insert('z', Tools::Brush);
+        shortcuts.insert('s', Tools::Line);
+        shortcuts.insert('a', Tools::Arrow);
         shortcuts.insert('r', Tools::Rectangle);
         shortcuts.insert('e', Tools::Ellipse);
         shortcuts.insert('t', Tools::Text);
-        shortcuts.insert('m', Tools::Marker);
-        shortcuts.insert('u', Tools::Blur);
-        shortcuts.insert('h', Tools::Highlighter);
-        shortcuts.insert('s', Tools::Spotlight);
+        shortcuts.insert('c', Tools::Marker);
+        shortcuts.insert('b', Tools::Blur);
+        shortcuts.insert('w', Tools::Highlighter);
+        shortcuts.insert('g', Tools::Spotlight);
 
         Self { shortcuts }
     }

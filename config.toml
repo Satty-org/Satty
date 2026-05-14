@@ -48,17 +48,17 @@ brush-smooth-history-size = 10
 
 # Tool selection keyboard shortcuts
 [keybinds]
-pointer = "p"
-crop = "c"
-brush = "b"
-line = "i"
-arrow = "z"
+pointer = "v"
+crop = "x"
+brush = "z"
+line = "s"
+arrow = "a"
 rectangle = "r"
 ellipse = "e"
 text = "t"
-marker = "m"
-blur = "u"
-highlight = "g"
+marker = "c"
+blur = "b"
+highlight = "w"
 
 # Font to use for text annotations
 [font]

@@ -60,17 +60,18 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
-- <kbd>p</kbd>: Pointer tool
-- <kbd>c</kbd>: Crop tool
-- <kbd>b</kbd>: Brush tool
-- <kbd>i</kbd>: Line tool
-- <kbd>z</kbd>: Arrow tool
+- <kbd>v</kbd>: Pointer tool
+- <kbd>x</kbd>: Crop tool
+- <kbd>z</kbd>: Brush tool
+- <kbd>s</kbd>: Line tool
+- <kbd>a</kbd>: Arrow tool
 - <kbd>r</kbd>: Rectangle tool
 - <kbd>e</kbd>: Ellipse tool
 - <kbd>t</kbd>: Text tool
-- <kbd>m</kbd>: Numbered Marker tool
-- <kbd>u</kbd>: Blur tool
-- <kbd>g</kbd>: Highlight tool
+- <kbd>c</kbd>: Numbered Marker tool
+- <kbd>b</kbd>: Blur tool
+- <kbd>w</kbd>: Highlighter tool
+- <kbd>g</kbd>: Spotlight tool
 
 ### Tool Modifiers and Keys
 
