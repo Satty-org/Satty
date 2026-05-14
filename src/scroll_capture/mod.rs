@@ -1,17 +1,25 @@
 use std::cell::RefCell;
+use std::hash::Hasher;
 use std::rc::Rc;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use relm4::gtk;
 use relm4::gtk::cairo;
+use relm4::gtk::gdk_pixbuf::Pixbuf;
+use relm4::gtk::glib;
 use relm4::gtk::prelude::*;
+
+use crate::capture;
 
 const BACKDROP_ALPHA: f64 = 0.55;
 const BRACKET_LEN: f64 = 22.0;
 const BRACKET_WIDTH: f64 = 3.0;
 const PILL_GAP: f64 = 18.0;
 const MIN_SELECTION: f64 = 8.0;
+const CAPTURE_INTERVAL_MS: u64 = 100;
+const STRIPE_ROWS: i32 = 6;
 
 #[derive(Default, Clone, Copy, Debug)]
 struct Selection {
@@ -32,12 +40,20 @@ enum Phase {
     AwaitingDrag,
     Dragging,
     Selected,
+    Capturing,
+}
+
+struct CapturedFrame {
+    pixbuf: Pixbuf,
+    stripe_hash: u64,
 }
 
 struct OverlayState {
     phase: Phase,
     drag_origin: (f64, f64),
     selection: Selection,
+    frames: Vec<CapturedFrame>,
+    capture_timer: Option<glib::SourceId>,
 }
 
 pub fn run() -> Result<()> {
@@ -64,6 +80,8 @@ fn build_overlay(app: &gtk::Application) {
         phase: Phase::AwaitingDrag,
         drag_origin: (0.0, 0.0),
         selection: Selection::default(),
+        frames: Vec::new(),
+        capture_timer: None,
     }));
 
     let window = gtk::ApplicationWindow::new(app);
@@ -95,9 +113,12 @@ fn build_overlay(app: &gtk::Application) {
 
     let prompt = build_prompt_pill();
     let action_pill = build_action_pill();
+    let capturing_pill = build_capturing_pill();
     fixed.put(&prompt, 0.0, 0.0);
     fixed.put(&action_pill, 0.0, 0.0);
+    fixed.put(&capturing_pill, 0.0, 0.0);
     action_pill.set_visible(false);
+    capturing_pill.set_visible(false);
 
     // Drawing function pulls from state on each invalidation.
     {
@@ -198,7 +219,7 @@ fn build_overlay(app: &gtk::Application) {
     }
     window.add_controller(keys);
 
-    // Wire pill buttons.
+    // Wire pre-capture pill buttons (Cancel / Start Capture).
     {
         let window_w = window.clone();
         let cancel: gtk::Button = action_pill
@@ -208,19 +229,169 @@ fn build_overlay(app: &gtk::Application) {
         cancel.connect_clicked(move |_| window_w.close());
     }
     {
+        let state = Rc::clone(&state);
         let window_w = window.clone();
+        let action_pill_w = action_pill.clone();
+        let capturing_pill_w = capturing_pill.clone();
+        let fixed_w = fixed.clone();
+        let drawing_w = drawing.clone();
         let start: gtk::Button = action_pill
             .last_child()
             .and_then(|c| c.downcast().ok())
             .expect("action pill missing start-capture button");
         start.connect_clicked(move |_| {
-            // Phase 3 will wire this to the capture loop. For now we just exit
-            // cleanly so the Phase 2 deliverable can be exercised end-to-end.
-            window_w.close();
+            start_capture(
+                &state,
+                &window_w,
+                &fixed_w,
+                &action_pill_w,
+                &capturing_pill_w,
+                &drawing_w,
+            );
         });
     }
 
+    // Wire capturing-pill buttons (Cancel / Auto-Scroll / Done).
+    wire_capturing_pill(&state, &window, &capturing_pill);
+
     window.present();
+}
+
+fn start_capture(
+    state: &Rc<RefCell<OverlayState>>,
+    window: &gtk::ApplicationWindow,
+    fixed: &gtk::Fixed,
+    action_pill: &gtk::Box,
+    capturing_pill: &gtk::Box,
+    drawing: &gtk::DrawingArea,
+) {
+    let sel = state.borrow().selection;
+    state.borrow_mut().phase = Phase::Capturing;
+
+    action_pill.set_visible(false);
+    position_capturing_pill(fixed, capturing_pill, sel);
+    capturing_pill.set_visible(true);
+    drawing.queue_draw();
+
+    // Defer the input-region update until after the pill has been laid out
+    // by GTK so its allocated bounds are valid.
+    {
+        let window = window.clone();
+        let capturing_pill = capturing_pill.clone();
+        glib::idle_add_local_once(move || {
+            apply_pill_input_region(&window, &capturing_pill);
+        });
+    }
+
+    // Start the capture timer.
+    let timer = glib::timeout_add_local(Duration::from_millis(CAPTURE_INTERVAL_MS), {
+        let state = Rc::clone(state);
+        move || capture_tick(&state, sel)
+    });
+    state.borrow_mut().capture_timer = Some(timer);
+}
+
+fn capture_tick(state: &Rc<RefCell<OverlayState>>, sel: Selection) -> glib::ControlFlow {
+    if state.borrow().phase != Phase::Capturing {
+        return glib::ControlFlow::Break;
+    }
+    let rect = capture::Rect {
+        x: sel.x.round() as i32,
+        y: sel.y.round() as i32,
+        width: sel.w.round() as i32,
+        height: sel.h.round() as i32,
+    };
+    match capture::capture_region(rect) {
+        Ok(pixbuf) => {
+            let hash = stripe_hash(&pixbuf);
+            let mut s = state.borrow_mut();
+            let last_hash = s.frames.last().map(|f| f.stripe_hash);
+            if last_hash != Some(hash) {
+                s.frames.push(CapturedFrame {
+                    pixbuf,
+                    stripe_hash: hash,
+                });
+                eprintln!("scroll-capture: kept frame {}", s.frames.len());
+            }
+        }
+        Err(e) => {
+            eprintln!("scroll-capture: capture_region failed: {e}");
+        }
+    }
+    glib::ControlFlow::Continue
+}
+
+fn wire_capturing_pill(
+    state: &Rc<RefCell<OverlayState>>,
+    window: &gtk::ApplicationWindow,
+    pill: &gtk::Box,
+) {
+    let mut child = pill.first_child();
+    let mut idx = 0;
+    while let Some(c) = child {
+        let next = c.next_sibling();
+        if let Ok(button) = c.downcast::<gtk::Button>() {
+            match idx {
+                0 => {
+                    // Cancel
+                    let window_w = window.clone();
+                    let state = Rc::clone(state);
+                    button.connect_clicked(move |_| {
+                        stop_capture(&state);
+                        window_w.close();
+                    });
+                }
+                1 => {
+                    // Auto-Scroll (Phase 4 will wire libei). For now a no-op
+                    // log so the button still visibly registers presses.
+                    button.connect_clicked(|_| {
+                        eprintln!("scroll-capture: Auto-Scroll pressed (Phase 4 TODO)");
+                    });
+                }
+                2 => {
+                    // Done — stop the timer, log frame count, close. Phase 5
+                    // will replace this with stitch + handoff into the canvas.
+                    let window_w = window.clone();
+                    let state = Rc::clone(state);
+                    button.connect_clicked(move |_| {
+                        stop_capture(&state);
+                        let n = state.borrow().frames.len();
+                        eprintln!("scroll-capture: Done — {n} frame(s) captured");
+                        window_w.close();
+                    });
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+        child = next;
+    }
+}
+
+fn stop_capture(state: &Rc<RefCell<OverlayState>>) {
+    let timer = state.borrow_mut().capture_timer.take();
+    if let Some(t) = timer {
+        t.remove();
+    }
+    state.borrow_mut().phase = Phase::Selected;
+}
+
+fn apply_pill_input_region(window: &gtk::ApplicationWindow, pill: &gtk::Box) {
+    let Some(surface) = window.surface() else {
+        return;
+    };
+    // compute_bounds gives the pill's bounds relative to the window root.
+    let Some(rect) = pill.compute_bounds(window) else {
+        return;
+    };
+    let pad = 4.0_f32;
+    let x = (rect.x() - pad).max(0.0) as i32;
+    let y = (rect.y() - pad).max(0.0) as i32;
+    let w = (rect.width() + 2.0 * pad) as i32;
+    let h = (rect.height() + 2.0 * pad) as i32;
+    let cairo_rect = cairo::RectangleInt::new(x, y, w, h);
+    let region = cairo::Region::create_rectangle(&cairo_rect);
+    surface.set_input_region(&region);
 }
 
 fn build_prompt_pill() -> gtk::Box {
@@ -251,6 +422,29 @@ fn build_action_pill() -> gtk::Box {
     pill
 }
 
+fn build_capturing_pill() -> gtk::Box {
+    let pill = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    pill.add_css_class("scroll-capture-pill");
+    pill.add_css_class("scroll-capture-actions");
+
+    let cancel = gtk::Button::with_label("\u{2715}  Cancel");
+    cancel.add_css_class("scroll-capture-button");
+    cancel.add_css_class("scroll-capture-cancel");
+    pill.append(&cancel);
+
+    let auto_scroll = gtk::Button::with_label("\u{25B6}  Auto-Scroll");
+    auto_scroll.add_css_class("scroll-capture-button");
+    auto_scroll.add_css_class("scroll-capture-auto");
+    pill.append(&auto_scroll);
+
+    let done = gtk::Button::with_label("\u{2713}  Done");
+    done.add_css_class("scroll-capture-button");
+    done.add_css_class("scroll-capture-primary");
+    pill.append(&done);
+
+    pill
+}
+
 fn pill_natural_size(pill: &gtk::Box) -> (f64, f64) {
     let (_, w_nat, _, _) = pill.measure(gtk::Orientation::Horizontal, -1);
     let (_, h_nat, _, _) = pill.measure(gtk::Orientation::Vertical, w_nat);
@@ -266,6 +460,43 @@ fn position_action_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) {
     fixed.move_(pill, x.max(8.0), y);
 }
 
+fn position_capturing_pill(fixed: &gtk::Fixed, pill: &gtk::Box, sel: Selection) {
+    // Place inside the selection, bottom-centered. This deliberately parks
+    // the cursor inside the scrollable region when the user clicks Auto-Scroll
+    // (Phase 4), so libei wheel events land on the right window.
+    let (pw, ph) = pill_natural_size(pill);
+    let x = sel.x + (sel.w - pw) / 2.0;
+    let y = sel.y + sel.h - ph - PILL_GAP;
+    // If the selection is too short, fall back to below-selection placement.
+    let y = if y < sel.y + 8.0 {
+        sel.y + sel.h + PILL_GAP
+    } else {
+        y
+    };
+    let y = y.min(fixed.allocated_height() as f64 - ph - 8.0).max(8.0);
+    fixed.move_(pill, x.max(8.0), y);
+}
+
+fn stripe_hash(pixbuf: &Pixbuf) -> u64 {
+    let h = pixbuf.height();
+    let w = pixbuf.width();
+    let rowstride = pixbuf.rowstride() as usize;
+    let pixels = unsafe { pixbuf.pixels() };
+    let mid = (h / 2).max(0);
+    let band_top = (mid - STRIPE_ROWS / 2).max(0) as usize;
+    let band_bot = (mid + STRIPE_ROWS / 2).min(h - 1).max(0) as usize;
+    let bytes_per_row = (w as usize) * 4;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for y in band_top..=band_bot {
+        let start = y * rowstride;
+        let end = start + bytes_per_row;
+        if end <= pixels.len() {
+            hasher.write(&pixels[start..end]);
+        }
+    }
+    hasher.finish()
+}
+
 fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
     let _ = cr.save();
     cr.set_operator(cairo::Operator::Source);
@@ -275,7 +506,7 @@ fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
     let _ = cr.fill();
 
     let active_rect = match s.phase {
-        Phase::Dragging | Phase::Selected => Some(s.selection),
+        Phase::Dragging | Phase::Selected | Phase::Capturing => Some(s.selection),
         Phase::AwaitingDrag => None,
     };
 
