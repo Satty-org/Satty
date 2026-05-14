@@ -47,7 +47,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
 - <kbd>Ctrl+S</kbd>: Save to specified output file
-- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>
+- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
 - <kbd>Ctrl+Y</kbd>: Redo
@@ -128,6 +128,7 @@ copy-command = "wl-copy"
 annotation-size-factor = 2
 # Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 # starting with 0.20.0, can contain leading tilde (~) for home directory
+# starting with NEXTRELEASE, save as uses this as initial filename/path when available
 output-filename = "/tmp/test-%Y-%m-%d_%H:%M:%S.png"
 # After copying the screenshot, save it to a file as well
 save-after-copy = false

@@ -8,6 +8,7 @@ use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::RefCell;
 use std::io::Write;
 use std::panic;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::{fs, io};
@@ -25,8 +26,11 @@ use crate::notification::log_result;
 use crate::style::Style;
 use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
+use xdg::BaseDirectories;
 
 type RenderedImage = Img<Vec<RGBA<u8>>>;
+const SAVE_AS_LAST_DIR_FILE: &str = "save_as_last_dir";
+const SAVE_AS_LAST_DIR_MAX_BYTES: u64 = 10_000;
 
 #[derive(Debug, Clone)]
 pub enum SketchBoardInput {
@@ -365,8 +369,97 @@ impl SketchBoard {
         relm4::main_application().quit();
     }
 
+    fn resolve_output_filename(output_filename: &str) -> Option<String> {
+        let delayed_format = chrono::Local::now().format(output_filename);
+        let mut output_filename = if panic::catch_unwind(|| delayed_format.to_string()).is_ok() {
+            delayed_format.to_string()
+        } else {
+            eprintln!(
+                "Warning: Could not format filename {output_filename} due to chrono format error, falling back to literal filename."
+            );
+            output_filename.to_owned()
+        };
+
+        if let Some(tilde_stripped) =
+            output_filename.strip_prefix(&format!("~{}", std::path::MAIN_SEPARATOR_STR))
+        {
+            if let Some(mut home_dir) = std::env::home_dir() {
+                home_dir.push(tilde_stripped);
+                output_filename = home_dir.to_string_lossy().into_owned();
+            } else {
+                log_result(
+                    "~ found but could not determine homedir",
+                    !APP_CONFIG.read().disable_notifications(),
+                );
+                return None;
+            }
+        }
+
+        Some(output_filename)
+    }
+
+    fn configured_output_path() -> Option<PathBuf> {
+        APP_CONFIG
+            .read()
+            .output_filename()
+            .and_then(|output_filename| {
+                if output_filename == "-" {
+                    None
+                } else {
+                    Self::resolve_output_filename(output_filename).map(PathBuf::from)
+                }
+            })
+    }
+
+    fn save_as_last_dir_file() -> Option<PathBuf> {
+        let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
+        dirs.get_state_file(SAVE_AS_LAST_DIR_FILE)
+    }
+
+    fn save_as_last_dir_file_for_write() -> Option<PathBuf> {
+        let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
+        dirs.place_state_file(SAVE_AS_LAST_DIR_FILE).ok()
+    }
+
+    fn save_as_initial_dir(
+        last_dir_file: Option<&Path>,
+        configured_output_path: Option<&Path>,
+    ) -> Option<PathBuf> {
+        if let Some(last_dir_file) = last_dir_file
+            && fs::metadata(last_dir_file).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.len() <= SAVE_AS_LAST_DIR_MAX_BYTES
+            })
+            && let Ok(last_dir) = fs::read_to_string(last_dir_file)
+        {
+            let last_dir = PathBuf::from(last_dir);
+            if last_dir.is_dir() {
+                return Some(last_dir);
+            }
+        }
+
+        configured_output_path
+            .and_then(Path::parent)
+            .filter(|parent| parent.is_dir())
+            .map(Path::to_path_buf)
+    }
+
+    fn remember_save_as_dir(output_filename: &Path) {
+        let Some(last_dir_file) = Self::save_as_last_dir_file_for_write() else {
+            return;
+        };
+        Self::write_save_as_last_dir(&last_dir_file, output_filename);
+    }
+
+    fn write_save_as_last_dir(last_dir_file: &Path, output_filename: &Path) {
+        let Some(parent) = output_filename.parent() else {
+            return;
+        };
+
+        let _ = fs::write(last_dir_file, parent.to_string_lossy().as_bytes());
+    }
+
     fn handle_save(&self, image: &Pixbuf) {
-        let mut output_filename = match APP_CONFIG.read().output_filename() {
+        let output_filename = match APP_CONFIG.read().output_filename() {
             None => {
                 println!("No Output filename specified!");
                 return;
@@ -374,19 +467,9 @@ impl SketchBoard {
             Some(o) => o.clone(),
         };
 
-        // run the output filename by "chrono date format"
-        let delayed_format = chrono::Local::now().format(&output_filename);
-        let result = panic::catch_unwind(|| {
-            delayed_format.to_string();
-        });
-
-        if result.is_err() {
-            println!(
-                "Warning: Could not format filename {output_filename} due to chrono format error, falling back to literal filename."
-            );
-        } else {
-            output_filename = format!("{delayed_format}");
-        }
+        let Some(output_filename) = Self::resolve_output_filename(&output_filename) else {
+            return;
+        };
 
         // TODO: we could support more data types
         if output_filename != "-" && !output_filename.ends_with(".png") {
@@ -395,22 +478,6 @@ impl SketchBoard {
                 !APP_CONFIG.read().disable_notifications(),
             );
             return;
-        }
-
-        if let Some(tilde_stripped) =
-            output_filename.strip_prefix(&format!("~{}", std::path::MAIN_SEPARATOR_STR))
-        {
-            if let Some(h) = std::env::home_dir() {
-                let mut p = h;
-                p.push(tilde_stripped);
-                output_filename = p.to_string_lossy().into_owned();
-            } else {
-                log_result(
-                    "~ found but could not determine homedir",
-                    !APP_CONFIG.read().disable_notifications(),
-                );
-                return;
-            }
         }
 
         let data = match image.save_to_bufferv("png", &Vec::new()) {
@@ -453,6 +520,16 @@ impl SketchBoard {
         sender: ComponentSender<Self>,
         followup_actions: Vec<Action>,
     ) {
+        let configured_output_path = Self::configured_output_path();
+        let initial_dir = Self::save_as_initial_dir(
+            Self::save_as_last_dir_file().as_deref(),
+            configured_output_path.as_deref(),
+        );
+        let suggested_filename = configured_output_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned());
+
         let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
@@ -477,6 +554,17 @@ impl SketchBoard {
             }
             .build();
 
+            if let Some(initial_dir) = initial_dir {
+                let initial_dir = gtk::gio::File::for_path(initial_dir);
+                if let Err(e) = dialog.set_current_folder(Some(&initial_dir)) {
+                    eprintln!("Error setting Save As folder: {e}");
+                }
+            }
+
+            if let Some(filename) = suggested_filename {
+                dialog.set_current_name(&filename);
+            }
+
             dialog.connect_response(move |dialog, response| {
                 let mut exit_app = false;
                 let mut filename: Option<String> = None;
@@ -496,6 +584,7 @@ impl SketchBoard {
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
+                            Self::remember_save_as_dir(Path::new(&output_filename));
                             log_result(
                                 &format!("File saved to '{}'.", &output_filename),
                                 !APP_CONFIG.read().disable_notifications(),
@@ -1276,5 +1365,112 @@ impl KeyEventMsg {
         // them to get correct evdev keycode.
         let keymap = KeyMap::from(code);
         self.key == key || self.code as u16 - 8 == keymap.evdev
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SketchBoard;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("satty-{name}-{nanos}"));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn save_as_initial_dir_uses_remembered_existing_directory() {
+        let temp = TempDir::new("remembered-dir");
+        let remembered_dir = temp.path().join("remembered");
+        let fallback_dir = temp.path().join("fallback");
+        fs::create_dir_all(&remembered_dir).expect("create remembered dir");
+        fs::create_dir_all(&fallback_dir).expect("create fallback dir");
+
+        let state_file = temp.path().join("state").join("save_as_last_dir");
+        fs::create_dir_all(state_file.parent().expect("state parent")).expect("create state dir");
+        fs::write(&state_file, remembered_dir.to_string_lossy().as_bytes())
+            .expect("write state file");
+
+        let initial_dir = SketchBoard::save_as_initial_dir(
+            Some(&state_file),
+            Some(&fallback_dir.join("screenshot.png")),
+        );
+
+        assert_eq!(initial_dir, Some(remembered_dir));
+    }
+
+    #[test]
+    fn save_as_initial_dir_falls_back_when_remembered_directory_is_invalid() {
+        let temp = TempDir::new("invalid-remembered-dir");
+        let fallback_dir = temp.path().join("fallback");
+        fs::create_dir_all(&fallback_dir).expect("create fallback dir");
+
+        let state_file = temp.path().join("save_as_last_dir");
+        fs::write(
+            &state_file,
+            temp.path().join("missing").to_string_lossy().as_bytes(),
+        )
+        .expect("write invalid state file");
+
+        let initial_dir = SketchBoard::save_as_initial_dir(
+            Some(&state_file),
+            Some(&fallback_dir.join("screenshot.png")),
+        );
+
+        assert_eq!(initial_dir, Some(fallback_dir));
+    }
+
+    #[test]
+    fn save_as_initial_dir_handles_missing_state_and_output_path() {
+        let initial_dir = SketchBoard::save_as_initial_dir(None, None);
+
+        assert_eq!(initial_dir, None);
+    }
+
+    #[test]
+    fn remember_save_as_dir_creates_state_file() {
+        let temp = TempDir::new("remember-save-as-dir");
+        let saved_dir = temp.path().join("saved");
+        fs::create_dir_all(&saved_dir).expect("create saved dir");
+        let state_dir = temp.path().join("state");
+        fs::create_dir_all(&state_dir).expect("create state dir");
+        let state_file = state_dir.join("save_as_last_dir");
+
+        SketchBoard::write_save_as_last_dir(&state_file, &saved_dir.join("image.png"));
+
+        let remembered_dir = fs::read_to_string(state_file).expect("read state file");
+        assert_eq!(remembered_dir, saved_dir.to_string_lossy());
+    }
+
+    #[test]
+    fn write_save_as_last_dir_ignores_unwritable_state_path() {
+        let temp = TempDir::new("unwritable-state-path");
+        let saved_dir = temp.path().join("saved");
+        fs::create_dir_all(&saved_dir).expect("create saved dir");
+
+        SketchBoard::write_save_as_last_dir(temp.path(), &saved_dir.join("image.png"));
     }
 }
