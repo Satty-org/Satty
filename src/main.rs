@@ -93,7 +93,7 @@ struct App {
     /// is active. Keeps the affordance discoverable like a polished desktop tool.
     snap_to_edges_hint: gtk::Label,
     /// Horizontal cluster used as `bottom_row.start_widget`: zoom
-    /// indicator + snap checkbox + "Hold Ctrl…" hint. Stored so the
+    /// indicator + snap checkbox + "Hold Alt…" hint. Stored so the
     /// relm4 view! macro can reference it without re-creating widgets
     /// on every update.
     start_cluster: gtk::Box,
@@ -1163,7 +1163,7 @@ impl Component for App {
         // dialogs and read as oversized in the slim crop bar.
         snap_to_edges_check.add_css_class("snap-toggle");
         let snap_to_edges_hint = gtk::Label::builder()
-            .label("Hold Ctrl to disable snapping.")
+            .label("Hold Alt to disable snapping.")
             .visible(false)
             .margin_start(8)
             .build();
@@ -1176,7 +1176,7 @@ impl Component for App {
             });
         }
         // Single horizontal cluster — zoom indicator, snap checkbox,
-        // and the "Hold Ctrl…" hint sit in one row. The crop tool now
+        // and the "Hold Alt…" hint sit in one row. The crop tool now
         // has its own dedicated bottom bar (StyleToolbar hides when
         // `current_tool == Crop`), so the cluster growing wider on
         // crop entry can't push the central toolbar around — there's

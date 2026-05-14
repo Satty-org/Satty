@@ -32,7 +32,7 @@ zoomed-on-the-crop view continues to render as it does today.
 | Click+drag inside frame (no handle hit) | Move frame (existing) |
 | Click+drag outside frame | Start a new frame (existing) |
 | Ctrl+drag anywhere | Pan image; frame canvas-fixed |
-| Alt+drag | Reserved (no behavior; leave for future axis-lock pan) |
+| Alt+drag | Bypass snap-to-image-edges for this drag (moved off Ctrl when Ctrl claimed pan) |
 | Enter | Commit (existing) |
 | Esc | Cancel / restore last-committed (existing) |
 
@@ -269,12 +269,15 @@ After all phases, smoke-test:
   result is the same — drag still snaps and aspect-locks the way
   it did pre-refactor; wheel + pan still hold the canvas frame.
 
-- **Phase 5 — snap-disable on Ctrl is no longer available in edit
-  mode** since Ctrl is reserved for the pan gesture. Outside edit
-  (or outside Crop tool entirely) the existing Ctrl behavior is
-  intact. If the snap-disable is missed, a follow-up could remap
-  it onto a different modifier (Alt is currently unused inside
-  edit mode beyond the reserved-but-unimplemented axis-lock pan).
+- **Phase 5 — snap-disable modifier moved Ctrl → Alt.** Ctrl is
+  reserved for the pan gesture, so the temporary "hold to defeat
+  snap-to-image-edges" override moved onto Alt. Shift was a
+  non-starter (every other tool treats it as snap-TO-angle, the
+  opposite convention). The bottom-bar hint label updated to
+  "Hold Alt to disable snapping." Alt+drag for axis-lock pan that
+  the gesture map originally reserved isn't implemented yet — if
+  it lands, it'll have to share with snap-defeat or pick a
+  different modifier.
 
 - **Phase 6 — transform sync direction policy**:
   - Wheel zoom (Phase 4): canvas fixed, image re-derives.

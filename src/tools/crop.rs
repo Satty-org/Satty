@@ -62,10 +62,12 @@ pub struct CropTool {
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
     /// Snap crop edges to image edges during drag. Toggled from the
-    /// bottom-left checkbox , persisted via
-    /// `state::save_snap_to_edges`. Defaults to true. Holding Ctrl
+    /// bottom-left checkbox, persisted via
+    /// `state::save_snap_to_edges`. Defaults to true. Holding Alt
     /// during a drag temporarily bypasses snap regardless of this
-    /// flag — matching the standard "Hold ⌘ to disable snapping".
+    /// flag — Ctrl is reserved for the inside-out pan gesture
+    /// (CROP_INSIDE_OUT_PLAN.md, Phase 5), so the temporary-defeat
+    /// modifier moved off Ctrl onto Alt.
     snap_to_edges: bool,
     /// Image dimensions in image-space pixels. Set once at app
     /// startup; snap targets are derived from this (image edges +
@@ -1026,11 +1028,13 @@ impl CropTool {
     const SNAP_PIXELS: f32 = 8.0;
 
     fn snap_active(&self, modifier: ModifierType) -> bool {
-        // Mirror typical "snap on, hold the modifier to defeat"
-        // semantic. Ctrl is the natural Linux equivalent of macOS Cmd
-        // (and our other tools already treat Shift as "snap-to-angle"
-        // so reusing Shift here would be a conflict).
-        self.snap_to_edges && !modifier.contains(ModifierType::CONTROL_MASK)
+        // "Snap on, hold the modifier to defeat" semantic. Moved from 
+        // Ctrl to Alt. Shift is already the global "snap-to-angle"
+        // modifier on Line/Arrow/Rect/Ellipse so reusing it as a
+        // snap-defeat would be the opposite of the established
+        // convention; Alt was unused for crop drag and reads cleanly
+        // as the "alternate / temporary override" modifier.
+        self.snap_to_edges && !modifier.contains(ModifierType::ALT_MASK)
     }
 }
 
@@ -1466,7 +1470,7 @@ impl CropTool {
         let snap_active = self.snap_active(modifier);
         let bounds = self.image_bounds;
         // Clamping to image bounds always runs, independent of the
-        // snap-to-edges checkbox / Ctrl bypass — the crop rect can
+        // snap-to-edges checkbox / Alt bypass — the crop rect can
         // only ever be a subregion of the source image, so dragging
         // a handle past the image edge clips at the edge instead of
         // extending the crop beyond it.
