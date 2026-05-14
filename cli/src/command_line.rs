@@ -232,6 +232,8 @@ pub enum Action {
     SaveToFileAs,
     CopyFilepathToClipboard,
     Exit,
+    Undo,
+    UndoOrExit,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
