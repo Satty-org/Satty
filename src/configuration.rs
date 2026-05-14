@@ -68,7 +68,7 @@ pub struct Configuration {
     zoom_factor: f32,
     pan_step_size: f32,
     text_move_length: f32,
-    input_scale: f32,
+    input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
 }
@@ -352,7 +352,7 @@ impl Configuration {
             self.text_move_length = v;
         }
         if let Some(v) = general.input_scale {
-            self.input_scale = v;
+            self.input_scale = Some(v);
         }
         if let Some(v) = general.title {
             self.title = Some(v);
@@ -488,7 +488,7 @@ impl Configuration {
             self.text_move_length = v;
         }
         if let Some(v) = command_line.input_scale {
-            self.input_scale = v;
+            self.input_scale = Some(v);
         }
         if let Some(v) = command_line.title {
             self.title = Some(v);
@@ -643,7 +643,7 @@ impl Configuration {
         self.text_move_length
     }
 
-    pub fn input_scale(&self) -> f32 {
+    pub fn input_scale(&self) -> Option<f32> {
         self.input_scale
     }
 
@@ -691,7 +691,7 @@ impl Default for Configuration {
             zoom_factor: 1.1,
             pan_step_size: 50.,
             text_move_length: 50.0,
-            input_scale: 1.0,
+            input_scale: None,
             title: None,
             app_id: None,
         }
