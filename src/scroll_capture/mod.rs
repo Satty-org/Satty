@@ -1404,16 +1404,33 @@ fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
 
     if let Some(sel) = active_rect {
         // Punch the selection clear so the underlying screen shows through.
+        // Snap to integer logical coords so Cairo's anti-aliasing doesn't
+        // partially-clear the boundary rows: a partially-cleared row keeps
+        // some of our dark backdrop, which becomes a faint dark line at
+        // every frame seam in the stitched output.
         cr.set_operator(cairo::Operator::Clear);
-        cr.rectangle(sel.x, sel.y, sel.w, sel.h);
+        cr.rectangle(
+            sel.x.round(),
+            sel.y.round(),
+            sel.w.round(),
+            sel.h.round(),
+        );
         let _ = cr.fill();
 
         cr.set_operator(cairo::Operator::Over);
         // Subtle outline at the selection edge for visual definition.
-        cr.set_source_rgba(1.0, 1.0, 1.0, 0.55);
-        cr.set_line_width(1.0);
-        cr.rectangle(sel.x - 0.5, sel.y - 0.5, sel.w + 1.0, sel.h + 1.0);
-        let _ = cr.stroke();
+        // SKIPPED during Capturing: even though the stroke is mathematically
+        // half a pixel outside the selection's pixel boundary, Cairo's
+        // anti-aliasing bleeds a tiny fraction of the outline's alpha into
+        // the boundary row of the selection. That tinted row gets included
+        // in every captured frame and shows up as a visible horizontal seam
+        // line in the stitched output at every frame boundary.
+        if !matches!(s.phase, Phase::Capturing) {
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.55);
+            cr.set_line_width(1.0);
+            cr.rectangle(sel.x - 0.5, sel.y - 0.5, sel.w + 1.0, sel.h + 1.0);
+            let _ = cr.stroke();
+        }
 
         match s.phase {
             // Selected: full handle set (brackets + edge bars + Move) so
