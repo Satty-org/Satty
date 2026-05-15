@@ -538,24 +538,15 @@ impl GLAreaImpl for FemtoVGArea {
                 .expect("Did you call init before using FemtoVgArea?");
             inner.device_pixel_ratio = dpr;
             inner.update_transformation(canvas);
-            // Refresh the cached transform on the crop tool so its
-            // canvas/image rect round-trip helpers stay accurate
-            // against the freshly-recomputed transform. Image-coord
-            // rect is the durable intent (committed crop output is in
-            // image pixels), so we always re-derive canvas-from-image
-            // on every transform update — zoom, pan, window resize.
-            // The on-screen frame visibly scales with the image as
-            // the user zooms, instead of staying glued to the screen
-            // (the inside-out behavior was scrapped because the user
-            // found it confusing).
+            // Keep the crop tool's cached image→canvas scale fresh so
+            // its handle hit-testing stays screen-constant as the user
+            // zooms.
             let eff_scale_for_crop = inner.effective_scale;
-            let eff_offset_for_crop = inner.effective_offset;
             let crop_tool = inner.crop_tool.clone();
             {
                 let mut ct = crop_tool.borrow_mut();
                 if ct.is_active_edit() {
-                    ct.set_render_transform(eff_scale_for_crop, eff_offset_for_crop, dpr);
-                    ct.refresh_canvas_from_image();
+                    ct.set_render_scale(eff_scale_for_crop);
                 }
             }
             let image_w = inner.background_image.width() as f32;
@@ -2637,13 +2628,10 @@ impl FemtoVgAreaMut {
         }
     }
 
-    /// Snapshot of the renderer's image↔canvas transform: the scale
-    /// + offset that `abs_canvas_to_image_coordinates` and friends
-    /// apply. Callers cache it so they can perform their own
-    /// conversions without holding a renderer reference — the crop
-    /// tool reads this on activation and after each transform-changing
-    /// gesture so its inside-out edit workflow can keep canvas and
-    /// image coords in sync.
+    /// The renderer's current image→canvas transform: effective scale
+    /// + offset. The crop tool reads the scale on activation and after
+    /// transform-changing gestures to keep handle hit-testing
+    /// screen-constant.
     pub fn render_transform(&self) -> (f32, Vec2D) {
         (self.effective_scale, self.effective_offset)
     }
@@ -2658,19 +2646,6 @@ impl FemtoVgAreaMut {
         Vec2D::new(
             input.x * dpi_scale_factor / self.effective_scale,
             input.y * dpi_scale_factor / self.effective_scale,
-        )
-    }
-
-    pub fn abs_image_to_canvas_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
-        Vec2D::new(
-            (input.x * self.effective_scale + self.effective_offset.x) / dpi_scale_factor,
-            (input.y * self.effective_scale + self.effective_offset.y) / dpi_scale_factor,
-        )
-    }
-    pub fn rel_image_to_canvas_coordinates(&self, input: Vec2D, dpi_scale_factor: f32) -> Vec2D {
-        Vec2D::new(
-            input.x * self.effective_scale / dpi_scale_factor,
-            input.y * self.effective_scale / dpi_scale_factor,
         )
     }
 

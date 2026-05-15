@@ -360,13 +360,10 @@ impl FemtoVGArea {
             .unwrap_or(1.0)
     }
 
-    /// Image↔canvas transform snapshot — (effective_scale, effective_offset).
-    /// `effective_offset` is in physical canvas pixels; combine with the
-    /// widget's `scale_factor()` (device pixel ratio) to round-trip
-    /// CSS-pixel canvas coords against image coords. The crop tool
-    /// caches this on activation and after each transform-changing
-    /// gesture so its inside-out workflow can derive image⇄canvas rects
-    /// without a back-reference to the renderer.
+    /// The renderer's current image→canvas transform — (effective_scale,
+    /// effective_offset). The crop tool reads the scale on activation
+    /// and after transform-changing gestures to keep its handle
+    /// hit-testing screen-constant.
     pub fn render_transform(&self) -> (f32, Vec2D) {
         self.imp()
             .inner()
@@ -376,12 +373,12 @@ impl FemtoVGArea {
     }
 
     /// Synchronously re-run `update_transformation` (via the widget's
-    /// resize path) so subsequent reads of `render_transform()`
-    /// reflect any state changes made just prior. The crop tool's
-    /// activation hook uses this to ensure the snapshot it caches
-    /// matches the post-handle_activated view (which may have just
-    /// flipped a committed crop back to uncommitted, switching the
-    /// view from zoomed-into-crop to full-image).
+    /// resize path) so a subsequent read of `render_transform()`
+    /// reflects state changes made just prior. The crop tool's
+    /// activation hook uses this so the scale it samples matches the
+    /// post-handle_activated view (which may have just flipped a
+    /// committed crop back to uncommitted, switching from zoomed-into-
+    /// crop to full-image).
     pub fn refresh_transform(&self) {
         self.imp().resize(0, 0);
     }
@@ -400,50 +397,6 @@ impl FemtoVGArea {
             .as_mut()
             .expect("Did you call init before using FemtoVgArea?")
             .rel_canvas_to_image_coordinates(input, self.scale_factor() as f32)
-    }
-
-    pub fn abs_image_to_canvas_coordinates(&self, input: Vec2D) -> Vec2D {
-        self.imp()
-            .inner()
-            .as_mut()
-            .expect("Did you call init before using FemtoVgArea?")
-            .abs_image_to_canvas_coordinates(input, self.scale_factor() as f32)
-    }
-
-    pub fn rel_image_to_canvas_coordinates(&self, input: Vec2D) -> Vec2D {
-        self.imp()
-            .inner()
-            .as_mut()
-            .expect("Did you call init before using FemtoVgArea?")
-            .rel_image_to_canvas_coordinates(input, self.scale_factor() as f32)
-    }
-
-    /// Crop's inside-out edit workflow stores the frame in canvas
-    /// coords during edit so the image can zoom + pan beneath a
-    /// canvas-fixed frame. These helpers convert between the two
-    /// representations through the renderer's current effective
-    /// transform — image_to_canvas projects an image-coord rect to
-    /// where it currently lands on canvas, canvas_to_image inverts.
-    pub fn image_to_canvas_rect(
-        &self,
-        image_pos: Vec2D,
-        image_size: Vec2D,
-    ) -> (Vec2D, Vec2D) {
-        (
-            self.abs_image_to_canvas_coordinates(image_pos),
-            self.rel_image_to_canvas_coordinates(image_size),
-        )
-    }
-
-    pub fn canvas_to_image_rect(
-        &self,
-        canvas_pos: Vec2D,
-        canvas_size: Vec2D,
-    ) -> (Vec2D, Vec2D) {
-        (
-            self.abs_canvas_to_image_coordinates(canvas_pos),
-            self.rel_canvas_to_image_coordinates(canvas_size),
-        )
     }
 
     pub fn init(
@@ -470,12 +423,9 @@ impl FemtoVGArea {
     /// the canvas center.
     ///
     /// Also runs `resize(0, 0)` to flush the new `zoom_scale` through
-    /// `update_transformation` immediately, so `effective_scale`/
+    /// `update_transformation` immediately, so `effective_scale` /
     /// `effective_offset` reflect the new zoom before this call
-    /// returns. The crop tool's inside-out edit workflow reads the
-    /// transform right after this call to re-derive its image-coord
-    /// rect against the new transform; without the synchronous flush
-    /// it would see stale values.
+    /// returns rather than on the next render tick.
     pub fn set_zoom_scale_at_cursor(&self, factor: f32) {
         let anchor = self
             .imp()

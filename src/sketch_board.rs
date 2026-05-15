@@ -400,14 +400,6 @@ pub struct MouseEventMsg {
     /// converts the raw widget value into this image-coord form
     /// before dispatch.
     pub pos: Vec2D,
-    /// Same position in canvas (widget CSS-pixel) coordinates, kept
-    /// unconverted so the crop tool's inside-out edit workflow can
-    /// read it without re-running the inverse transform. Mirrors
-    /// `pos`'s nature: absolute for absolute event types, delta for
-    /// drag-update / drag-end. Scroll-style events pack their delta
-    /// into `pos` and leave this zero — Crop reads the cursor
-    /// position through `renderer.pointer_offset` instead.
-    pub canvas_pos: Vec2D,
     pub n_pressed: i32,
     pub release: bool,
 }
@@ -421,18 +413,12 @@ impl SketchBoardInput {
         pos: Vec2D,
         release: bool,
     ) -> SketchBoardInput {
-        // GTK gesture callbacks hand us the position in widget CSS
-        // pixels. `handle_event_mouse_input` will rewrite `pos` to
-        // image coords before tool dispatch; `canvas_pos` keeps the
-        // original widget value so the crop tool's inside-out edit
-        // workflow has a direct read.
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: event_type,
             button: button.into(),
             n_pressed,
             modifier,
             pos,
-            canvas_pos: pos,
             release,
         }))
     }
@@ -459,7 +445,6 @@ impl SketchBoardInput {
             n_pressed: 0,
             modifier: ModifierType::empty(),
             pos: Vec2D::new(0.0, delta_y as f32),
-            canvas_pos: Vec2D::zero(),
             release: false,
         }))
     }
@@ -475,7 +460,6 @@ impl SketchBoardInput {
             n_pressed: 0,
             modifier,
             pos: Vec2D::new(delta_x as f32, delta_y as f32),
-            canvas_pos: Vec2D::zero(),
             release: false,
         }))
     }
@@ -1549,22 +1533,15 @@ impl SketchBoard {
             ZoomCommand::FitCanvas => self.renderer.reset_size(0.0),
             ZoomCommand::Abs(scale) => self.renderer.reset_size(scale),
         }
-        // Inside-out crop edit: an explicit zoom command (toolbar /
-        // indicator) re-frames the canvas around the image, so the
-        // user's image-coord crop region is the durable intent —
-        // re-derive canvas-from-image (A direction) so the on-canvas
-        // frame adjusts to the new transform while still bounding the
-        // same image region. Distinct from wheel/pan, which use the
-        // opposite direction (canvas stays put, image re-derives).
+        // Keep the crop tool's cached render scale fresh so its handle
+        // hit-testing stays screen-constant after a zoom command
+        // re-frames the canvas.
         if self.active_tool_type() == Tools::Crop {
             let crop_tool = self.tools.get_crop_tool();
             let in_edit = crop_tool.borrow().is_active_edit();
             if in_edit {
-                let (eff_scale, eff_offset) = self.renderer.render_transform();
-                let dpi = self.renderer.scale_factor() as f32;
-                let mut t = crop_tool.borrow_mut();
-                t.set_render_transform(eff_scale, eff_offset, dpi);
-                t.refresh_canvas_from_image();
+                let (eff_scale, _) = self.renderer.render_transform();
+                crop_tool.borrow_mut().set_render_scale(eff_scale);
             }
         }
         self.renderer.request_render(&[]);
@@ -2008,28 +1985,18 @@ impl SketchBoard {
         // (or arrow for pointer/crop) without waiting for mouse move.
         self.apply_idle_cursor();
 
-        // Push the renderer's current image↔canvas transform into the
-        // crop tool and refresh its canvas-coord frame from the
-        // (post-Activated) image-coord rect. Sets up the inside-out
-        // edit workflow's canvas-fixed anchor for the wheel-zoom and
-        // pan gestures. Done after Activated so any seed-from-bounds
-        // or un-commit mutation in `handle_activated` has finished
-        // before we sample.
+        // Push the renderer's current image→canvas scale into the crop
+        // tool so handle hit-testing is screen-constant from the first
+        // click. `handle_activated` may have just un-committed a crop,
+        // leaving the cached scale describing the old zoomed-in view —
+        // so run a synchronous re-layout first, then sample.
         if tool == Tools::Crop {
-            // `handle_activated` may have just flipped a committed crop
-            // back to uncommitted — at that instant the cached
-            // effective_scale/offset still describe the committed-crop
-            // view's fit-to-canvas transform. Run a synchronous
-            // re-layout so the snapshot we cache below matches the
-            // full-image (now-active edit) transform instead, and the
-            // refreshed canvas-coord twin covers the right image region.
             self.renderer.refresh_transform();
-            let (eff_scale, eff_offset) = self.renderer.render_transform();
-            let dpi = self.renderer.scale_factor() as f32;
-            let crop_tool = self.tools.get_crop_tool();
-            let mut t = crop_tool.borrow_mut();
-            t.set_render_transform(eff_scale, eff_offset, dpi);
-            t.refresh_canvas_from_image();
+            let (eff_scale, _) = self.renderer.render_transform();
+            self.tools
+                .get_crop_tool()
+                .borrow_mut()
+                .set_render_scale(eff_scale);
         }
 
         match activate_result {
