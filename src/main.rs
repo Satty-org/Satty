@@ -803,6 +803,18 @@ impl Component for App {
                 self.style_toolbar
                     .sender()
                     .emit(StyleToolbarInput::ToggleVisibility);
+                // Also flip the whole bottom row (CenterBox holding
+                // start_cluster / style_toolbar / end_cluster). The
+                // style_toolbar message above only hides the centered
+                // widget — without this, the start cluster (zoom
+                // indicator, snap-to-edges hint) and end cluster
+                // (dimensions, prefs, revert) would stay on-screen
+                // when the user wants a chrome-free canvas. Hiding
+                // bottom_row itself also covers Crop mode, where the
+                // style_toolbar is already hidden by its own gate so
+                // toggling its `visible` flag has no visible effect.
+                self.bottom_row
+                    .set_visible(!self.bottom_row.is_visible());
             }
             AppInput::ToolSwitchShortcut(tool) => {
                 self.tools_toolbar
@@ -1271,6 +1283,11 @@ impl Component for App {
         // the compact 34-px buttons a comfortable margin and leaves
         // room for the size slider's detent labels.
         bottom_row.set_height_request(55);
+        // Honour `default_hide_toolbars` at startup so first-launch and
+        // post-Ctrl+T states agree (the toolbars themselves already gate
+        // on this flag — see `set_visible: !default_hide_toolbars()`
+        // bindings in src/ui/toolbars.rs).
+        bottom_row.set_visible(!APP_CONFIG.read().default_hide_toolbars());
         let bottom_row_clone = bottom_row.clone();
 
         // Canvas scrollbars. The adjustments are managed dynamically
