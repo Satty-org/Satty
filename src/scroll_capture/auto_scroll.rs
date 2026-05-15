@@ -241,6 +241,10 @@ pub fn spawn_worker(stop: Arc<AtomicBool>, cursor_x: i32, cursor_y: i32) -> Resu
         pointer.frame();
         let _ = event_queue.flush();
         thread::sleep(Duration::from_millis(80));
+        eprintln!(
+            "auto-scroll: parked + clicked at ({},{}) within {}x{}",
+            cx, cy, sw, sh
+        );
 
         while !stop.load(Ordering::Relaxed) {
             // Send several Down-arrow presses per tick. Each arrow scrolls

@@ -27,6 +27,182 @@ const CAPTURE_INTERVAL_MS: u64 = 100;
 const STRIPE_ROWS: i32 = 6;
 const DRAG_THRESHOLD: f64 = 4.0;
 
+/// Length of the L-shaped corner brackets (logical pixels). Matches
+/// satty crop tool's BRACKET_LENGTH.
+const CROP_BRACKET_LENGTH: f64 = 28.0;
+
+/// Length of the parallel "fat bar" edge handle (logical pixels). Matches
+/// satty crop tool's EDGE_HANDLE_LENGTH.
+const EDGE_HANDLE_LENGTH: f64 = 36.0;
+
+/// Stroke width for corner brackets and edge bars (logical pixels).
+/// Matches satty crop tool's HANDLE_STROKE_WIDTH.
+const CROP_STROKE_WIDTH: f64 = 5.0;
+
+/// Hit-test radius around the anchor of each corner/edge handle.
+const HANDLE_HIT_RADIUS: f64 = 20.0;
+
+/// Radius of the central Move handle.
+const MOVE_HANDLE_RADIUS: f64 = 18.0;
+
+/// Minimum size the selection can be resized to. Prevents the rect from
+/// flipping inside-out during a drag.
+const MIN_SELECTION_SIZE: f64 = 32.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResizeHandle {
+    TopLeft,
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+    Left,
+    /// Drag from the center of the selection to move the whole rect
+    /// without resizing.
+    Move,
+}
+
+const RESIZE_HANDLES: [ResizeHandle; 8] = [
+    ResizeHandle::TopLeft,
+    ResizeHandle::Top,
+    ResizeHandle::TopRight,
+    ResizeHandle::Right,
+    ResizeHandle::BottomRight,
+    ResizeHandle::Bottom,
+    ResizeHandle::BottomLeft,
+    ResizeHandle::Left,
+];
+
+impl ResizeHandle {
+    /// Center of this handle for a given selection. Resize handles sit ON
+    /// the selection edges (matching the crop tool); Move sits at the
+    /// selection's center.
+    fn center(self, sel: Selection) -> (f64, f64) {
+        match self {
+            ResizeHandle::TopLeft => (sel.x, sel.y),
+            ResizeHandle::Top => (sel.x + sel.w / 2.0, sel.y),
+            ResizeHandle::TopRight => (sel.x + sel.w, sel.y),
+            ResizeHandle::Right => (sel.x + sel.w, sel.y + sel.h / 2.0),
+            ResizeHandle::BottomRight => (sel.x + sel.w, sel.y + sel.h),
+            ResizeHandle::Bottom => (sel.x + sel.w / 2.0, sel.y + sel.h),
+            ResizeHandle::BottomLeft => (sel.x, sel.y + sel.h),
+            ResizeHandle::Left => (sel.x, sel.y + sel.h / 2.0),
+            ResizeHandle::Move => (sel.x + sel.w / 2.0, sel.y + sel.h / 2.0),
+        }
+    }
+
+    fn hit_radius(self) -> f64 {
+        match self {
+            ResizeHandle::Move => MOVE_HANDLE_RADIUS,
+            _ => HANDLE_HIT_RADIUS,
+        }
+    }
+
+    /// Bounding rect for input region inclusion. Centered on the handle's
+    /// anchor point with the hit radius as half-side.
+    fn bounds(self, sel: Selection) -> (f64, f64, f64, f64) {
+        let (cx, cy) = self.center(sel);
+        let r = self.hit_radius();
+        (cx - r, cy - r, 2.0 * r, 2.0 * r)
+    }
+
+    /// Compute the new selection when this handle has been dragged. For
+    /// resize handles, `mouse_x/y` is the new position of the dragged edge
+    /// or corner. For Move, the entire rect is translated by the delta
+    /// between `drag_origin` and `(mouse_x, mouse_y)`.
+    fn apply(
+        self,
+        anchor: Selection,
+        drag_origin: (f64, f64),
+        mouse_x: f64,
+        mouse_y: f64,
+    ) -> Selection {
+        if matches!(self, ResizeHandle::Move) {
+            let dx = mouse_x - drag_origin.0;
+            let dy = mouse_y - drag_origin.1;
+            return Selection {
+                x: anchor.x + dx,
+                y: anchor.y + dy,
+                w: anchor.w,
+                h: anchor.h,
+            };
+        }
+        let right = anchor.x + anchor.w;
+        let bottom = anchor.y + anchor.h;
+        let (x1, y1, x2, y2) = match self {
+            ResizeHandle::TopLeft => (mouse_x, mouse_y, right, bottom),
+            ResizeHandle::Top => (anchor.x, mouse_y, right, bottom),
+            ResizeHandle::TopRight => (anchor.x, mouse_y, mouse_x, bottom),
+            ResizeHandle::Right => (anchor.x, anchor.y, mouse_x, bottom),
+            ResizeHandle::BottomRight => (anchor.x, anchor.y, mouse_x, mouse_y),
+            ResizeHandle::Bottom => (anchor.x, anchor.y, right, mouse_y),
+            ResizeHandle::BottomLeft => (mouse_x, anchor.y, right, mouse_y),
+            ResizeHandle::Left => (mouse_x, anchor.y, right, bottom),
+            ResizeHandle::Move => unreachable!(),
+        };
+        let lx = x1.min(x2);
+        let ly = y1.min(y2);
+        let w = (x2 - x1).abs().max(MIN_SELECTION_SIZE);
+        let h = (y2 - y1).abs().max(MIN_SELECTION_SIZE);
+        Selection { x: lx, y: ly, w, h }
+    }
+}
+
+/// Half-thickness of the resize hit band around each edge of the
+/// selection. Anywhere within this distance of an edge counts as
+/// grabbing that edge.
+const EDGE_HIT_SLACK: f64 = 12.0;
+
+/// Distance from a corner anchor within which the hit prefers the
+/// corner (diagonal resize) over an adjacent edge. Larger than
+/// EDGE_HIT_SLACK so corners are easy to grab.
+const CORNER_HIT_RADIUS: f64 = 20.0;
+
+fn hit_test_handle(sel: Selection, x: f64, y: f64) -> Option<ResizeHandle> {
+    // 1) Corners win if you're near one (so you get diagonal resize even
+    // though the edge bands overlap there).
+    for h in [
+        ResizeHandle::TopLeft,
+        ResizeHandle::TopRight,
+        ResizeHandle::BottomRight,
+        ResizeHandle::BottomLeft,
+    ] {
+        let (cx, cy) = h.center(sel);
+        let r = CORNER_HIT_RADIUS;
+        if (x - cx).powi(2) + (y - cy).powi(2) <= r * r {
+            return Some(h);
+        }
+    }
+
+    // 2) Move handle in the center (only inside the selection rect to
+    // avoid overlapping the edge hit zones when the selection is small).
+    let (mcx, mcy) = ResizeHandle::Move.center(sel);
+    let mr = MOVE_HANDLE_RADIUS + 3.0;
+    if (x - mcx).powi(2) + (y - mcy).powi(2) <= mr * mr {
+        return Some(ResizeHandle::Move);
+    }
+
+    // 3) Edges: anywhere along an edge (between corners) within
+    // EDGE_HIT_SLACK perpendicular distance grabs that edge.
+    let within_x = x >= sel.x - EDGE_HIT_SLACK && x <= sel.x + sel.w + EDGE_HIT_SLACK;
+    let within_y = y >= sel.y - EDGE_HIT_SLACK && y <= sel.y + sel.h + EDGE_HIT_SLACK;
+    if within_x && (y - sel.y).abs() <= EDGE_HIT_SLACK {
+        return Some(ResizeHandle::Top);
+    }
+    if within_x && (y - (sel.y + sel.h)).abs() <= EDGE_HIT_SLACK {
+        return Some(ResizeHandle::Bottom);
+    }
+    if within_y && (x - sel.x).abs() <= EDGE_HIT_SLACK {
+        return Some(ResizeHandle::Left);
+    }
+    if within_y && (x - (sel.x + sel.w)).abs() <= EDGE_HIT_SLACK {
+        return Some(ResizeHandle::Right);
+    }
+    None
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 struct Selection {
     x: f64,
@@ -59,6 +235,8 @@ struct OverlayState {
     drag_origin: (f64, f64),
     drag_active: bool,
     selection: Selection,
+    resize_handle: Option<ResizeHandle>,
+    resize_anchor: Selection,
     frames: Vec<CapturedFrame>,
     capture_timer: Option<glib::SourceId>,
     auto_scroll_stop: Option<Arc<AtomicBool>>,
@@ -100,6 +278,8 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
         drag_origin: (0.0, 0.0),
         drag_active: false,
         selection: Selection::default(),
+        resize_handle: None,
+        resize_anchor: Selection::default(),
         frames: Vec::new(),
         capture_timer: None,
         auto_scroll_stop: None,
@@ -172,6 +352,19 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
             let mut s = state.borrow_mut();
             s.drag_origin = (x, y);
             s.drag_active = false;
+            // If we're past the initial drag and the cursor landed on a
+            // resize handle, remember which handle so drag_update resizes
+            // instead of starting a new selection.
+            // Handles are interactive only in Selected. Once Capturing
+            // starts, the selection is locked in (handles are hidden too
+            // — see draw_backdrop).
+            s.resize_handle = match s.phase {
+                Phase::Selected => hit_test_handle(s.selection, x, y),
+                _ => None,
+            };
+            if s.resize_handle.is_some() {
+                s.resize_anchor = s.selection;
+            }
             let _ = (&prompt_w, &action_pill_w, &drawing_w);
         });
     }
@@ -189,20 +382,37 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
                 }
                 // Threshold crossed — commit to a real drag.
                 s.drag_active = true;
-                s.phase = Phase::Dragging;
-                drop(s);
-                prompt_w.set_visible(false);
-                action_pill_w.set_visible(false);
-                capturing_pill_w.set_visible(false);
-                let mut s = state.borrow_mut();
-                let (ox, oy) = s.drag_origin;
-                let x = ox.min(ox + dx);
-                let y = oy.min(oy + dy);
-                s.selection = Selection { x, y, w: dx.abs(), h: dy.abs() };
+                if s.resize_handle.is_none() {
+                    s.phase = Phase::Dragging;
+                    drop(s);
+                    prompt_w.set_visible(false);
+                    action_pill_w.set_visible(false);
+                    capturing_pill_w.set_visible(false);
+                    let mut s = state.borrow_mut();
+                    let (ox, oy) = s.drag_origin;
+                    let x = ox.min(ox + dx);
+                    let y = oy.min(oy + dy);
+                    s.selection = Selection { x, y, w: dx.abs(), h: dy.abs() };
+                    drop(s);
+                    drawing_w.queue_draw();
+                    return;
+                }
+            }
+            // Resizing or moving an existing selection via a handle.
+            if let Some(handle) = s.resize_handle {
+                let drag_origin = s.drag_origin;
+                let new_sel = handle.apply(
+                    s.resize_anchor,
+                    drag_origin,
+                    drag_origin.0 + dx,
+                    drag_origin.1 + dy,
+                );
+                s.selection = new_sel;
                 drop(s);
                 drawing_w.queue_draw();
                 return;
             }
+            // Otherwise, growing a fresh selection.
             let (ox, oy) = s.drag_origin;
             let x = ox.min(ox + dx);
             let y = oy.min(oy + dy);
@@ -217,23 +427,44 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
         let overlay_w = overlay.clone();
         let window_w = window.clone();
         let action_pill_w = action_pill.clone();
+        let capturing_pill_w = capturing_pill.clone();
         let prompt_w = prompt.clone();
         drag.connect_drag_end(move |_, _dx, _dy| {
             let mut s = state.borrow_mut();
             if !s.drag_active {
-                // Tap that missed a button: leave state alone so the existing
-                // pill (if any) remains and the user can try again.
+                // Tap that missed a button or handle — leave state alone.
+                s.resize_handle = None;
                 return;
             }
             s.drag_active = false;
+            // Finishing a resize: keep phase, just refresh pill + input
+            // region against the new selection rect.
+            if s.resize_handle.is_some() {
+                s.resize_handle = None;
+                let sel = s.selection;
+                let phase = s.phase;
+                drop(s);
+                drawing_w.queue_draw();
+                match phase {
+                    Phase::Selected => {
+                        position_action_pill_and_input(
+                            &window_w, &overlay_w, &action_pill_w, sel,
+                        );
+                    }
+                    Phase::Capturing => {
+                        position_capturing_pill_and_input(
+                            &window_w, &overlay_w, &capturing_pill_w, sel,
+                        );
+                    }
+                    _ => {}
+                }
+                return;
+            }
             if s.selection.is_valid() {
                 s.phase = Phase::Selected;
                 let sel = s.selection;
                 drop(s);
                 action_pill_w.set_visible(true);
-                // Drop keyboard exclusivity and restrict the input region to
-                // just the pill, so the user can scroll-reposition the
-                // underlying content before clicking Start Capture.
                 window_w.set_keyboard_mode(KeyboardMode::OnDemand);
                 position_action_pill_and_input(&window_w, &overlay_w, &action_pill_w, sel);
                 prompt_w.set_visible(false);
@@ -248,6 +479,32 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
         });
     }
     drawing.add_controller(drag);
+
+    // Cursor shape on handle hover — only in Selected (handles are hidden
+    // during Capturing).
+    let motion = gtk::EventControllerMotion::new();
+    {
+        let state = Rc::clone(&state);
+        let drawing_w = drawing.clone();
+        motion.connect_motion(move |_, x, y| {
+            let phase = state.borrow().phase;
+            if !matches!(phase, Phase::Selected) {
+                drawing_w.set_cursor_from_name(Some("default"));
+                return;
+            }
+            let sel = state.borrow().selection;
+            let name = match hit_test_handle(sel, x, y) {
+                Some(ResizeHandle::TopLeft) | Some(ResizeHandle::BottomRight) => "nwse-resize",
+                Some(ResizeHandle::TopRight) | Some(ResizeHandle::BottomLeft) => "nesw-resize",
+                Some(ResizeHandle::Top) | Some(ResizeHandle::Bottom) => "ns-resize",
+                Some(ResizeHandle::Left) | Some(ResizeHandle::Right) => "ew-resize",
+                Some(ResizeHandle::Move) => "move",
+                None => "default",
+            };
+            drawing_w.set_cursor_from_name(Some(name));
+        });
+    }
+    drawing.add_controller(motion);
 
     // Center the prompt once we know the surface size.
     {
@@ -309,7 +566,7 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
     }
 
     // Wire capturing-pill buttons (Cancel / Auto-Scroll / Done).
-    wire_capturing_pill(&state, &window, &capturing_pill, result);
+    wire_capturing_pill(&state, &window, &overlay, &capturing_pill, result);
 
     window.present();
 }
@@ -381,6 +638,7 @@ fn capture_tick(state: &Rc<RefCell<OverlayState>>, sel: Selection) -> glib::Cont
 fn wire_capturing_pill(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
+    overlay: &gtk::Overlay,
     pill: &gtk::Box,
     result: &Rc<RefCell<Option<Pixbuf>>>,
 ) {
@@ -406,8 +664,9 @@ fn wire_capturing_pill(
                     let state = Rc::clone(state);
                     let capturing_pill = pill.clone();
                     let window_w = window.clone();
+                    let overlay_w = overlay.clone();
                     button.connect_clicked(move |_| {
-                        start_auto_scroll(&state, &window_w, &capturing_pill);
+                        start_auto_scroll(&state, &window_w, &overlay_w, &capturing_pill);
                     });
                 }
                 2 => {
@@ -479,17 +738,24 @@ fn stop_capture(state: &Rc<RefCell<OverlayState>>) {
 fn start_auto_scroll(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
+    overlay: &gtk::Overlay,
     capturing_pill: &gtk::Box,
 ) {
     if state.borrow().auto_scroll_stop.is_some() {
         return;
     }
+    // Park the cursor slightly BELOW the selection's center — clear of
+    // the Move handle's input island in the center, clear of the edge
+    // resize bands at the perimeter, but still inside the selection rect.
+    // That way the synthetic middle-click lands on the underlying app
+    // (pass-through region) and transfers focus correctly.
     let scale = capturing_pill.scale_factor().max(1);
-    let pill_top_logical = capturing_pill.margin_top();
-    let target_y_logical = (pill_top_logical - 16).max(0);
     let sel = state.borrow().selection;
-    let cursor_x = ((sel.x + sel.w / 2.0) as i32) * scale;
-    let cursor_y = target_y_logical * scale;
+    let cursor_x_logical = sel.x + sel.w / 2.0;
+    let cursor_y_logical = (sel.y + sel.h / 2.0 + MOVE_HANDLE_RADIUS + 12.0)
+        .min(sel.y + sel.h - EDGE_HIT_SLACK - 4.0);
+    let cursor_x = (cursor_x_logical as i32) * scale;
+    let cursor_y = (cursor_y_logical as i32) * scale;
 
     let stop = Arc::new(AtomicBool::new(false));
     if let Err(e) = auto_scroll::spawn_worker(Arc::clone(&stop), cursor_x, cursor_y) {
@@ -509,6 +775,7 @@ fn start_auto_scroll(
         let state = Rc::clone(state);
         let pill = capturing_pill.clone();
         let window = window.clone();
+        let overlay = overlay.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             let mut s = state.borrow_mut();
             let Some(stop) = s.auto_scroll_stop.clone() else {
@@ -528,16 +795,21 @@ fn start_auto_scroll(
             stop.store(true, Ordering::Relaxed);
             s.auto_scroll_stop = None;
             s.auto_scroll_monitor = None;
+            let sel = s.selection;
             drop(s);
-            let _ = window;
-            end_of_content_ui(&pill);
+            end_of_content_ui(&window, &overlay, &pill, sel);
             glib::ControlFlow::Break
         })
     };
     state.borrow_mut().auto_scroll_monitor = Some(monitor);
 }
 
-fn end_of_content_ui(capturing_pill: &gtk::Box) {
+fn end_of_content_ui(
+    window: &gtk::ApplicationWindow,
+    overlay: &gtk::Overlay,
+    capturing_pill: &gtk::Box,
+    sel: Selection,
+) {
     let mut child = capturing_pill.first_child();
     let mut idx = 0;
     while let Some(c) = child {
@@ -550,6 +822,9 @@ fn end_of_content_ui(capturing_pill: &gtk::Box) {
         idx += 1;
         child = next;
     }
+    // Pill's natural width shrank when Auto-Scroll hid — re-position so the
+    // remaining buttons stay centered on the selection.
+    position_capturing_pill_and_input(window, overlay, capturing_pill, sel);
 }
 
 
@@ -628,26 +903,61 @@ fn position_action_pill_and_input(
         let x = x.max(8.0);
         pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
-        set_pill_input_region(&window, x, y, pw, ph);
+        set_pill_input_region(&window, x, y, pw, ph, sel, true);
     });
 }
 
-fn set_pill_input_region(window: &gtk::ApplicationWindow, x: f64, y: f64, w: f64, h: f64) {
-    if let Some(surface) = window.surface() {
-        let pad: i32 = 6;
-        let rect = cairo::RectangleInt::new(
-            (x as i32) - pad,
-            (y as i32) - pad,
-            (w as i32) + 2 * pad,
-            (h as i32) + 2 * pad,
-        );
-        let region = cairo::Region::create_rectangle(&rect);
-        surface.set_input_region(&region);
-        eprintln!(
-            "scroll-capture: input region set to ({},{}) {}x{}",
-            rect.x(), rect.y(), rect.width(), rect.height()
-        );
+fn set_pill_input_region(
+    window: &gtk::ApplicationWindow,
+    pill_x: f64,
+    pill_y: f64,
+    pill_w: f64,
+    pill_h: f64,
+    sel: Selection,
+    include_handles: bool,
+) {
+    let Some(surface) = window.surface() else { return };
+    let pad: i32 = 6;
+    let pill_rect = cairo::RectangleInt::new(
+        (pill_x as i32) - pad,
+        (pill_y as i32) - pad,
+        (pill_w as i32) + 2 * pad,
+        (pill_h as i32) + 2 * pad,
+    );
+    let region = cairo::Region::create_rectangle(&pill_rect);
+
+    if include_handles {
+        // Edge bands and Move handle make the selection editable. Skipped
+        // during Capturing so the selection rect is fully pass-through and
+        // captured frames never include our overlay's UI.
+        let band = EDGE_HIT_SLACK as i32;
+        let sx = sel.x as i32;
+        let sy = sel.y as i32;
+        let sw = sel.w as i32;
+        let sh = sel.h as i32;
+        let bands = [
+            cairo::RectangleInt::new(sx - band, sy - band, sw + 2 * band, 2 * band),
+            cairo::RectangleInt::new(sx - band, sy + sh - band, sw + 2 * band, 2 * band),
+            cairo::RectangleInt::new(sx - band, sy - band, 2 * band, sh + 2 * band),
+            cairo::RectangleInt::new(sx + sw - band, sy - band, 2 * band, sh + 2 * band),
+        ];
+        for b in &bands {
+            region.union_rectangle(b).ok();
+        }
+
+        let (mcx, mcy) = ResizeHandle::Move.center(sel);
+        let mr = MOVE_HANDLE_RADIUS as i32 + 6;
+        region
+            .union_rectangle(&cairo::RectangleInt::new(
+                mcx as i32 - mr,
+                mcy as i32 - mr,
+                2 * mr,
+                2 * mr,
+            ))
+            .ok();
     }
+
+    surface.set_input_region(&region);
 }
 
 fn position_capturing_pill_and_input(
@@ -682,7 +992,7 @@ fn position_capturing_pill_and_input(
         };
         pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
-        set_pill_input_region(&window, x, y, pw, ph);
+        set_pill_input_region(&window, x, y, pw, ph, sel, false);
     });
 }
 
@@ -738,13 +1048,120 @@ fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
         cr.rectangle(sel.x, sel.y, sel.w, sel.h);
         let _ = cr.fill();
 
-        // Brackets in the OVER op so they composite on top of nothing.
         cr.set_operator(cairo::Operator::Over);
-        cr.set_source_rgba(1.0, 1.0, 1.0, 0.95);
-        cr.set_line_width(BRACKET_WIDTH);
-        draw_corner_brackets(cr, sel);
+        // Subtle outline at the selection edge for visual definition.
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.55);
+        cr.set_line_width(1.0);
+        cr.rectangle(sel.x - 0.5, sel.y - 0.5, sel.w + 1.0, sel.h + 1.0);
+        let _ = cr.stroke();
+
+        match s.phase {
+            // Selected: full handle set (brackets + edge bars + Move) so
+            // the user can edit the selection.
+            Phase::Selected => draw_handles(cr, sel),
+            // Capturing: handles intentionally HIDDEN. They'd otherwise
+            // end up baked into every captured frame. The thin outline
+            // drawn above is enough visual feedback for "still capturing
+            // this rect".
+            Phase::Capturing => {}
+            // Mid-drag: minimal corner-bracket affordance.
+            _ => {
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.95);
+                cr.set_line_width(BRACKET_WIDTH);
+                draw_corner_brackets(cr, sel);
+            }
+        }
     }
     let _ = cr.restore();
+}
+
+fn draw_handles(cr: &cairo::Context, sel: Selection) {
+    cr.set_operator(cairo::Operator::Over);
+    cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+    cr.set_line_width(CROP_STROKE_WIDTH);
+    cr.set_line_cap(cairo::LineCap::Square);
+    cr.set_line_join(cairo::LineJoin::Miter);
+
+    // Corner L-brackets — arms extend INWARD from each corner, like the
+    // crop tool's brackets.
+    let l = CROP_BRACKET_LENGTH;
+    let x0 = sel.x;
+    let y0 = sel.y;
+    let x1 = sel.x + sel.w;
+    let y1 = sel.y + sel.h;
+    // Top-left
+    cr.move_to(x0 + l, y0);
+    cr.line_to(x0, y0);
+    cr.line_to(x0, y0 + l);
+    let _ = cr.stroke();
+    // Top-right
+    cr.move_to(x1 - l, y0);
+    cr.line_to(x1, y0);
+    cr.line_to(x1, y0 + l);
+    let _ = cr.stroke();
+    // Bottom-right
+    cr.move_to(x1 - l, y1);
+    cr.line_to(x1, y1);
+    cr.line_to(x1, y1 - l);
+    let _ = cr.stroke();
+    // Bottom-left
+    cr.move_to(x0 + l, y1);
+    cr.line_to(x0, y1);
+    cr.line_to(x0, y1 - l);
+    let _ = cr.stroke();
+
+    // Edge "fat bar" handles — parallel segments centered on each edge
+    // midpoint, lying along the edge direction.
+    let half = EDGE_HANDLE_LENGTH / 2.0;
+    let mx = sel.x + sel.w / 2.0;
+    let my = sel.y + sel.h / 2.0;
+    // Top edge — horizontal bar at y0
+    cr.move_to(mx - half, y0);
+    cr.line_to(mx + half, y0);
+    let _ = cr.stroke();
+    // Bottom edge
+    cr.move_to(mx - half, y1);
+    cr.line_to(mx + half, y1);
+    let _ = cr.stroke();
+    // Left edge — vertical bar at x0
+    cr.move_to(x0, my - half);
+    cr.line_to(x0, my + half);
+    let _ = cr.stroke();
+    // Right edge
+    cr.move_to(x1, my - half);
+    cr.line_to(x1, my + half);
+    let _ = cr.stroke();
+
+    // Move handle: filled circle with a 4-way arrow glyph at the center.
+    let (cx, cy) = ResizeHandle::Move.center(sel);
+    let r = MOVE_HANDLE_RADIUS;
+    cr.arc(cx, cy, r, 0.0, std::f64::consts::TAU);
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.6);
+    let _ = cr.fill_preserve();
+    cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+    cr.set_line_width(2.5);
+    let _ = cr.stroke();
+
+    // 4-way arrow glyph inside.
+    let arm = r * 0.55;
+    let head = r * 0.18;
+    cr.set_line_width(2.0);
+    cr.move_to(cx, cy - arm);
+    cr.line_to(cx, cy + arm);
+    cr.move_to(cx - arm, cy);
+    cr.line_to(cx + arm, cy);
+    let _ = cr.stroke();
+    for (ax, ay, hx1, hy1, hx2, hy2) in [
+        (cx, cy - arm, cx - head, cy - arm + head, cx + head, cy - arm + head),
+        (cx, cy + arm, cx - head, cy + arm - head, cx + head, cy + arm - head),
+        (cx - arm, cy, cx - arm + head, cy - head, cx - arm + head, cy + head),
+        (cx + arm, cy, cx + arm - head, cy - head, cx + arm - head, cy + head),
+    ] {
+        cr.move_to(hx1, hy1);
+        cr.line_to(ax, ay);
+        cr.line_to(hx2, hy2);
+    }
+    let _ = cr.stroke();
 }
 
 fn draw_corner_brackets(cr: &cairo::Context, sel: Selection) {
