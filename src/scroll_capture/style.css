@@ -60,3 +60,27 @@
   color: rgba(220, 255, 230, 1.0);
   font-weight: 600;
 }
+
+/* Inside-selection Auto-Scroll buttons (vertical pill + circular horizontal).
+ * Sit on top of the underlying content, so give them a solid dark backdrop
+ * + subtle border, matching the outside pills' look. */
+.scroll-capture-inside-auto {
+  background-color: rgba(28, 28, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  padding: 8px 14px;
+  border-radius: 999px;
+  color: rgba(180, 210, 255, 0.95);
+  font-weight: 500;
+}
+
+.scroll-capture-inside-auto:hover {
+  background-color: rgba(40, 50, 70, 0.95);
+}
+
+/* Horizontal variant: square padding so the ▶ glyph reads as a circle. */
+.scroll-capture-inside-auto-horiz {
+  padding: 10px 12px;
+  min-width: 36px;
+  min-height: 36px;
+}

@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::os::fd::{AsFd, OwnedFd};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -24,16 +24,30 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
 /// their own per-tick factor (~100–120 px) when scrolling.
 const NOTCH_VALUE: f64 = 10.0;
 
-/// linux/input-event-codes.h BTN_MIDDLE. Synthetic middle-click is used to
-/// transfer pointer focus from our overlay to the underlying surface before
-/// sending wheel events — most apps have no action bound to middle-click.
-const BTN_MIDDLE: u32 = 0x112;
-
 /// linux/input-event-codes.h KEY_DOWN. We send several Down-arrow presses
 /// per scroll tick instead of one PgDn so the per-tick scroll delta is
 /// smaller than the user's selection height — that way each captured frame
 /// overlaps the previous one and the stitcher can find the alignment.
 const KEY_DOWN: u32 = 108;
+
+/// linux/input-event-codes.h KEY_RIGHT — used for horizontal auto-scroll.
+const KEY_RIGHT: u32 = 106;
+
+/// Direction the auto-scroll worker should drive the underlying app.
+#[derive(Clone, Copy, Debug)]
+pub enum ScrollDirection {
+    Down,
+    Right,
+}
+
+impl ScrollDirection {
+    fn keycode(self) -> u32 {
+        match self {
+            ScrollDirection::Down => KEY_DOWN,
+            ScrollDirection::Right => KEY_RIGHT,
+        }
+    }
+}
 
 /// How many Down-arrow presses per scroll tick. 5 presses ≈ 200 logical px
 /// of scroll in most browsers (~40 logical px per arrow), small enough to
@@ -48,13 +62,13 @@ pub const ARROWS_PER_TICK: u32 = 5;
 pub const ARROW_SCROLL_LOGICAL_PX: u32 = 40;
 
 /// Minimal xkb keymap. Maps xkb keycode 116 (kernel KEY_DOWN=108 + 8 xkb
-/// offset) to the Down keysym. The compositor uses this keymap to interpret
-/// the key events we send via the virtual keyboard.
+/// offset) to the Down keysym and 114 (kernel KEY_RIGHT=106 + 8) to Right.
 const KEYMAP_TEMPLATE: &str = r#"xkb_keymap {
     xkb_keycodes "minimal" {
         minimum = 8;
         maximum = 255;
-        <DOWN> = 116;
+        <DOWN>  = 116;
+        <RIGHT> = 114;
     };
     xkb_types "complete" {
         type "ONE_LEVEL" {
@@ -64,7 +78,8 @@ const KEYMAP_TEMPLATE: &str = r#"xkb_keymap {
     };
     xkb_compatibility "complete" {};
     xkb_symbols "minimal" {
-        key <DOWN> { [ Down ] };
+        key <DOWN>  { [ Down  ] };
+        key <RIGHT> { [ Right ] };
     };
 };
 "#;
@@ -173,7 +188,13 @@ fn make_keymap_fd() -> Result<(OwnedFd, u32)> {
 /// is widely respected by scrollable apps (browsers, editors, viewers) and
 /// keyboard event routing may have different focus semantics that work
 /// through our overlay's pass-through input region.
-pub fn spawn_worker(stop: Arc<AtomicBool>, cursor_x: i32, cursor_y: i32) -> Result<()> {
+pub fn spawn_worker(
+    stop: Arc<AtomicBool>,
+    cycle_counter: Arc<AtomicU64>,
+    cursor_x: i32,
+    cursor_y: i32,
+    direction: ScrollDirection,
+) -> Result<()> {
     let conn = Connection::connect_to_env()
         .context("auto-scroll: failed to connect to wayland")?;
     let (globals, mut event_queue) =
@@ -229,25 +250,63 @@ pub fn spawn_worker(stop: Arc<AtomicBool>, cursor_x: i32, cursor_y: i32) -> Resu
     thread::spawn(move || {
         let start = Instant::now();
 
-        // Position the virtual pointer at the target then synthesize a
-        // middle-click to encourage Hyprland to transfer focus from our
-        // overlay to the underlying surface.
+        // Position the virtual pointer at the target. We deliberately do
+        // NOT synthesise a button click: a left-click would trigger link
+        // navigation, a middle-click puts Chrome into autoscroll mode
+        // (compass icon + erratic scrolling), and a right-click opens a
+        // context menu. Pointer motion alone is enough to transfer focus
+        // when the compositor uses focus-follows-pointer (Hyprland's
+        // default `follow_mouse = 1`).
+        //
+        // BUT: a single motion_absolute to the exact pixel where the
+        // user's cursor already is gets de-duped by the compositor — no
+        // wl_pointer.motion is generated, no pointer.enter on the
+        // underlying surface, no focus transfer. User-observed symptom:
+        // "had to jiggle the mouse a tiny bit for auto-scroll to start."
+        //
+        // Fix: send the motion to a 1-px-offset position FIRST (forcing
+        // a real motion event), then to the actual target. Two adjacent
+        // motions give the compositor a real delta to process.
+        let nudge_x = cx.saturating_add(1).min(sw.saturating_sub(1) as u32);
+        let t = time_ms(start);
+        pointer.motion_absolute(t, nudge_x, cy, sw as u32, sh as u32);
+        pointer.frame();
+        let _ = event_queue.flush();
+        thread::sleep(Duration::from_millis(20));
         let t = time_ms(start);
         pointer.motion_absolute(t, cx, cy, sw as u32, sh as u32);
         pointer.frame();
-        pointer.button(t + 1, BTN_MIDDLE, wl_pointer::ButtonState::Pressed);
-        pointer.frame();
-        pointer.button(t + 2, BTN_MIDDLE, wl_pointer::ButtonState::Released);
-        pointer.frame();
         let _ = event_queue.flush();
-        thread::sleep(Duration::from_millis(80));
+        // Give the compositor a couple of frames to propagate the focus
+        // change before we start sending arrow keys.
+        thread::sleep(Duration::from_millis(200));
         eprintln!(
-            "auto-scroll: parked + clicked at ({},{}) within {}x{}",
+            "auto-scroll: parked (no click, nudged) at ({},{}) within {}x{}",
             cx, cy, sw, sh
         );
 
+        let keycode = direction.keycode();
+        // Order of operations per cycle:
+        //   1. Signal "a stable frame is ready" by bumping the counter.
+        //   2. Wait long enough for the main-thread capture_tick (100 ms
+        //      cadence) to pick it up.
+        //   3. THEN send the next batch of arrows + wait for them to
+        //      render.
+        //
+        // The previous order (arrows → sleep → bump) meant the very first
+        // captured frame was already one cycle past the initial view —
+        // the page-top (search bar, location chip, "Sponsored result"
+        // heading row) had scrolled out before any capture happened. With
+        // this ordering, cycle 1's bump captures the true initial view,
+        // cycle 2's bump captures the post-first-scroll view, etc.
+        let inter_capture_settle = Duration::from_millis(150);
         while !stop.load(Ordering::Relaxed) {
-            // Send several Down-arrow presses per tick. Each arrow scrolls
+            cycle_counter.fetch_add(1, Ordering::Relaxed);
+            thread::sleep(inter_capture_settle);
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            // Send several arrow presses per tick. Each arrow scrolls
             // ~40 logical px in most browsers — small enough that the per-
             // tick scroll stays within the user's selection rect and the
             // captured frames overlap enough for the stitcher to align.
@@ -255,12 +314,12 @@ pub fn spawn_worker(stop: Arc<AtomicBool>, cursor_x: i32, cursor_y: i32) -> Resu
             for i in 0..ARROWS_PER_TICK {
                 keyboard.key(
                     t + i * 2,
-                    KEY_DOWN,
+                    keycode,
                     wl_keyboard::KeyState::Pressed.into(),
                 );
                 keyboard.key(
                     t + i * 2 + 1,
-                    KEY_DOWN,
+                    keycode,
                     wl_keyboard::KeyState::Released.into(),
                 );
             }

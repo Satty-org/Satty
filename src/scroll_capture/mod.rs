@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::hash::Hasher;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -24,7 +24,13 @@ const BRACKET_WIDTH: f64 = 3.0;
 const PILL_GAP: f64 = 18.0;
 const MIN_SELECTION: f64 = 8.0;
 const CAPTURE_INTERVAL_MS: u64 = 100;
-const STRIPE_ROWS: i32 = 6;
+/// Expected per-cycle scroll in device pixels: ARROWS_PER_TICK (=5) *
+/// ARROW_SCROLL_LOGICAL_PX (~40) * HiDPI scale (~2). Used as the second
+/// reference offset in the capture-time dedup check (SAD@0 vs SAD@hint).
+/// Tightness isn't important — it just has to be in the right ballpark
+/// for "real scroll" so that SAD@hint is clearly lower than SAD@0 after
+/// a normal scroll cycle.
+const SCROLL_DELTA_DEVICE_PX_HINT: usize = 400;
 const DRAG_THRESHOLD: f64 = 4.0;
 
 /// Length of the L-shaped corner brackets (logical pixels). Matches
@@ -227,7 +233,9 @@ enum Phase {
 
 struct CapturedFrame {
     pixbuf: Pixbuf,
-    stripe_hash: u64,
+    /// Downsampled-grayscale view used by the dedup SAD check (and
+    /// reusable by the stitcher to avoid downsampling twice).
+    gray: stitch::GrayView,
 }
 
 struct OverlayState {
@@ -243,6 +251,23 @@ struct OverlayState {
     auto_scroll_baseline_frames: usize,
     auto_scroll_quiet_ticks: u32,
     auto_scroll_monitor: Option<glib::SourceId>,
+    /// True while a worker is actively scrolling — used to hide the
+    /// inside-selection Auto-Scroll buttons and drop them from the input
+    /// region so they're not in captured frames.
+    auto_scroll_active: bool,
+    /// Counter incremented by the worker after each completed keypress
+    /// cycle (arrows sent + sleep for paint). While `auto_scroll_active`,
+    /// `capture_tick` pushes exactly one frame per increment, so the
+    /// stitcher can trust a fixed scroll delta per frame.
+    auto_scroll_cycle_counter: Arc<AtomicU64>,
+    /// Last cycle index for which we've already pushed a frame. Initialised
+    /// to whatever counter is at the start of each Auto-Scroll click.
+    last_captured_cycle: u64,
+    /// Number of consecutive cycles where capture_tick rejected the frame
+    /// as a duplicate (page didn't actually scroll). Used to trigger an
+    /// early end-of-content stop without waiting for the slower 1.5s
+    /// monitor heuristic.
+    consecutive_no_scroll: u32,
 }
 
 /// Run the scroll-capture overlay. Returns `Ok(Some(pixbuf))` when the user
@@ -286,6 +311,10 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
         auto_scroll_baseline_frames: 0,
         auto_scroll_quiet_ticks: 0,
         auto_scroll_monitor: None,
+        auto_scroll_active: false,
+        auto_scroll_cycle_counter: Arc::new(AtomicU64::new(0)),
+        last_captured_cycle: 0,
+        consecutive_no_scroll: 0,
     }));
 
     let window = gtk::ApplicationWindow::new(app);
@@ -327,6 +356,18 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
     }
     action_pill.set_visible(false);
     capturing_pill.set_visible(false);
+
+    // Auto-Scroll buttons positioned INSIDE the selection during Capturing.
+    // Hidden until the user starts the capture; hidden again while a
+    // worker is actively scrolling so they don't appear in captured frames.
+    let vert_auto_scroll = build_inside_vert_auto_scroll();
+    let horiz_auto_scroll = build_inside_horiz_auto_scroll();
+    for btn in [&vert_auto_scroll, &horiz_auto_scroll] {
+        btn.set_halign(gtk::Align::Start);
+        btn.set_valign(gtk::Align::Start);
+        btn.set_visible(false);
+        overlay.add_overlay(btn);
+    }
 
     // Drawing function pulls from state on each invalidation.
     {
@@ -428,6 +469,8 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
         let window_w = window.clone();
         let action_pill_w = action_pill.clone();
         let capturing_pill_w = capturing_pill.clone();
+        let vert_btn_w = vert_auto_scroll.clone();
+        let horiz_btn_w = horiz_auto_scroll.clone();
         let prompt_w = prompt.clone();
         drag.connect_drag_end(move |_, _dx, _dy| {
             let mut s = state.borrow_mut();
@@ -443,6 +486,7 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
                 s.resize_handle = None;
                 let sel = s.selection;
                 let phase = s.phase;
+                let auto_scroll_active = s.auto_scroll_active;
                 drop(s);
                 drawing_w.queue_draw();
                 match phase {
@@ -453,7 +497,13 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
                     }
                     Phase::Capturing => {
                         position_capturing_pill_and_input(
-                            &window_w, &overlay_w, &capturing_pill_w, sel,
+                            &window_w,
+                            &overlay_w,
+                            &capturing_pill_w,
+                            &vert_btn_w,
+                            &horiz_btn_w,
+                            sel,
+                            auto_scroll_active,
                         );
                     }
                     _ => {}
@@ -547,6 +597,8 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
         let window_w = window.clone();
         let action_pill_w = action_pill.clone();
         let capturing_pill_w = capturing_pill.clone();
+        let vert_btn_w = vert_auto_scroll.clone();
+        let horiz_btn_w = horiz_auto_scroll.clone();
         let overlay_w = overlay.clone();
         let drawing_w = drawing.clone();
         let start: gtk::Button = action_pill
@@ -560,13 +612,61 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
                 &overlay_w,
                 &action_pill_w,
                 &capturing_pill_w,
+                &vert_btn_w,
+                &horiz_btn_w,
                 &drawing_w,
             );
         });
     }
 
     // Wire capturing-pill buttons (Cancel / Auto-Scroll / Done).
-    wire_capturing_pill(&state, &window, &overlay, &capturing_pill, result);
+    wire_capturing_pill(&state, &window, &capturing_pill, result);
+
+    // Inside-selection Auto-Scroll buttons wire to start_auto_scroll_at.
+    {
+        let state_w = Rc::clone(&state);
+        let window_w = window.clone();
+        let overlay_w = overlay.clone();
+        let capturing_pill_w = capturing_pill.clone();
+        let vert_btn_w = vert_auto_scroll.clone();
+        let horiz_btn_w = horiz_auto_scroll.clone();
+        let btn = vert_auto_scroll.clone();
+        btn.connect_clicked(move |b| {
+            eprintln!("scroll-capture: vertical Auto-Scroll clicked");
+            start_auto_scroll_at(
+                &state_w,
+                &window_w,
+                &overlay_w,
+                &capturing_pill_w,
+                &vert_btn_w,
+                &horiz_btn_w,
+                b,
+                auto_scroll::ScrollDirection::Down,
+            );
+        });
+    }
+    {
+        let state_w = Rc::clone(&state);
+        let window_w = window.clone();
+        let overlay_w = overlay.clone();
+        let capturing_pill_w = capturing_pill.clone();
+        let vert_btn_w = vert_auto_scroll.clone();
+        let horiz_btn_w = horiz_auto_scroll.clone();
+        let btn = horiz_auto_scroll.clone();
+        btn.connect_clicked(move |b| {
+            eprintln!("scroll-capture: horizontal Auto-Scroll clicked");
+            start_auto_scroll_at(
+                &state_w,
+                &window_w,
+                &overlay_w,
+                &capturing_pill_w,
+                &vert_btn_w,
+                &horiz_btn_w,
+                b,
+                auto_scroll::ScrollDirection::Right,
+            );
+        });
+    }
 
     window.present();
 }
@@ -577,10 +677,16 @@ fn start_capture(
     overlay: &gtk::Overlay,
     action_pill: &gtk::Box,
     capturing_pill: &gtk::Box,
+    vert_btn: &gtk::Button,
+    horiz_btn: &gtk::Button,
     drawing: &gtk::DrawingArea,
 ) {
     let sel = state.borrow().selection;
-    state.borrow_mut().phase = Phase::Capturing;
+    {
+        let mut s = state.borrow_mut();
+        s.phase = Phase::Capturing;
+        s.auto_scroll_active = false;
+    }
 
     // Drop keyboard exclusivity. On Hyprland (and possibly other wlroots
     // compositors), an Exclusive-keyboard layer surface appears to consume
@@ -594,7 +700,15 @@ fn start_capture(
 
     action_pill.set_visible(false);
     capturing_pill.set_visible(true);
-    position_capturing_pill_and_input(window, overlay, capturing_pill, sel);
+    position_capturing_pill_and_input(
+        window,
+        overlay,
+        capturing_pill,
+        vert_btn,
+        horiz_btn,
+        sel,
+        false,
+    );
     drawing.queue_draw();
 
     // Start the capture timer.
@@ -609,6 +723,32 @@ fn capture_tick(state: &Rc<RefCell<OverlayState>>, sel: Selection) -> glib::Cont
     if state.borrow().phase != Phase::Capturing {
         return glib::ControlFlow::Break;
     }
+    // Capture ONLY while Auto-Scroll is active AND the worker has reported
+    // a new completed scroll cycle since the last frame we captured.
+    //
+    // Frames are otherwise unsafe to stitch:
+    // - Pre-click frames (auto-scroll buttons fully visible) would bake
+    //   the buttons into the output.
+    // - Post-end-of-content frames (buttons restored so the user can run
+    //   another pass or click Done) would do the same.
+    // - Mid-cycle frames (page repainting in the middle of an arrow burst)
+    //   would land at uneven scroll positions and the fixed-delta
+    //   stitcher would produce overlap / duplicate content.
+    //
+    // The worker increments `auto_scroll_cycle_counter` after each
+    // keypress burst + paint-settle, so reading it tells us when a fresh
+    // post-scroll frame is ready. This is the user's "capture only new
+    // pixels" model — one frame per scroll, no overlap math.
+    {
+        let s = state.borrow();
+        if !s.auto_scroll_active {
+            return glib::ControlFlow::Continue;
+        }
+        let cur = s.auto_scroll_cycle_counter.load(Ordering::Relaxed);
+        if cur <= s.last_captured_cycle {
+            return glib::ControlFlow::Continue;
+        }
+    }
     let rect = capture::Rect {
         x: sel.x.round() as i32,
         y: sel.y.round() as i32,
@@ -617,15 +757,60 @@ fn capture_tick(state: &Rc<RefCell<OverlayState>>, sel: Selection) -> glib::Cont
     };
     match capture::capture_region(rect) {
         Ok(pixbuf) => {
-            let hash = stripe_hash(&pixbuf);
+            // Downsample to grayscale once. Used both for the dedup SAD
+            // check below and (cached on the CapturedFrame) by the
+            // stitcher later — saves a redundant downsample pass.
+            let gray = stitch::downsample_to_gray(&pixbuf);
             let mut s = state.borrow_mut();
-            let last_hash = s.frames.last().map(|f| f.stripe_hash);
-            if last_hash != Some(hash) {
-                s.frames.push(CapturedFrame {
-                    pixbuf,
-                    stripe_hash: hash,
-                });
+            // Two-point SAD test: at offset 0 the bands compare prev's
+            // and cur's rows in place (no scroll); at offset
+            // SCROLL_DELTA_DEVICE they compare what cur shows now vs
+            // what prev showed one cycle earlier. Whichever is smaller
+            // tells us which hypothesis fits the data better — "frames
+            // are the same view" or "frames are one scroll cycle apart".
+            // No fixed-threshold tuning needed; the answer is whatever
+            // SAD itself prefers.
+            let is_dup = match s.frames.last() {
+                Some(prev) => {
+                    let sad_zero = stitch::sad_at_offset(&prev.gray, &gray, 0);
+                    let sad_full = stitch::sad_at_offset(
+                        &prev.gray, &gray, SCROLL_DELTA_DEVICE_PX_HINT,
+                    );
+                    sad_zero <= sad_full
+                }
+                None => false,
+            };
+            if !is_dup {
+                s.frames.push(CapturedFrame { pixbuf, gray });
                 eprintln!("scroll-capture: kept frame {}", s.frames.len());
+                s.consecutive_no_scroll = 0;
+            } else if s.auto_scroll_active {
+                s.consecutive_no_scroll += 1;
+                eprintln!(
+                    "scroll-capture: no-scroll cycle ({} consecutive)",
+                    s.consecutive_no_scroll
+                );
+                // Two consecutive no-scroll cycles → page won't scroll
+                // further. Signal the worker to stop sending arrow keys.
+                // We deliberately don't take() the AtomicBool out of
+                // state here: the monitor's normal exit path is the
+                // single owner of the source-removal cleanup; from this
+                // call site we only signal, and the monitor picks it up
+                // on its next tick. (Earlier version took() the stop
+                // here, then panicked at Done click trying to remove an
+                // already-removed glib SourceId.)
+                if s.consecutive_no_scroll >= 2
+                    && let Some(stop) = &s.auto_scroll_stop
+                {
+                    stop.store(true, Ordering::Relaxed);
+                    eprintln!(
+                        "scroll-capture: end-of-content (2 no-scroll cycles), signalled worker"
+                    );
+                }
+            }
+            if s.auto_scroll_active {
+                let cur = s.auto_scroll_cycle_counter.load(Ordering::Relaxed);
+                s.last_captured_cycle = cur;
             }
         }
         Err(e) => {
@@ -638,7 +823,6 @@ fn capture_tick(state: &Rc<RefCell<OverlayState>>, sel: Selection) -> glib::Cont
 fn wire_capturing_pill(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
-    overlay: &gtk::Overlay,
     pill: &gtk::Box,
     result: &Rc<RefCell<Option<Pixbuf>>>,
 ) {
@@ -653,23 +837,11 @@ fn wire_capturing_pill(
                     let window_w = window.clone();
                     let state = Rc::clone(state);
                     button.connect_clicked(move |_| {
-                        stop_capture(&state);
+                        stop_capture_with_window(&state, &window_w);
                         window_w.close();
                     });
                 }
                 1 => {
-                    // Auto-Scroll: spawn worker that sends wheel events via
-                    // wlr-virtual-pointer, plus a monitor timer that watches
-                    // for end-of-content (no new retained frames for ~1.5s).
-                    let state = Rc::clone(state);
-                    let capturing_pill = pill.clone();
-                    let window_w = window.clone();
-                    let overlay_w = overlay.clone();
-                    button.connect_clicked(move |_| {
-                        start_auto_scroll(&state, &window_w, &overlay_w, &capturing_pill);
-                    });
-                }
-                2 => {
                     // Done — stop the timer, stitch captured frames into a
                     // single tall Pixbuf, store the result, close. main.rs
                     // picks up the result and opens the annotation canvas.
@@ -678,7 +850,7 @@ fn wire_capturing_pill(
                     let result = Rc::clone(result);
                     let pill_w = pill.clone();
                     button.connect_clicked(move |_| {
-                        stop_capture(&state);
+                        stop_capture_with_window(&state, &window_w);
                         let frames: Vec<Pixbuf> = state
                             .borrow()
                             .frames
@@ -720,6 +892,14 @@ fn wire_capturing_pill(
     }
 }
 
+fn stop_capture_with_window(state: &Rc<RefCell<OverlayState>>, window: &gtk::ApplicationWindow) {
+    // Restore keyboard mode in case Cancel/Done is pressed mid-auto-scroll.
+    if state.borrow().auto_scroll_active {
+        window.set_keyboard_mode(KeyboardMode::OnDemand);
+    }
+    stop_capture(state);
+}
+
 fn stop_capture(state: &Rc<RefCell<OverlayState>>) {
     let timer = state.borrow_mut().capture_timer.take();
     if let Some(t) = timer {
@@ -732,99 +912,194 @@ fn stop_capture(state: &Rc<RefCell<OverlayState>>) {
     if let Some(stop) = state.borrow_mut().auto_scroll_stop.take() {
         stop.store(true, Ordering::Relaxed);
     }
-    state.borrow_mut().phase = Phase::Selected;
+    let mut s = state.borrow_mut();
+    s.phase = Phase::Selected;
+    s.auto_scroll_active = false;
 }
 
-fn start_auto_scroll(
+/// Click handler for the inside-selection Auto-Scroll buttons. The user's
+/// cursor is already on the clicked button (inside the selection rect), so
+/// there's no `motion_absolute` jump like the old outside-pill path: we
+/// just hide both buttons, drop them from the input region (which lets the
+/// underlying surface receive events there), and after the next idle
+/// synthesise a middle-click + start the keypress loop via the worker.
+#[allow(clippy::too_many_arguments)]
+fn start_auto_scroll_at(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
     overlay: &gtk::Overlay,
     capturing_pill: &gtk::Box,
+    vert_btn: &gtk::Button,
+    horiz_btn: &gtk::Button,
+    clicked_btn: &gtk::Button,
+    direction: auto_scroll::ScrollDirection,
 ) {
     if state.borrow().auto_scroll_stop.is_some() {
         return;
     }
-    // Park the cursor slightly BELOW the selection's center — clear of
-    // the Move handle's input island in the center, clear of the edge
-    // resize bands at the perimeter, but still inside the selection rect.
-    // That way the synthetic middle-click lands on the underlying app
-    // (pass-through region) and transfers focus correctly.
-    let scale = capturing_pill.scale_factor().max(1);
+
+    // Park the virtual pointer at the right-edge mid-height of the
+    // selection (in browser content this is the scrollbar gutter — a
+    // non-interactive region with no hover-driven repaints). The
+    // previous behaviour parked the cursor at the clicked button's
+    // centre, which after the buttons hid landed on whatever underlying
+    // text/link/card was there and triggered hover effects mid-scroll
+    // — those animations confused SAD on a few pairs (low confidence,
+    // wrong delta). Right-edge mid-height is INSIDE the selection (so
+    // still in the pass-through region) but typically empty.
+    let scale = clicked_btn.scale_factor().max(1);
+    let sel_now = state.borrow().selection;
+    // Park on the right side, ~30 logical px from the right edge, AND
+    // near the bottom of the selection (~60 px above the bottom edge).
+    // - Right side: typically the content gutter, so most of the time
+    //   the cursor sits over whitespace rather than centred text.
+    // - Lower in the capture zone: a Chrome link-hover URL preview
+    //   overlay appears at the BOTTOM of the viewport, so if a link
+    //   does roll under the cursor and Chrome fires the preview, the
+    //   preview will mostly land BELOW the cursor's row. Captured
+    //   frames are taller above the cursor than below, so the overlay
+    //   intersects fewer appended rows in the stitched output. (10 px
+    //   on the scrollbar itself broke keyboard focus on Chrome.)
+    let park_x_logical = (sel_now.x + sel_now.w - 30.0).max(sel_now.x + 1.0);
+    let park_y_logical = (sel_now.y + sel_now.h - 60.0).max(sel_now.y + 1.0);
+    let cursor_x = (park_x_logical as i32) * scale;
+    let cursor_y = (park_y_logical as i32) * scale;
+    let _ = clicked_btn;
+
+    // Hide both buttons IMMEDIATELY (synchronously) so the next 100 ms
+    // capture_tick can't snapshot the screen with them still rendered.
+    // The deferred idle handler in `position_capturing_pill_and_input`
+    // then commits the input-region update without re-showing them
+    // (auto_scroll_active=true).
+    vert_btn.set_visible(false);
+    horiz_btn.set_visible(false);
+    state.borrow_mut().auto_scroll_active = true;
     let sel = state.borrow().selection;
-    let cursor_x_logical = sel.x + sel.w / 2.0;
-    let cursor_y_logical = (sel.y + sel.h / 2.0 + MOVE_HANDLE_RADIUS + 12.0)
-        .min(sel.y + sel.h - EDGE_HIT_SLACK - 4.0);
-    let cursor_x = (cursor_x_logical as i32) * scale;
-    let cursor_y = (cursor_y_logical as i32) * scale;
+    position_capturing_pill_and_input(
+        window,
+        overlay,
+        capturing_pill,
+        vert_btn,
+        horiz_btn,
+        sel,
+        true,
+    );
 
-    let stop = Arc::new(AtomicBool::new(false));
-    if let Err(e) = auto_scroll::spawn_worker(Arc::clone(&stop), cursor_x, cursor_y) {
-        eprintln!("scroll-capture: auto-scroll failed to start: {e}");
-        return;
-    }
-    let _ = window;
-    let baseline = state.borrow().frames.len();
-    {
-        let mut s = state.borrow_mut();
-        s.auto_scroll_stop = Some(stop);
-        s.auto_scroll_baseline_frames = baseline;
-        s.auto_scroll_quiet_ticks = 0;
-    }
+    // Release keyboard focus from our layer-shell surface so arrow keys
+    // sent by the virtual keyboard are routed to whichever surface has
+    // pointer focus (i.e. the underlying app after the virtual-pointer
+    // motion below). Without this, our overlay still owns keyboard focus
+    // because the user just clicked one of our buttons — and Hyprland
+    // doesn't transfer keyboard focus on virtual-pointer motion alone.
+    // Symptom we hit before this fix: first auto-scroll click is a no-op
+    // (keys go to our overlay), subsequent clicks work only after the
+    // user jiggles the real mouse, which actually moves pointer+keyboard
+    // focus to the underlying surface. We restore OnDemand when the
+    // worker exits (see monitor + stop_capture).
+    window.set_keyboard_mode(KeyboardMode::None);
 
-    let monitor = {
-        let state = Rc::clone(state);
-        let pill = capturing_pill.clone();
-        let window = window.clone();
-        let overlay = overlay.clone();
-        glib::timeout_add_local(Duration::from_millis(500), move || {
-            let mut s = state.borrow_mut();
-            let Some(stop) = s.auto_scroll_stop.clone() else {
-                return glib::ControlFlow::Break;
-            };
-            let cur = s.frames.len();
-            if cur > s.auto_scroll_baseline_frames {
-                s.auto_scroll_quiet_ticks = 0;
-                s.auto_scroll_baseline_frames = cur;
-                return glib::ControlFlow::Continue;
-            }
-            s.auto_scroll_quiet_ticks += 1;
-            // 3 monitor ticks × 500ms = 1.5s of no new frames retained.
-            if s.auto_scroll_quiet_ticks < 3 {
-                return glib::ControlFlow::Continue;
-            }
-            stop.store(true, Ordering::Relaxed);
-            s.auto_scroll_stop = None;
-            s.auto_scroll_monitor = None;
-            let sel = s.selection;
-            drop(s);
-            end_of_content_ui(&window, &overlay, &pill, sel);
-            glib::ControlFlow::Break
-        })
-    };
-    state.borrow_mut().auto_scroll_monitor = Some(monitor);
+    let state_w = Rc::clone(state);
+    let window_w = window.clone();
+    let overlay_w = overlay.clone();
+    let pill_w = capturing_pill.clone();
+    let vert_btn_w = vert_btn.clone();
+    let horiz_btn_w = horiz_btn.clone();
+    glib::idle_add_local_once(move || {
+        let stop = Arc::new(AtomicBool::new(false));
+        // Sync the cycle counter to "0 = no cycles yet" for this run, so
+        // capture_tick only pushes a frame once the worker reports its
+        // first completed keypress cycle.
+        let cycle_counter = Arc::new(AtomicU64::new(0));
+        if let Err(e) = auto_scroll::spawn_worker(
+            Arc::clone(&stop),
+            Arc::clone(&cycle_counter),
+            cursor_x,
+            cursor_y,
+            direction,
+        ) {
+            eprintln!("scroll-capture: auto-scroll failed to start: {e}");
+            // Roll back the active flag and restore buttons.
+            state_w.borrow_mut().auto_scroll_active = false;
+            position_capturing_pill_and_input(
+                &window_w, &overlay_w, &pill_w, &vert_btn_w, &horiz_btn_w, sel, false,
+            );
+            return;
+        }
+        let baseline = state_w.borrow().frames.len();
+        {
+            let mut s = state_w.borrow_mut();
+            s.auto_scroll_stop = Some(stop);
+            s.auto_scroll_baseline_frames = baseline;
+            s.auto_scroll_quiet_ticks = 0;
+            s.auto_scroll_cycle_counter = cycle_counter;
+            s.last_captured_cycle = 0;
+            s.consecutive_no_scroll = 0;
+        }
+
+        let monitor = {
+            let state = Rc::clone(&state_w);
+            let pill = pill_w.clone();
+            let window = window_w.clone();
+            let overlay = overlay_w.clone();
+            let vert_btn = vert_btn_w.clone();
+            let horiz_btn = horiz_btn_w.clone();
+            glib::timeout_add_local(Duration::from_millis(500), move || {
+                let mut s = state.borrow_mut();
+                let Some(stop) = s.auto_scroll_stop.clone() else {
+                    return glib::ControlFlow::Break;
+                };
+                let cur = s.frames.len();
+                if cur > s.auto_scroll_baseline_frames {
+                    s.auto_scroll_quiet_ticks = 0;
+                    s.auto_scroll_baseline_frames = cur;
+                    return glib::ControlFlow::Continue;
+                }
+                s.auto_scroll_quiet_ticks += 1;
+                // 3 monitor ticks × 500ms = 1.5s of no new frames retained.
+                if s.auto_scroll_quiet_ticks < 3 {
+                    return glib::ControlFlow::Continue;
+                }
+                stop.store(true, Ordering::Relaxed);
+                s.auto_scroll_stop = None;
+                s.auto_scroll_monitor = None;
+                s.auto_scroll_active = false;
+                let sel = s.selection;
+                drop(s);
+                // Restore keyboard focus on our layer-shell surface so
+                // Cancel/Done buttons + Esc work again.
+                window.set_keyboard_mode(KeyboardMode::OnDemand);
+                end_of_content_ui(&window, &overlay, &pill, &vert_btn, &horiz_btn, sel);
+                glib::ControlFlow::Break
+            })
+        };
+        state_w.borrow_mut().auto_scroll_monitor = Some(monitor);
+    });
 }
 
 fn end_of_content_ui(
     window: &gtk::ApplicationWindow,
     overlay: &gtk::Overlay,
     capturing_pill: &gtk::Box,
+    vert_btn: &gtk::Button,
+    horiz_btn: &gtk::Button,
     sel: Selection,
 ) {
+    // Highlight Done (index 1 in the new 2-button pill).
     let mut child = capturing_pill.first_child();
     let mut idx = 0;
     while let Some(c) = child {
         let next = c.next_sibling();
-        match idx {
-            1 => c.set_visible(false), // Auto-Scroll button hidden
-            2 => c.add_css_class("scroll-capture-done-highlight"), // Done emphasized
-            _ => {}
+        if idx == 1 {
+            c.add_css_class("scroll-capture-done-highlight");
         }
         idx += 1;
         child = next;
     }
-    // Pill's natural width shrank when Auto-Scroll hid — re-position so the
-    // remaining buttons stay centered on the selection.
-    position_capturing_pill_and_input(window, overlay, capturing_pill, sel);
+    // Bring the inside Auto-Scroll buttons back so the user can run
+    // another pass or click Done.
+    position_capturing_pill_and_input(
+        window, overlay, capturing_pill, vert_btn, horiz_btn, sel, false,
+    );
 }
 
 
@@ -866,11 +1141,6 @@ fn build_capturing_pill() -> gtk::Box {
     cancel.add_css_class("scroll-capture-cancel");
     pill.append(&cancel);
 
-    let auto_scroll = gtk::Button::with_label("\u{25B6}  Auto-Scroll");
-    auto_scroll.add_css_class("scroll-capture-button");
-    auto_scroll.add_css_class("scroll-capture-auto");
-    pill.append(&auto_scroll);
-
     let done = gtk::Button::with_label("\u{2713}  Done");
     done.add_css_class("scroll-capture-button");
     done.add_css_class("scroll-capture-primary");
@@ -878,6 +1148,41 @@ fn build_capturing_pill() -> gtk::Box {
 
     pill
 }
+
+/// Vertical Auto-Scroll button — small dark pill with ▼ icon, anchored
+/// bottom-center inside the selection. Click sends Down-arrow keypresses.
+///
+/// Forces a fixed size_request so positioning + the surface input-region
+/// rect agree on the button's bounds even before its first allocation.
+/// Without this, `measure()` on a never-shown button can return values
+/// smaller than the eventual allocation (CSS not applied yet), which both
+/// off-centers the pill and leaves part of it outside the input region —
+/// causing clicks to fall through to the underlying app.
+fn build_inside_vert_auto_scroll() -> gtk::Button {
+    let btn = gtk::Button::with_label("\u{25BC}  Auto-Scroll");
+    btn.add_css_class("scroll-capture-button");
+    btn.add_css_class("scroll-capture-auto");
+    btn.add_css_class("scroll-capture-inside-auto");
+    btn.set_size_request(VERT_AUTO_SCROLL_W as i32, VERT_AUTO_SCROLL_H as i32);
+    btn
+}
+
+/// Horizontal Auto-Scroll button — circular ▶ icon, anchored right-center
+/// inside the selection. Click sends Right-arrow keypresses.
+fn build_inside_horiz_auto_scroll() -> gtk::Button {
+    let btn = gtk::Button::with_label("\u{25B6}");
+    btn.add_css_class("scroll-capture-button");
+    btn.add_css_class("scroll-capture-auto");
+    btn.add_css_class("scroll-capture-inside-auto");
+    btn.add_css_class("scroll-capture-inside-auto-horiz");
+    btn.set_size_request(HORIZ_AUTO_SCROLL_W as i32, HORIZ_AUTO_SCROLL_H as i32);
+    btn
+}
+
+const VERT_AUTO_SCROLL_W: f64 = 150.0;
+const VERT_AUTO_SCROLL_H: f64 = 40.0;
+const HORIZ_AUTO_SCROLL_W: f64 = 44.0;
+const HORIZ_AUTO_SCROLL_H: f64 = 44.0;
 
 fn pill_natural_size(pill: &gtk::Box) -> (f64, f64) {
     let (_, w_nat, _, _) = pill.measure(gtk::Orientation::Horizontal, -1);
@@ -960,21 +1265,33 @@ fn set_pill_input_region(
     surface.set_input_region(&region);
 }
 
+/// Distance the inside Auto-Scroll buttons sit from the selection's
+/// bottom / right edge.
+const INSIDE_AUTO_SCROLL_INSET: f64 = 40.0;
+
 fn position_capturing_pill_and_input(
     window: &gtk::ApplicationWindow,
     overlay: &gtk::Overlay,
     pill: &gtk::Box,
+    vert_btn: &gtk::Button,
+    horiz_btn: &gtk::Button,
     sel: Selection,
+    auto_scroll_active: bool,
 ) {
-    // Place the capturing pill OUTSIDE the selection. The capture region
-    // exactly matches the selection rect, so any pixel our overlay renders
-    // inside that rect ends up baked into every captured frame. Strict
-    // priority: below the selection if there's room; otherwise above; only
-    // as a last resort (a selection that fills the entire screen) accept
-    // placement inside.
+    // Place the capturing pill (Cancel/Done) OUTSIDE the selection. The
+    // capture region exactly matches the selection rect, so any pixel our
+    // overlay renders inside that rect ends up baked into every captured
+    // frame. Below the selection if there's room; otherwise above.
+    //
+    // While `auto_scroll_active` is false, also position + show the inside
+    // Auto-Scroll buttons (vertical and horizontal) and include their bounds
+    // in the input region. While active, hide them and exclude them so they
+    // never appear in captured frames.
     let window = window.clone();
     let overlay = overlay.clone();
     let pill = pill.clone();
+    let vert_btn = vert_btn.clone();
+    let horiz_btn = horiz_btn.clone();
     glib::idle_add_local_once(move || {
         let (pw, ph) = measured_pill_size(&pill);
         let x = (sel.x + (sel.w - pw) / 2.0).max(8.0);
@@ -992,7 +1309,69 @@ fn position_capturing_pill_and_input(
         };
         pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
-        set_pill_input_region(&window, x, y, pw, ph, sel, false);
+
+        let Some(surface) = window.surface() else { return };
+        let pad: i32 = 6;
+        let pill_rect = cairo::RectangleInt::new(
+            (x as i32) - pad,
+            (y as i32) - pad,
+            (pw as i32) + 2 * pad,
+            (ph as i32) + 2 * pad,
+        );
+        let region = cairo::Region::create_rectangle(&pill_rect);
+
+        if auto_scroll_active {
+            vert_btn.set_visible(false);
+            horiz_btn.set_visible(false);
+        } else {
+            // Vertical Auto-Scroll: bottom-center inside the selection.
+            let (vw, vh) = (VERT_AUTO_SCROLL_W, VERT_AUTO_SCROLL_H);
+            let vx = (sel.x + (sel.w - vw) / 2.0)
+                .max(sel.x + 4.0)
+                .min((sel.x + sel.w - vw - 4.0).max(sel.x + 4.0));
+            let vy = (sel.y + sel.h - INSIDE_AUTO_SCROLL_INSET - vh)
+                .max(sel.y + 4.0);
+            vert_btn.set_margin_start(vx as i32);
+            vert_btn.set_margin_top(vy as i32);
+            vert_btn.set_visible(true);
+            // Pad slightly so antialiased edges + size_request rounding
+            // don't leave any sub-pixel slack outside the input region.
+            let pad: i32 = 4;
+            region
+                .union_rectangle(&cairo::RectangleInt::new(
+                    vx as i32 - pad,
+                    vy as i32 - pad,
+                    vw as i32 + 2 * pad,
+                    vh as i32 + 2 * pad,
+                ))
+                .ok();
+
+            // Horizontal Auto-Scroll: right-center inside the selection.
+            let (hw, hh) = (HORIZ_AUTO_SCROLL_W, HORIZ_AUTO_SCROLL_H);
+            let hx = (sel.x + sel.w - INSIDE_AUTO_SCROLL_INSET - hw)
+                .max(sel.x + 4.0);
+            let hy = (sel.y + (sel.h - hh) / 2.0)
+                .max(sel.y + 4.0)
+                .min((sel.y + sel.h - hh - 4.0).max(sel.y + 4.0));
+            horiz_btn.set_margin_start(hx as i32);
+            horiz_btn.set_margin_top(hy as i32);
+            horiz_btn.set_visible(true);
+            region
+                .union_rectangle(&cairo::RectangleInt::new(
+                    hx as i32 - pad,
+                    hy as i32 - pad,
+                    hw as i32 + 2 * pad,
+                    hh as i32 + 2 * pad,
+                ))
+                .ok();
+
+            eprintln!(
+                "scroll-capture: auto-scroll buttons placed vert=({},{},{}x{}) horiz=({},{},{}x{})",
+                vx as i32, vy as i32, vw as i32, vh as i32,
+                hx as i32, hy as i32, hw as i32, hh as i32,
+            );
+        }
+        surface.set_input_region(&region);
     });
 }
 
@@ -1009,25 +1388,6 @@ fn measured_pill_size(pill: &gtk::Box) -> (f64, f64) {
     (w_nat as f64, h_nat as f64)
 }
 
-fn stripe_hash(pixbuf: &Pixbuf) -> u64 {
-    let h = pixbuf.height();
-    let w = pixbuf.width();
-    let rowstride = pixbuf.rowstride() as usize;
-    let pixels = unsafe { pixbuf.pixels() };
-    let mid = (h / 2).max(0);
-    let band_top = (mid - STRIPE_ROWS / 2).max(0) as usize;
-    let band_bot = (mid + STRIPE_ROWS / 2).min(h - 1).max(0) as usize;
-    let bytes_per_row = (w as usize) * 4;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for y in band_top..=band_bot {
-        let start = y * rowstride;
-        let end = start + bytes_per_row;
-        if end <= pixels.len() {
-            hasher.write(&pixels[start..end]);
-        }
-    }
-    hasher.finish()
-}
 
 fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
     let _ = cr.save();
