@@ -1279,12 +1279,14 @@ impl Component for App {
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
         let bottom_row = gtk::CenterBox::new();
-        // Fixed row height — keeps the bar identical in regular and
-        // crop modes (StyleToolbar gets hidden in Crop, but the row's
-        // height stays put so the canvas doesn't shift). 55 px gives
-        // the compact 34-px buttons a comfortable margin and leaves
-        // room for the size slider's detent labels.
-        bottom_row.set_height_request(55);
+        // Fixed row height — keeps the bar identical across every tool
+        // and in crop mode (StyleToolbar gets hidden in Crop, but the
+        // row's height stays put so the canvas doesn't shift). 58 px is
+        // the size slider's natural height including its XS–XXL detent
+        // labels — the tallest content any tool puts in the row — so
+        // every tool matches it instead of the slider tools rendering
+        // a few px taller than Pointer / Spotlight / Crop.
+        bottom_row.set_height_request(58);
         // Honour `default_hide_toolbars` at startup so first-launch and
         // post-Ctrl+T states agree (the toolbars themselves already gate
         // on this flag — see `set_visible: !default_hide_toolbars()`
