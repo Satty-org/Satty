@@ -43,11 +43,11 @@ pub struct Crop {
     /// Position of the crop frame in CANVAS (CSS-pixel) coords,
     /// derived from the image-coord `pos`/`size` via the renderer's
     /// transform whenever the tool refreshes (`refresh_canvas_from_image`).
-    /// During inside-out edit (CROP_INSIDE_OUT_PLAN.md) the canvas-
-    /// coord twin is what the user sees fixed on screen; the wheel +
-    /// pan phases re-derive image coords FROM this pair to keep the
-    /// canvas frame anchored while the image scales / scrolls
-    /// beneath it. Outside edit mode the value is stale bookkeeping.
+    /// During inside-out edit the canvas-coord twin is what the user
+    /// sees fixed on screen; wheel-zoom and pan gestures re-derive
+    /// image coords FROM this pair to keep the canvas frame anchored
+    /// while the image scales / scrolls beneath it. Outside edit mode
+    /// the value is stale bookkeeping.
     canvas_pos: Vec2D,
     canvas_size: Vec2D,
     /// Color of the matte rendered OUTSIDE the crop rectangle. Set
@@ -65,9 +65,7 @@ pub struct CropTool {
     /// bottom-left checkbox, persisted via
     /// `state::save_snap_to_edges`. Defaults to true. Holding Alt
     /// during a drag temporarily bypasses snap regardless of this
-    /// flag — Ctrl is reserved for the inside-out pan gesture
-    /// (CROP_INSIDE_OUT_PLAN.md, Phase 5), so the temporary-defeat
-    /// modifier moved off Ctrl onto Alt.
+    /// flag 
     snap_to_edges: bool,
     /// Image dimensions in image-space pixels. Set once at app
     /// startup; snap targets are derived from this (image edges +
@@ -1003,8 +1001,8 @@ impl CropTool {
     /// is not committed (the post-Enter zoomed-in view doesn't count).
     /// Sketch_board reads this to decide whether a wheel-zoom or pan
     /// gesture should re-derive the image-coord rect from the canvas-
-    /// coord twin (canvas-fixed frame, Phase 4/5) or fall through to
-    /// the normal full-canvas zoom + pan.
+    /// coord twin (canvas-fixed frame) or fall through to the normal
+    /// full-canvas zoom + pan.
     pub fn is_active_edit(&self) -> bool {
         self.crop
             .as_ref()

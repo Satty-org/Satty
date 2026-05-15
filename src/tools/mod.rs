@@ -529,8 +529,7 @@ pub trait Drawable: DrawableClone + Debug {
 /// What kind of preview the layer panel should paint for a drawable.
 /// `Icon` defers to `Drawable::icon_name`; the other variants pick a
 /// cairo silhouette painted in the drawable's primary color so the row
-/// visually mirrors the canvas shape (generalises the arrow preview
-/// pattern from Phase 4 to any tinted shape).
+/// visually mirrors the canvas shape.
 #[derive(Debug, Clone, Copy)]
 pub enum PanelPreview {
     Icon,

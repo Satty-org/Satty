@@ -474,8 +474,8 @@ impl FemtoVGArea {
     /// `effective_offset` reflect the new zoom before this call
     /// returns. The crop tool's inside-out edit workflow reads the
     /// transform right after this call to re-derive its image-coord
-    /// rect against the new transform (Phase 4 of CROP_INSIDE_OUT_PLAN.md);
-    /// without the synchronous flush it would see stale values.
+    /// rect against the new transform; without the synchronous flush
+    /// it would see stale values.
     pub fn set_zoom_scale_at_cursor(&self, factor: f32) {
         let anchor = self
             .imp()

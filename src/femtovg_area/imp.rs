@@ -1292,8 +1292,8 @@ impl FemtoVgAreaMut {
     }
 
     /// Replace the stack order with `new_order` if it's a permutation of
-    /// the current ids. Used by drag-to-reorder (Phase 5). Records a
-    /// single `Reorder` undo entry.
+    /// the current ids. Used by drag-to-reorder. Records a single
+    /// `Reorder` undo entry.
     pub fn reorder_to(&mut self, new_order: Vec<DrawableId>) -> bool {
         if new_order.len() != self.drawables.len() {
             return false;

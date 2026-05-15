@@ -101,9 +101,7 @@ pub enum SketchBoardInput {
         id: DrawableId,
         additive: bool,
     },
-    /// Panel eye toggle: flip the drawable's `visible` flag.
     PanelToggleVisible(DrawableId),
-    /// Panel lock toggle: flip the drawable's `locked` flag.
     PanelToggleLocked(DrawableId),
     /// Panel reorder buttons (Front/Up/Down/Back) — explicit id form.
     PanelMoveDrawable {
@@ -115,7 +113,7 @@ pub enum SketchBoardInput {
     /// adjacent moves don't fight each other (top-down for ToTop/Up,
     /// bottom-up for ToBottom/Down).
     PanelMoveSelected(PanelMoveDir),
-    /// Drag-to-reorder dropped: commit `new_order` (Phase 5).
+    /// Drag-to-reorder dropped: commit `new_order`.
     PanelReorderTo(Vec<DrawableId>),
     /// Convenience drop event: insert `src` immediately above (panel
     /// terms) or below `target`. Sketch_board computes the resulting
@@ -711,7 +709,6 @@ pub struct SketchBoard {
     /// `sticky_session_defaults` is on; a missing entry falls back
     /// to `state::load_fill_for_tool` (the saved default).
     session_fill_per_tool: HashMap<Tools, bool>,
-    /// Layer panel state.
     layer_panel_open: bool,
     /// Vertical Box of layer rows. Owned directly here so the rebuild
     /// helper can clear+repopulate it on every drawable-stack change.
@@ -1552,14 +1549,13 @@ impl SketchBoard {
             ZoomCommand::FitCanvas => self.renderer.reset_size(0.0),
             ZoomCommand::Abs(scale) => self.renderer.reset_size(scale),
         }
-        // Inside-out crop edit (Phase 6 of CROP_INSIDE_OUT_PLAN.md):
-        // an explicit zoom command (toolbar / indicator) re-frames the
-        // canvas around the image, so the user's image-coord crop
-        // region is the durable intent — re-derive canvas-from-image
-        // (A direction) so the on-canvas frame adjusts to the new
-        // transform while still bounding the same image region.
-        // Distinct from wheel/pan (Phase 4/5), which use the opposite
-        // direction (canvas stays put, image re-derives).
+        // Inside-out crop edit: an explicit zoom command (toolbar /
+        // indicator) re-frames the canvas around the image, so the
+        // user's image-coord crop region is the durable intent —
+        // re-derive canvas-from-image (A direction) so the on-canvas
+        // frame adjusts to the new transform while still bounding the
+        // same image region. Distinct from wheel/pan, which use the
+        // opposite direction (canvas stays put, image re-derives).
         if self.active_tool_type() == Tools::Crop {
             let crop_tool = self.tools.get_crop_tool();
             let in_edit = crop_tool.borrow().is_active_edit();
@@ -2015,10 +2011,10 @@ impl SketchBoard {
         // Push the renderer's current image↔canvas transform into the
         // crop tool and refresh its canvas-coord frame from the
         // (post-Activated) image-coord rect. Sets up the inside-out
-        // edit workflow's canvas-fixed anchor for the upcoming wheel +
-        // pan phases (CROP_INSIDE_OUT_PLAN.md). Done after Activated so
-        // any seed-from-bounds or un-commit mutation in `handle_activated`
-        // has finished before we sample.
+        // edit workflow's canvas-fixed anchor for the wheel-zoom and
+        // pan gestures. Done after Activated so any seed-from-bounds
+        // or un-commit mutation in `handle_activated` has finished
+        // before we sample.
         if tool == Tools::Crop {
             // `handle_activated` may have just flipped a committed crop
             // back to uncommitted — at that instant the cached

@@ -52,7 +52,7 @@ pub fn capture(region: Option<Rect>) -> Result<Pixbuf> {
         .bind::<zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1, _, _>(&qh, 1..=3, ())
         .context("compositor does not expose zwlr_screencopy_manager_v1 (wlroots-only)")?;
 
-    // Pick the first wl_output. Multi-monitor selection is a Phase 2 concern.
+    // Pick the first wl_output. Multi-monitor selection is not yet supported.
     let output = globals
         .bind::<wl_output::WlOutput, _, _>(&qh, 1..=4, ())
         .context("no wl_output globals")?;

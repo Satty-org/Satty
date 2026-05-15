@@ -1521,7 +1521,6 @@ pub struct StyleToolbar {
     /// Currently-selected arrow geometry. Same role as `blur_style`
     /// for the arrow MenuButton's leading icon.
     arrow_style: ArrowStyle,
-    /// Popover hanging off the arrow-style MenuButton.
     arrow_style_popover: Option<gtk::Popover>,
     /// DrawingArea rendering the live preview on the arrow MenuButton.
     /// Stashed so `SetArrowStyle` can `queue_draw()` after flipping the
@@ -1554,7 +1553,6 @@ pub struct StyleToolbar {
     /// highlighter MenuButton's tooltip wording and is the seed for
     /// the dropdown's "active" indicator.
     highlighter_style: crate::tools::HighlighterStyle,
-    /// Popover hanging off the highlighter-style MenuButton.
     highlighter_style_popover: Option<gtk::Popover>,
     /// Inner Label of the highlighter MenuButton's tooltip — same
     /// role as the arrow / blur ones. Updated on `SetHighlighterStyle`.
@@ -1572,7 +1570,6 @@ fn blur_style_icon(s: BlurStyle) -> &'static str {
     }
 }
 
-/// Human label for the blur-style popover rows.
 fn blur_style_label(s: BlurStyle) -> &'static str {
     match s {
         BlurStyle::Pixelate => "Pixelate",
@@ -1600,12 +1597,10 @@ fn highlighter_style_icon(s: crate::tools::HighlighterStyle) -> &'static str {
     }
 }
 
-/// Human label for the highlighter-style popover rows.
 fn highlighter_style_label(s: crate::tools::HighlighterStyle) -> &'static str {
     s.display_name()
 }
 
-/// Human label for the arrow-style popover rows.
 fn arrow_style_label(s: ArrowStyle) -> &'static str {
     match s {
         ArrowStyle::Standard => "Standard",
@@ -1828,7 +1823,6 @@ fn blur_tooltip_text(s: BlurStyle) -> String {
     blur_style_label(s).to_string()
 }
 
-/// Tooltip text for the highlighter-style MenuButton.
 fn highlighter_tooltip_text(s: crate::tools::HighlighterStyle) -> String {
     highlighter_style_label(s).to_string()
 }
@@ -2159,7 +2153,6 @@ pub enum ToolsToolbarInput {
     /// User pressed Enter in the W entry (or `None` if the typed
     /// text didn't parse — we ignore it).
     CropWidthEntered(Option<i32>),
-    /// User pressed Enter in the H entry.
     CropHeightEntered(Option<i32>),
     /// User clicked the ↔ swap button between the W/H entries.
     /// Swaps the current dimensions and emits a fresh
