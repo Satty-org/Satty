@@ -800,15 +800,16 @@ impl SketchBoard {
 
         // Check body hit
         if let Some(idx) = self.renderer.hit_test(me.pos)
+            && let Some(new_idx) = self.renderer.move_drawable_to_end(idx)
             && let (Some(drawable), Some(bounds)) = (
-                self.renderer.get_drawable_clone(idx),
-                self.renderer.get_drawable_bounds(idx),
+                self.renderer.get_drawable_clone(new_idx),
+                self.renderer.get_drawable_bounds(new_idx),
             )
         {
-            self.renderer.set_hidden_drawable_index(Some(idx));
+            self.renderer.set_hidden_drawable_index(Some(new_idx));
             self.pointer_tool
                 .borrow_mut()
-                .begin_move(idx, drawable, bounds);
+                .begin_move(new_idx, drawable, bounds);
             return Some(ToolUpdateResult::Redraw);
         }
 

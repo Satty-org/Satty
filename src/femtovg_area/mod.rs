@@ -202,6 +202,14 @@ impl FemtoVGArea {
             .replace_drawable(index, drawable);
     }
 
+    pub fn move_drawable_to_end(&mut self, index: usize) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_to_end(index)
+    }
+
     pub fn remove_drawable(&mut self, index: usize) {
         self.imp()
             .inner()

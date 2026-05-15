@@ -343,6 +343,21 @@ impl FemtoVgAreaMut {
         }
     }
 
+    /// Move the drawable at `index` to the end of the stack and return its new index.
+    pub fn move_drawable_to_end(&mut self, index: usize) -> Option<usize> {
+        if index >= self.drawables.len() {
+            return None;
+        }
+
+        if index + 1 == self.drawables.len() {
+            return Some(index);
+        }
+
+        let drawable = self.drawables.remove(index);
+        self.drawables.push(drawable);
+        Some(self.drawables.len() - 1)
+    }
+
     /// Remove the drawable at `index`, shifting subsequent drawables down.
     pub fn remove_drawable(&mut self, index: usize) {
         if index < self.drawables.len() {

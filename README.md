@@ -85,7 +85,7 @@ Default single-key shortcuts:
 ### Tool Modifiers and Keys
 
 - Pointer: <sup>NEXTRELEASE</sup>
-  - <kbd>Click</kbd> on annotation to select it
+  - <kbd>Click</kbd> on annotation to select and raise it to top
   - <kbd>Delete</kbd> to delete selected annotation
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
