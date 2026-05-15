@@ -16,6 +16,7 @@ use relm4::gtk::prelude::*;
 use crate::capture;
 
 pub mod auto_scroll;
+mod stitch;
 
 const BACKDROP_ALPHA: f64 = 0.55;
 const BRACKET_LEN: f64 = 22.0;
@@ -66,15 +67,23 @@ struct OverlayState {
     auto_scroll_monitor: Option<glib::SourceId>,
 }
 
-pub fn run() -> Result<()> {
+/// Run the scroll-capture overlay. Returns `Ok(Some(pixbuf))` when the user
+/// completes the capture (Done) and `Ok(None)` on Cancel/Esc. The pixbuf is
+/// the stitched result of all captured frames, ready to feed into the
+/// annotation canvas.
+pub fn run() -> Result<Option<Pixbuf>> {
+    let result: Rc<RefCell<Option<Pixbuf>>> = Rc::new(RefCell::new(None));
+
     let app = gtk::Application::builder()
         .application_id("com.gabm.satty.scroll-capture")
         .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
-    app.connect_activate(build_overlay);
+    {
+        let result = Rc::clone(&result);
+        app.connect_activate(move |app| build_overlay(app, &result));
+    }
 
-    // Don't let GTK try to parse satty's CLI args.
     let exit_code = app.run_with_args::<&str>(&[]);
     if exit_code != gtk::glib::ExitCode::SUCCESS {
         return Err(anyhow!(
@@ -82,10 +91,10 @@ pub fn run() -> Result<()> {
             exit_code
         ));
     }
-    Ok(())
+    Ok(result.borrow_mut().take())
 }
 
-fn build_overlay(app: &gtk::Application) {
+fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
     let state = Rc::new(RefCell::new(OverlayState {
         phase: Phase::AwaitingDrag,
         drag_origin: (0.0, 0.0),
@@ -300,7 +309,7 @@ fn build_overlay(app: &gtk::Application) {
     }
 
     // Wire capturing-pill buttons (Cancel / Auto-Scroll / Done).
-    wire_capturing_pill(&state, &window, &capturing_pill);
+    wire_capturing_pill(&state, &window, &capturing_pill, result);
 
     window.present();
 }
@@ -373,6 +382,7 @@ fn wire_capturing_pill(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
     pill: &gtk::Box,
+    result: &Rc<RefCell<Option<Pixbuf>>>,
 ) {
     let mut child = pill.first_child();
     let mut idx = 0;
@@ -401,14 +411,45 @@ fn wire_capturing_pill(
                     });
                 }
                 2 => {
-                    // Done — stop the timer, log frame count, close. Phase 5
-                    // will replace this with stitch + handoff into the canvas.
+                    // Done — stop the timer, stitch captured frames into a
+                    // single tall Pixbuf, store the result, close. main.rs
+                    // picks up the result and opens the annotation canvas.
                     let window_w = window.clone();
                     let state = Rc::clone(state);
+                    let result = Rc::clone(result);
+                    let pill_w = pill.clone();
                     button.connect_clicked(move |_| {
                         stop_capture(&state);
-                        let n = state.borrow().frames.len();
-                        eprintln!("scroll-capture: Done — {n} frame(s) captured");
+                        let frames: Vec<Pixbuf> = state
+                            .borrow()
+                            .frames
+                            .iter()
+                            .map(|f| f.pixbuf.clone())
+                            .collect();
+                        // Expected per-tick scroll: ARROWS_PER_TICK arrows ×
+                        // ~40 logical px per arrow × HiDPI scale = px in the
+                        // captured-frame coordinate space.
+                        let scale = pill_w.scale_factor().max(1) as u32;
+                        let expected_delta = (auto_scroll::ARROWS_PER_TICK
+                            * auto_scroll::ARROW_SCROLL_LOGICAL_PX
+                            * scale) as usize;
+                        eprintln!(
+                            "scroll-capture: Done — stitching {} frame(s) (expected delta {} px)...",
+                            frames.len(), expected_delta
+                        );
+                        let t0 = std::time::Instant::now();
+                        match stitch::stitch(&frames, expected_delta) {
+                            Ok(pixbuf) => {
+                                eprintln!(
+                                    "scroll-capture: stitched output {}x{} in {:?}",
+                                    pixbuf.width(), pixbuf.height(), t0.elapsed()
+                                );
+                                *result.borrow_mut() = Some(pixbuf);
+                            }
+                            Err(e) => {
+                                eprintln!("scroll-capture: stitch failed: {e}");
+                            }
+                        }
                         window_w.close();
                     });
                 }
@@ -615,24 +656,30 @@ fn position_capturing_pill_and_input(
     pill: &gtk::Box,
     sel: Selection,
 ) {
+    // Place the capturing pill OUTSIDE the selection. The capture region
+    // exactly matches the selection rect, so any pixel our overlay renders
+    // inside that rect ends up baked into every captured frame. Strict
+    // priority: below the selection if there's room; otherwise above; only
+    // as a last resort (a selection that fills the entire screen) accept
+    // placement inside.
     let window = window.clone();
     let overlay = overlay.clone();
     let pill = pill.clone();
     glib::idle_add_local_once(move || {
         let (pw, ph) = measured_pill_size(&pill);
-        let x = sel.x + (sel.w - pw) / 2.0;
-        // Inside the selection, bottom-centered, so clicking Auto-Scroll parks
-        // the cursor inside the scrollable region for virtual-pointer events.
-        let inside_y = sel.y + sel.h - ph - PILL_GAP;
-        let y = if inside_y < sel.y + 8.0 {
-            sel.y + sel.h + PILL_GAP
+        let x = (sel.x + (sel.w - pw) / 2.0).max(8.0);
+        let overlay_h = overlay.allocated_height() as f64;
+        let below_y = sel.y + sel.h + PILL_GAP;
+        let above_y = sel.y - ph - PILL_GAP;
+        let y = if below_y + ph + 8.0 <= overlay_h {
+            below_y
+        } else if above_y >= 8.0 {
+            above_y
         } else {
-            inside_y
+            // No room outside the selection — fall back to the gap below
+            // anyway (captures will pick up the pill in that corner).
+            (overlay_h - ph - 8.0).max(8.0)
         };
-        let y = y
-            .min(overlay.allocated_height() as f64 - ph - 8.0)
-            .max(8.0);
-        let x = x.max(8.0);
         pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
         set_pill_input_region(&window, x, y, pw, ph);

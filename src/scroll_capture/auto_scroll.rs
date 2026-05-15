@@ -29,18 +29,32 @@ const NOTCH_VALUE: f64 = 10.0;
 /// sending wheel events — most apps have no action bound to middle-click.
 const BTN_MIDDLE: u32 = 0x112;
 
-/// linux/input-event-codes.h KEY_PAGEDOWN. PgDn is widely respected by
-/// scrollable apps (browsers, editors, viewers).
-const KEY_PAGEDOWN: u32 = 109;
+/// linux/input-event-codes.h KEY_DOWN. We send several Down-arrow presses
+/// per scroll tick instead of one PgDn so the per-tick scroll delta is
+/// smaller than the user's selection height — that way each captured frame
+/// overlaps the previous one and the stitcher can find the alignment.
+const KEY_DOWN: u32 = 108;
 
-/// Minimal xkb keymap. Maps xkb keycode 117 (kernel KEY_PAGEDOWN=109 + 8
-/// xkb offset) to the Page_Down keysym. The compositor uses this keymap to
-/// interpret the key events we send via the virtual keyboard.
+/// How many Down-arrow presses per scroll tick. 5 presses ≈ 200 logical px
+/// of scroll in most browsers (~40 logical px per arrow), small enough to
+/// fit within typical selections while still progressing visibly.
+pub const ARROWS_PER_TICK: u32 = 5;
+
+/// Approximate scroll (in logical pixels) produced by a single Down-arrow
+/// keypress in typical browsers. The stitcher uses this as a hint so the
+/// SAD search only has to refine within a narrow window around the
+/// expected delta — much faster than an unconstrained search and immune
+/// to sticky-header local minima.
+pub const ARROW_SCROLL_LOGICAL_PX: u32 = 40;
+
+/// Minimal xkb keymap. Maps xkb keycode 116 (kernel KEY_DOWN=108 + 8 xkb
+/// offset) to the Down keysym. The compositor uses this keymap to interpret
+/// the key events we send via the virtual keyboard.
 const KEYMAP_TEMPLATE: &str = r#"xkb_keymap {
     xkb_keycodes "minimal" {
         minimum = 8;
         maximum = 255;
-        <PGDN> = 117;
+        <DOWN> = 116;
     };
     xkb_types "complete" {
         type "ONE_LEVEL" {
@@ -50,7 +64,7 @@ const KEYMAP_TEMPLATE: &str = r#"xkb_keymap {
     };
     xkb_compatibility "complete" {};
     xkb_symbols "minimal" {
-        key <PGDN> { [ Page_Down ] };
+        key <DOWN> { [ Down ] };
     };
 };
 "#;
@@ -229,10 +243,23 @@ pub fn spawn_worker(stop: Arc<AtomicBool>, cursor_x: i32, cursor_y: i32) -> Resu
         thread::sleep(Duration::from_millis(80));
 
         while !stop.load(Ordering::Relaxed) {
-            // Press + release PageDown. Most scrollable apps respond.
+            // Send several Down-arrow presses per tick. Each arrow scrolls
+            // ~40 logical px in most browsers — small enough that the per-
+            // tick scroll stays within the user's selection rect and the
+            // captured frames overlap enough for the stitcher to align.
             let t = time_ms(start);
-            keyboard.key(t, KEY_PAGEDOWN, wl_keyboard::KeyState::Pressed.into());
-            keyboard.key(t + 1, KEY_PAGEDOWN, wl_keyboard::KeyState::Released.into());
+            for i in 0..ARROWS_PER_TICK {
+                keyboard.key(
+                    t + i * 2,
+                    KEY_DOWN,
+                    wl_keyboard::KeyState::Pressed.into(),
+                );
+                keyboard.key(
+                    t + i * 2 + 1,
+                    KEY_DOWN,
+                    wl_keyboard::KeyState::Released.into(),
+                );
+            }
             let _ = event_queue.flush();
             thread::sleep(Duration::from_millis(SCROLL_INTERVAL_MS));
         }

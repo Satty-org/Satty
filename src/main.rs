@@ -1718,27 +1718,28 @@ fn run_satty() -> Result<()> {
         APP_CONFIG.write().set_annotation_size_factor(saved);
     }
 
-    // Snapshot the config values we need into owned locals, then
-    // drop the read guard before app.run. `app.run` blocks for the
-    // entire app lifetime; holding the read guard across it would
-    // deadlock any `APP_CONFIG.write()` made during the run (e.g.
-    // the welcome dialog persisting `annotation_size_factor`).
-    let (input_filename, app_id_pref): (String, Option<String>) = {
+    let image = load_input_image()?;
+    start_gui(image)
+}
+
+fn load_input_image() -> Result<Pixbuf> {
+    // Snapshot config values into owned locals so we can drop the read
+    // guard before any GUI startup. `app.run` later blocks for the app
+    // lifetime; holding a read guard across it deadlocks any later
+    // `APP_CONFIG.write()` (e.g. welcome dialog persisting prefs).
+    let (input_filename, scroll_capture_test) = {
         let config = APP_CONFIG.read();
         (
             config.input_filename().to_string(),
-            config.app_id().map(|s| s.to_string()),
+            config.scroll_capture_test().copied(),
         )
     };
-
     generate_profile_output!("loading image");
-    // load input image
-    let scroll_capture_test = APP_CONFIG.read().scroll_capture_test().copied();
-    let image = if let Some(spec) = scroll_capture_test {
+    if let Some(spec) = scroll_capture_test {
         match spec {
-            ScrollCaptureTest::Full => capture::capture_output()?,
+            ScrollCaptureTest::Full => capture::capture_output(),
             ScrollCaptureTest::Region { x, y, width, height } => {
-                capture::capture_region(capture::Rect { x, y, width, height })?
+                capture::capture_region(capture::Rect { x, y, width, height })
             }
         }
     } else if input_filename == "-" {
@@ -1749,11 +1750,14 @@ fn run_satty() -> Result<()> {
         pb_loader.close()?;
         pb_loader
             .pixbuf()
-            .ok_or(anyhow!("Conversion to Pixbuf failed"))?
+            .ok_or(anyhow!("Conversion to Pixbuf failed"))
     } else {
-        Pixbuf::from_file(&input_filename).context("couldn't load image")?
-    };
+        Pixbuf::from_file(&input_filename).context("couldn't load image")
+    }
+}
 
+fn start_gui(image: Pixbuf) -> Result<()> {
+    let app_id_pref = APP_CONFIG.read().app_id().map(|s| s.to_string());
     generate_profile_output!("image loaded, starting gui");
     // Pre-compute the text-band detection once on the loaded image.
     // The Highlighter tool reads this cache via `text_bands::bands()`
@@ -1763,7 +1767,6 @@ fn run_satty() -> Result<()> {
     // (~20 ms on a 4K capture) that the user can't tell it ran.
     text_bands::init_from_pixbuf(&image);
     generate_profile_output!("text bands detected");
-    // start GUI
     let app = relm4::main_application();
     let app_id = match app_id_pref.as_deref() {
         Some(id) if Application::id_is_valid(id) => Some(id),
@@ -1774,9 +1777,7 @@ fn run_satty() -> Result<()> {
         None => Some("com.gabm.satty"),
     };
     app.set_application_id(app_id);
-    // set flag to allow to run multiple instances
     app.set_flags(ApplicationFlags::NON_UNIQUE);
-    // create relm app and run
     let app = RelmApp::from_app(app).with_args(vec![]);
     relm4_icons::initialize_icons(
         icons::icon_names::GRESOURCE_BYTES,
@@ -1813,7 +1814,11 @@ fn main() -> Result<()> {
                 eprintln!("Error: {e}");
                 Err(e)
             }
-            Ok(()) => Ok(()),
+            Ok(None) => Ok(()),
+            Ok(Some(image)) => {
+                load_gl()?;
+                start_gui(image)
+            }
         };
     }
 
