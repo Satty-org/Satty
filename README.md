@@ -58,7 +58,12 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 
 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette
 
+#### Toggle fill <sup>NEXTRELEASE</sup>
+
+<kbd>f</kbd>
+
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
+
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool

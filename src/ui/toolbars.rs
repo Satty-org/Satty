@@ -30,6 +30,7 @@ pub struct StyleToolbar {
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
     visible: bool,
+    fill_enabled: bool,
     annotation_size: f32,
     annotation_size_formatted: String,
     annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
@@ -71,6 +72,7 @@ pub enum StyleToolbarInput {
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
+    SetFill(bool),
     ShowAnnotationDialog,
     AnnotationDialogFinished(Option<f32>),
     DimensionsChanged((i32, i32)),
@@ -572,20 +574,15 @@ impl Component for StyleToolbar {
                 set_focusable: false,
                 set_hexpand: false,
 
-                set_icon_name: if APP_CONFIG.read().default_fill_shapes() {
+                #[watch]
+                set_icon_name: if model.fill_enabled {
                     "paint-bucket-filled"
                 } else {
                     "paint-bucket-regular"
                 },
-                set_tooltip: "Fill shape",
-                connect_clicked[sender] => move |button| {
+                set_tooltip: "Fill shape (f)",
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleFill);
-                    let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
-                        "paint-bucket-filled"
-                    } else {
-                        "paint-bucket-regular"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
         },
@@ -637,6 +634,9 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
+            }
+            StyleToolbarInput::SetFill(fill_enabled) => {
+                self.fill_enabled = fill_enabled;
             }
             StyleToolbarInput::DimensionsChanged((width, height)) => {
                 self.output_dimensions = format!("{}x{}", width, height);
@@ -702,6 +702,7 @@ impl Component for StyleToolbar {
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
+            fill_enabled: APP_CONFIG.read().default_fill_shapes(),
             annotation_size: APP_CONFIG.read().annotation_size_factor(),
             annotation_size_formatted: format!(
                 "{0:.2}",
