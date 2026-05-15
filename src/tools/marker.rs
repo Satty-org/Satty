@@ -33,6 +33,12 @@ impl Drawable for Marker {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Marker"
+    }
+    fn icon_name(&self) -> &'static str {
+        "number-circle-1-regular"
+    }
 
     fn draw(
         &self,

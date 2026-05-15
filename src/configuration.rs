@@ -104,6 +104,11 @@ pub struct Configuration {
     /// defaults snap back on every tool switch. Spotlight darkness
     /// is unaffected — it's already global per-session.
     sticky_session_defaults: bool,
+    /// Keyboard chord that toggles the layer panel. Parsed at the
+    /// keypress site by `parse_shortcut`; format is e.g. "ctrl+l",
+    /// "ctrl+shift+t", "f7". Unrecognised values silently fall back
+    /// to "no binding" — the toolbar button still works.
+    layer_panel_shortcut: String,
 }
 
 pub struct Keybinds {
@@ -451,6 +456,9 @@ impl Configuration {
         if let Some(v) = general.app_id {
             self.app_id = Some(v);
         }
+        if let Some(v) = general.layer_panel_shortcut {
+            self.layer_panel_shortcut = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy
@@ -715,6 +723,10 @@ impl Configuration {
         self.default_hide_toolbars
     }
 
+    pub fn layer_panel_shortcut(&self) -> &str {
+        &self.layer_panel_shortcut
+    }
+
     pub fn focus_toggles_toolbars(&self) -> bool {
         self.focus_toggles_toolbars
     }
@@ -902,6 +914,7 @@ impl Default for Configuration {
             close_on_esc: false,
             hide_default_palette: false,
             sticky_session_defaults: false,
+            layer_panel_shortcut: "ctrl+l".into(),
         }
     }
 }
@@ -997,6 +1010,7 @@ struct ConfigurationFileGeneral {
     input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
+    layer_panel_shortcut: Option<String>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,

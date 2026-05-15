@@ -73,6 +73,18 @@ impl Drawable for SpotlightKind {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Spotlight"
+    }
+    fn icon_name(&self) -> &'static str {
+        "flashlight-regular"
+    }
+    fn panel_swatch(&self) -> crate::tools::PanelSwatch {
+        // Spotlight's effect is a dim overlay with a "highlighted"
+        // cutout — render that exact metaphor in the swatch instead
+        // of trying to express it as a single color.
+        crate::tools::PanelSwatch::SpotlightOverlay
+    }
 
     /// Spotlights render in a separate pass at the end of the frame
     /// (see `FemtoVgAreaMut::render`); their main-pass `draw` is a

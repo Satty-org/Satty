@@ -187,6 +187,12 @@ pub trait Tool {
     /// a working copy of a selection).
     fn set_drawable_store(&mut self, _store: Rc<dyn DrawableStore>) {}
 
+    /// Inform the tool which drawing tool is currently the user-selected
+    /// active tool — only meaningful for `PointerTool` when it's being
+    /// consulted in implicit mode. Default no-op so sketch_board can
+    /// broadcast without checking tool type.
+    fn set_implicit_other_tool(&mut self, _tool: Option<Tools>) {}
+
     /// Switch the arrow geometry (only meaningful for `ArrowTool`). Default
     /// no-op so the toolbar can broadcast without checking tool type.
     fn set_arrow_style(&mut self, _style: ArrowStyle) {}
@@ -263,6 +269,18 @@ pub trait DrawableStore {
     fn drawables_in_rect(&self, rect: Rect) -> Vec<DrawableId>;
     /// All committed drawable ids (back-to-front order). Used for Ctrl+A.
     fn all_drawable_ids(&self) -> Vec<DrawableId>;
+    /// True if some other *visible* drawable above `id` in the stack has
+    /// bounds that intersect `id`'s bounds — i.e. raising `id` would
+    /// actually change what the user sees. Locked drawables still count
+    /// (they're visually present); hidden drawables don't. Drives the
+    /// auto-raise heuristic in the pointer tool.
+    fn has_visible_overlapper_above(&self, id: DrawableId) -> bool;
+    /// True when the drawable is currently locked. The pointer tool
+    /// reads this on Delete/Backspace to spare locked drawables from
+    /// being removed by accident (works for both single-selection
+    /// deletion and Ctrl+A + Delete bulk paths). Returns false for
+    /// missing ids so callers don't need a separate existence check.
+    fn is_drawable_locked(&self, id: DrawableId) -> bool;
 }
 
 #[derive(Clone, Debug)]
@@ -391,10 +409,63 @@ pub trait Drawable: DrawableClone + Debug {
         None
     }
 
+    /// Short human label for the layer panel row ("Rectangle", "Arrow", …).
+    /// The panel appends a running ordinal so duplicates read as "Arrow 2",
+    /// "Arrow 3"; the per-Drawable override just supplies the type word.
+    fn kind_label(&self) -> &'static str {
+        "Shape"
+    }
+
+    /// Layer-panel label variant that may include per-instance state in
+    /// the kind word — e.g. `Arrow` prepends its style so a Pointy arrow
+    /// reads "Pointy Arrow 1" rather than just "Arrow 1". Default returns
+    /// `kind_label` as a `String`. The panel still appends a running
+    /// ordinal so callers don't need to track numbering.
+    fn panel_label_kind(&self) -> String {
+        self.kind_label().to_string()
+    }
+
+    /// What to draw in the kind-icon slot of the layer-panel row.
+    /// Default `Icon` keeps the gtk::Image fallback (no color tint);
+    /// shape-like drawables override to return a cairo-rendered
+    /// variant so the silhouette honors the drawable's actual color
+    /// and fill state. Caller passes the variant to
+    /// `draw_panel_preview` in sketch_board.
+    fn panel_preview(&self) -> PanelPreview {
+        PanelPreview::Icon
+    }
+
+    /// What to paint in the leftmost (swatch) slot of the row.
+    /// Default reads the drawable's primary color from `style()` and
+    /// returns `Color(...)` if present, else `None` — drawables with
+    /// non-color "effects" (Blur, Spotlight) override to return a
+    /// dedicated icon or fixed tone.
+    fn panel_swatch(&self) -> PanelSwatch {
+        match self.style() {
+            Some(s) => PanelSwatch::Color(s.color),
+            None => PanelSwatch::None,
+        }
+    }
+
+    /// Icon resource name for the layer panel row. Should match an entry in
+    /// `icons.toml`. Defaults to the pen icon so any new Drawable type still
+    /// shows *something* before its override lands.
+    fn icon_name(&self) -> &'static str {
+        "pen-regular"
+    }
+
     /// Apply / read the blur algorithm on a Blur drawable. Same
     /// shape as `set_arrow_style_on_drawable` / `arrow_style`.
     fn set_blur_style_on_drawable(&mut self, _style: BlurStyle) {}
     fn blur_style(&self) -> Option<BlurStyle> {
+        None
+    }
+
+    /// Highlighter style of a committed Highlight stroke
+    /// (TextLocked vs Normal). `None` for all other drawables. The
+    /// layer panel uses this to label rows as
+    /// "Text-locked Highlight 1" vs "Normal Highlight 1".
+    fn highlighter_style(&self) -> Option<HighlighterStyle> {
         None
     }
 
@@ -452,6 +523,44 @@ pub trait Drawable: DrawableClone + Debug {
         canvas.restore();
         Ok(())
     }
+}
+
+/// What kind of preview the layer panel should paint for a drawable.
+/// `Icon` defers to `Drawable::icon_name`; the other variants pick a
+/// cairo silhouette painted in the drawable's primary color so the row
+/// visually mirrors the canvas shape (generalises the arrow preview
+/// pattern from Phase 4 to any tinted shape).
+#[derive(Debug, Clone, Copy)]
+pub enum PanelPreview {
+    Icon,
+    Rectangle { filled: bool },
+    Ellipse { filled: bool },
+    Line,
+    Arrow(ArrowStyle),
+}
+
+/// What to paint in the row's swatch slot. The default mapping is
+/// `style().color → Color`, or `None` for drawables without a style —
+/// individual drawable types override to surface a more useful
+/// indicator (e.g. Spotlight returns the `SpotlightOverlay` variant
+/// because its effect is a dim global mask, not a stroke color).
+#[derive(Debug, Clone, Copy)]
+pub enum PanelSwatch {
+    /// Filled color, clickable to open the color picker. The standard
+    /// case for shapes and strokes that carry a `Style::color`.
+    Color(crate::style::Color),
+    /// Grey-outlined empty box, non-interactive. Used for drawables
+    /// that have no mutable color (Image, Crop) so the swatch slot
+    /// remains visually balanced with neighbouring colored rows.
+    None,
+    /// 2×2 transparency-checkerboard pattern — Blur uses this since
+    /// "what you see through the blur" depends on the canvas content,
+    /// not a single color.
+    Checkerboard,
+    /// Dark fill with a 1px light border and a small white rounded
+    /// "highlight" box inside, representing the spotlight tool's
+    /// dim-overlay-with-cutout effect at swatch scale.
+    SpotlightOverlay,
 }
 
 /// Convert `HALO_PAD` (CSS pixels) into image units given the canvas's
@@ -728,11 +837,46 @@ pub fn mirror_side_target(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DrawableId(pub u64);
 
-/// A drawable that has been committed to the stack, paired with its stable ID.
+/// A drawable that has been committed to the stack, paired with its stable ID
+/// and per-instance UI state (visibility + lock + optional custom name).
+///
+/// `visible = false` hides the drawable from rendering, hit-testing, and
+/// marquee selection — but it stays in the stack and still contributes to
+/// canvas auto-resize bounds (hiding ≠ deleting). `locked = true` keeps the
+/// drawable visible but skips it from hit-testing and marquee selection so
+/// background annotations can't be grabbed by accident. `custom_name`, when
+/// `Some`, overrides the auto-generated "Rectangle 3" label in the layer
+/// panel — set via click-to-rename.
 #[derive(Debug)]
 pub struct Stacked {
     pub id: DrawableId,
     pub drawable: Box<dyn Drawable>,
+    pub visible: bool,
+    pub locked: bool,
+    pub custom_name: Option<String>,
+    /// Ordinal assigned at commit time, monotonically increasing within
+    /// each `kind_label`. Frozen for the lifetime of the drawable so
+    /// reorders don't renumber rows ("Rectangle 3" stays "Rectangle 3"
+    /// even if it gets dragged to the top of the panel). Custom names
+    /// supersede this for display.
+    pub auto_label_index: u32,
+}
+
+impl Stacked {
+    pub fn new(
+        id: DrawableId,
+        drawable: Box<dyn Drawable>,
+        auto_label_index: u32,
+    ) -> Self {
+        Self {
+            id,
+            drawable,
+            visible: true,
+            locked: false,
+            custom_name: None,
+            auto_label_index,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -751,6 +895,12 @@ pub enum ToolUpdateResult {
     ModifyDrawableCoalesce(DrawableId, Box<dyn Drawable>),
     /// Multi-select counterpart of `ModifyDrawableCoalesce`.
     ModifyDrawablesCoalesce(Vec<(DrawableId, Box<dyn Drawable>)>),
+    /// Raise the drawable with this id to the top of the stack (coalesced
+    /// `Reorder` undo), then redraw and stop propagation. Used by the
+    /// pointer-tool auto-raise: when a click selects a drawable that's
+    /// overlapped from above, sketch_board promotes it to the top so the
+    /// last-interacted shape sits on top of its neighbors.
+    RaiseAndRedrawStop(DrawableId),
     /// Remove the drawable from the stack. Recorded as a Remove undo action so
     /// it can be restored.
     DeleteDrawable(DrawableId),
@@ -777,11 +927,17 @@ pub enum ToolUpdateResult {
 pub enum UndoAction {
     /// A drawable with this id was added; it currently lives in the stack.
     Add(DrawableId),
-    /// A drawable was removed; this action holds it until restored.
+    /// A drawable was removed; this action holds it until restored. Carries
+    /// the per-instance visibility/lock state so undo restores the drawable
+    /// exactly as it was.
     Remove {
         id: DrawableId,
         idx: usize,
         drawable: Box<dyn Drawable>,
+        visible: bool,
+        locked: bool,
+        custom_name: Option<String>,
+        auto_label_index: u32,
     },
     /// A drawable was modified. `prev` is the state to restore on the next swap.
     /// (After a swap, `prev` becomes the *new* previous, so the same variant can
@@ -794,6 +950,31 @@ pub enum UndoAction {
     /// the whole group. Used for multi-select operations like deleting a set
     /// of drawables at once.
     Batch(Vec<UndoAction>),
+    /// The drawable stack was reordered. `prev_order` is the full id sequence
+    /// (back-to-front) to restore on undo. `last_raised` is set when the
+    /// action came from `reorder_to_top_coalesce`; the next auto-raise of
+    /// the same id collapses into this entry instead of pushing a new one,
+    /// so a chain of click-to-raises on one shape is undone in a single step.
+    Reorder {
+        prev_order: Vec<DrawableId>,
+        last_raised: Option<DrawableId>,
+    },
+    /// A drawable's per-instance UI flags (visibility, lock) changed.
+    /// `prev_visible` / `prev_locked` are the values to restore on undo.
+    /// One variant carries both so a future "toggle both" action remains
+    /// reversible with a single Ctrl+Z.
+    SetLayerFlags {
+        id: DrawableId,
+        prev_visible: bool,
+        prev_locked: bool,
+    },
+    /// A drawable's custom panel name changed. `prev` is the string to
+    /// restore on undo; `None` means "no custom name was set" (back to
+    /// the auto-generated label).
+    Rename {
+        id: DrawableId,
+        prev: Option<String>,
+    },
     /// Canvas was auto-extended to fit a drawable that spilled past the
     /// previous image bounds. Holds the pre-extension Pixbuf, the
     /// `(left, top)` translation applied to the listed drawables when

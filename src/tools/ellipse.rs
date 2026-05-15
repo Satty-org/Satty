@@ -30,6 +30,17 @@ impl Drawable for Ellipse {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Ellipse"
+    }
+    fn icon_name(&self) -> &'static str {
+        "circle-regular"
+    }
+    fn panel_preview(&self) -> crate::tools::PanelPreview {
+        crate::tools::PanelPreview::Ellipse {
+            filled: self.style.fill,
+        }
+    }
 
     fn draw(
         &self,

@@ -328,6 +328,41 @@ impl Drawable for Blur {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Blur"
+    }
+    fn icon_name(&self) -> &'static str {
+        // Mirrors `blur_style_icon` in toolbars — keeps the panel row's
+        // kind icon visually distinct between Pixelate / SecureBlur /
+        // Gaussian / BlackOut. Re-using the same icon set the style
+        // dropdown already uses also means we don't add four more icons
+        // to the bundle.
+        use BlurStyle::*;
+        match self.blur_style {
+            Pixelate => "tetris-app-regular",
+            SecureBlur => "shield-lock-regular",
+            Gaussian => "drop-regular",
+            BlackOut => "weather-moon-regular",
+        }
+    }
+    fn panel_label_kind(&self) -> String {
+        // Style-prefixed label so users can tell Pixelate vs Gaussian
+        // at a glance. "Secure Blur" / "Black Out" already read as
+        // standalone — appending "Blur" would just stutter.
+        use BlurStyle::*;
+        match self.blur_style {
+            Pixelate => "Pixelate Blur".into(),
+            SecureBlur => "Secure Blur".into(),
+            Gaussian => "Gaussian Blur".into(),
+            BlackOut => "Black Out".into(),
+        }
+    }
+    fn panel_swatch(&self) -> crate::tools::PanelSwatch {
+        // Blur doesn't have a "color" — its effect is to obscure
+        // whatever sits beneath. The transparency-checker pattern
+        // visually reads as "the content shows through, modified".
+        crate::tools::PanelSwatch::Checkerboard
+    }
 
     fn draw(
         &self,

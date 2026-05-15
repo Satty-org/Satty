@@ -145,6 +145,92 @@ impl FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .delete_many(ids)
     }
+    pub fn reorder_to_top_coalesce(&mut self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .reorder_to_top_coalesce(id)
+    }
+    pub fn drawable_flags(&self, id: DrawableId) -> Option<(bool, bool)> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .drawable_flags(id)
+    }
+    pub fn set_drawable_flags(
+        &mut self,
+        id: DrawableId,
+        visible: bool,
+        locked: bool,
+    ) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_drawable_flags(id, visible, locked)
+    }
+    pub fn move_drawable_up(&mut self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_up(id)
+    }
+    pub fn move_drawable_down(&mut self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_down(id)
+    }
+    pub fn move_drawable_to_top(&mut self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_to_top(id)
+    }
+    pub fn move_drawable_to_bottom(&mut self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_to_bottom(id)
+    }
+    pub fn reorder_to(&mut self, new_order: Vec<DrawableId>) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .reorder_to(new_order)
+    }
+    pub fn drawable_custom_name(&self, id: DrawableId) -> Option<String> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .drawable_custom_name(id)
+    }
+    pub fn drawable_auto_label_index(&self, id: DrawableId) -> Option<u32> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .drawable_auto_label_index(id)
+    }
+    pub fn set_drawable_custom_name(
+        &mut self,
+        id: DrawableId,
+        name: Option<String>,
+    ) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_drawable_custom_name(id, name)
+    }
     pub fn drawables_in_rect(&self, rect: crate::math::Rect) -> Vec<DrawableId> {
         self.imp()
             .inner()
@@ -158,6 +244,13 @@ impl FemtoVGArea {
             .as_mut()
             .expect("Did you call init before using FemtoVgArea?")
             .all_drawable_ids()
+    }
+    pub fn has_visible_overlapper_above(&self, id: DrawableId) -> bool {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .has_visible_overlapper_above(id)
     }
     pub fn hit_test(&self, point: Vec2D, tolerance: f32) -> Option<DrawableId> {
         self.imp()
@@ -253,6 +346,7 @@ impl FemtoVGArea {
             .map(|i| i.image_dimensions())
             .unwrap_or((0, 0))
     }
+
 
     /// Current image-to-canvas scale factor — image-space lengths
     /// multiplied by this give canvas-pixel sizes. Used by callers
@@ -542,6 +636,14 @@ impl FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .set_spotlight_darkness(value);
     }
+
+    pub fn spotlight_darkness(&self) -> f32 {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .spotlight_darkness()
+    }
 }
 
 impl DrawableStore for FemtoVGArea {
@@ -559,5 +661,15 @@ impl DrawableStore for FemtoVGArea {
 
     fn all_drawable_ids(&self) -> Vec<DrawableId> {
         FemtoVGArea::all_drawable_ids(self)
+    }
+
+    fn has_visible_overlapper_above(&self, id: DrawableId) -> bool {
+        FemtoVGArea::has_visible_overlapper_above(self, id)
+    }
+
+    fn is_drawable_locked(&self, id: DrawableId) -> bool {
+        FemtoVGArea::drawable_flags(self, id)
+            .map(|(_visible, locked)| locked)
+            .unwrap_or(false)
     }
 }

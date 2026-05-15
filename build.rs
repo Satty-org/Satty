@@ -95,6 +95,18 @@ fn main() -> Result<(), io::Error> {
             "text-regular",
             // (The arrow-style picker uses cairo-drawn previews
             // matching the real arrow shapes; no icons needed.)
+            // Layer-panel toggle button (F7).
+            "layer-diagonal-regular",
+            // Per-row visibility + lock toggles.
+            "eye-regular",
+            "eye-off-regular",
+            "lock-closed-regular",
+            "lock-open-regular",
+            // Reorder footer buttons.
+            "arrow-up-regular",
+            "arrow-down-regular",
+            "chevron-double-up-regular",
+            "chevron-double-down-regular",
         ],
     );
 

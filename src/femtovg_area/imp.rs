@@ -402,6 +402,11 @@ pub struct FemtoVgAreaMut {
     undo_stack: Vec<UndoAction>,
     redo_stack: Vec<UndoAction>,
     next_drawable_id: u64,
+    /// Per-kind monotonic counter for `Stacked::auto_label_index`.
+    /// Incremented at every commit, never decremented — so a layer's
+    /// ordinal stays stable across reorders (and across delete + redo
+    /// chains, which carry the original index in `UndoAction::Remove`).
+    next_label_index: std::collections::HashMap<&'static str, u32>,
     zoom_scale: f32,
     last_scale: f32,
     pointer_offset: Vec2D,
@@ -675,6 +680,7 @@ impl FemtoVGArea {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             next_drawable_id: 0,
+            next_label_index: std::collections::HashMap::new(),
             zoom_scale: 0.0,
             pointer_offset: Vec2D::zero(),
             last_offset: Vec2D::zero(),
@@ -828,7 +834,14 @@ impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) -> DrawableId {
         let id = DrawableId(self.next_drawable_id);
         self.next_drawable_id += 1;
-        self.drawables.push(Stacked { id, drawable });
+        // Assign + bump the per-kind ordinal. Indices start at 1 so the
+        // first rectangle reads as "Rectangle 1" not "Rectangle 0".
+        let kind = drawable.kind_label();
+        let counter = self.next_label_index.entry(kind).or_insert(1);
+        let label_index = *counter;
+        *counter += 1;
+        self.drawables
+            .push(Stacked::new(id, drawable, label_index));
         self.undo_stack.push(UndoAction::Add(id));
         self.redo_stack.clear();
         id
@@ -940,6 +953,10 @@ impl FemtoVgAreaMut {
             id: stacked.id,
             idx: pos,
             drawable: stacked.drawable,
+            visible: stacked.visible,
+            locked: stacked.locked,
+            custom_name: stacked.custom_name,
+            auto_label_index: stacked.auto_label_index,
         });
         self.redo_stack.clear();
         true
@@ -1004,6 +1021,43 @@ impl FemtoVgAreaMut {
         true
     }
 
+    /// Move the drawable with `id` to the top of the stack. Records a
+    /// `Reorder` undo entry; if the previous undo entry is already a
+    /// `Reorder` for the same id, the older entry's `prev_order` is reused
+    /// and the new entry replaces it — so a chain of consecutive raises of
+    /// one shape unwinds in a single Ctrl+Z.
+    ///
+    /// Returns true if anything moved. No-ops (already topmost, missing id)
+    /// don't touch undo state.
+    pub fn reorder_to_top_coalesce(&mut self, id: DrawableId) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        if pos + 1 == self.drawables.len() {
+            return false;
+        }
+        let mut snapshot: Vec<DrawableId> =
+            self.drawables.iter().map(|s| s.id).collect();
+        let stacked = self.drawables.remove(pos);
+        self.drawables.push(stacked);
+
+        let coalesce_with_prior = matches!(
+            self.undo_stack.last(),
+            Some(UndoAction::Reorder { last_raised: Some(prev_id), .. }) if *prev_id == id
+        );
+        if coalesce_with_prior
+            && let Some(UndoAction::Reorder { prev_order, .. }) = self.undo_stack.pop()
+        {
+            snapshot = prev_order;
+        }
+        self.undo_stack.push(UndoAction::Reorder {
+            prev_order: snapshot,
+            last_raised: Some(id),
+        });
+        self.redo_stack.clear();
+        true
+    }
+
     /// Replace many drawables atomically (single Batch undo).
     pub fn modify_many(&mut self, updates: Vec<(DrawableId, Box<dyn Drawable>)>) -> bool {
         let mut actions = Vec::new();
@@ -1043,6 +1097,10 @@ impl FemtoVgAreaMut {
                 id,
                 idx: pos,
                 drawable: stacked.drawable,
+                visible: stacked.visible,
+                locked: stacked.locked,
+                custom_name: stacked.custom_name,
+                auto_label_index: stacked.auto_label_index,
             });
         }
         if actions.is_empty() {
@@ -1062,6 +1120,7 @@ impl FemtoVgAreaMut {
     pub fn drawables_in_rect(&self, rect: crate::math::Rect) -> Vec<DrawableId> {
         self.drawables
             .iter()
+            .filter(|s| s.visible && !s.locked)
             .filter(|s| {
                 s.drawable
                     .bounds()
@@ -1075,6 +1134,216 @@ impl FemtoVgAreaMut {
     /// All drawable ids in stacking order (back-to-front).
     pub fn all_drawable_ids(&self) -> Vec<DrawableId> {
         self.drawables.iter().map(|s| s.id).collect()
+    }
+
+    /// Per-instance UI state for a drawable. `None` if `id` isn't in the
+    /// stack. Both fields default to (visible=true, locked=false) at
+    /// commit time and are persisted across undo/redo via `Remove` and
+    /// `SetLayerFlags` action variants.
+    pub fn drawable_flags(&self, id: DrawableId) -> Option<(bool, bool)> {
+        self.drawables
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| (s.visible, s.locked))
+    }
+
+    pub fn drawable_custom_name(&self, id: DrawableId) -> Option<String> {
+        self.drawables
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(|s| s.custom_name.clone())
+    }
+
+    /// Auto-label ordinal assigned at commit. Stable across reorders so
+    /// the layer panel can show "Rectangle 3" regardless of where the
+    /// row currently sits in the panel. `None` if `id` isn't in the
+    /// stack.
+    pub fn drawable_auto_label_index(&self, id: DrawableId) -> Option<u32> {
+        self.drawables
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.auto_label_index)
+    }
+
+    /// Set or clear the custom panel name for `id`. Records a `Rename`
+    /// undo entry; no-op when the new value matches the current one.
+    pub fn set_drawable_custom_name(
+        &mut self,
+        id: DrawableId,
+        name: Option<String>,
+    ) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        if self.drawables[pos].custom_name == name {
+            return false;
+        }
+        let prev = self.drawables[pos].custom_name.take();
+        self.drawables[pos].custom_name = name;
+        self.undo_stack.push(UndoAction::Rename { id, prev });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Set the visible+locked flags for `id`, recording a `SetLayerFlags`
+    /// undo entry when anything actually changes. Returns true on apply.
+    pub fn set_drawable_flags(
+        &mut self,
+        id: DrawableId,
+        visible: bool,
+        locked: bool,
+    ) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let prev_visible = self.drawables[pos].visible;
+        let prev_locked = self.drawables[pos].locked;
+        if prev_visible == visible && prev_locked == locked {
+            return false;
+        }
+        self.drawables[pos].visible = visible;
+        self.drawables[pos].locked = locked;
+        self.undo_stack.push(UndoAction::SetLayerFlags {
+            id,
+            prev_visible,
+            prev_locked,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Move `id` one position toward the top of the stack (forward in the
+    /// Vec). Records a non-coalescing `Reorder` undo entry. Returns true
+    /// on apply; false if `id` is missing or already at the top.
+    pub fn move_drawable_up(&mut self, id: DrawableId) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        if pos + 1 == self.drawables.len() {
+            return false;
+        }
+        let snapshot: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
+        self.drawables.swap(pos, pos + 1);
+        self.undo_stack.push(UndoAction::Reorder {
+            prev_order: snapshot,
+            last_raised: None,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Move `id` one position toward the bottom of the stack.
+    pub fn move_drawable_down(&mut self, id: DrawableId) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        if pos == 0 {
+            return false;
+        }
+        let snapshot: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
+        self.drawables.swap(pos, pos - 1);
+        self.undo_stack.push(UndoAction::Reorder {
+            prev_order: snapshot,
+            last_raised: None,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Send `id` all the way to the bottom of the stack.
+    pub fn move_drawable_to_bottom(&mut self, id: DrawableId) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        if pos == 0 {
+            return false;
+        }
+        let snapshot: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
+        let stacked = self.drawables.remove(pos);
+        self.drawables.insert(0, stacked);
+        self.undo_stack.push(UndoAction::Reorder {
+            prev_order: snapshot,
+            last_raised: None,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Bring `id` all the way to the top of the stack. Non-coalescing
+    /// counterpart of `reorder_to_top_coalesce` — used by the explicit
+    /// "Front" button so a deliberate button press never collapses into
+    /// a prior auto-raise of the same id.
+    pub fn move_drawable_to_top(&mut self, id: DrawableId) -> bool {
+        let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        if pos + 1 == self.drawables.len() {
+            return false;
+        }
+        let snapshot: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
+        let stacked = self.drawables.remove(pos);
+        self.drawables.push(stacked);
+        self.undo_stack.push(UndoAction::Reorder {
+            prev_order: snapshot,
+            last_raised: None,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// Replace the stack order with `new_order` if it's a permutation of
+    /// the current ids. Used by drag-to-reorder (Phase 5). Records a
+    /// single `Reorder` undo entry.
+    pub fn reorder_to(&mut self, new_order: Vec<DrawableId>) -> bool {
+        if new_order.len() != self.drawables.len() {
+            return false;
+        }
+        let cur: std::collections::HashSet<DrawableId> =
+            self.drawables.iter().map(|s| s.id).collect();
+        if !new_order.iter().all(|id| cur.contains(id)) {
+            return false;
+        }
+        let snapshot: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
+        if snapshot == new_order {
+            return false;
+        }
+        let mut by_id: std::collections::HashMap<DrawableId, Stacked> = self
+            .drawables
+            .drain(..)
+            .map(|s| (s.id, s))
+            .collect();
+        for id in &new_order {
+            if let Some(s) = by_id.remove(id) {
+                self.drawables.push(s);
+            }
+        }
+        self.undo_stack.push(UndoAction::Reorder {
+            prev_order: snapshot,
+            last_raised: None,
+        });
+        self.redo_stack.clear();
+        true
+    }
+
+    /// True if some other *visible* drawable above `id` in the stack has
+    /// bounds that intersect `id`'s bounds. Hidden drawables are skipped
+    /// (nothing to see); locked drawables still count (visually present).
+    pub fn has_visible_overlapper_above(&self, id: DrawableId) -> bool {
+        let Some(my_idx) = self.drawables.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let Some(my_bounds) = self.drawables[my_idx].drawable.bounds() else {
+            return false;
+        };
+        self.drawables.iter().skip(my_idx + 1).any(|s| {
+            if !s.visible {
+                return false;
+            }
+            s.drawable
+                .bounds()
+                .map(|b| b.intersects(my_bounds))
+                .unwrap_or(false)
+        })
     }
 
     pub fn undo(&mut self) -> bool {
@@ -1111,16 +1380,34 @@ impl FemtoVgAreaMut {
                     id,
                     idx: pos,
                     drawable: stacked.drawable,
+                    visible: stacked.visible,
+                    locked: stacked.locked,
+                    custom_name: stacked.custom_name,
+                    auto_label_index: stacked.auto_label_index,
                 }
             }
             UndoAction::Remove {
                 id,
                 idx,
                 mut drawable,
+                visible,
+                locked,
+                custom_name,
+                auto_label_index,
             } => {
                 drawable.handle_redo();
                 let insert_at = idx.min(self.drawables.len());
-                self.drawables.insert(insert_at, Stacked { id, drawable });
+                self.drawables.insert(
+                    insert_at,
+                    Stacked {
+                        id,
+                        drawable,
+                        visible,
+                        locked,
+                        custom_name,
+                        auto_label_index,
+                    },
+                );
                 UndoAction::Add(id)
             }
             UndoAction::Modify { id, prev } => {
@@ -1143,6 +1430,68 @@ impl FemtoVgAreaMut {
                     .collect();
                 inverses.reverse();
                 UndoAction::Batch(inverses)
+            }
+            UndoAction::SetLayerFlags {
+                id,
+                prev_visible,
+                prev_locked,
+            } => {
+                let pos = self
+                    .drawables
+                    .iter()
+                    .position(|s| s.id == id)
+                    .expect("SetLayerFlags references missing drawable");
+                let cur_visible = self.drawables[pos].visible;
+                let cur_locked = self.drawables[pos].locked;
+                self.drawables[pos].visible = prev_visible;
+                self.drawables[pos].locked = prev_locked;
+                UndoAction::SetLayerFlags {
+                    id,
+                    prev_visible: cur_visible,
+                    prev_locked: cur_locked,
+                }
+            }
+            UndoAction::Rename { id, prev } => {
+                let pos = self
+                    .drawables
+                    .iter()
+                    .position(|s| s.id == id)
+                    .expect("Rename references missing drawable");
+                let cur = self.drawables[pos].custom_name.take();
+                self.drawables[pos].custom_name = prev;
+                UndoAction::Rename { id, prev: cur }
+            }
+            UndoAction::Reorder {
+                prev_order,
+                last_raised,
+            } => {
+                let cur_order: Vec<DrawableId> =
+                    self.drawables.iter().map(|s| s.id).collect();
+                // Rebuild stack in `prev_order`. Move-by-take with a HashMap so
+                // each Stacked transfers exactly once and drawables not named
+                // in `prev_order` (shouldn't happen, but defensive) end up at
+                // the top in their original relative order.
+                let mut by_id: std::collections::HashMap<DrawableId, Stacked> = self
+                    .drawables
+                    .drain(..)
+                    .map(|s| (s.id, s))
+                    .collect();
+                for id in &prev_order {
+                    if let Some(s) = by_id.remove(id) {
+                        self.drawables.push(s);
+                    }
+                }
+                // Anything that survived isn't in prev_order — push at top.
+                for (_, s) in by_id.drain() {
+                    self.drawables.push(s);
+                }
+                // Preserve `last_raised` on the inverse so a later live raise
+                // can still coalesce against this entry if it ends up back on
+                // the undo stack after a redo.
+                UndoAction::Reorder {
+                    prev_order: cur_order,
+                    last_raised,
+                }
             }
             UndoAction::ResizeCanvas {
                 prev_image,
@@ -1197,6 +1546,12 @@ impl FemtoVgAreaMut {
             .and_then(|t| t.dragging_drawable_id());
         for s in self.drawables.iter().rev() {
             if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
+                continue;
+            }
+            // Hidden drawables can't be hit (they're invisible) and locked
+            // drawables can't be hit (they're a fixed background that the
+            // pointer should pass through to whatever's beneath).
+            if !s.visible || s.locked {
                 continue;
             }
             if s.drawable.hit_test(point, tolerance) {
@@ -1538,6 +1893,21 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+        // Spotlight pass runs BEFORE the annotation loop so the dark
+        // overlay sits BENEATH every drawable. Annotations (arrows,
+        // text, shapes) need to stay legible regardless of spotlight
+        // darkness — running this pass after them would dim every
+        // annotation outside the spotlight cutout, including labels
+        // the user explicitly placed there to point at the focused
+        // region. Inside the cutout the punch-through still shows
+        // the background untouched, so the spotlight effect on the
+        // focus area itself is unchanged.
+        //
+        // Multiple spotlight shapes still union into one dark layer
+        // because the punch-out happens against an offscreen image
+        // first; running this pass earlier doesn't change that.
+        self.render_spotlight_overlay(canvas, bounds, restore_target, restore_transform)?;
+
         // Skip rendering of any drawable currently being dragged by either
         // tool — the tool will render the moved/transformed copy below.
         let dragging_active = self.active_tool.borrow().dragging_drawable_id();
@@ -1548,10 +1918,16 @@ impl FemtoVgAreaMut {
             if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
                 continue;
             }
-            // Spotlights render in `render_spotlight_pass` after this
-            // loop so the dark overlay sits ABOVE every other annotation
-            // (and so multiple spotlight shapes union into one dark
-            // layer instead of stacking their alpha).
+            // Layer-panel visibility: hidden drawables stay in the stack
+            // (so canvas auto-resize still includes their bounds, and undo
+            // restores them exactly) but don't render.
+            if !s.visible {
+                continue;
+            }
+            // Spotlights themselves don't `draw()` — their contribution
+            // is the punch-out path collected by the spotlight pass
+            // above. Skip so the loop only renders the annotation
+            // stack on top of the (already-composited) overlay.
             if s.drawable.is_spotlight() {
                 continue;
             }
@@ -1602,16 +1978,11 @@ impl FemtoVgAreaMut {
             d.draw(canvas, font, bounds)?;
         }
 
-        // Spotlight pass: dark overlay outside the union of all
-        // spotlight shapes. Drawn BEFORE the selection overlay so the
-        // selection handles render on top at full brightness — without
-        // this order, a spotlight selection's handles would be sitting
-        // beneath their own dark overlay and look dimmed/half-eaten.
-        self.render_spotlight_overlay(canvas, bounds, restore_target, restore_transform)?;
-
         // Selection overlay (marquee + handles for single selection).
-        // Always on top of the spotlight overlay so handles stay
-        // grabbable and visible at the standard standard blue.
+        // The spotlight overlay already ran before the annotation
+        // loop, so handles and marquee draw on top of the dim layer
+        // at full brightness without needing extra ordering tricks
+        // here.
         let single_selected_drawable = if selected_ids.len() == 1 {
             self.drawables
                 .iter()
@@ -1671,6 +2042,9 @@ impl FemtoVgAreaMut {
         let dragging_pointer = self.pointer_tool.borrow().dragging_drawable_id();
         for s in &self.drawables {
             if dragging_active == Some(s.id) || dragging_pointer == Some(s.id) {
+                continue;
+            }
+            if !s.visible {
                 continue;
             }
             if s.drawable.is_spotlight() {
@@ -1772,6 +2146,13 @@ impl FemtoVgAreaMut {
     /// becomes visible after the next `request_render`.
     pub fn set_spotlight_darkness(&mut self, value: f32) {
         self.spotlight_darkness = value.clamp(0.0, 1.0);
+    }
+
+    /// Current global spotlight darkness (0.0–1.0). Read by the
+    /// layer panel to render a swatch that matches the dim overlay
+    /// the spotlight effect actually paints.
+    pub fn spotlight_darkness(&self) -> f32 {
+        self.spotlight_darkness
     }
 
     /// Mirror the background image horizontally and invalidate the

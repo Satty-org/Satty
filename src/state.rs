@@ -112,6 +112,12 @@ pub struct PersistedState {
     /// per-session and lives in `spotlight_darkness`.
     #[serde(default)]
     pub sticky_session_defaults: Option<bool>,
+    /// Pixel width of the layer panel (Paned start_child slot). `None`
+    /// means "user hasn't dragged the divider yet" — falls back to the
+    /// in-code default. Persisted so re-opening the app puts the
+    /// divider where the user last left it.
+    #[serde(default)]
+    pub layer_panel_width: Option<f32>,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -201,6 +207,16 @@ fn slot_to_hex(slot: Option<Color>) -> HexColor {
         Some(c) => HexColor::rgba(c.r, c.g, c.b, c.a),
         None => HexColor::rgba(0, 0, 0, 0),
     }
+}
+
+pub fn load_layer_panel_width() -> Option<f32> {
+    load().layer_panel_width
+}
+
+pub fn save_layer_panel_width(value: f32) {
+    let mut state = load();
+    state.layer_panel_width = Some(value);
+    save(&state);
 }
 
 pub fn load_spotlight_darkness() -> Option<f32> {

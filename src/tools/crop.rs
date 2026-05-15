@@ -638,6 +638,12 @@ impl Drawable for Crop {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Crop"
+    }
+    fn icon_name(&self) -> &'static str {
+        "crop-filled"
+    }
 
     fn draw(
         &self,

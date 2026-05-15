@@ -119,6 +119,12 @@ pub struct HighlightStroke {
     /// Carried into the committed drawable so selection / resize /
     /// re-render all use the locked width.
     forced_width: Option<f32>,
+    /// Highlighter style at commit time. Stored on the stroke so the
+    /// layer panel can show "Text-locked Highlight" vs "Normal
+    /// Highlight" — `forced_width.is_some()` would be a close proxy
+    /// but TextLocked strokes started outside a detected text band
+    /// don't get a forced width, so the proxy isn't reliable.
+    highlight_style: HighlighterStyle,
 }
 
 impl HighlightStroke {
@@ -161,6 +167,18 @@ impl HighlightStroke {
 impl Drawable for HighlightStroke {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn kind_label(&self) -> &'static str {
+        "Highlight"
+    }
+    fn icon_name(&self) -> &'static str {
+        "highlight-regular"
+    }
+    fn panel_label_kind(&self) -> String {
+        format!("{} Highlight", self.highlight_style.display_name())
+    }
+    fn highlighter_style(&self) -> Option<HighlighterStyle> {
+        Some(self.highlight_style)
     }
 
     fn draw(
@@ -421,6 +439,7 @@ impl Tool for HighlightTool {
                             style: self.style,
                             shift_pressed,
                             forced_width: band.map(|b| b.height() + pad),
+                            highlight_style: HighlighterStyle::TextLocked,
                         });
                     }
                     HighlighterStyle::Normal => {
@@ -437,6 +456,7 @@ impl Tool for HighlightTool {
                             style: self.style,
                             shift_pressed,
                             forced_width: None,
+                            highlight_style: HighlighterStyle::Normal,
                         });
                     }
                 }

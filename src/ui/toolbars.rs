@@ -1631,7 +1631,7 @@ const ARROW_ROW_PREVIEW_H: i32 = ARROW_PREVIEW_H;
 /// constants here are tuned for legibility at preview size rather than
 /// pulled from the per-size calibration tables — at ~30 × 16 px those
 /// tables would either underflow (thin shafts disappear) or overflow.
-fn draw_arrow_preview_cairo(
+pub fn draw_arrow_preview_cairo(
     ctx: &relm4::gtk::cairo::Context,
     style: ArrowStyle,
     width: f64,
@@ -2000,6 +2000,9 @@ pub enum ToolbarEvent {
     /// canvas should grab keyboard focus back so single-key shortcuts
     /// (z, r, b, …) keep working without the user having to click first.
     FocusCanvas,
+    /// User clicked the layers button (or pressed F7). Toggles the
+    /// layer panel on the left edge of the canvas.
+    ToggleLayerPanel,
     /// Spotlight overlay darkness (0.10–0.90) — global, applies to all
     /// committed and in-progress spotlights. Sketch_board pushes the
     /// value into the renderer for the next frame.
@@ -2838,6 +2841,15 @@ impl Component for ToolsToolbar {
                         set_icon_name: "arrow-redo-filled",
                         install_tooltip: "Redo (Ctrl-Y)",
                         connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
+                    },
+                    gtk::Separator {},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "layer-diagonal-regular",
+                        install_tooltip: "Toggle layer panel (Ctrl-L)",
+                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::ToggleLayerPanel);},
                     },
                 },
 

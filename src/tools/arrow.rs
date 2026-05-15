@@ -546,6 +546,18 @@ impl Drawable for Arrow {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Arrow"
+    }
+    fn icon_name(&self) -> &'static str {
+        "arrow-up-right-filled"
+    }
+    fn panel_label_kind(&self) -> String {
+        format!("{} Arrow", self.arrow_style.display_name())
+    }
+    fn panel_preview(&self) -> crate::tools::PanelPreview {
+        crate::tools::PanelPreview::Arrow(self.arrow_style)
+    }
 
     fn draw(
         &self,

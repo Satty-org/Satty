@@ -433,6 +433,12 @@ impl Drawable for Text {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Text"
+    }
+    fn icon_name(&self) -> &'static str {
+        "text-case-title-regular"
+    }
 
     fn draw(
         &self,

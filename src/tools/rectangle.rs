@@ -31,6 +31,17 @@ impl Drawable for Rectangle {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Rectangle"
+    }
+    fn icon_name(&self) -> &'static str {
+        "rectangle-landscape-regular"
+    }
+    fn panel_preview(&self) -> crate::tools::PanelPreview {
+        crate::tools::PanelPreview::Rectangle {
+            filled: self.style.fill,
+        }
+    }
 
     fn draw(
         &self,

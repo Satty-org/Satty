@@ -35,6 +35,15 @@ impl Drawable for Line {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Line"
+    }
+    fn icon_name(&self) -> &'static str {
+        "minus-large"
+    }
+    fn panel_preview(&self) -> crate::tools::PanelPreview {
+        crate::tools::PanelPreview::Line
+    }
 
     fn draw(
         &self,

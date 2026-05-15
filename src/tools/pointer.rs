@@ -64,6 +64,14 @@ pub struct PointerTool {
     /// when it's only being consulted in implicit-mode for selection. Set
     /// from `handle_activated` / `handle_deactivated`.
     active_as_primary: bool,
+    /// Which drawing tool is currently active when we're being consulted
+    /// in implicit mode. Used to gate body-grab / body-click on existing
+    /// drawables: when this is `Some(t)` and the user clicks a drawable
+    /// whose `tool_type()` differs from `t`, we fall through so the
+    /// active drawing tool can place a fresh annotation on top instead
+    /// of stealing the gesture to grab/move the existing one. `None`
+    /// when Pointer is itself the active tool (no gating).
+    implicit_other_tool: Option<Tools>,
     /// Set true when a BeginDrag in implicit mode just deselected because the
     /// user clicked empty space. The follow-up Click event is then suppressed
     /// so e.g. the Marker tool doesn't drop a counter on the same gesture.
@@ -160,6 +168,16 @@ impl Drawable for SelectionOverlay {
 }
 
 impl PointerTool {
+    /// True when we're being consulted implicitly and the hit drawable's
+    /// owning tool doesn't match the active drawing tool — in which case
+    /// the active tool wins the gesture.
+    fn should_pass_through_body_hit(&self, drawable: &dyn Drawable) -> bool {
+        let Some(active) = self.implicit_other_tool else {
+            return false;
+        };
+        drawable.tool_type() != Some(active)
+    }
+
     /// Hit-test against the handles of the currently-selected drawable —
     /// only valid when there's exactly one selection.
     fn hit_handle(&self, point: Vec2D) -> Option<(DrawableId, Box<dyn Drawable>, Handle)> {
@@ -279,6 +297,10 @@ impl Tool for PointerTool {
         self.store = Some(store);
     }
 
+    fn set_implicit_other_tool(&mut self, tool: Option<Tools>) {
+        self.implicit_other_tool = tool;
+    }
+
     fn set_selected_drawables(&mut self, ids: Vec<DrawableId>) {
         // Drop any in-flight drag / marquee state — the caller is
         // typically replacing the selection wholesale (e.g. after a
@@ -292,6 +314,7 @@ impl Tool for PointerTool {
 
     fn handle_activated(&mut self) -> ToolUpdateResult {
         self.active_as_primary = true;
+        self.implicit_other_tool = None;
         ToolUpdateResult::Unmodified
     }
 
@@ -360,12 +383,28 @@ impl Tool for PointerTool {
                 if self.selected.is_empty() {
                     return ToolUpdateResult::Unmodified;
                 }
-                let ids = std::mem::take(&mut self.selected);
+                // Locked drawables are spared from deletion. Affects
+                // both single-target Delete and Ctrl+A + Delete bulk
+                // paths: anything locked stays in the stack AND stays
+                // selected so the user has something to act on after
+                // unlocking.
+                let store = self.store.as_ref();
+                let (to_delete, to_keep): (Vec<_>, Vec<_>) =
+                    std::mem::take(&mut self.selected).into_iter().partition(|id| {
+                        match &store {
+                            Some(s) => !s.is_drawable_locked(*id),
+                            None => true,
+                        }
+                    });
+                self.selected = to_keep;
+                if to_delete.is_empty() {
+                    return ToolUpdateResult::Unmodified;
+                }
                 self.drag = None;
-                if ids.len() == 1 {
-                    ToolUpdateResult::DeleteDrawable(ids[0])
+                if to_delete.len() == 1 {
+                    ToolUpdateResult::DeleteDrawable(to_delete[0])
                 } else {
-                    ToolUpdateResult::DeleteDrawables(ids)
+                    ToolUpdateResult::DeleteDrawables(to_delete)
                 }
             }
             Key::Escape => {
@@ -436,6 +475,23 @@ impl Tool for PointerTool {
                 if let Some(id) = store.hit_test(event.pos, HIT_TOLERANCE)
                     && let Some(drawable) = store.clone_drawable(id)
                 {
+                    // Implicit mode + tool-type mismatch: yield so the
+                    // active drawing tool places a fresh annotation on
+                    // top instead of grabbing this one. (Pointer itself
+                    // never sets `implicit_other_tool`, so explicit
+                    // selection still works for any drawable.)
+                    if self.should_pass_through_body_hit(drawable.as_ref()) {
+                        return ToolUpdateResult::Unmodified;
+                    }
+                    // Auto-raise: if some other visible drawable overlaps
+                    // this one from above, the user expects the click to
+                    // bring it forward. Hit_test already returned this id
+                    // as the topmost-at-pointer, but topmost-at-pointer
+                    // ≠ topmost-among-overlappers (other overlappers may
+                    // sit above us elsewhere along our bbox). Sketch_board
+                    // performs the coalesced reorder in the result match.
+                    let should_raise = store.has_visible_overlapper_above(id);
+
                     // BEFORE setting up a body-drag, check whether the
                     // click is on one of THIS drawable's handles. Lets
                     // the user start a Handle drag on an unselected
@@ -458,7 +514,11 @@ impl Tool for PointerTool {
                             working: drawable,
                             handle_anchor: handle.pos,
                         });
-                        return ToolUpdateResult::RedrawAndStopPropagation;
+                        return if should_raise {
+                            ToolUpdateResult::RaiseAndRedrawStop(id)
+                        } else {
+                            ToolUpdateResult::RedrawAndStopPropagation
+                        };
                     }
 
                     self.selected = vec![id];
@@ -469,7 +529,11 @@ impl Tool for PointerTool {
                         working: drawable,
                         handle_anchor: Vec2D::zero(),
                     });
-                    return ToolUpdateResult::RedrawAndStopPropagation;
+                    return if should_raise {
+                        ToolUpdateResult::RaiseAndRedrawStop(id)
+                    } else {
+                        ToolUpdateResult::RedrawAndStopPropagation
+                    };
                 }
 
                 // 3. Empty space.
@@ -564,6 +628,21 @@ impl Tool for PointerTool {
                     return ToolUpdateResult::RedrawAndStopPropagation;
                 }
                 let hit = store.hit_test(event.pos, HIT_TOLERANCE);
+                // Implicit mode + tool-type mismatch: don't select or
+                // consume — let the click propagate to the active
+                // drawing tool so e.g. a Marker count gets dropped where
+                // the user clicked, even if it lands over an existing
+                // shape of another type. Skip this gate for double-clicks
+                // on Text (the edit-text affordance below stays useful).
+                if event.n_pressed != 2
+                    && let Some(id) = hit
+                    && let Some(drawable) = store.clone_drawable(id)
+                    && self.should_pass_through_body_hit(drawable.as_ref())
+                {
+                    let _ = id;
+                    return ToolUpdateResult::Unmodified;
+                }
+
                 // Double-click on a Text drawable: switch to TextTool and
                 // resume editing. sketch_board catches the variant and
                 // wires up the tool transition. Clearing drag/marquee is

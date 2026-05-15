@@ -89,7 +89,80 @@ pub enum SketchBoardInput {
     /// drawn shape stamps the new factor, then re-broadcast the active
     /// style to every tool so cursors / in-progress strokes resize too.
     SetAnnotationFactor(f32),
+    /// Toggle the layer panel's visibility. Fired by the configurable
+    /// `layer-panel-shortcut` chord (default `ctrl+l`) and the layers
+    /// toolbar button. Triggers a panel-row rebuild on open so the panel
+    /// reflects the current stack even if it was opened mid-session.
+    ToggleLayerPanel,
+    /// Panel row clicked. `additive` is true when Ctrl was held — the
+    /// existing selection is preserved and this id is toggled in/out
+    /// of it. False replaces selection with just this id.
+    PanelSelectDrawable {
+        id: DrawableId,
+        additive: bool,
+    },
+    /// Panel eye toggle: flip the drawable's `visible` flag.
+    PanelToggleVisible(DrawableId),
+    /// Panel lock toggle: flip the drawable's `locked` flag.
+    PanelToggleLocked(DrawableId),
+    /// Panel reorder buttons (Front/Up/Down/Back) — explicit id form.
+    PanelMoveDrawable {
+        id: DrawableId,
+        direction: PanelMoveDir,
+    },
+    /// Panel footer reorder buttons act on the *current selection*. With
+    /// multiple ids selected, they apply per-id in an order chosen so
+    /// adjacent moves don't fight each other (top-down for ToTop/Up,
+    /// bottom-up for ToBottom/Down).
+    PanelMoveSelected(PanelMoveDir),
+    /// Drag-to-reorder dropped: commit `new_order` (Phase 5).
+    PanelReorderTo(Vec<DrawableId>),
+    /// Convenience drop event: insert `src` immediately above (panel
+    /// terms) or below `target`. Sketch_board computes the resulting
+    /// full order so the row builder stays ignorant of stack state.
+    /// `above_target` is true when the cursor is in the top half of
+    /// the target row at drop time (insert above in the panel = move
+    /// HIGHER in the back-to-front stack = MORE FORWARD in the canvas).
+    PanelDropOnto {
+        src: DrawableId,
+        target: DrawableId,
+        above_target: bool,
+    },
+    /// User clicked the color swatch on a row. Sketch_board opens a
+    /// `gtk::ColorDialog` and applies the picked color to the drawable
+    /// via the standard Modify path.
+    PanelEditColor(DrawableId),
+    /// User picked a new color from the dialog. Applied as a regular
+    /// `Modify` so undo treats it like any other style change.
+    PanelSetColor {
+        id: DrawableId,
+        color: crate::style::Color,
+    },
+    /// User submitted a new custom name (Entry's `activate` signal).
+    /// Empty / whitespace-only strings clear the custom name and fall
+    /// back to the auto-generated label.
+    PanelRename {
+        id: DrawableId,
+        name: String,
+    },
+    /// `gtk::Paned`'s `position` property changed (already clamped).
+    /// Updates the cached width and persists to state.toml.
+    LayerPanelWidthChanged(f32),
     Output(SketchBoardOutput),
+}
+
+/// Direction parameter for `PanelMoveDrawable`. Each variant maps to one
+/// of the four reorder buttons.
+#[derive(Debug, Clone, Copy)]
+pub enum PanelMoveDir {
+    /// Bring all the way to the top.
+    ToTop,
+    /// One position toward the top.
+    Up,
+    /// One position toward the bottom.
+    Down,
+    /// Send all the way to the bottom.
+    ToBottom,
 }
 
 /// Multi-select agreement for the brush-smoothness slider. The slider
@@ -634,7 +707,39 @@ pub struct SketchBoard {
     /// `sticky_session_defaults` is on; a missing entry falls back
     /// to `state::load_fill_for_tool` (the saved default).
     session_fill_per_tool: HashMap<Tools, bool>,
+    /// Layer panel state.
+    layer_panel_open: bool,
+    /// Vertical Box of layer rows. Owned directly here so the rebuild
+    /// helper can clear+repopulate it on every drawable-stack change.
+    /// Lives inside `layer_panel_paned`'s start_child slot.
+    layer_panel_content: gtk::Box,
+    /// Cached input sender so panel row builders can forward click
+    /// events without threading `ComponentSender` through every helper.
+    layer_panel_sender: Option<relm4::Sender<SketchBoardInput>>,
+    /// Parsed `layer_panel_shortcut` from APP_CONFIG, captured at init.
+    /// `None` when the configured string didn't parse — in that case
+    /// only the toolbar button can toggle the panel.
+    layer_panel_shortcut: Option<(gtk::gdk::Key, ModifierType)>,
+    /// Horizontal `gtk::Paned` whose start_child slot hosts the layer
+    /// panel content. The user resizes the panel by dragging Paned's
+    /// built-in separator — which lives on a stable widget (not the
+    /// panel itself), so the cursor doesn't oscillate the way an
+    /// edge-of-panel custom handle did.
+    layer_panel_paned: gtk::Paned,
+    /// Current pixel width of the panel content. Mirrors the Paned's
+    /// `position`. Persisted to state.toml on every change so re-open
+    /// puts the divider back where the user left it.
+    layer_panel_width: f32,
 }
+
+/// Minimum/maximum widths the resize handle will allow (image-coord px).
+/// The minimum keeps the row labels readable; the maximum keeps the
+/// canvas usable even on small displays.
+const LAYER_PANEL_MIN_WIDTH: f32 = 110.0;
+const LAYER_PANEL_MAX_WIDTH: f32 = 480.0;
+/// Default panel width when no persisted value exists. Tuned narrower
+/// than the original 220px after the "too wide" feedback.
+const LAYER_PANEL_DEFAULT_WIDTH: f32 = 140.0;
 
 /// Max gap (ms) between two presses of the same tool-shortcut key
 /// for the second press to register as a "cycle" instead of a
@@ -644,7 +749,93 @@ const TOOL_CYCLE_MS: u64 = 500;
 
 impl SketchBoard {
     fn refresh_screen(&mut self) {
+        // Rebuild the layer panel BEFORE queuing the canvas render so the
+        // panel's row list reflects the same drawable stack the next
+        // paint will draw. No-ops when the panel is closed.
+        self.rebuild_layer_panel_rows_if_open();
         self.renderer.queue_render();
+    }
+
+    /// If the layer panel is open, throw away its current rows and rebuild
+    /// from `renderer.all_drawable_ids()` in top-of-stack-first order.
+    ///
+    /// Each row carries the drawable's tool icon, a color swatch derived
+    /// from its `style().color` (if any), and an auto-generated label like
+    /// "Rectangle 3" — the ordinal counts occurrences of that kind in
+    /// stacking order, so the first rectangle gets "Rectangle 1" and so
+    /// on. Rebuild-from-scratch is intentional: with the row count likely
+    /// in the tens and the panel hidden by default, the simplicity of
+    /// "clear and re-append" outweighs any incremental-update cost.
+    fn rebuild_layer_panel_rows_if_open(&mut self) {
+        if !self.layer_panel_open {
+            return;
+        }
+        let Some(sender) = self.layer_panel_sender.clone() else {
+            return;
+        };
+        // Clear existing rows + footer.
+        while let Some(child) = self.layer_panel_content.first_child() {
+            self.layer_panel_content.remove(&child);
+        }
+
+        let ids = self.renderer.all_drawable_ids();
+        let selected_set: std::collections::HashSet<DrawableId> = self
+            .tools
+            .get(&Tools::Pointer)
+            .borrow()
+            .selected_drawables()
+            .into_iter()
+            .collect();
+
+        // Auto labels use the stable `auto_label_index` stored on each
+        // Stacked at commit time. That index never shifts, so reorders
+        // don't renumber rows ("Rectangle 3" stays "Rectangle 3" even
+        // after being dragged to the top). Numbers can have gaps after
+        // deletions; the user can rename to clean those up.
+        let mut labels: HashMap<crate::tools::DrawableId, String> = HashMap::new();
+        for id in &ids {
+            if let Some(d) = self.renderer.clone_drawable(*id) {
+                let n = self
+                    .renderer
+                    .drawable_auto_label_index(*id)
+                    .unwrap_or(0);
+                labels.insert(*id, format!("{} {n}", d.panel_label_kind()));
+            }
+        }
+
+        // Render top-of-stack first. `ids` is back-to-front, so reverse.
+        for id in ids.into_iter().rev() {
+            let Some(d) = self.renderer.clone_drawable(id) else {
+                continue;
+            };
+            let auto_label = labels.remove(&id).unwrap_or_else(|| "Layer".into());
+            // Custom name overrides the auto label entirely.
+            let label = self
+                .renderer
+                .drawable_custom_name(id)
+                .unwrap_or(auto_label);
+            let (visible, locked) = self
+                .renderer
+                .drawable_flags(id)
+                .unwrap_or((true, false));
+            let row = build_layer_panel_row(
+                LayerRowData {
+                    id,
+                    icon_name: d.icon_name(),
+                    preview: d.panel_preview(),
+                    swatch: d.panel_swatch(),
+                    label: &label,
+                    selected: selected_set.contains(&id),
+                    visible,
+                    locked,
+                },
+                sender.clone(),
+            );
+            self.layer_panel_content.append(&row);
+        }
+
+        self.layer_panel_content
+            .append(&build_layer_panel_footer(sender));
     }
 
     /// Hook called after `commit / modify / modify_many / delete /
@@ -1200,13 +1391,22 @@ impl SketchBoard {
         if selected.is_empty() {
             return ToolUpdateResult::Unmodified;
         }
-        // Clear pointer's selection state so the post-delete frame
-        // doesn't render handles around now-deleted IDs.
-        pointer_tool.borrow_mut().set_selected_drawables(Vec::new());
-        if selected.len() == 1 {
-            ToolUpdateResult::DeleteDrawable(selected[0])
+        // Skip locked drawables; keep them selected so the user has
+        // something to operate on after unlocking. Mirrors the
+        // pointer-tool's own Delete/Backspace handler.
+        let (to_delete, to_keep): (Vec<_>, Vec<_>) = selected
+            .into_iter()
+            .partition(|id| !self.renderer.drawable_flags(*id).map(|f| f.1).unwrap_or(false));
+        pointer_tool
+            .borrow_mut()
+            .set_selected_drawables(to_keep);
+        if to_delete.is_empty() {
+            return ToolUpdateResult::Unmodified;
+        }
+        if to_delete.len() == 1 {
+            ToolUpdateResult::DeleteDrawable(to_delete[0])
         } else {
-            ToolUpdateResult::DeleteDrawables(selected)
+            ToolUpdateResult::DeleteDrawables(to_delete)
         }
     }
 
@@ -1957,6 +2157,15 @@ impl SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::OpenPreferences);
+                ToolUpdateResult::Unmodified
+            }
+            ToolbarEvent::ToggleLayerPanel => {
+                self.layer_panel_open = !self.layer_panel_open;
+                self.layer_panel_content
+                    .set_visible(self.layer_panel_open);
+                if self.layer_panel_open {
+                    self.rebuild_layer_panel_rows_if_open();
+                }
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::FocusCanvas => {
@@ -3189,14 +3398,26 @@ impl SketchBoard {
             }
         }
 
-        // 2. Otherwise, any drawable under the pointer → grab.
+        // 2. Otherwise, a drawable under the pointer → grab — but only
+        //    when the active tool would actually grab it. With a non-
+        //    Pointer drawing tool active, a body click on a different-
+        //    typed drawable falls through so the user can place a new
+        //    annotation on top; the cursor follows that semantics and
+        //    stays on the tool's default (crosshair / custom).
         if cursor.is_none()
-            && self
-                .renderer
-                .hit_test(image_pos, crate::tools::HIT_TOLERANCE)
-                .is_some()
+            && let Some(id) = self.renderer.hit_test(image_pos, crate::tools::HIT_TOLERANCE)
         {
-            cursor = Some("grab");
+            let active = self.active_tool_type();
+            let same_type = active == Tools::Pointer
+                || self
+                    .renderer
+                    .clone_drawable(id)
+                    .and_then(|d| d.tool_type())
+                    .map(|t| t == active)
+                    .unwrap_or(false);
+            if same_type {
+                cursor = Some("grab");
+            }
         }
 
         // 3. Tool-specific default for empty canvas. Brush/Highlighter
@@ -3320,6 +3541,644 @@ impl SketchBoard {
     }
 }
 
+/// Per-row layer-panel data passed to `build_layer_panel_row`.
+struct LayerRowData<'a> {
+    id: DrawableId,
+    icon_name: &'a str,
+    preview: crate::tools::PanelPreview,
+    swatch: crate::tools::PanelSwatch,
+    label: &'a str,
+    selected: bool,
+    visible: bool,
+    locked: bool,
+}
+
+/// Paint a cairo silhouette for `preview` into the row's kind-icon
+/// slot. Color is the widget's current foreground (theme color) — the
+/// swatch beside it carries the per-drawable color so the icon stays
+/// neutral and just communicates shape + fill state.
+fn draw_panel_preview(
+    cr: &relm4::gtk::cairo::Context,
+    w: f64,
+    h: f64,
+    preview: crate::tools::PanelPreview,
+    rgba: (f64, f64, f64, f64),
+) {
+    use crate::tools::PanelPreview;
+    cr.save().ok();
+    cr.set_source_rgba(rgba.0, rgba.1, rgba.2, rgba.3);
+    match preview {
+        PanelPreview::Icon => {}
+        PanelPreview::Rectangle { filled } => {
+            let pad = 2.0;
+            let radius = 2.0;
+            let x = pad + 0.5;
+            let y = pad + 0.5;
+            let rw = (w - 2.0 * pad - 1.0).max(1.0);
+            let rh = (h - 2.0 * pad - 1.0).max(1.0);
+            cr.new_sub_path();
+            cr.arc(x + rw - radius, y + radius, radius, -1.5708, 0.0);
+            cr.arc(x + rw - radius, y + rh - radius, radius, 0.0, 1.5708);
+            cr.arc(x + radius, y + rh - radius, radius, 1.5708, 3.1416);
+            cr.arc(x + radius, y + radius, radius, 3.1416, 4.7124);
+            cr.close_path();
+            if filled {
+                cr.fill().ok();
+            } else {
+                cr.set_line_width(1.5);
+                cr.stroke().ok();
+            }
+        }
+        PanelPreview::Ellipse { filled } => {
+            let pad = 1.5;
+            let cx = w * 0.5;
+            let cy = h * 0.5;
+            let rx = (w * 0.5 - pad).max(1.0);
+            let ry = (h * 0.5 - pad).max(1.0);
+            cr.save().ok();
+            cr.translate(cx, cy);
+            cr.scale(rx, ry);
+            cr.arc(0.0, 0.0, 1.0, 0.0, 2.0 * std::f64::consts::PI);
+            cr.restore().ok();
+            if filled {
+                cr.fill().ok();
+            } else {
+                cr.set_line_width(1.5);
+                cr.stroke().ok();
+            }
+        }
+        PanelPreview::Line => {
+            let pad = 2.0;
+            let mid_y = h * 0.5;
+            cr.set_line_width(2.0);
+            cr.set_line_cap(relm4::gtk::cairo::LineCap::Round);
+            cr.move_to(pad, mid_y);
+            cr.line_to(w - pad, mid_y);
+            cr.stroke().ok();
+        }
+        PanelPreview::Arrow(style) => {
+            crate::ui::toolbars::draw_arrow_preview_cairo(cr, style, w, h, rgba);
+        }
+    }
+    cr.restore().ok();
+}
+
+/// Build a single layer-panel row: kind icon (cairo arrow preview when
+/// the drawable is an Arrow, otherwise the icon-name image), color
+/// swatch (clickable → opens a color dialog), a Stack containing the
+/// label and an inline Entry for click-to-rename, eye + lock buttons,
+/// drag source + drop target for reorder.
+///
+/// All gestures land on the row widget itself so GTK4 can coordinate
+/// click vs drag cleanly — earlier the click controller lived on an
+/// inner body Box, which captured the press before the DragSource on
+/// the row could see it.
+fn build_layer_panel_row(
+    data: LayerRowData<'_>,
+    sender: relm4::Sender<SketchBoardInput>,
+) -> gtk::Box {
+    let mut classes: Vec<&str> = vec!["layer_row"];
+    if data.selected {
+        classes.push("selected");
+    }
+    if !data.visible {
+        classes.push("hidden_layer");
+    }
+    let row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(6)
+        .css_classes(classes)
+        .build();
+    // Tag the row with its drawable id so the panel-level drop target
+    // can recover the target id from the widget under the cursor.
+    // Using `widget_name` is the cheapest path that doesn't need a
+    // side HashMap — drop happens infrequently so the string parse
+    // cost is negligible.
+    row.set_widget_name(&format!("layer-row-{}", data.id.0));
+
+    let row_id = data.id;
+
+    // Swatch slot — paints one of three variants per
+    // `Drawable::panel_swatch`:
+    //   - Color: filled, clickable color picker.
+    //   - None: grey-outlined empty box for "no mutable color"
+    //     drawables (Image, Crop) — keeps row layout balanced.
+    //   - Icon: small themed image for drawables whose effect doesn't
+    //     reduce to a color (Blur's pixelated tile).
+    use crate::tools::PanelSwatch;
+    match data.swatch {
+        PanelSwatch::Color(c) => {
+            let swatch = gtk::DrawingArea::new();
+            swatch.set_size_request(14, 14);
+            swatch.set_valign(gtk::Align::Center);
+            swatch.set_cursor_from_name(Some("pointer"));
+            swatch.set_draw_func(move |_da, cr, w, h| {
+                let rgba: relm4::gtk::gdk::RGBA = c.into();
+                cr.set_source_rgba(
+                    rgba.red() as f64,
+                    rgba.green() as f64,
+                    rgba.blue() as f64,
+                    rgba.alpha() as f64,
+                );
+                cr.rectangle(0.0, 0.0, w as f64, h as f64);
+                let _ = cr.fill();
+            });
+            let swatch_click = gtk::GestureClick::new();
+            let sender = sender.clone();
+            swatch_click.connect_pressed(move |g, _n, _x, _y| {
+                g.set_state(gtk::EventSequenceState::Claimed);
+                sender.send(SketchBoardInput::PanelEditColor(row_id)).ok();
+            });
+            swatch.add_controller(swatch_click);
+            row.append(&swatch);
+        }
+        PanelSwatch::None => {
+            let swatch = gtk::DrawingArea::new();
+            swatch.set_size_request(14, 14);
+            swatch.set_valign(gtk::Align::Center);
+            swatch.set_draw_func(|_da, cr, w, h| {
+                cr.set_source_rgba(0.4, 0.4, 0.4, 0.5);
+                cr.rectangle(0.5, 0.5, (w - 1) as f64, (h - 1) as f64);
+                cr.set_line_width(1.0);
+                let _ = cr.stroke();
+            });
+            row.append(&swatch);
+        }
+        PanelSwatch::Checkerboard => {
+            // 2×2 transparency-style checkerboard. Reads as "alpha"
+            // and communicates "the canvas shows through here" — the
+            // right metaphor for Blur, whose effect is a content
+            // filter rather than a color.
+            let swatch = gtk::DrawingArea::new();
+            swatch.set_size_request(14, 14);
+            swatch.set_valign(gtk::Align::Center);
+            swatch.set_draw_func(|_da, cr, w, h| {
+                let tile = (w.min(h) as f64 / 2.0).max(2.0);
+                cr.set_source_rgb(0.78, 0.78, 0.78);
+                cr.rectangle(0.0, 0.0, w as f64, h as f64);
+                let _ = cr.fill();
+                cr.set_source_rgb(0.5, 0.5, 0.5);
+                let rows = ((h as f64 / tile).ceil() as i32) + 1;
+                let cols = ((w as f64 / tile).ceil() as i32) + 1;
+                for ty in 0..rows {
+                    for tx in 0..cols {
+                        if (tx + ty) % 2 == 1 {
+                            cr.rectangle(
+                                tx as f64 * tile,
+                                ty as f64 * tile,
+                                tile,
+                                tile,
+                            );
+                        }
+                    }
+                }
+                let _ = cr.fill();
+            });
+            row.append(&swatch);
+        }
+        PanelSwatch::SpotlightOverlay => {
+            // Dim fill + light 1px border so the swatch is legible
+            // against the panel's dark background, plus a small white
+            // rounded rectangle inside representing the "highlighted
+            // region" that the spotlight cutout reveals. At 14px the
+            // inner rect is ~8×5 with 2px corners — reads as a
+            // diorama of the actual spotlight effect.
+            let swatch = gtk::DrawingArea::new();
+            swatch.set_size_request(14, 14);
+            swatch.set_valign(gtk::Align::Center);
+            swatch.set_draw_func(|_da, cr, w, h| {
+                let w = w as f64;
+                let h = h as f64;
+                // Dim fill.
+                cr.set_source_rgba(0.18, 0.18, 0.18, 1.0);
+                cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0);
+                let _ = cr.fill();
+                // Outer border, light enough to stand off the dark panel.
+                cr.set_source_rgba(0.7, 0.7, 0.7, 0.9);
+                cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0);
+                cr.set_line_width(1.0);
+                let _ = cr.stroke();
+                // Inner "highlighted region" — white rounded rect.
+                let inset = 3.0;
+                let rx = inset;
+                let ry = inset + 1.0;
+                let rw = w - 2.0 * rx;
+                let rh = h - 2.0 * ry;
+                let r = 2.0;
+                cr.set_source_rgb(0.95, 0.95, 0.95);
+                cr.new_sub_path();
+                cr.arc(rx + rw - r, ry + r, r, -1.5708, 0.0);
+                cr.arc(rx + rw - r, ry + rh - r, r, 0.0, 1.5708);
+                cr.arc(rx + r, ry + rh - r, r, 1.5708, 3.1416);
+                cr.arc(rx + r, ry + r, r, 3.1416, 4.7124);
+                cr.close_path();
+                let _ = cr.fill();
+            });
+            row.append(&swatch);
+        }
+    }
+
+    // Kind icon — always rendered after the swatch. Cairo silhouette
+    // when the drawable supplies one (shape + fill state per-
+    // instance), plain themed gtk::Image otherwise. The cairo paint
+    // uses a fixed light gray since the swatch on the left handles
+    // "what color".
+    if matches!(data.preview, crate::tools::PanelPreview::Icon) {
+        let icon = gtk::Image::from_icon_name(data.icon_name);
+        icon.set_pixel_size(16);
+        row.append(&icon);
+    } else {
+        let da = gtk::DrawingArea::new();
+        let (slot_w, slot_h) = match data.preview {
+            crate::tools::PanelPreview::Arrow(_) => (28, 14),
+            _ => (18, 14),
+        };
+        da.set_size_request(slot_w, slot_h);
+        da.set_valign(gtk::Align::Center);
+        let preview = data.preview;
+        da.set_draw_func(move |_da, cr, w, h| {
+            // `gnome_42` doesn't expose `Widget::color()`, so we
+            // settle on a fixed tone rather than tracking the
+            // current theme's foreground.
+            let rgba = (0.85, 0.85, 0.85, 1.0);
+            draw_panel_preview(cr, w as f64, h as f64, preview, rgba);
+        });
+        row.append(&da);
+    }
+
+    // Name area: Stack with Label and Entry. Default visible child is
+    // the label; double-click flips to the entry, focuses it, and
+    // selects all text so the user can immediately type to replace.
+    let label_widget = gtk::Label::builder()
+        .label(data.label)
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let entry_widget = gtk::Entry::builder()
+        .text(data.label)
+        .hexpand(true)
+        .build();
+    let name_stack = gtk::Stack::new();
+    name_stack.set_hexpand(true);
+    name_stack.add_named(&label_widget, Some("label"));
+    name_stack.add_named(&entry_widget, Some("entry"));
+    name_stack.set_visible_child_name("label");
+    row.append(&name_stack);
+
+    // Entry's `activate` (Enter pressed) → commit and swap back to
+    // label. The PanelRename handler in sketch_board normalises the
+    // string (empty → clear custom name).
+    {
+        let sender = sender.clone();
+        let stack = name_stack.clone();
+        entry_widget.connect_activate(move |e| {
+            sender
+                .send(SketchBoardInput::PanelRename {
+                    id: row_id,
+                    name: e.text().to_string(),
+                })
+                .ok();
+            stack.set_visible_child_name("label");
+        });
+    }
+    // Esc inside the entry cancels the edit — restore the original
+    // text and switch back to the label without sending PanelRename.
+    {
+        let key = gtk::EventControllerKey::new();
+        let stack = name_stack.clone();
+        let entry = entry_widget.clone();
+        let original = data.label.to_string();
+        key.connect_key_pressed(move |_c, k, _kc, _m| {
+            if k == gtk::gdk::Key::Escape {
+                entry.set_text(&original);
+                stack.set_visible_child_name("label");
+                relm4::gtk::glib::Propagation::Stop
+            } else {
+                relm4::gtk::glib::Propagation::Proceed
+            }
+        });
+        entry_widget.add_controller(key);
+    }
+    // Focus-out while in edit mode commits (Finder-style). Without
+    // this, clicking elsewhere would leave the entry visible with
+    // stale text. `has_focus_notify` fires both on focus-in and
+    // focus-out — we only want to act on the loss.
+    {
+        let sender = sender.clone();
+        let stack = name_stack.clone();
+        entry_widget.connect_has_focus_notify(move |entry| {
+            if entry.has_focus() {
+                return;
+            }
+            // Only commit if we're actually in edit mode — otherwise
+            // an initial focus-loss during widget construction would
+            // submit an empty rename.
+            if stack
+                .visible_child_name()
+                .map(|n| n.as_str() == "entry")
+                .unwrap_or(false)
+            {
+                sender
+                    .send(SketchBoardInput::PanelRename {
+                        id: row_id,
+                        name: entry.text().to_string(),
+                    })
+                    .ok();
+                stack.set_visible_child_name("label");
+            }
+        });
+    }
+
+    // Eye toggle.
+    let eye_icon = if data.visible {
+        "eye-regular"
+    } else {
+        "eye-off-regular"
+    };
+    let eye_btn = gtk::Button::builder()
+        .icon_name(eye_icon)
+        .focusable(false)
+        .css_classes(["layer_icon_btn", "flat"])
+        .build();
+    eye_btn.set_tooltip_text(Some(if data.visible {
+        "Hide layer"
+    } else {
+        "Show layer"
+    }));
+    {
+        let sender = sender.clone();
+        eye_btn.connect_clicked(move |_| {
+            sender
+                .send(SketchBoardInput::PanelToggleVisible(row_id))
+                .ok();
+        });
+    }
+    row.append(&eye_btn);
+
+    // Lock toggle.
+    let lock_icon = if data.locked {
+        "lock-closed-regular"
+    } else {
+        "lock-open-regular"
+    };
+    let lock_btn = gtk::Button::builder()
+        .icon_name(lock_icon)
+        .focusable(false)
+        .css_classes(["layer_icon_btn", "flat"])
+        .build();
+    lock_btn.set_tooltip_text(Some(if data.locked {
+        "Unlock layer"
+    } else {
+        "Lock layer"
+    }));
+    {
+        let sender = sender.clone();
+        lock_btn.connect_clicked(move |_| {
+            sender
+                .send(SketchBoardInput::PanelToggleLocked(row_id))
+                .ok();
+        });
+    }
+    row.append(&lock_btn);
+
+    // Row-level click: Finder-style two-stage rename. First click on
+    // an unselected row selects it (selection-emit on release so it
+    // doesn't race with drag start). A subsequent plain click on the
+    // already-selected row enters rename mode. Ctrl-click always
+    // toggles multi-select and never enters rename, so users can
+    // refine a selection without accidentally renaming.
+    //
+    // Selection emit on `released` (not `pressed`) is load-bearing:
+    // emitting on press synchronously triggers a panel rebuild that
+    // destroys this row mid-drag, and the in-progress `DragSource`
+    // would lose its source widget before reaching the drag-start
+    // threshold — which is the bug that made drag-and-drop look
+    // broken before.
+    let row_was_selected = data.selected;
+    {
+        let click = gtk::GestureClick::new();
+        let sender = sender.clone();
+        let stack = name_stack.clone();
+        let entry = entry_widget.clone();
+        let label_for_entry = data.label.to_string();
+        click.connect_released(move |controller, _n, _x, _y| {
+            let ctrl = controller
+                .current_event_state()
+                .contains(gtk::gdk::ModifierType::CONTROL_MASK);
+            if !ctrl && row_was_selected {
+                entry.set_text(&label_for_entry);
+                stack.set_visible_child_name("entry");
+                entry.grab_focus();
+                entry.select_region(0, -1);
+                return;
+            }
+            sender
+                .send(SketchBoardInput::PanelSelectDrawable {
+                    id: row_id,
+                    additive: ctrl,
+                })
+                .ok();
+        });
+        row.add_controller(click);
+    }
+
+    // Drag source — payload is the row's u64 drawable id. `connect_
+    // prepare` builds the content lazily (value captured fresh per
+    // drag), and matches the canonical gtk4-rs example pattern.
+    //
+    // On drag begin we (1) install a `WidgetPaintable` of this row
+    // as the drag icon so the dragged ghost looks like the row's
+    // actual content, and (2) tag the row with a `dragging` CSS
+    // class to dim it as an in-place placeholder. The class is
+    // cleared on drag end whether the drop completed or was
+    // cancelled.
+    let drag = gtk::DragSource::builder()
+        .actions(gtk::gdk::DragAction::MOVE)
+        .build();
+    {
+        use relm4::gtk::glib::value::ToValue;
+        let id_u64 = row_id.0;
+        drag.connect_prepare(move |_source, _x, _y| {
+            Some(gtk::gdk::ContentProvider::for_value(&id_u64.to_value()))
+        });
+    }
+    {
+        let row_weak = row.downgrade();
+        drag.connect_drag_begin(move |source, _drag| {
+            if let Some(r) = row_weak.upgrade() {
+                let paintable = gtk::WidgetPaintable::new(Some(&r));
+                source.set_icon(Some(&paintable), 0, 0);
+                r.add_css_class("dragging");
+            }
+        });
+    }
+    {
+        let row_weak = row.downgrade();
+        drag.connect_drag_end(move |_source, _drag, _delete| {
+            if let Some(r) = row_weak.upgrade() {
+                r.remove_css_class("dragging");
+            }
+        });
+    }
+    row.add_controller(drag);
+
+    // No per-row drop target: a single panel-level DropTarget on
+    // `layer_panel_content` owns the drop indicator state, so the
+    // hovered row always has a single line (never one row showing
+    // "below" while the next shows "above" because of overlapping
+    // enter/leave events).
+
+    row
+}
+
+/// Footer row of reorder buttons: Front / Up / Down / Back. Each emits
+/// `PanelMoveSelected`, which acts on whatever ids are currently
+/// selected (no-op when nothing is selected).
+fn build_layer_panel_footer(sender: relm4::Sender<SketchBoardInput>) -> gtk::Box {
+    let footer = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(2)
+        .homogeneous(true)
+        .css_classes(["layer_panel_footer"])
+        .build();
+
+    let make_btn = |icon: &str, tip: &str, dir: PanelMoveDir| -> gtk::Button {
+        let b = gtk::Button::builder()
+            .icon_name(icon)
+            .focusable(false)
+            .css_classes(["layer_icon_btn", "flat"])
+            .tooltip_text(tip)
+            .build();
+        let s = sender.clone();
+        b.connect_clicked(move |_| {
+            s.send(SketchBoardInput::PanelMoveSelected(dir)).ok();
+        });
+        b
+    };
+
+    footer.append(&make_btn(
+        "chevron-double-up-regular",
+        "Bring to front",
+        PanelMoveDir::ToTop,
+    ));
+    footer.append(&make_btn(
+        "arrow-up-regular",
+        "Bring forward",
+        PanelMoveDir::Up,
+    ));
+    footer.append(&make_btn(
+        "arrow-down-regular",
+        "Send backward",
+        PanelMoveDir::Down,
+    ));
+    footer.append(&make_btn(
+        "chevron-double-down-regular",
+        "Send to back",
+        PanelMoveDir::ToBottom,
+    ));
+    footer
+}
+
+/// Parse a config-style keyboard shortcut into a `(Key, ModifierType)`
+/// pair suitable for direct equality-matching against a `KeyEventMsg`.
+///
+/// Accepted format: `[mod+]*key` where each `mod` is `ctrl` / `control`,
+/// `shift`, `alt`, or `super` / `meta`. The trailing key token is either
+/// an F-key name (`f1`..`f24`, case-insensitive) or a single character
+/// (case-insensitive — matched against the unshifted key, so `ctrl+l`
+/// fires whether or not Shift is held by mistake). Returns `None` on a
+/// malformed string so the layer-panel toggle silently disables rather
+/// than panicking on a typo.
+fn parse_shortcut(s: &str) -> Option<(gtk::gdk::Key, ModifierType)> {
+    use gtk::gdk::Key;
+    let mut mods = ModifierType::empty();
+    let mut key: Option<Key> = None;
+    for token in s.split('+').map(|t| t.trim()) {
+        if token.is_empty() {
+            return None;
+        }
+        let lc = token.to_ascii_lowercase();
+        match lc.as_str() {
+            "ctrl" | "control" => mods |= ModifierType::CONTROL_MASK,
+            "shift" => mods |= ModifierType::SHIFT_MASK,
+            "alt" => mods |= ModifierType::ALT_MASK,
+            "super" | "meta" | "mod4" => mods |= ModifierType::SUPER_MASK,
+            _ => {
+                if key.is_some() {
+                    return None;
+                }
+                // F-keys must use capital F in GDK names; single letters
+                // are lowercase. `key_from_name` returns `None` on
+                // unrecognised names — propagate that as a parse failure.
+                let normalized = if lc.starts_with('f')
+                    && lc.len() >= 2
+                    && lc[1..].chars().all(|c| c.is_ascii_digit())
+                {
+                    let mut s = String::from("F");
+                    s.push_str(&lc[1..]);
+                    s
+                } else {
+                    lc
+                };
+                key = Key::from_name(&normalized);
+            }
+        }
+    }
+    key.map(|k| (k, mods))
+}
+
+/// Walk the layer panel's children and clear both drop-indicator CSS
+/// classes from every row. Called on drag enter / motion (before
+/// applying the indicator to the row under the cursor) and on leave /
+/// drop, so we never end up with stale lines on adjacent rows.
+fn clear_drop_indicators(content: &gtk::Box) {
+    let mut child = content.first_child();
+    while let Some(w) = child {
+        w.remove_css_class("drop_above");
+        w.remove_css_class("drop_below");
+        child = w.next_sibling();
+    }
+}
+
+/// Resolve the drop-target row for cursor `y` (in panel-content coords).
+/// Returns `(row_widget, above)` where:
+/// - `above = true` puts the drop line at this row's top edge (insert
+///   the dragged layer above this row).
+/// - `above = false` puts the drop line at the row's bottom edge, and
+///   is only ever returned for the last row — that's the special case
+///   for dropping below the bottommost layer.
+///
+/// Each "gap between rows" produces ONE canonical position, not two:
+/// hovering the lower half of row A or the upper half of row B both
+/// resolve to "above row B". Before this collapse, the lower half of
+/// A reported "below A" (line at A's bottom) and the gap reported
+/// "above B" (line at B's top), producing two visually distinct drop
+/// indicators 1–2px apart that the user could oscillate between.
+///
+/// The pivot is each row's vertical midpoint: cursor above midpoint →
+/// drop above that row; cursor below midpoint → defer to the next
+/// row's "above" zone. The last row absorbs everything below its
+/// midpoint into its single "below" position.
+fn drop_target_row(content: &gtk::Box, y: f64) -> Option<(gtk::Widget, bool)> {
+    let mut child = content.first_child();
+    let mut last_row: Option<gtk::Widget> = None;
+    while let Some(w) = child {
+        if w.css_classes().iter().any(|c| c == "layer_row") {
+            if let Some(bounds) = w.compute_bounds(content) {
+                let top = bounds.y() as f64;
+                let h = bounds.height() as f64;
+                if y < top + h * 0.5 {
+                    return Some((w, true));
+                }
+                last_row = Some(w.clone());
+            }
+        }
+        child = w.next_sibling();
+    }
+    last_row.map(|w| (w, false))
+}
+
 fn cursor_for_handle(handle: HandleId) -> &'static str {
     match handle {
         HandleId::Start | HandleId::End | HandleId::Control => "move",
@@ -3338,9 +4197,23 @@ impl Component for SketchBoard {
     type Init = Pixbuf;
 
     view! {
+        // Outer Box is a thin wrapper around the layer-panel Paned —
+        // relm4's view! wants a widget definition at the root, not a
+        // local_ref, so the Box exists only to host the Paned. The
+        // Paned itself is owned by the model so init() can build it
+        // (and its position-notify handler) before the view! macro
+        // re-parents it via `#[local_ref]`.
         gtk::Box {
+            set_orientation: gtk::Orientation::Horizontal,
             #[local_ref]
-            area -> FemtoVGArea {
+            layer_panel_paned_ref -> gtk::Paned {
+                set_hexpand: true,
+                set_vexpand: true,
+                #[wrap(Some)]
+                set_end_child = &gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    #[local_ref]
+                    area -> FemtoVGArea {
                 set_vexpand: true,
                 set_hexpand: true,
                 set_can_focus: true,
@@ -3568,7 +4441,9 @@ impl Component for SketchBoard {
                         ));
                     }
                 }
-            }
+                    },  // end FemtoVGArea
+                },  // end set_end_child wrapper Box
+            },  // end Paned
         },
     }
 
@@ -3595,6 +4470,7 @@ impl Component for SketchBoard {
                         match r {
                             ToolUpdateResult::StopPropagation
                             | ToolUpdateResult::RedrawAndStopPropagation
+                            | ToolUpdateResult::RaiseAndRedrawStop(_)
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
                             | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
@@ -3618,6 +4494,7 @@ impl Component for SketchBoard {
                     match active_tool_result {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation
+                        | ToolUpdateResult::RaiseAndRedrawStop(_)
                         | ToolUpdateResult::DeleteDrawable(_)
                         | ToolUpdateResult::DeleteDrawables(_)
                         | ToolUpdateResult::ModifyDrawable(_, _)
@@ -3626,7 +4503,19 @@ impl Component for SketchBoard {
                         | ToolUpdateResult::ModifyDrawablesCoalesce(_)
                         | ToolUpdateResult::Commit(_) => active_tool_result,
                         _ => {
-                            if ke.is_one_of(Key::z, KeyMappingId::UsZ)
+                            if self
+                                .layer_panel_shortcut
+                                .is_some_and(|(k, m)| ke.key == k && ke.modifier == m)
+                            {
+                                // Configurable layer-panel toggle. Default
+                                // `ctrl+l` per `config.toml`'s
+                                // `layer-panel-shortcut`; see
+                                // `parse_shortcut`. Comparison is exact —
+                                // an extra modifier (e.g. Ctrl+Shift+L)
+                                // won't fire `Ctrl+L`.
+                                sender.input(SketchBoardInput::ToggleLayerPanel);
+                                ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::z, KeyMappingId::UsZ)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_undo()
@@ -3980,6 +4869,14 @@ impl Component for SketchBoard {
                     let pointer_consumed = if active_type != Tools::Pointer
                         && !in_active_editing_body
                     {
+                        // Hint to the pointer which drawing tool is active
+                        // so it can pass body-grabs through on type-mismatch
+                        // (letting the user place a new annotation on top
+                        // of a different-typed existing one).
+                        self.tools
+                            .get(&Tools::Pointer)
+                            .borrow_mut()
+                            .set_implicit_other_tool(Some(active_type));
                         let r = self
                             .tools
                             .get(&Tools::Pointer)
@@ -3988,6 +4885,7 @@ impl Component for SketchBoard {
                         match r {
                             ToolUpdateResult::StopPropagation
                             | ToolUpdateResult::RedrawAndStopPropagation
+                            | ToolUpdateResult::RaiseAndRedrawStop(_)
                             | ToolUpdateResult::ModifyDrawable(_, _)
                             | ToolUpdateResult::ModifyDrawables(_)
                             | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
@@ -4012,6 +4910,7 @@ impl Component for SketchBoard {
                         match active_tool_result {
                             ToolUpdateResult::StopPropagation
                             | ToolUpdateResult::RedrawAndStopPropagation
+                            | ToolUpdateResult::RaiseAndRedrawStop(_)
                             | ToolUpdateResult::DeleteDrawable(_)
                             | ToolUpdateResult::DeleteDrawables(_)
                             | ToolUpdateResult::ModifyDrawable(_, _)
@@ -4160,6 +5059,227 @@ impl Component for SketchBoard {
                     sender,
                 )
             }
+            SketchBoardInput::ToggleLayerPanel => {
+                self.layer_panel_open = !self.layer_panel_open;
+                // The Paned auto-collapses its start_child slot (and
+                // hides the divider) when the start_child widget is
+                // not visible, so toggling visibility on
+                // `layer_panel_content` is enough to show/hide the
+                // whole panel column.
+                self.layer_panel_content
+                    .set_visible(self.layer_panel_open);
+                if self.layer_panel_open {
+                    // Restore the saved width so re-opening lands at
+                    // the user's chosen size, not whatever the Paned
+                    // happens to have remembered.
+                    self.layer_panel_paned
+                        .set_position(self.layer_panel_width as i32);
+                    self.rebuild_layer_panel_rows_if_open();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelSelectDrawable { id, additive } => {
+                let pointer = self.tools.get(&Tools::Pointer);
+                let mut sel = pointer.borrow().selected_drawables();
+                if additive {
+                    if let Some(pos) = sel.iter().position(|x| *x == id) {
+                        sel.remove(pos);
+                    } else {
+                        sel.push(id);
+                    }
+                } else {
+                    sel = vec![id];
+                }
+                pointer.borrow_mut().set_selected_drawables(sel);
+                self.refresh_screen();
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelToggleVisible(id) => {
+                if let Some((vis, locked)) = self.renderer.drawable_flags(id) {
+                    self.renderer.set_drawable_flags(id, !vis, locked);
+                    self.refresh_screen();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelToggleLocked(id) => {
+                if let Some((vis, locked)) = self.renderer.drawable_flags(id) {
+                    self.renderer.set_drawable_flags(id, vis, !locked);
+                    // Locking the currently-selected drawable should drop
+                    // it from the selection so the user can't continue to
+                    // act on a now-frozen layer via the canvas.
+                    if !locked {
+                        let pointer = self.tools.get(&Tools::Pointer);
+                        let mut sel = pointer.borrow().selected_drawables();
+                        sel.retain(|x| *x != id);
+                        pointer.borrow_mut().set_selected_drawables(sel);
+                    }
+                    self.refresh_screen();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelMoveDrawable { id, direction } => {
+                let moved = match direction {
+                    PanelMoveDir::ToTop => self.renderer.move_drawable_to_top(id),
+                    PanelMoveDir::Up => self.renderer.move_drawable_up(id),
+                    PanelMoveDir::Down => self.renderer.move_drawable_down(id),
+                    PanelMoveDir::ToBottom => self.renderer.move_drawable_to_bottom(id),
+                };
+                if moved {
+                    self.refresh_screen();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelReorderTo(new_order) => {
+                if self.renderer.reorder_to(new_order) {
+                    self.refresh_screen();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelEditColor(id) => {
+                // Open a color chooser dialog with the drawable's
+                // current color pre-selected. Using `ColorChooserDialog`
+                // (deprecated-but-shipped in GTK 4.10) rather than
+                // `ColorDialog` because this codebase pins the
+                // `gnome_42` gtk feature, which doesn't include v4.10.
+                if let Some(d) = self.renderer.clone_drawable(id)
+                    && let Some(style) = d.style()
+                {
+                    use gtk::prelude::ColorChooserExt;
+                    let initial: relm4::gtk::gdk::RGBA = style.color.into();
+                    let parent = self
+                        .renderer
+                        .root()
+                        .and_then(|r| r.downcast::<gtk::Window>().ok());
+                    let dialog =
+                        gtk::ColorChooserDialog::new(Some("Pick color"), parent.as_ref());
+                    dialog.set_use_alpha(true);
+                    dialog.set_rgba(&initial);
+                    let sender = outer_sender.input_sender().clone();
+                    dialog.connect_response(move |dlg, resp| {
+                        if resp == gtk::ResponseType::Ok {
+                            let rgba = dlg.rgba();
+                            sender
+                                .send(SketchBoardInput::PanelSetColor {
+                                    id,
+                                    color: rgba.into(),
+                                })
+                                .ok();
+                        }
+                        dlg.close();
+                    });
+                    dialog.present();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelSetColor { id, color } => {
+                if let Some(d) = self.renderer.clone_drawable(id)
+                    && let Some(mut style) = d.style()
+                {
+                    style.color = color;
+                    let mut updated = d.clone_box();
+                    updated.set_style(style);
+                    self.renderer.modify(id, updated);
+                    self.refresh_screen();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelRename { id, name } => {
+                let trimmed = name.trim();
+                let new = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+                if self.renderer.set_drawable_custom_name(id, new) {
+                    self.refresh_screen();
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::LayerPanelWidthChanged(width) => {
+                if (self.layer_panel_width - width).abs() > 0.5 {
+                    self.layer_panel_width = width;
+                    crate::state::save_layer_panel_width(width);
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelDropOnto {
+                src,
+                target,
+                above_target,
+            } => {
+                if src != target {
+                    let mut order = self.renderer.all_drawable_ids();
+                    let src_pos = order.iter().position(|x| *x == src);
+                    let target_pos = order.iter().position(|x| *x == target);
+                    if let (Some(src_pos), Some(target_pos)) = (src_pos, target_pos) {
+                        // The panel lists top-of-stack first (reverse
+                        // of `all_drawable_ids`), so "above target in
+                        // the panel" maps to "after target in the
+                        // back-to-front stack" — index target+1. "Below
+                        // target in the panel" maps to target's
+                        // current index (the row pushes target up).
+                        let raw_insert = if above_target {
+                            target_pos + 1
+                        } else {
+                            target_pos
+                        };
+                        let item = order.remove(src_pos);
+                        // Removing src shifts everything after it
+                        // left by one; compensate the insert index so
+                        // it still resolves to the right slot.
+                        let insert_at = if src_pos < raw_insert {
+                            raw_insert - 1
+                        } else {
+                            raw_insert
+                        };
+                        order.insert(insert_at.min(order.len()), item);
+                        if self.renderer.reorder_to(order) {
+                            self.refresh_screen();
+                        }
+                    }
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PanelMoveSelected(direction) => {
+                let pointer = self.tools.get(&Tools::Pointer);
+                let sel = pointer.borrow().selected_drawables();
+                if !sel.is_empty() {
+                    // Iterate by current stack position so a multi-select
+                    // shift doesn't have adjacent ids fighting each other
+                    // (e.g. ToTop on [A, B] should leave them in their
+                    // pre-move *relative* order at the top of the stack).
+                    let all = self.renderer.all_drawable_ids();
+                    let positions = |id: DrawableId| -> usize {
+                        all.iter().position(|x| *x == id).unwrap_or(0)
+                    };
+                    let mut sorted: Vec<DrawableId> = sel.clone();
+                    match direction {
+                        PanelMoveDir::ToTop | PanelMoveDir::Up => {
+                            // Move the topmost first so the lower ones still
+                            // have room to move up after.
+                            sorted.sort_by_key(|id| std::cmp::Reverse(positions(*id)));
+                        }
+                        PanelMoveDir::ToBottom | PanelMoveDir::Down => {
+                            sorted.sort_by_key(|id| positions(*id));
+                        }
+                    }
+                    let mut moved = false;
+                    for id in sorted {
+                        moved |= match direction {
+                            PanelMoveDir::ToTop => self.renderer.move_drawable_to_top(id),
+                            PanelMoveDir::Up => self.renderer.move_drawable_up(id),
+                            PanelMoveDir::Down => self.renderer.move_drawable_down(id),
+                            PanelMoveDir::ToBottom => {
+                                self.renderer.move_drawable_to_bottom(id)
+                            }
+                        };
+                    }
+                    if moved {
+                        self.refresh_screen();
+                    }
+                }
+                ToolUpdateResult::Unmodified
+            }
             SketchBoardInput::Output(output) => {
                 sender.output_sender().emit(output);
                 ToolUpdateResult::Unmodified
@@ -4231,6 +5351,10 @@ impl Component for SketchBoard {
             ToolUpdateResult::EditTextDrawable(id) => {
                 self.enter_text_edit_mode(id, outer_sender.clone());
             }
+            ToolUpdateResult::RaiseAndRedrawStop(id) => {
+                self.renderer.reorder_to_top_coalesce(id);
+                self.refresh_screen();
+            }
             ToolUpdateResult::Unmodified | ToolUpdateResult::StopPropagation => (),
             ToolUpdateResult::Redraw | ToolUpdateResult::RedrawAndStopPropagation => {
                 self.refresh_screen()
@@ -4259,6 +5383,30 @@ impl Component for SketchBoard {
         // (Medium) when nothing has been saved yet.
         let initial_tool = config.initial_tool();
         let initial_size = crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
+
+        // Layer panel scaffold. Built up-front so the view! macro can
+        // pin the Paned via `#[local_ref]`. Starts hidden (panel
+        // content's `visible = false` collapses Paned's start slot so
+        // the divider disappears too) and is toggled by the configured
+        // shortcut + the toolbar button. Width comes from state.toml.
+        let initial_panel_width = crate::state::load_layer_panel_width()
+            .map(|w| w.clamp(LAYER_PANEL_MIN_WIDTH, LAYER_PANEL_MAX_WIDTH))
+            .unwrap_or(LAYER_PANEL_DEFAULT_WIDTH);
+        let layer_panel_content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .visible(false)
+            .css_classes(["layer_panel"])
+            .build();
+        let layer_panel_paned = gtk::Paned::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .resize_start_child(false)
+            .resize_end_child(true)
+            .shrink_start_child(false)
+            .shrink_end_child(false)
+            .position(initial_panel_width as i32)
+            .start_child(&layer_panel_content)
+            .build();
+
         let mut model = Self {
             renderer: FemtoVGArea::default(),
             active_tool: tools.get(&initial_tool),
@@ -4279,6 +5427,12 @@ impl Component for SketchBoard {
             session_highlighter_opacity: None,
             session_brush_smooth: None,
             session_fill_per_tool: HashMap::new(),
+            layer_panel_open: false,
+            layer_panel_content,
+            layer_panel_sender: None,
+            layer_panel_shortcut: parse_shortcut(config.layer_panel_shortcut()),
+            layer_panel_paned,
+            layer_panel_width: initial_panel_width,
         };
 
         let pointer_tool = model.tools.get(&Tools::Pointer);
@@ -4327,6 +5481,119 @@ impl Component for SketchBoard {
                 .borrow_mut()
                 .set_highlighter_style(style);
         }
+        // Cache the input sender for panel row/footer builders so they
+        // don't have to receive `ComponentSender` through every call.
+        model.layer_panel_sender = Some(sender.input_sender().clone());
+
+        // Single panel-level drop target. Owns the drop indicator
+        // state so adjacent rows never simultaneously show "below" /
+        // "above" lines — the previous per-row design would briefly
+        // double-render the indicator when the cursor crossed the
+        // boundary between two rows because each row's enter/leave
+        // pair raced independently. Now one walk through the rows
+        // computes the target + above/below from the cursor's y in
+        // panel-local coords.
+        {
+            let drop_target = gtk::DropTarget::new(
+                u64::static_type(),
+                gtk::gdk::DragAction::MOVE,
+            );
+            let content = model.layer_panel_content.clone();
+            let input_sender = sender.input_sender().clone();
+            // `connect_enter` is also wired (even though `motion`
+            // would fire on its own) so the indicator is in the
+            // right place on the very first frame of the hover,
+            // before the first synthetic motion event arrives.
+            {
+                let content = content.clone();
+                drop_target.connect_enter(move |_dt, _x, y| {
+                    clear_drop_indicators(&content);
+                    if let Some((row, above)) = drop_target_row(&content, y) {
+                        row.add_css_class(if above {
+                            "drop_above"
+                        } else {
+                            "drop_below"
+                        });
+                    }
+                    gtk::gdk::DragAction::MOVE
+                });
+            }
+            {
+                let content = content.clone();
+                drop_target.connect_motion(move |_dt, _x, y| {
+                    clear_drop_indicators(&content);
+                    if let Some((row, above)) = drop_target_row(&content, y) {
+                        row.add_css_class(if above {
+                            "drop_above"
+                        } else {
+                            "drop_below"
+                        });
+                    }
+                    gtk::gdk::DragAction::MOVE
+                });
+            }
+            {
+                let content = content.clone();
+                drop_target.connect_leave(move |_dt| {
+                    clear_drop_indicators(&content);
+                });
+            }
+            {
+                let content = content.clone();
+                drop_target.connect_drop(move |_dt, value, _x, y| {
+                    clear_drop_indicators(&content);
+                    let Ok(src_u64) = value.get::<u64>() else {
+                        return false;
+                    };
+                    let Some((row, above_target)) = drop_target_row(&content, y)
+                    else {
+                        return false;
+                    };
+                    let Some(target_u64) = row
+                        .widget_name()
+                        .as_str()
+                        .strip_prefix("layer-row-")
+                        .and_then(|s| s.parse::<u64>().ok())
+                    else {
+                        return false;
+                    };
+                    input_sender
+                        .send(SketchBoardInput::PanelDropOnto {
+                            src: DrawableId(src_u64),
+                            target: DrawableId(target_u64),
+                            above_target,
+                        })
+                        .ok();
+                    true
+                });
+            }
+            content.add_controller(drop_target);
+        }
+
+        // Subscribe to the Paned's position changes so user drags of
+        // its separator update our cached width AND persist to state.
+        // GtkPaned doesn't expose a "drag-end" signal, so we save on
+        // every change — the writes are cheap (~few/second during a
+        // drag) and survival across crashes outweighs micro-overhead.
+        // Clamp on the way in so an out-of-range Paned position (e.g.
+        // a giant window briefly setting position=600) doesn't get
+        // persisted past `LAYER_PANEL_MAX_WIDTH`.
+        {
+            let paned = model.layer_panel_paned.clone();
+            let sender = sender.input_sender().clone();
+            paned.clone().connect_position_notify(move |p| {
+                let raw = p.position() as f32;
+                let clamped = raw.clamp(LAYER_PANEL_MIN_WIDTH, LAYER_PANEL_MAX_WIDTH);
+                if (clamped - raw).abs() > 0.5 {
+                    paned.set_position(clamped as i32);
+                    return;
+                }
+                sender
+                    .send(SketchBoardInput::LayerPanelWidthChanged(clamped))
+                    .ok();
+            });
+        }
+
         let area = &mut model.renderer;
         area.init(
             sender.input_sender().clone(),
@@ -4335,6 +5602,10 @@ impl Component for SketchBoard {
             pointer_tool,
             image,
         );
+        // `#[local_ref]` binding for the view! macro. Immutable borrow
+        // of a field different from `area` so Rust's field-level borrow
+        // splitting keeps both refs live through `view_output!()`.
+        let layer_panel_paned_ref = &model.layer_panel_paned;
         // Push the initial spotlight darkness so the renderer agrees
         // with the toolbar slider on the very first frame (otherwise
         // an existing-spotlight image rendered before the user has

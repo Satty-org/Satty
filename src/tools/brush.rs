@@ -191,6 +191,12 @@ impl Drawable for BrushDrawable {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn kind_label(&self) -> &'static str {
+        "Brush"
+    }
+    fn icon_name(&self) -> &'static str {
+        "pen-regular"
+    }
 
     fn draw(
         &self,
