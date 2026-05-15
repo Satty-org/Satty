@@ -32,7 +32,6 @@ mod capture;
 mod configuration;
 mod display;
 mod femtovg_area;
-mod hyprland;
 mod icons;
 mod ime;
 mod math;
@@ -1613,43 +1612,6 @@ impl Component for App {
                 sender_clone.input(AppInput::WindowWidthChanged(width));
             }
             gtk::glib::ControlFlow::Continue
-        });
-
-        // Hyprland Super+wheel override. Omarchy's tiling-v2.conf
-        // binds `SUPER, mouse_up` / `mouse_down` to workspace
-        // switching at the compositor level — those binds fire
-        // before GTK sees the wheel event, so Satty's scroll handler
-        // never gets Super+wheel without an opt-out. We snapshot
-        // those specific binds at app init via `hyprctl binds -j`,
-        // then on focus-in we `hyprctl keyword unbind` them so the
-        // wheel falls through to GTK, and on focus-out / destroy we
-        // re-issue `hyprctl keyword bind ...` from the snapshot so
-        // workspace switching works again everywhere else. The user's
-        // hyprland.conf is never touched — this is purely a runtime
-        // overlay, and the snapshot is empty on non-Hyprland hosts so
-        // every hyprctl call below is a clean no-op. If Satty hard-
-        // crashes mid-focus the user can recover with `hyprctl
-        // reload` (which re-parses their conf and re-installs the
-        // binds we'd unbound).
-        let saved_binds = std::rc::Rc::new(crate::hyprland::read_super_mouse_binds());
-        let focus_controller = gtk::EventControllerFocus::new();
-        focus_controller.connect_enter(|_| {
-            crate::hyprland::unbind_super_mouse();
-        });
-        let binds_for_leave = saved_binds.clone();
-        focus_controller.connect_leave(move |_| {
-            crate::hyprland::rebind_all(&binds_for_leave);
-        });
-        root.add_controller(focus_controller);
-        // Belt and suspenders: rebind on window destroy too. Either
-        // signal alone can miss in some shutdown paths (Wayland
-        // close before focus-leave; SIGTERM bypassing GTK's destroy
-        // chain). Both together cover every normal exit. SIGKILL or
-        // a hard crash can still leave the binds suspended — manual
-        // recovery is `hyprctl reload`.
-        let binds_for_destroy = saved_binds.clone();
-        root.connect_destroy(move |_| {
-            crate::hyprland::rebind_all(&binds_for_destroy);
         });
 
         generate_profile_output!("app init end");

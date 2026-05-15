@@ -377,13 +377,10 @@ pub enum MouseEventType {
     EndDrag,
     UpdateDrag,
     Click,
-    /// Plain wheel/trackpad scroll — used to PAN the canvas. The
-    /// scroll delta is packed into `MouseEventMsg.pos` (`pos.x = dx`,
-    /// `pos.y = dy`).
+    /// A wheel / trackpad scroll event. The delta is packed into
+    /// `MouseEventMsg.pos` (`pos.x = dx`, `pos.y = dy`); the input
+    /// handler's modifier chain routes it to pan, zoom, resize, or size.
     PanScroll,
-    /// Modified scroll (Super held) — used to ZOOM. Delta in
-    /// `MouseEventMsg.pos.y`.
-    Scroll,
     PointerPos,
     Release,
     //Motion(Vec2D),
@@ -436,17 +433,6 @@ impl SketchBoardInput {
 
     pub fn new_commit_event(event: TextEventMsg) -> SketchBoardInput {
         SketchBoardInput::CommitEvent(event)
-    }
-
-    pub fn new_scroll_event(delta_y: f64) -> SketchBoardInput {
-        SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
-            type_: MouseEventType::Scroll,
-            button: MouseButton::Middle,
-            n_pressed: 0,
-            modifier: ModifierType::empty(),
-            pos: Vec2D::new(0.0, delta_y as f32),
-            release: false,
-        }))
     }
 
     pub fn new_pan_scroll_event(
@@ -532,30 +518,6 @@ impl InputEvent {
                     None
                 }
 
-                MouseEventType::Scroll => {
-                    // Treat scroll delta as a *continuous* zoom
-                    // exponent rather than a discrete step. A notched
-                    // mouse wheel reports |dy| = 1.0 per click, so
-                    // `factor^(-dy)` reduces to the old behavior
-                    // (factor / 1·factor per click). A trackpad
-                    // emits many smooth events with |dy| ≪ 1.0 per
-                    // event, so the previous "any nonzero dy = one
-                    // full zoom step" rule made trackpad zoom feel
-                    // ~10× too aggressive. With the exponent, a full
-                    // trackpad swipe accumulates to roughly one
-                    // mouse-wheel-click of zoom — same end-state, no
-                    // sprint.
-                    if me.pos.y != 0.0 {
-                        let factor = APP_CONFIG.read().zoom_factor();
-                        let multiplier = factor.powf(-me.pos.y);
-                        // Anchor on cursor so the image scales around
-                        // whatever the user is hovering over, instead
-                        // of jumping toward the canvas center.
-                        renderer.set_zoom_scale_at_cursor(multiplier);
-                        renderer.request_render(&[]);
-                    }
-                    None
-                }
                 MouseEventType::PanScroll => {
                     // GTK reports scroll deltas pre-corrected for the
                     // OS's natural-scrolling preference (natural-on
@@ -4323,65 +4285,40 @@ impl Component for SketchBoard {
                     set_flags: gtk::EventControllerScrollFlags::BOTH_AXES,
                     connect_scroll[sender] => move |controller, dx, dy| {
                         let modifier = controller.current_event_state();
-                        // Single inversion site for the canvas. Flips both
-                        // axes so zoom (Super+wheel), pan (plain wheel),
-                        // and the scroll-resize gestures (Shift / selection
-                        // + wheel) all reverse together — keeps the
-                        // preference's polarity consistent across every
-                        // downstream consumer.
+                        // Single inversion site for the canvas — flips
+                        // both axes so pan, zoom, and the scroll-resize
+                        // gestures all reverse together when the
+                        // invert-scrolling preference is set.
                         let (dx, dy) = if APP_CONFIG.read().invert_scrolling() {
                             (-dx, -dy)
                         } else {
                             (dx, dy)
                         };
-                        if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
-                            // Super + wheel → zoom. Returning Stop here
-                            // is our best-effort attempt to override
-                            // Hyprland's workspace-switch binding while
-                            // the cursor is inside Satty; Hyprland may
-                            // still grab the event at the compositor
-                            // level (its `bind = SUPER, mouse_*` rules
-                            // fire before GTK sees the event). If
-                            // workspace-switching wins, the user can
-                            // configure a `windowrulev2 = ...` to
-                            // exempt `class:com.gabm.satty` from the
-                            // Super+scroll binding.
-                            sender.input(SketchBoardInput::new_scroll_event(dy));
+                        // Shift+vertical-wheel → horizontal pan: the
+                        // standard "shift-flips-axis" remap. Only remap a
+                        // pure vertical delta (a trackpad swipe already
+                        // carries `dx`). Skip it when Ctrl or Alt is also
+                        // held — Ctrl+Shift+wheel is the alt-slider chord
+                        // and Alt+Shift+wheel the size-factor chord; both
+                        // need the vertical dy intact.
+                        let (dx, dy) = if modifier
+                            .contains(gtk::gdk::ModifierType::SHIFT_MASK)
+                            && !modifier.contains(gtk::gdk::ModifierType::CONTROL_MASK)
+                            && !modifier.contains(gtk::gdk::ModifierType::ALT_MASK)
+                            && dx == 0.0
+                        {
+                            (dy, 0.0)
                         } else {
-                            // Plain wheel / trackpad pan → move the
-                            // canvas. GTK reports the delta already
-                            // sign-corrected for the OS's natural-
-                            // scrolling preference (natural-on inverts
-                            // dy at the compositor layer), so we just
-                            // pass the deltas straight through to the
-                            // panner.
-                            //
-                            // Shift+vertical-wheel → horizontal pan.
-                            // The standard "shift-flips-axis" remap
-                            // matches GTK widget convention and what
-                            // most users expect from notched mouse
-                            // wheels. Only remap a pure vertical
-                            // delta — a trackpad two-finger swipe
-                            // already carries `dx` directly and we
-                            // don't want to double-up. Also skip the
-                            // remap when Ctrl is also held: that
-                            // chord (Ctrl+Shift+wheel) is reserved
-                            // for the alt-slider bump in
-                            // `scroll_alt_slider`, which needs the
-                            // vertical dy to come through intact.
-                            let (dx, dy) = if modifier
-                                .contains(gtk::gdk::ModifierType::SHIFT_MASK)
-                                && !modifier.contains(gtk::gdk::ModifierType::CONTROL_MASK)
-                                && dx == 0.0
-                            {
-                                (dy, 0.0)
-                            } else {
-                                (dx, dy)
-                            };
-                            sender.input(SketchBoardInput::new_pan_scroll_event(
-                                dx, dy, modifier,
-                            ));
-                        }
+                            (dx, dy)
+                        };
+                        // Every wheel event becomes a PanScroll; the
+                        // input handler's modifier chain routes it to
+                        // pan / zoom / resize / size. Super is left
+                        // untouched so the compositor's Super+wheel
+                        // workspace bind keeps working.
+                        sender.input(SketchBoardInput::new_pan_scroll_event(
+                            dx, dy, modifier,
+                        ));
                         relm4::gtk::glib::Propagation::Stop
                     },
                 },
@@ -4398,9 +4335,6 @@ impl Component for SketchBoard {
                         // canvas. We don't even emit it as a
                         // SketchBoardInput so it can't get
                         // misinterpreted as a single-key tool shortcut.
-                        // Mouse-side Super gestures (Super+scroll =
-                        // zoom) are handled separately in the scroll
-                        // controller and are unaffected.
                         if modifier.contains(gtk::gdk::ModifierType::SUPER_MASK) {
                             return relm4::gtk::glib::Propagation::Proceed;
                         }
@@ -4746,53 +4680,37 @@ impl Component for SketchBoard {
                         let no_mods = !ctrl_held && !shift_held && !alt_held;
                         if self.active_tool_type() == Tools::Spotlight && no_mods {
                             // Plain wheel in Spotlight tool → darkness.
-                            // Size + multiplier don't affect spotlight
-                            // rendering, so handing the unmodified
-                            // wheel to its primary control is more
-                            // useful than the pan / resize defaults.
-                            // `scroll_alt_slider` routes to the
-                            // Spotlight branch via
-                            // `alt_slider_target_tool()`.
+                            // Size and factor don't affect spotlight
+                            // rendering, so the unmodified wheel drives
+                            // its primary control instead of pan.
                             self.scroll_alt_slider(me.pos.y, &outer_sender);
                             true
                         } else if ctrl_held && shift_held {
-                            // Ctrl+Shift+wheel → bump the active tool's
-                            // "alternate" slider (the per-tool cluster
-                            // slider that lives in the bottom-right
-                            // — brush smoothness / spotlight darkness
-                            // / highlighter opacity). Always wins over
-                            // the size-resize paths so the user can
-                            // tweak the alt slider mid-selection
-                            // without accidentally resizing.
+                            // Ctrl+Shift+wheel → the active tool's
+                            // "alternate" slider (brush smoothness /
+                            // spotlight darkness / highlighter opacity).
                             self.scroll_alt_slider(me.pos.y, &outer_sender);
                             true
-                        } else if alt_held {
-                            // Alt+wheel → bump the annotation
-                            // multiplier. Matches the existing pill-
-                            // hover scroll binding so the user doesn't
-                            // need to move the pointer over the bottom
-                            // toolbar to nudge the factor. With a
-                            // selection, the bump applies via
-                            // dispatch_style_change (same path as the
-                            // pill drag); without one, it just updates
-                            // the next-stroke default.
+                        } else if alt_held && shift_held {
+                            // Alt+Shift+wheel → the annotation
+                            // size-factor (a display-scale calibration).
+                            // A deliberately awkward chord: the factor
+                            // is a near-one-time setting, not a
+                            // per-stroke knob.
                             self.scroll_annotation_multiplier(me.pos.y, &outer_sender);
                             true
-                        } else if !selected.is_empty() {
-                            // Selection + wheel → resize the selected
-                            // drawable(s). Modifier-free; ignores Ctrl.
-                            self.scroll_resize_selection(&selected, me.pos.y, &outer_sender);
+                        } else if alt_held {
+                            // Alt+wheel → the active tool's size for the
+                            // next stroke (mirrors the bottom toolbar's
+                            // size slider).
+                            self.scroll_resize_tool_size(me.pos.y, &outer_sender);
                             true
                         } else if ctrl_held && self.active_tool_type() == Tools::Crop {
-                            // No selection + Ctrl + wheel in Crop edit
-                            // → shrink / grow the crop rect from all
-                            // four sides, anchored on the crop's center
-                            // and clamped to the image bounds. Scroll
-                            // up grows toward the canvas outsides;
+                            // Ctrl+wheel in Crop edit → shrink / grow the
+                            // crop rect from all four sides, anchored on
+                            // its center and clamped to the image bounds.
+                            // Scroll up grows toward the canvas outsides;
                             // scroll down shrinks toward the middle.
-                            // Plain wheel and Shift+wheel stay on the
-                            // pan path so the user can still navigate
-                            // a zoomed-in image while shaping the crop.
                             let crop_tool = self.tools.get_crop_tool();
                             let in_edit = crop_tool.borrow().is_active_edit();
                             if in_edit {
@@ -4809,19 +4727,29 @@ impl Component for SketchBoard {
                                 false
                             }
                         } else if ctrl_held {
-                            // No selection + Ctrl + wheel → bump the
-                            // active tool's size for the next stroke.
-                            // Was Shift+wheel; Shift is reserved for
-                            // GTK's standard "vertical wheel → horizontal
-                            // pan" remap that the pan handler still
-                            // honors below.
-                            self.scroll_resize_tool_size(me.pos.y, &outer_sender);
+                            // Ctrl+wheel → zoom the canvas, anchored on
+                            // the cursor. The delta is a continuous
+                            // exponent, so a notched wheel (|dy| = 1 per
+                            // click) and a trackpad swipe (many |dy| ≪ 1
+                            // events) settle on the same zoom per
+                            // gesture.
+                            if me.pos.y != 0.0 {
+                                let factor = APP_CONFIG.read().zoom_factor();
+                                self.renderer
+                                    .set_zoom_scale_at_cursor(factor.powf(-me.pos.y));
+                                self.renderer.request_render(&[]);
+                            }
+                            true
+                        } else if !selected.is_empty() {
+                            // Plain wheel with a selection → resize the
+                            // selected drawable(s).
+                            self.scroll_resize_selection(&selected, me.pos.y, &outer_sender);
                             true
                         } else {
-                            // Clear residual accumulation when neither
-                            // resize path is active — keeps a later
-                            // resize gesture from inheriting stale
-                            // delta from a pan.
+                            // Clear residual accumulation when no resize
+                            // path is active — keeps a later resize
+                            // gesture from inheriting stale delta from a
+                            // pan.
                             self.scroll_resize_accum = 0.0;
                             false
                         }
