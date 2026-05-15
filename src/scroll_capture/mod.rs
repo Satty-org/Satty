@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::hash::Hasher;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -45,9 +44,6 @@ const EDGE_HANDLE_LENGTH: f64 = 36.0;
 /// Matches satty crop tool's HANDLE_STROKE_WIDTH.
 const CROP_STROKE_WIDTH: f64 = 5.0;
 
-/// Hit-test radius around the anchor of each corner/edge handle.
-const HANDLE_HIT_RADIUS: f64 = 20.0;
-
 /// Radius of the central Move handle.
 const MOVE_HANDLE_RADIUS: f64 = 18.0;
 
@@ -70,17 +66,6 @@ enum ResizeHandle {
     Move,
 }
 
-const RESIZE_HANDLES: [ResizeHandle; 8] = [
-    ResizeHandle::TopLeft,
-    ResizeHandle::Top,
-    ResizeHandle::TopRight,
-    ResizeHandle::Right,
-    ResizeHandle::BottomRight,
-    ResizeHandle::Bottom,
-    ResizeHandle::BottomLeft,
-    ResizeHandle::Left,
-];
-
 impl ResizeHandle {
     /// Center of this handle for a given selection. Resize handles sit ON
     /// the selection edges (matching the crop tool); Move sits at the
@@ -97,21 +82,6 @@ impl ResizeHandle {
             ResizeHandle::Left => (sel.x, sel.y + sel.h / 2.0),
             ResizeHandle::Move => (sel.x + sel.w / 2.0, sel.y + sel.h / 2.0),
         }
-    }
-
-    fn hit_radius(self) -> f64 {
-        match self {
-            ResizeHandle::Move => MOVE_HANDLE_RADIUS,
-            _ => HANDLE_HIT_RADIUS,
-        }
-    }
-
-    /// Bounding rect for input region inclusion. Centered on the handle's
-    /// anchor point with the hit radius as half-side.
-    fn bounds(self, sel: Selection) -> (f64, f64, f64, f64) {
-        let (cx, cy) = self.center(sel);
-        let r = self.hit_radius();
-        (cx - r, cy - r, 2.0 * r, 2.0 * r)
     }
 
     /// Compute the new selection when this handle has been dragged. For
