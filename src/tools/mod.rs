@@ -38,6 +38,7 @@ mod highlight;
 mod spotlight;
 mod line;
 mod marker;
+mod pasted_image;
 mod pointer;
 mod rectangle;
 mod text;
@@ -994,6 +995,7 @@ pub enum UndoAction {
 }
 
 pub use arrow::{ArrowStyle, ArrowTool};
+pub use pasted_image::PastedImage;
 pub use blur::{BlurStyle, BlurTool};
 pub use crop::{AspectRatio, CropBgColor, CropHit, CropTool};
 pub use ellipse::EllipseTool;

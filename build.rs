@@ -107,6 +107,8 @@ fn main() -> Result<(), io::Error> {
             "arrow-down-regular",
             "chevron-double-up-regular",
             "chevron-double-down-regular",
+            // Pasted-image drawables (Ctrl+V paste).
+            "image-regular",
         ],
     );
 

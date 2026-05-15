@@ -148,6 +148,10 @@ pub enum SketchBoardInput {
     /// `gtk::Paned`'s `position` property changed (already clamped).
     /// Updates the cached width and persists to state.toml.
     LayerPanelWidthChanged(f32),
+    /// Ctrl+V resolved a clipboard read into a Pixbuf. Sketch_board
+    /// builds a `PastedImage` drawable at a sensible spot and commits
+    /// it to the stack so it shows up as a layer + selectable shape.
+    PasteImageFromClipboard(relm4::gtk::gdk_pixbuf::Pixbuf),
     Output(SketchBoardOutput),
 }
 
@@ -1355,6 +1359,43 @@ impl SketchBoard {
                 !APP_CONFIG.read().disable_notifications(),
             ),
         }
+    }
+
+    /// Kick off an async clipboard read; once a texture comes back,
+    /// convert to Pixbuf and route through `PasteImageFromClipboard`
+    /// so the actual commit happens back on the model. Read-from-
+    /// clipboard is `async` in gtk4-rs; spawning on the local main
+    /// context (GLib's single-threaded scheduler) lets us capture an
+    /// `input_sender` without Send bounds.
+    fn handle_paste_image(&self, sender: &ComponentSender<Self>) {
+        let Some(display) =
+            relm4::gtk::gdk::DisplayManager::get().default_display()
+        else {
+            return;
+        };
+        let clipboard = display.clipboard();
+        let input_sender = sender.input_sender().clone();
+        relm4::gtk::glib::spawn_future_local(async move {
+            match clipboard.read_texture_future().await {
+                Ok(Some(texture)) => {
+                    if let Some(pixbuf) =
+                        relm4::gtk::gdk::pixbuf_get_from_texture(&texture)
+                    {
+                        input_sender
+                            .send(SketchBoardInput::PasteImageFromClipboard(pixbuf))
+                            .ok();
+                    }
+                }
+                Ok(None) => {
+                    // No image on the clipboard. Silent no-op rather
+                    // than a notification — Ctrl+V on a clipboard
+                    // holding just text is benign.
+                }
+                Err(err) => {
+                    eprintln!("Clipboard image read failed: {err}");
+                }
+            }
+        });
     }
 
     fn handle_undo(&mut self) -> ToolUpdateResult {
@@ -4523,6 +4564,17 @@ impl Component for SketchBoard {
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_redo()
+                            } else if ke.is_one_of(Key::v, KeyMappingId::UsV)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                // Ctrl+V paste — the Text tool consumes
+                                // Ctrl+V (returning StopPropagation)
+                                // while editing, so we only get here
+                                // when no tool wanted the press. Read
+                                // the clipboard's image asynchronously
+                                // and commit a `PastedImage` drawable.
+                                self.handle_paste_image(&outer_sender);
+                                ToolUpdateResult::Unmodified
                             } else if ke.is_one_of(Key::d, KeyMappingId::UsD)
                                 && ke.modifier == ModifierType::ALT_MASK
                             {
@@ -5200,6 +5252,56 @@ impl Component for SketchBoard {
                     self.layer_panel_width = width;
                     crate::state::save_layer_panel_width(width);
                 }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PasteImageFromClipboard(pixbuf) => {
+                // Size the paste so its on-screen footprint equals the
+                // pixbuf's pixel dimensions at the *current* canvas
+                // scale — the same math works for both cases the user
+                // cares about:
+                //
+                //   - Canvas screenshot: the pixbuf is already at
+                //     current_zoom × DPR, so dividing by effective_scale
+                //     gives an image-coord size that re-overlays the
+                //     source region exactly.
+                //
+                //   - External screenshot: the pixbuf is at desktop
+                //     resolution. Dividing by effective_scale yields
+                //     an image-coord size larger than the pixbuf, so
+                //     on-screen the paste lands at the captured CSS
+                //     size regardless of canvas zoom — i.e. an
+                //     external screenshot of 500 CSS px shows as
+                //     500 CSS px in satty no matter how zoomed-out
+                //     the canvas is.
+                //
+                // The previous "external uses pixbuf / DPR" branch
+                // shrank external pastes with the canvas zoom, which
+                // made them feel too small on zoomed-out canvases.
+                // Collapsing to a single formula keeps "captured
+                // screen size" the unified outcome.
+                let scale = self.renderer.current_render_scale().max(0.001);
+                let pw = pixbuf.width() as f32;
+                let ph = pixbuf.height() as f32;
+                let display_w = pw / scale;
+                let display_h = ph / scale;
+
+                let (img_w, img_h) = self.renderer.image_dimensions();
+                let x = ((img_w as f32 - display_w) * 0.5).max(0.0);
+                let y = ((img_h as f32 - display_h) * 0.5).max(0.0);
+                let image = crate::tools::PastedImage::from_pixbuf(
+                    &pixbuf,
+                    Vec2D::new(x, y),
+                    Vec2D::new(display_w, display_h),
+                );
+                let id = self.renderer.commit(Box::new(image));
+                self.auto_resize_canvas(&[id], &outer_sender);
+                // Select the just-pasted image so the user can resize
+                // / move it without first clicking it.
+                self.tools
+                    .get(&Tools::Pointer)
+                    .borrow_mut()
+                    .set_selected_drawables(vec![id]);
+                self.refresh_screen();
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::PanelDropOnto {
