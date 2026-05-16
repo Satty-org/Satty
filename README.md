@@ -1,10 +1,12 @@
-# <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
+# <img src="assets/tensaku.svg" height="42"> Tensaku: Modern Screenshot Annotation.
 
-Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
+Tensaku is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
+
+> **Tensaku is a fork of [Satty](https://github.com/Satty-org/Satty)** by Matthias Gabriel, used under the MPL-2.0 license. See [`NOTICE`](NOTICE) for attribution details — thanks to the Satty project and its contributors for the foundation this builds on.
 
 ![](assets/usage.gif)
 
-Satty has been created to provide the following improvements over existing screenshot annotation tools:
+Tensaku has been created to provide the following improvements over existing screenshot annotation tools:
 
 - very simple and easy to understand toolset (like Swappy)
 - fullscreen annotation mode and post shot cropping (like Flameshot)
@@ -15,29 +17,24 @@ Satty has been created to provide the following improvements over existing scree
 
 ## Install
 
-Thanks to our package maintainers, Satty is available for many distributions on Linux and BSD:
+Tensaku is currently distributed as source — there are no distribution packages yet. Build it with:
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/satty.svg)](https://repology.org/project/satty/versions)
+```sh
+git clone https://github.com/jondkinney/tensaku.git
+cd tensaku
+make build-release              # binary at ./target/release/tensaku
+PREFIX=/usr/local make install  # optional: install system-wide
+```
 
-### Specifics
-| Distribution | Command | Note |
-| --- | --- | --- |
-| Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
-| Alpine Linux | `apk add satty` | Available in [Alpine Community](https://pkgs.alpinelinux.org/packages?name=satty&branch=edge&repo=&arch=&maintainer=) |
+This needs a Rust toolchain and the GTK-4 / Adwaita native dependencies — see [Dependencies](#dependencies) and [Build from source](#build-from-source) below for the full list and for uninstall instructions.
 
-### Cargo
-
-You can install satty via `cargo install satty` and `cargo binstall satty`, the latter requires [cargo-binstall](https://crates.io/crates/cargo-binstall). In that case, no manpage, LICENSE file, .Desktop file are available. But you can use the `--man` and `--license` arguments to display either.
-
-### Prebuilt Sources
-
-You can download a prebuilt binary for x86-64 on the [Satty Releases](https://github.com/gabm/satty/releases) page.
+Prebuilt x86-64 binaries and a Flatpak bundle will be attached to each [GitHub release](https://github.com/jondkinney/tensaku/releases) once the project starts publishing them.
 
 ## Usage
 
 Start by providing a filename or a screenshot via stdin and annotate using the available tools. Save to clipboard or file when finished. Tools and Interface have been kept simple.
 
-All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/satty/config.toml` or via the command line interface. In case both are specified, the command line options always override the configuration file.
+All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/tensaku/config.toml` or via the command line interface. In case both are specified, the command line options always override the configuration file.
 
 ### Shortcuts
 
@@ -102,7 +99,7 @@ Default single-key shortcuts:
 
 ```toml
 [general]
-# Start Satty in fullscreen mode
+# Start Tensaku in fullscreen mode
 fullscreen = true
 #fullscreen = false
 # since 0.20.1, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
@@ -174,9 +171,9 @@ text-move-length = 50.0
 # Note, this is ignored with explicit resize.
 input-scale = 2.0
 # experimental feature (NEXTRELEASE): set window title
-title = "Satty"
+title = "Tensaku"
 # experimental feature (NEXTRELEASE): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
-app-id = "org.satty.satty"
+app-id = "dev.tensaku.Tensaku"
 
 
 # Tool selection keyboard shortcuts (since 0.20.0)
@@ -199,7 +196,7 @@ family = "Roboto"
 style = "Regular"
 # specify fallback fonts (0.20.1)
 # Please note, there is no default setting for these and the fonts listed below
-# are not shipped with Satty but need to be available on the system.
+# are not shipped with Tensaku but need to be available on the system.
 fallback = [
     "Noto Sans CJK JP",
     "Noto Sans CJK SC",
@@ -239,10 +236,10 @@ custom = [
 ### Command Line
 
 ```
-» satty --help
+» tensaku --help
 Modern Screenshot Annotation.
 
-Usage: satty [OPTIONS] --filename <FILENAME>
+Usage: tensaku [OPTIONS] --filename <FILENAME>
 
 Options:
       --man
@@ -250,11 +247,11 @@ Options:
       --license
           Show license
   -c, --config <CONFIG>
-          Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
+          Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/tensaku/config.toml
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
       --fullscreen [<FULLSCREEN>]
-          Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
+          Start Tensaku in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
       --resize [<MODE|WIDTHxHEIGHT>]
           Resize to coordinates or use smart mode (0.20.1). --resize without parameter is equivalent to --resize smart [possible values: smart, WxH.]
       --floating-hack
@@ -327,7 +324,7 @@ Options:
 
 ### CSS
 
-Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
+Tensaku ships with [minimal builtin CSS](https://github.com/jondkinney/tensaku/tree/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/tensaku/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Tensaku uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
 
 ```css
 .outer_box,
@@ -341,20 +338,20 @@ You can discover styleable elements by using the GTK inspector with env variable
 
 ### IME <sup>0.20.0</sup>
 
-Satty supports IME via GTK with and without preediting. Please note, at this point Satty has no proper fallback font handling so the font used needs to contain the entered glyphs.
+Tensaku supports IME via GTK with and without preediting. Please note, at this point Tensaku has no proper fallback font handling so the font used needs to contain the entered glyphs.
 
 ### wlroots based compositors (Sway, Wayfire, River, ...)
 
 You can bind a key to the following command:
 
 ```sh
-grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
+grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | tensaku --filename - --fullscreen --output-filename ~/Pictures/Screenshots/tensaku-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
 Hyprland users must escape the `#` with another `#`:
 
 ```sh
-grim -g "$(slurp -o -r -c '##ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
+grim -g "$(slurp -o -r -c '##ff0000ff')" -t ppm - | tensaku --filename - --fullscreen --output-filename ~/Pictures/Screenshots/tensaku-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
 Please note we're using ppm in both examples. Compared to png, ppm is uncompressed and this can save time.
@@ -363,10 +360,10 @@ Please note we're using ppm in both examples. Compared to png, ppm is uncompress
 
 #### Image Resize
 
-Satty does not provide a resize mechanism other than cropping. But you can pipe the result to other tools such as ImageMagick:
+Tensaku does not provide a resize mechanism other than cropping. But you can pipe the result to other tools such as ImageMagick:
 
 ```sh
-grim -g "0,0 3840x2160" -t ppm - | satty --filename - --output-filename - | convert -resize 50% - out.png
+grim -g "0,0 3840x2160" -t ppm - | tensaku --filename - --output-filename - | convert -resize 50% - out.png
 ```
 
 #### Sway mode
@@ -376,12 +373,12 @@ It needs `grim` and `slurp`.
 ```sh
 # screenshots
 # inspiration: https://www.reddit.com/r/swaywm/comments/ghnlea/comment/fqnzxkx/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
-set $satty satty -f - --initial-tool=arrow --copy-command=wl-copy --actions-on-escape="save-to-clipboard,exit" --brush-smooth-history-size=5 --disable-notifications
+set $tensaku tensaku -f - --initial-tool=arrow --copy-command=wl-copy --actions-on-escape="save-to-clipboard,exit" --brush-smooth-history-size=5 --disable-notifications
 set $printscreen_mode 'printscreen (r:region, f:full, w:window)'
 mode $printscreen_mode {
-    bindsym r exec swaymsg 'mode "default"' && grim -t ppm -g "$(slurp -d)" - | $satty
-    bindsym f exec swaymsg 'mode "default"' && grim -t ppm - | $satty
-    bindsym w exec swaymsg 'mode "default"' && swaymsg -t get_tree | jq -r '.. | select(.focused?) | .rect | "\(.x),\(.y) \(.width)x\(.height)"' | grim -t ppm -g - - | $satty
+    bindsym r exec swaymsg 'mode "default"' && grim -t ppm -g "$(slurp -d)" - | $tensaku
+    bindsym f exec swaymsg 'mode "default"' && grim -t ppm - | $tensaku
+    bindsym w exec swaymsg 'mode "default"' && swaymsg -t get_tree | jq -r '.. | select(.focused?) | .rect | "\(.x),\(.y) \(.width)x\(.height)"' | grim -t ppm -g - - | $tensaku
 
     bindsym Return mode "default"
     bindsym Escape mode "default"
@@ -391,36 +388,36 @@ bindsym $mod+Shift+p mode $printscreen_mode
 
 ## Hyprland integration: Super+scroll zoom
 
-Satty uses **Super + scroll** on its canvas to zoom in and out. On
+Tensaku uses **Super + scroll** on its canvas to zoom in and out. On
 Hyprland (especially with Omarchy's defaults) the compositor binds
 that same gesture to workspace switching — and compositor binds fire
-*before* GTK sees the event, so Satty's scroll handler never runs
-unless we explicitly opt out while Satty is focused.
+*before* GTK sees the event, so Tensaku's scroll handler never runs
+unless we explicitly opt out while Tensaku is focused.
 
-**Nothing to configure.** Satty handles this automatically: at
+**Nothing to configure.** Tensaku handles this automatically: at
 startup it snapshots your current `SUPER, mouse_up` and `SUPER,
 mouse_down` binds via `hyprctl binds -j`. On focus-in it issues
 `hyprctl keyword unbind` for those two keys so Super+wheel falls
 through to GTK. On focus-out / window-close / destroy it re-issues
 `hyprctl keyword bind` from the snapshot to restore workspace
 switching. Your `hyprland.conf` is never touched — it's a runtime
-overlay that disappears the moment Satty exits.
+overlay that disappears the moment Tensaku exits.
 
-Everything else stays alive while Satty is focused:
+Everything else stays alive while Tensaku is focused:
 Super+left-click to move the window, Super+right-click to resize,
 launchers, app-switching, every other Super-modified bind in your
 config. We only suspend the two wheel binds we directly conflict
 with.
 
-If you'd previously added a `submap = satty` block to your Hyprland
-config for an older version of Satty, you can delete it — it's no
+If you'd previously added a `submap = tensaku` block to your Hyprland
+config for an older version, you can delete it — it's no
 longer used and just sits in the config as dead text. Run
 `hyprctl reload` after editing.
 
-### Recovery if Satty hard-crashes mid-focus
+### Recovery if Tensaku hard-crashes mid-focus
 
 Normal exits (focus-loss, window close, GTK destroy) all restore
-the binds via Satty's GTK focus / destroy hooks, called
+the binds via Tensaku's GTK focus / destroy hooks, called
 synchronously so the dispatch can't race the process exit. SIGKILL
 or a hard crash can still leave the two wheel binds suspended —
 workspace-switching with Super+wheel will appear dead globally
@@ -429,19 +426,19 @@ your `hyprland.conf` and re-installs everything).
 
 ### On non-Hyprland compositors
 
-The integration is Hyprland-specific. Satty's focus handler still
+The integration is Hyprland-specific. Tensaku's focus handler still
 shells out to `hyprctl`, but the calls fail silently on Sway / KDE
 / GNOME / etc. — other compositors don't typically grab Super+scroll
 for workspace switching, so the override isn't needed there.
 
 ## Hyprland integration: floating-window size rule
 
-Satty sizes its own window around the captured image at startup, on
+Tensaku sizes its own window around the captured image at startup, on
 crop commit, and on revert. For that to work the window has to be
 **floating** with **no hard-coded size rule**. The tiling layout
 will otherwise stretch / squash the window to whatever the tile
 gives it, and a `windowrule = size <X> <Y>` will pin it to that
-size regardless of what Satty asks for — which shows up as the
+size regardless of what Tensaku asks for — which shows up as the
 image rendered shrunk inside a fixed-size window, and (with
 animations on) as a visible width-bounce when you Super+drag the
 window mid-flight while the size rule is re-asserted against the
@@ -455,19 +452,19 @@ Notably, **Omarchy ships with such a rule by default** via its
 windowrule = float on,         match:tag floating-window
 windowrule = center on,        match:tag floating-window
 windowrule = size 875 600,     match:tag floating-window   # ← pins window size
-windowrule = tag +floating-window, match:class (... com.gabm.satty ...)
+windowrule = tag +floating-window, match:class (... dev.tensaku.Tensaku ...)
 ```
 
 If you're on Omarchy (or anywhere else with a similar `size`
-rule), drop the tag for `com.gabm.satty` in your local
+rule), drop the tag for `dev.tensaku.Tensaku` in your local
 `~/.config/hypr/hyprland.conf` and re-apply float + center
 directly:
 
 ```hypr
-# Let Satty size its own window around the captured image.
-windowrule = tag -floating-window, match:class com.gabm.satty
-windowrule = float on,             match:class com.gabm.satty
-windowrule = center on,            match:class com.gabm.satty
+# Let Tensaku size its own window around the captured image.
+windowrule = tag -floating-window, match:class dev.tensaku.Tensaku
+windowrule = float on,             match:class dev.tensaku.Tensaku
+windowrule = center on,            match:class dev.tensaku.Tensaku
 ```
 
 Then `hyprctl reload`. The next screenshot will open at the right
@@ -477,10 +474,10 @@ by the size rule fighting the drag, not by the animation itself.
 
 ## Build from source
 
-You first need to install the native dependencies of Satty (see below) and then run:
+You first need to install the native dependencies of Tensaku (see below) and then run:
 
 ```sh
-# build release binary, located in ./target/release/satty
+# build release binary, located in ./target/release/tensaku
 make build-release
 
 # optional: install to /usr/local
@@ -492,19 +489,19 @@ PREFIX=/usr/local make uninstall
 
 ### Flatpak <sup>0.20.1</sup>
 
-Satty is available as a Flatpak bundle. Pre-built bundles are automatically created for each release and can be downloaded from the [GitHub Releases](https://github.com/Satty-org/Satty/releases) page.
+Tensaku can be built as a Flatpak bundle. Once published, pre-built bundles will be attached to each release and can be downloaded from the [GitHub Releases](https://github.com/jondkinney/tensaku/releases) page.
 
 #### Installing from Flatpak bundle
 
 ```sh
 # Download the .flatpak file from the latest release
 # Then install it:
-flatpak install satty-<version>.flatpak
+flatpak install tensaku-<version>.flatpak
 ```
 
 ## Dependencies
 
-Satty is based on GTK-4 and Adwaita.
+Tensaku is based on GTK-4 and Adwaita.
 Dependencies, depending of each distributions are:
 - glib2
 - gtk4 (libgtk-4-x)
@@ -513,22 +510,26 @@ Dependencies, depending of each distributions are:
 - libepoxy
 - fontconfig
 
-## Maintainers and Contributors
+## Credits
 
-Satty wouldn't exist without the help of our contributors and maintainers. Current maintainers are @RobertMueller2 (maintainer), @fabienjuif (maintainer) and @gabm (maintainer, original author). Our contributors are:
+Tensaku is a fork of [Satty](https://github.com/Satty-org/Satty). Satty was created by Matthias Gabriel (@gabm) and is maintained by @RobertMueller2, @fabienjuif and @gabm together with the Satty contributors — Tensaku would not exist without their work. See [`NOTICE`](NOTICE) for attribution details.
 
-<a href="https://github.com/gabm/satty/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=gabm/satty" />
+### Tensaku contributors
+
+<a href="https://github.com/jondkinney/tensaku/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=jondkinney/tensaku" />
 </a>
 
 Made with [contrib.rocks](https://contrib.rocks).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Satty-org/Satty&type=date&legend=top-left)](https://www.star-history.com/#Satty-org/Satty&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=jondkinney/tensaku&type=date&legend=top-left)](https://www.star-history.com/#jondkinney/tensaku&type=date&legend=top-left)
 
 ## License
 
-The source code is released under the MPL-2.0 license.
+The source code is released under the MPL-2.0 license — see [`LICENSE`](LICENSE).
+
+Tensaku is a fork of Satty and inherits its MPL-2.0 licensing. Attribution for the upstream project is recorded in [`NOTICE`](NOTICE).
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.

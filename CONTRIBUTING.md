@@ -1,16 +1,16 @@
 CONTRIBUTING
 ==
 
-Contributions are welcome. Satty is not able to evolve without relying on its contributors and their contributions.
+Contributions are welcome. Tensaku is not able to evolve without relying on its contributors and their contributions.
 
 This documents tries to reduce friction when it comes to contributions by defining some guidelines, some of which may follow a rationale while others are arbitrary determinations.
 
-Please note that opening a PR or even just an issue may expose your work to pertinent discussion regarding code quality, Satty's scope and these guidelines, and possibly things we haven't yet thought of. This isn't meant as discouragement, just as a heads-up.
+Please note that opening a PR or even just an issue may expose your work to pertinent discussion regarding code quality, Tensaku's scope and these guidelines, and possibly things we haven't yet thought of. This isn't meant as discouragement, just as a heads-up.
 
 Issue first, then PR
 --
 
-The issue should state what is missing from or broken in Satty. All the discussion around whether a feature is in scope, or a behaviour is a bug can take place there. A related PR is then just about correctness of a fix or feature implementation. This ensures that a specific feature or fix is actually wanted.
+The issue should state what is missing from or broken in Tensaku. All the discussion around whether a feature is in scope, or a behaviour is a bug can take place there. A related PR is then just about correctness of a fix or feature implementation. This ensures that a specific feature or fix is actually wanted.
 
 3rd party crates
 --
@@ -41,7 +41,7 @@ Missing formatting/hints that precede your PR should be addressed via a separate
 README changes
 --
 
-If a PR changes Satty's behaviour and where appropriate, please adjust `README.md` as well. `make update-readme` adds the command line help (output of `satty --help`) automatically which is relevant whenever command line arguments change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
+If a PR changes Tensaku's behaviour and where appropriate, please adjust `README.md` as well. `make update-readme` adds the command line help (output of `tensaku --help`) automatically which is relevant whenever command line arguments change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
 
 Command line parameters changes
 --
@@ -53,7 +53,7 @@ GenAI usage
 
 GenAI usage is tempting and can save time, but it's not without pitfalls. At this point in time, full vibe coding mode can and often does lead to bad quality code which we are not going to merge.
 
-When using GenAI in the context of Satty PRs, please make sure that
-- any generated code can actually be licensed under Satty's license, i.e. doesn't violate existing intellectual property
+When using GenAI in the context of Tensaku PRs, please make sure that
+- any generated code can actually be licensed under Tensaku's license, i.e. doesn't violate existing intellectual property
 - any generated code actually does what it claims it does
 - you have a technical understanding of how the generated code works and you (not the GenAI) can explain it in detail

@@ -1,0 +1,25 @@
+Tensaku
+=======
+
+Tensaku is a fork of Satty, a modern screenshot annotation tool for Linux.
+
+    Upstream project:  Satty
+    Original author:   Matthias Gabriel <gabm+aur@mailbox.org>
+    Upstream source:   https://github.com/Satty-org/Satty
+
+All source files inherited from Satty were created by Matthias Gabriel
+and the Satty contributors. The fork point is git commit
+d19a403d6fd2854eaacd277998bf6c5cba85f7a5; per-file and per-line
+authorship for inherited files is preserved in this repository's git
+history (see `git log` / `git blame`). Files and modifications added
+after that commit are contributed by the Tensaku authors.
+
+Tensaku and Satty are both licensed under the Mozilla Public License,
+version 2.0 (MPL-2.0). The full license text is in the LICENSE file.
+
+Per Section 2.3 of the MPL-2.0, the license does not grant any rights
+in the trademarks, service marks, or logos of a Contributor. The
+"Satty" name and the Satty logo remain the property of the Satty
+project and are not covered by the license grant.
+
+Tensaku-specific modifications copyright (c) 2026 Jon Kinney.
