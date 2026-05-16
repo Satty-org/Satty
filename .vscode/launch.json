@@ -7,24 +7,21 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'satty'",
+            "name": "Debug executable 'tensaku'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=satty",
-                    "--package=satty",
+                    "--bin=tensaku",
+                    "--package=tensaku",
                 ],
                 "filter": {
-                    "name": "satty",
+                    "name": "tensaku",
                     "kind": "bin"
                 }
             },
             "args": [
                 "--filename",
                 "/tmp/bug.png",
-                //"/home/gabm/Pictures/Screenshots/satty-20240219-14:19:29.png",
-                //"/home/gabm/Pictures/Screenshots/satty-20240109-22:19:08.png",
-                //"/home/gabm/Pictures/Wallpaper/torres_1.jpg"
                 "--output-filename",
                 "/tmp/out.png"
             ],
@@ -33,16 +30,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'satty'",
+            "name": "Debug unit tests in executable 'tensaku'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=satty",
-                    "--package=satty"
+                    "--bin=tensaku",
+                    "--package=tensaku"
                 ],
                 "filter": {
-                    "name": "satty",
+                    "name": "tensaku",
                     "kind": "bin"
                 }
             },

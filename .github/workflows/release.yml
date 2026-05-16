@@ -44,21 +44,21 @@ jobs:
       - name: Pack Artifacts
         if: matrix.os == 'ubuntu-latest'
         env:
-          RELEASE_NAME: satty-${{ matrix.target }}
+          RELEASE_NAME: tensaku-${{ matrix.target }}
           ARTIFACTS_DIR: target/${{ matrix.target }}/release
         run: |
           mkdir $RELEASE_NAME
-          cp target/${{ matrix.target }}/release/satty -t $RELEASE_NAME
+          cp target/${{ matrix.target }}/release/tensaku -t $RELEASE_NAME
           cp -r completions -t $RELEASE_NAME
           cp -r man -t $RELEASE_NAME
-          cp -r README.md assets LICENSE satty.desktop -t $RELEASE_NAME
+          cp -r README.md assets LICENSE NOTICE tensaku.desktop -t $RELEASE_NAME
           tar -zcvf $RELEASE_NAME.${{ matrix.archive }} -C $RELEASE_NAME .
 
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: satty-${{ matrix.target }}.${{ matrix.archive }}
+          files: tensaku-${{ matrix.target }}.${{ matrix.archive }}
 
   flatpak:
     runs-on: ubuntu-latest
@@ -81,12 +81,12 @@ jobs:
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          manifest-path: org.satty.Satty.yml
-          bundle: satty-${{ github.ref_name }}.flatpak
+          manifest-path: dev.tensaku.Tensaku.yml
+          bundle: tensaku-${{ github.ref_name }}.flatpak
           branch: ${{ github.ref_name }}
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Release Flatpak
         uses: softprops/action-gh-release@v1
         with:
-          files: satty-${{ github.ref_name }}.flatpak
+          files: tensaku-${{ github.ref_name }}.flatpak
