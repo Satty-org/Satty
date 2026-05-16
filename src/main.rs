@@ -180,11 +180,17 @@ enum AppInput {
     /// re-enter crop edit / revert). Re-fit the window around the
     /// new content with the same padding-and-90 %-cap logic the
     /// startup path uses.
-    ContentSizeChanged { width: f32, height: f32 },
+    ContentSizeChanged {
+        width: f32,
+        height: f32,
+    },
     /// Background-image dimensions changed (startup, rotate, resize).
     /// Forwarded to ToolsToolbar so the "Image size: W × H px"
     /// MenuButton label and resize-popover entries stay in sync.
-    ImageDimensionsChanged { width: i32, height: i32 },
+    ImageDimensionsChanged {
+        width: i32,
+        height: i32,
+    },
     /// Fill-Shape toggled from outside the StyleToolbar (`F`
     /// keyboard shortcut). Forwarded so the toolbar's button
     /// state updates in lockstep with sketch_board's `style.fill`.
@@ -193,7 +199,10 @@ enum AppInput {
     /// only to the top toolbar's W/H entries (the bottom-right
     /// output-dims readout doesn't watch this; it tracks the
     /// committed output, not the in-edit rect).
-    CropEditDimensions { width: i32, height: i32 },
+    CropEditDimensions {
+        width: i32,
+        height: i32,
+    },
     /// Open the Preferences dialog (gear button or Ctrl+,).
     OpenPreferences,
     /// Re-launch the welcome dialog. Triggered by the "?" button
@@ -326,9 +335,9 @@ impl App {
         // necessarily what the user previously saved) would otherwise
         // visibly disagree on launch. Push the just-rendered value back
         // out to keep them in lockstep.
-        let _ = controller
-            .sender()
-            .send(WelcomeDialogInput::SetValue(APP_CONFIG.read().annotation_size_factor()));
+        let _ = controller.sender().send(WelcomeDialogInput::SetValue(
+            APP_CONFIG.read().annotation_size_factor(),
+        ));
         self.welcome_controller = Some(controller);
     }
 
@@ -354,10 +363,7 @@ impl App {
     /// pans" cycle would loop indefinitely.
     fn sync_scrollbars(&self, info: sketch_board::PanInfo) {
         self.applying_scrollbar.set(true);
-        let configure = |bar: &gtk::Scrollbar,
-                         drag: f32,
-                         image_scaled: f32,
-                         canvas: f32| {
+        let configure = |bar: &gtk::Scrollbar, drag: f32, image_scaled: f32, canvas: f32| {
             let needs = image_scaled > canvas + 0.5;
             bar.set_visible(needs);
             if !needs {
@@ -535,12 +541,9 @@ impl App {
             root.set_default_size(w, h);
             root.set_size_request(w, h);
             let root_clone = root.clone();
-            gtk::glib::timeout_add_local_once(
-                std::time::Duration::from_millis(50),
-                move || {
-                    root_clone.set_size_request(-1, -1);
-                },
-            );
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
+                root_clone.set_size_request(-1, -1);
+            });
         };
 
         match resize {
@@ -736,9 +739,11 @@ impl Component for App {
                 // CropTool. Keeps the snap state in one place rather
                 // than having the checkbox drive it from main.rs and
                 // ALSO the toolbar (which it isn't part of anyway).
-                self.sketch_board.sender().emit(
-                    SketchBoardInput::ToolbarEvent(ToolbarEvent::SnapToEdgesChanged(value)),
-                );
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::ToolbarEvent(
+                        ToolbarEvent::SnapToEdgesChanged(value),
+                    ));
             }
             AppInput::WindowWidthChanged(width) => {
                 use ui::toolbars::TopBarLayout;
@@ -814,8 +819,7 @@ impl Component for App {
                 // bottom_row itself also covers Crop mode, where the
                 // style_toolbar is already hidden by its own gate so
                 // toggling its `visible` flag has no visible effect.
-                self.bottom_row
-                    .set_visible(!self.bottom_row.is_visible());
+                self.bottom_row.set_visible(!self.bottom_row.is_visible());
             }
             AppInput::ToolSwitchShortcut(tool) => {
                 self.tools_toolbar
@@ -881,8 +885,11 @@ impl Component for App {
                 // reads as 749×109 (the visual size of the region
                 // they framed), not the doubled device-pixel count.
                 let scale = Self::display_scale_divisor(root);
-                self.output_dimensions_label
-                    .set_text(&format!("{} x {}", d.0 / scale, d.1 / scale));
+                self.output_dimensions_label.set_text(&format!(
+                    "{} x {}",
+                    d.0 / scale,
+                    d.1 / scale
+                ));
                 // (NB: the crop-mode toolbar W/H entries get their
                 // live values via `CropEditDimensions` instead, so
                 // they update on every drag without making the
@@ -891,9 +898,9 @@ impl Component for App {
                 // un-commit, when the OUTPUT actually changes.)
             }
             AppInput::CropEditDimensions { width, height } => {
-                self.tools_toolbar.sender().emit(
-                    ToolsToolbarInput::CropDimensionsChanged { width, height },
-                );
+                self.tools_toolbar
+                    .sender()
+                    .emit(ToolsToolbarInput::CropDimensionsChanged { width, height });
             }
             AppInput::OpenPreferences => {
                 ui::preferences::open(
@@ -943,9 +950,9 @@ impl Component for App {
                 self.update_revert_visibility();
             }
             AppInput::RevertCropClicked => {
-                self.sketch_board.sender().emit(
-                    SketchBoardInput::ToolbarEvent(ToolbarEvent::RevertCrop),
-                );
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::ToolbarEvent(ToolbarEvent::RevertCrop));
             }
             AppInput::PanChanged(info) => {
                 self.sync_scrollbars(info);
@@ -968,16 +975,10 @@ impl Component for App {
                         .emit(StyleToolbarInput::SyncToToolDefault);
                 }
             }
-            AppInput::SelectionMultiAgreement {
-                size,
-                smooth,
-            } => {
+            AppInput::SelectionMultiAgreement { size, smooth } => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SyncMultiAgreement {
-                        size,
-                        smooth,
-                    });
+                    .emit(StyleToolbarInput::SyncMultiAgreement { size, smooth });
             }
             AppInput::ToolSizeChanged(size) => {
                 self.style_toolbar
@@ -1000,8 +1001,7 @@ impl Component for App {
                 let scaled_w = width as f64 / scale;
                 let scaled_h = height as f64 / scale;
                 let monitor = Self::get_monitor_size(root);
-                let (w, h) =
-                    Self::window_size_for_content(scaled_w, scaled_h, monitor);
+                let (w, h) = Self::window_size_for_content(scaled_w, scaled_h, monitor);
                 root.set_default_size(w, h);
                 // GTK4's `set_default_size` reliably sizes a fresh
                 // window but is mostly a hint once the window is
@@ -1028,9 +1028,9 @@ impl Component for App {
                 // popover both reflect the live value. Also push
                 // through to ToolsToolbar.
                 self.image_dimensions = (width, height);
-                self.tools_toolbar.sender().emit(
-                    ToolsToolbarInput::ImageDimensionsChanged { width, height },
-                );
+                self.tools_toolbar
+                    .sender()
+                    .emit(ToolsToolbarInput::ImageDimensionsChanged { width, height });
             }
             AppInput::FillShapesChanged(fill) => {
                 self.style_toolbar
@@ -1190,18 +1190,14 @@ impl Component for App {
                     SketchBoardOutput::SelectionMultiAgreement { size, smooth } => {
                         AppInput::SelectionMultiAgreement { size, smooth }
                     }
-                    SketchBoardOutput::ToolSizeChanged(size) => {
-                        AppInput::ToolSizeChanged(size)
-                    }
+                    SketchBoardOutput::ToolSizeChanged(size) => AppInput::ToolSizeChanged(size),
                     SketchBoardOutput::ContentSizeChanged { width, height } => {
                         AppInput::ContentSizeChanged { width, height }
                     }
                     SketchBoardOutput::ImageDimensionsChanged { width, height } => {
                         AppInput::ImageDimensionsChanged { width, height }
                     }
-                    SketchBoardOutput::FillShapesChanged(fill) => {
-                        AppInput::FillShapesChanged(fill)
-                    }
+                    SketchBoardOutput::FillShapesChanged(fill) => AppInput::FillShapesChanged(fill),
                     SketchBoardOutput::CropEditDimensions { width, height } => {
                         AppInput::CropEditDimensions { width, height }
                     }
@@ -1210,21 +1206,15 @@ impl Component for App {
                     SketchBoardOutput::AnnotationFactorChanged(v) => {
                         AppInput::AnnotationFactorChanged(v)
                     }
-                    SketchBoardOutput::ArrowStyleCycled(style) => {
-                        AppInput::ArrowStyleCycled(style)
-                    }
-                    SketchBoardOutput::BlurStyleCycled(style) => {
-                        AppInput::BlurStyleCycled(style)
-                    }
+                    SketchBoardOutput::ArrowStyleCycled(style) => AppInput::ArrowStyleCycled(style),
+                    SketchBoardOutput::BlurStyleCycled(style) => AppInput::BlurStyleCycled(style),
                     SketchBoardOutput::TextBackgroundCycled(bg) => {
                         AppInput::TextBackgroundCycled(bg)
                     }
                     SketchBoardOutput::HighlighterStyleCycled(style) => {
                         AppInput::HighlighterStyleCycled(style)
                     }
-                    SketchBoardOutput::ShowCycleToast(text) => {
-                        AppInput::ShowCycleToast(text)
-                    }
+                    SketchBoardOutput::ShowCycleToast(text) => AppInput::ShowCycleToast(text),
                     SketchBoardOutput::SelectionTextBackgroundChanged(bg) => {
                         AppInput::SelectionTextBackgroundChanged(bg)
                     }
@@ -1243,9 +1233,7 @@ impl Component for App {
                     SketchBoardOutput::HighlighterOpacityReset(v) => {
                         AppInput::HighlighterOpacityReset(v)
                     }
-                    SketchBoardOutput::BrushPostSmoothReset(v) => {
-                        AppInput::BrushPostSmoothReset(v)
-                    }
+                    SketchBoardOutput::BrushPostSmoothReset(v) => AppInput::BrushPostSmoothReset(v),
                 });
 
         // Toolbars
@@ -1257,13 +1245,13 @@ impl Component for App {
             .launch(())
             .forward(sketch_board.sender(), SketchBoardInput::ToolbarEvent);
 
-        let zoom_indicator = ZoomIndicator::builder().launch(1.0).forward(
-            sketch_board.sender(),
-            |out| match out {
-                ZoomIndicatorOutput::Command(cmd) => SketchBoardInput::ZoomCommand(cmd),
-                ZoomIndicatorOutput::FocusCanvas => SketchBoardInput::FocusCanvas,
-            },
-        );
+        let zoom_indicator =
+            ZoomIndicator::builder()
+                .launch(1.0)
+                .forward(sketch_board.sender(), |out| match out {
+                    ZoomIndicatorOutput::Command(cmd) => SketchBoardInput::ZoomCommand(cmd),
+                    ZoomIndicatorOutput::FocusCanvas => SketchBoardInput::FocusCanvas,
+                });
 
         let outer_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         // Hard min-width clamps interactive (floating-window) drag
@@ -1335,9 +1323,9 @@ impl Component for App {
         }
 
         // Snap-to-edges cluster: lives in bottom_row.start_widget
-        // alongside the zoom indicator. The checkbox + hint label 
-        // only show while the crop tool is active so they don't 
-        // add noise during regular annotation. Initial value pulled 
+        // alongside the zoom indicator. The checkbox + hint label
+        // only show while the crop tool is active so they don't
+        // add noise during regular annotation. Initial value pulled
         // from state (defaults to true).
         let snap_initial = state::load_snap_to_edges().unwrap_or(true);
         let snap_to_edges_check = gtk::CheckButton::builder()
@@ -1518,7 +1506,8 @@ impl Component for App {
         // which doesn't fire on first launch. Without this, an
         // app started with `--initial-tool crop` boots with the
         // snap checkbox and hint stuck hidden.
-        model.snap_to_edges_check
+        model
+            .snap_to_edges_check
             .set_visible(model.current_tool == Tools::Crop);
         model.update_snap_hint_visibility();
 
@@ -1547,12 +1536,13 @@ impl Component for App {
             .tools_toolbar
             .sender()
             .emit(ToolsToolbarInput::SetDisplayScale(display_scale));
-        model.tools_toolbar.sender().emit(
-            ToolsToolbarInput::ImageDimensionsChanged {
+        model
+            .tools_toolbar
+            .sender()
+            .emit(ToolsToolbarInput::ImageDimensionsChanged {
                 width: image_dimensions.0,
                 height: image_dimensions.1,
-            },
-        );
+            });
 
         let widgets = view_output!();
 
@@ -1702,9 +1692,17 @@ fn load_input_image() -> Result<Pixbuf> {
     if let Some(spec) = scroll_capture_test {
         match spec {
             ScrollCaptureTest::Full => capture::capture_output(),
-            ScrollCaptureTest::Region { x, y, width, height } => {
-                capture::capture_region(capture::Rect { x, y, width, height })
-            }
+            ScrollCaptureTest::Region {
+                x,
+                y,
+                width,
+                height,
+            } => capture::capture_region(capture::Rect {
+                x,
+                y,
+                width,
+                height,
+            }),
         }
     } else if input_filename == "-" {
         let mut buf = Vec::<u8>::new();

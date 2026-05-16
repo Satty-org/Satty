@@ -259,13 +259,19 @@ pub enum SketchBoardOutput {
     /// revert (full image dims). Main resizes the window to (size +
     /// padding) capped to 90 % of the display so the canvas can
     /// render the content at 1:1 whenever it fits.
-    ContentSizeChanged { width: f32, height: f32 },
+    ContentSizeChanged {
+        width: f32,
+        height: f32,
+    },
     /// Underlying background-image dimensions changed (startup
     /// seed + every rotate / resize action from the crop-mode top
     /// toolbar). App forwards into ToolsToolbar so its
     /// "Image size: W × H px" label and resize-popover entries
     /// reflect the live value.
-    ImageDimensionsChanged { width: i32, height: i32 },
+    ImageDimensionsChanged {
+        width: i32,
+        height: i32,
+    },
     /// The global Fill-Shape state was toggled from outside the
     /// StyleToolbar (currently: the `F` keyboard shortcut).
     /// Routed through to the toolbar so its icon + tooltip
@@ -278,7 +284,10 @@ pub enum SketchBoardOutput {
     /// readout reflects the OUTPUT (full image while editing,
     /// cropped size only after commit) so it doesn't visually
     /// thrash on every drag tick.
-    CropEditDimensions { width: i32, height: i32 },
+    CropEditDimensions {
+        width: i32,
+        height: i32,
+    },
     /// User wants to open the Preferences dialog (gear button or
     /// Ctrl+,). The dialog isn't a child of sketch_board, so we
     /// just forward the intent up to App.
@@ -527,10 +536,7 @@ impl InputEvent {
                     // that means swipe down moves the canvas down,
                     // matching how every other Wayland app behaves.
                     const SCROLL_PAN_PIXELS: f32 = 48.0;
-                    renderer.pan_by(
-                        me.pos.x * SCROLL_PAN_PIXELS,
-                        me.pos.y * SCROLL_PAN_PIXELS,
-                    );
+                    renderer.pan_by(me.pos.x * SCROLL_PAN_PIXELS, me.pos.y * SCROLL_PAN_PIXELS);
                     // pan_by mutates drag_offset and emits the new
                     // PanInfo so the scrollbars track, but it doesn't
                     // queue a redraw on its own. Return Redraw so the
@@ -742,10 +748,7 @@ impl SketchBoard {
         let mut labels: HashMap<crate::tools::DrawableId, String> = HashMap::new();
         for id in &ids {
             if let Some(d) = self.renderer.clone_drawable(*id) {
-                let n = self
-                    .renderer
-                    .drawable_auto_label_index(*id)
-                    .unwrap_or(0);
+                let n = self.renderer.drawable_auto_label_index(*id).unwrap_or(0);
                 labels.insert(*id, format!("{} {n}", d.panel_label_kind()));
             }
         }
@@ -757,14 +760,8 @@ impl SketchBoard {
             };
             let auto_label = labels.remove(&id).unwrap_or_else(|| "Layer".into());
             // Custom name overrides the auto label entirely.
-            let label = self
-                .renderer
-                .drawable_custom_name(id)
-                .unwrap_or(auto_label);
-            let (visible, locked) = self
-                .renderer
-                .drawable_flags(id)
-                .unwrap_or((true, false));
+            let label = self.renderer.drawable_custom_name(id).unwrap_or(auto_label);
+            let (visible, locked) = self.renderer.drawable_flags(id).unwrap_or((true, false));
             let row = build_layer_panel_row(
                 LayerRowData {
                     id,
@@ -803,9 +800,7 @@ impl SketchBoard {
         if self.active_tool_type() == Tools::Crop {
             return;
         }
-        let Some((new_w, new_h)) =
-            self.renderer.auto_resize_for_drawables(ids_to_exclude)
-        else {
+        let Some((new_w, new_h)) = self.renderer.auto_resize_for_drawables(ids_to_exclude) else {
             return;
         };
         let crop_tool = self.tools.get_crop_tool();
@@ -1311,9 +1306,7 @@ impl SketchBoard {
     /// context (GLib's single-threaded scheduler) lets us capture an
     /// `input_sender` without Send bounds.
     fn handle_paste_image(&self, sender: &ComponentSender<Self>) {
-        let Some(display) =
-            relm4::gtk::gdk::DisplayManager::get().default_display()
-        else {
+        let Some(display) = relm4::gtk::gdk::DisplayManager::get().default_display() else {
             return;
         };
         let clipboard = display.clipboard();
@@ -1321,9 +1314,7 @@ impl SketchBoard {
         relm4::gtk::glib::spawn_future_local(async move {
             match clipboard.read_texture_future().await {
                 Ok(Some(texture)) => {
-                    if let Some(pixbuf) =
-                        relm4::gtk::gdk::pixbuf_get_from_texture(&texture)
-                    {
+                    if let Some(pixbuf) = relm4::gtk::gdk::pixbuf_get_from_texture(&texture) {
                         input_sender
                             .send(SketchBoardInput::PasteImageFromClipboard(pixbuf))
                             .ok();
@@ -1378,12 +1369,14 @@ impl SketchBoard {
         // Skip locked drawables; keep them selected so the user has
         // something to operate on after unlocking. Mirrors the
         // pointer-tool's own Delete/Backspace handler.
-        let (to_delete, to_keep): (Vec<_>, Vec<_>) = selected
-            .into_iter()
-            .partition(|id| !self.renderer.drawable_flags(*id).map(|f| f.1).unwrap_or(false));
-        pointer_tool
-            .borrow_mut()
-            .set_selected_drawables(to_keep);
+        let (to_delete, to_keep): (Vec<_>, Vec<_>) = selected.into_iter().partition(|id| {
+            !self
+                .renderer
+                .drawable_flags(*id)
+                .map(|f| f.1)
+                .unwrap_or(false)
+        });
+        pointer_tool.borrow_mut().set_selected_drawables(to_keep);
         if to_delete.is_empty() {
             return ToolUpdateResult::Unmodified;
         }
@@ -1427,21 +1420,13 @@ impl SketchBoard {
                 // opposite direction has room. Two cases because dx's
                 // sign tells us which canvas edge to check (and the
                 // bounds-fit test mirrors accordingly).
-                let flip_dx = (dx < 0.0
-                    && b.pos.x + dx < 0.0
-                    && b.pos.x + b.size.x - dx <= img_w)
-                    || (dx > 0.0
-                        && b.pos.x + b.size.x + dx > img_w
-                        && b.pos.x - dx >= 0.0);
+                let flip_dx = (dx < 0.0 && b.pos.x + dx < 0.0 && b.pos.x + b.size.x - dx <= img_w)
+                    || (dx > 0.0 && b.pos.x + b.size.x + dx > img_w && b.pos.x - dx >= 0.0);
                 if flip_dx {
                     dx = -dx;
                 }
-                let flip_dy = (dy > 0.0
-                    && b.pos.y + b.size.y + dy > img_h
-                    && b.pos.y - dy >= 0.0)
-                    || (dy < 0.0
-                        && b.pos.y + dy < 0.0
-                        && b.pos.y + b.size.y - dy <= img_h);
+                let flip_dy = (dy > 0.0 && b.pos.y + b.size.y + dy > img_h && b.pos.y - dy >= 0.0)
+                    || (dy < 0.0 && b.pos.y + dy < 0.0 && b.pos.y + b.size.y - dy <= img_h);
                 if flip_dy {
                     dy = -dy;
                 }
@@ -1784,9 +1769,7 @@ impl SketchBoard {
                     // that value instead of the saved persistent
                     // default — same intent as the size slider's
                     // session memory.
-                    let saved = if sticky
-                        && let Some(v) = self.session_highlighter_opacity
-                    {
+                    let saved = if sticky && let Some(v) = self.session_highlighter_opacity {
                         v
                     } else {
                         crate::state::load_highlighter_opacity().unwrap_or(0.40)
@@ -1828,9 +1811,7 @@ impl SketchBoard {
                         // Sticky-defaults: prefer the in-session value
                         // when present, falling through to the saved
                         // default → config / built-in.
-                        if sticky
-                            && let Some(v) = self.session_brush_smooth
-                        {
+                        if sticky && let Some(v) = self.session_brush_smooth {
                             v
                         } else {
                             crate::state::load_brush_post_smooth_iterations()
@@ -1860,13 +1841,12 @@ impl SketchBoard {
                     // though they share `style.fill`) over the saved
                     // default, so the user's in-session toggle survives
                     // a round trip through other tools.
-                    let saved_default = if sticky
-                        && let Some(v) = self.session_fill_per_tool.get(&tool).copied()
-                    {
-                        Some(v)
-                    } else {
-                        crate::state::load_fill_for_tool(tool)
-                    };
+                    let saved_default =
+                        if sticky && let Some(v) = self.session_fill_per_tool.get(&tool).copied() {
+                            Some(v)
+                        } else {
+                            crate::state::load_fill_for_tool(tool)
+                        };
                     if let Some(saved) = saved_default
                         && saved != self.style.fill
                     {
@@ -1886,8 +1866,7 @@ impl SketchBoard {
             .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
         // deactivate old tool and save drawable, if any
         let old_tool = self.active_tool.clone();
-        let mut deactivate_result =
-            old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
+        let mut deactivate_result = old_tool.borrow_mut().handle_event(ToolEvent::Deactivated);
 
         old_tool.borrow_mut().set_im_context(None);
 
@@ -2039,10 +2018,7 @@ impl SketchBoard {
                     self.renderer
                         .clone_drawable(*id)
                         .map(|d| {
-                            matches!(
-                                d.tool_type(),
-                                Some(Tools::Rectangle) | Some(Tools::Ellipse)
-                            )
+                            matches!(d.tool_type(), Some(Tools::Rectangle) | Some(Tools::Ellipse))
                         })
                         .unwrap_or(false)
                 });
@@ -2051,10 +2027,7 @@ impl SketchBoard {
                 }
                 if let Some(fill) = selected.iter().find_map(|id| {
                     self.renderer.clone_drawable(*id).and_then(|d| {
-                        if matches!(
-                            d.tool_type(),
-                            Some(Tools::Rectangle) | Some(Tools::Ellipse)
-                        ) {
+                        if matches!(d.tool_type(), Some(Tools::Rectangle) | Some(Tools::Ellipse)) {
                             d.style().map(|s| s.fill)
                         } else {
                             None
@@ -2099,10 +2072,7 @@ impl SketchBoard {
                 // style fields; brushes / arrows / text / etc. in the
                 // selection are left untouched.
                 self.apply_to_selection(|d| {
-                    if !matches!(
-                        d.tool_type(),
-                        Some(Tools::Rectangle) | Some(Tools::Ellipse)
-                    ) {
+                    if !matches!(d.tool_type(), Some(Tools::Rectangle) | Some(Tools::Ellipse)) {
                         return false;
                     }
                     let Some(mut style) = d.style() else {
@@ -2127,8 +2097,7 @@ impl SketchBoard {
             }
             ToolbarEvent::ToggleLayerPanel => {
                 self.layer_panel_open = !self.layer_panel_open;
-                self.layer_panel_content
-                    .set_visible(self.layer_panel_open);
+                self.layer_panel_content.set_visible(self.layer_panel_open);
                 if self.layer_panel_open {
                     self.rebuild_layer_panel_rows_if_open();
                 }
@@ -2466,13 +2435,12 @@ impl SketchBoard {
                         });
                 }
                 ToolUpdateResult::Redraw
-            }
-            /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::DimensionsUpdate(Some(dimensions)));
-                ToolUpdateResult::Unmodified
-            }*/
+            } /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
+                  sender
+                      .output_sender()
+                      .emit(SketchBoardOutput::DimensionsUpdate(Some(dimensions)));
+                  ToolUpdateResult::Unmodified
+              }*/
         }
     }
 
@@ -2510,9 +2478,7 @@ impl SketchBoard {
                     // signal to the toolbar (the button-click path
                     // updates its own mirror locally; from a
                     // keyboard toggle, we have to push instead).
-                    sender.input(SketchBoardInput::ToolbarEvent(
-                        ToolbarEvent::ToggleFill,
-                    ));
+                    sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
                     sender.input(SketchBoardInput::SyncFillToToolbar);
                 } else if let Some(ch) = txt.chars().next()
                     && let Some(tool) = APP_CONFIG.read().keybinds().get_tool(ch)
@@ -2541,9 +2507,9 @@ impl SketchBoard {
                         // needs a fresh double-tap.
                         self.last_tool_press = None;
                     } else {
-                        sender.input(SketchBoardInput::ToolbarEvent(
-                            ToolbarEvent::ToolSelected(tool),
-                        ));
+                        sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToolSelected(
+                            tool,
+                        )));
                         sender
                             .output_sender()
                             .emit(SketchBoardOutput::ToolSwitchShortcut(tool));
@@ -2562,8 +2528,7 @@ impl SketchBoard {
                         && (1..=5).contains(&hotkey_digit)
                     {
                         let crop_tool = self.tools.get_crop_tool();
-                        let applied =
-                            crop_tool.borrow_mut().apply_quadrant_preset(hotkey_digit);
+                        let applied = crop_tool.borrow_mut().apply_quadrant_preset(hotkey_digit);
                         if applied {
                             self.renderer.request_render(&[]);
                         }
@@ -2582,9 +2547,7 @@ impl SketchBoard {
                         {
                             sender
                                 .output_sender()
-                                .emit(SketchBoardOutput::ColorSwitchShortcut(
-                                    index_digit as u64,
-                                ));
+                                .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
                         }
                     }
                 }
@@ -2637,9 +2600,7 @@ impl SketchBoard {
         } else {
             None
         };
-        let new_key = new_style
-            .as_ref()
-            .map(|(id, s)| (*id, s.size));
+        let new_key = new_style.as_ref().map(|(id, s)| (*id, s.size));
         let single_changed = new_key != self.last_synced_selection;
         // Detect multi-state transitions even when both the previous
         // and current sync had a `None` key (multi → empty looks like
@@ -2687,8 +2648,7 @@ impl SketchBoard {
             // any non-brush in the selection → NotApplicable (hide
             // the slider, since smoothness is meaningless for the
             // current set).
-            let levels: Vec<Option<usize>> =
-                drawables.iter().map(|d| d.smooth_level()).collect();
+            let levels: Vec<Option<usize>> = drawables.iter().map(|d| d.smooth_level()).collect();
             let smooth = if levels.iter().any(|l| l.is_none()) {
                 SmoothLevelMulti::NotApplicable
             } else {
@@ -2950,9 +2910,7 @@ impl SketchBoard {
                         // record into the session cache so the next
                         // Brush re-entry restores this value when
                         // sticky-defaults is on.
-                        APP_CONFIG
-                            .write()
-                            .set_brush_post_smooth_iterations(new_val);
+                        APP_CONFIG.write().set_brush_post_smooth_iterations(new_val);
                         self.session_brush_smooth = Some(new_val);
                     }
                     1 => {
@@ -3106,10 +3064,7 @@ impl SketchBoard {
                 if want_filled == self.style.fill {
                     return;
                 }
-                let _ = self.handle_toolbar_event(
-                    ToolbarEvent::ToggleFill,
-                    outer_sender.clone(),
-                );
+                let _ = self.handle_toolbar_event(ToolbarEvent::ToggleFill, outer_sender.clone());
             }
             _ => {
                 // No alt control for the remaining tools (Pointer /
@@ -3139,8 +3094,7 @@ impl SketchBoard {
         const ANNOTATION_MIN: f32 = 0.10;
         const ANNOTATION_MAX: f32 = 10.0;
         let cur = self.style.annotation_size_factor;
-        let new_val =
-            (cur + steps as f32 * ANNOTATION_STEP).clamp(ANNOTATION_MIN, ANNOTATION_MAX);
+        let new_val = (cur + steps as f32 * ANNOTATION_STEP).clamp(ANNOTATION_MIN, ANNOTATION_MAX);
         // Round to the nearest step so trackpad accumulation doesn't
         // park between detents.
         let new_val = (new_val / ANNOTATION_STEP).round() * ANNOTATION_STEP;
@@ -3371,7 +3325,9 @@ impl SketchBoard {
         //    annotation on top; the cursor follows that semantics and
         //    stays on the tool's default (crosshair / custom).
         if cursor.is_none()
-            && let Some(id) = self.renderer.hit_test(image_pos, crate::tools::HIT_TOLERANCE)
+            && let Some(id) = self
+                .renderer
+                .hit_test(image_pos, crate::tools::HIT_TOLERANCE)
         {
             let active = self.active_tool_type();
             let same_type = active == Tools::Pointer
@@ -3397,47 +3353,40 @@ impl SketchBoard {
         //    the text row the click would highlight, no matter where
         //    inside the band the pointer actually is.
         if cursor.is_none() {
-            let (band_height, band_v_offset) =
-                if self.active_tool_type() == Tools::Highlighter {
-                    // While a drag is in flight, the tool's
-                    // `locked_text_band()` (set at BeginDrag in
-                    // TextLocked mode) takes precedence — the
-                    // cursor stays at the band the stroke started
-                    // on no matter where the pointer wanders.
-                    // When idle, the current `highlighter_style()`
-                    // decides whether to even attempt a band lookup:
-                    //   * TextLocked → query `detect_local_band` and
-                    //     anchor the cursor to that band.
-                    //   * Normal → no band, no anchor — the cursor
-                    //     is the freehand style.size-derived capsule
-                    //     centered on the pointer.
-                    let active_tool = self.active_tool.borrow();
-                    let locked = active_tool.locked_text_band();
-                    let style = active_tool
-                        .highlighter_style()
-                        .unwrap_or_default();
-                    drop(active_tool);
-                    let band = match (locked, style) {
-                        (Some(b), _) => Some(b),
-                        (None, crate::tools::HighlighterStyle::TextLocked) => {
-                            crate::text_bands::detect_local_band(
-                                image_pos.x,
-                                image_pos.y,
-                            )
-                        }
-                        (None, crate::tools::HighlighterStyle::Normal) => None,
-                    };
-                    match band {
-                        Some(b) => {
-                            let pad =
-                                2.0 * b.height() * crate::text_bands::BAND_PAD_PERCENT_PER_SIDE;
-                            (Some(b.height() + pad), b.center_y() - image_pos.y)
-                        }
-                        None => (None, 0.0),
+            let (band_height, band_v_offset) = if self.active_tool_type() == Tools::Highlighter {
+                // While a drag is in flight, the tool's
+                // `locked_text_band()` (set at BeginDrag in
+                // TextLocked mode) takes precedence — the
+                // cursor stays at the band the stroke started
+                // on no matter where the pointer wanders.
+                // When idle, the current `highlighter_style()`
+                // decides whether to even attempt a band lookup:
+                //   * TextLocked → query `detect_local_band` and
+                //     anchor the cursor to that band.
+                //   * Normal → no band, no anchor — the cursor
+                //     is the freehand style.size-derived capsule
+                //     centered on the pointer.
+                let active_tool = self.active_tool.borrow();
+                let locked = active_tool.locked_text_band();
+                let style = active_tool.highlighter_style().unwrap_or_default();
+                drop(active_tool);
+                let band = match (locked, style) {
+                    (Some(b), _) => Some(b),
+                    (None, crate::tools::HighlighterStyle::TextLocked) => {
+                        crate::text_bands::detect_local_band(image_pos.x, image_pos.y)
                     }
-                } else {
-                    (None, 0.0)
+                    (None, crate::tools::HighlighterStyle::Normal) => None,
                 };
+                match band {
+                    Some(b) => {
+                        let pad = 2.0 * b.height() * crate::text_bands::BAND_PAD_PERCENT_PER_SIDE;
+                        (Some(b.height() + pad), b.center_y() - image_pos.y)
+                    }
+                    None => (None, 0.0),
+                }
+            } else {
+                (None, 0.0)
+            };
             if let Some(custom) = self.custom_drawing_cursor(band_height, band_v_offset) {
                 self.renderer.set_cursor(Some(&custom));
                 return;
@@ -3543,10 +3492,34 @@ fn draw_panel_preview(
             let rw = (w - 2.0 * pad - 1.0).max(1.0);
             let rh = (h - 2.0 * pad - 1.0).max(1.0);
             cr.new_sub_path();
-            cr.arc(x + rw - radius, y + radius, radius, -1.5708, 0.0);
-            cr.arc(x + rw - radius, y + rh - radius, radius, 0.0, 1.5708);
-            cr.arc(x + radius, y + rh - radius, radius, 1.5708, 3.1416);
-            cr.arc(x + radius, y + radius, radius, 3.1416, 4.7124);
+            cr.arc(
+                x + rw - radius,
+                y + radius,
+                radius,
+                -std::f64::consts::FRAC_PI_2,
+                0.0,
+            );
+            cr.arc(
+                x + rw - radius,
+                y + rh - radius,
+                radius,
+                0.0,
+                std::f64::consts::FRAC_PI_2,
+            );
+            cr.arc(
+                x + radius,
+                y + rh - radius,
+                radius,
+                std::f64::consts::FRAC_PI_2,
+                std::f64::consts::PI,
+            );
+            cr.arc(
+                x + radius,
+                y + radius,
+                radius,
+                std::f64::consts::PI,
+                3.0 * std::f64::consts::FRAC_PI_2,
+            );
             cr.close_path();
             if filled {
                 cr.fill().ok();
@@ -3689,12 +3662,7 @@ fn build_layer_panel_row(
                 for ty in 0..rows {
                     for tx in 0..cols {
                         if (tx + ty) % 2 == 1 {
-                            cr.rectangle(
-                                tx as f64 * tile,
-                                ty as f64 * tile,
-                                tile,
-                                tile,
-                            );
+                            cr.rectangle(tx as f64 * tile, ty as f64 * tile, tile, tile);
                         }
                     }
                 }
@@ -3733,10 +3701,28 @@ fn build_layer_panel_row(
                 let r = 2.0;
                 cr.set_source_rgb(0.95, 0.95, 0.95);
                 cr.new_sub_path();
-                cr.arc(rx + rw - r, ry + r, r, -1.5708, 0.0);
-                cr.arc(rx + rw - r, ry + rh - r, r, 0.0, 1.5708);
-                cr.arc(rx + r, ry + rh - r, r, 1.5708, 3.1416);
-                cr.arc(rx + r, ry + r, r, 3.1416, 4.7124);
+                cr.arc(rx + rw - r, ry + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
+                cr.arc(
+                    rx + rw - r,
+                    ry + rh - r,
+                    r,
+                    0.0,
+                    std::f64::consts::FRAC_PI_2,
+                );
+                cr.arc(
+                    rx + r,
+                    ry + rh - r,
+                    r,
+                    std::f64::consts::FRAC_PI_2,
+                    std::f64::consts::PI,
+                );
+                cr.arc(
+                    rx + r,
+                    ry + r,
+                    r,
+                    std::f64::consts::PI,
+                    3.0 * std::f64::consts::FRAC_PI_2,
+                );
                 cr.close_path();
                 let _ = cr.fill();
             });
@@ -3781,10 +3767,7 @@ fn build_layer_panel_row(
         .hexpand(true)
         .ellipsize(gtk::pango::EllipsizeMode::End)
         .build();
-    let entry_widget = gtk::Entry::builder()
-        .text(data.label)
-        .hexpand(true)
-        .build();
+    let entry_widget = gtk::Entry::builder().text(data.label).hexpand(true).build();
     let name_stack = gtk::Stack::new();
     name_stack.set_hexpand(true);
     name_stack.add_named(&label_widget, Some("label"));
@@ -4130,15 +4113,15 @@ fn drop_target_row(content: &gtk::Box, y: f64) -> Option<(gtk::Widget, bool)> {
     let mut child = content.first_child();
     let mut last_row: Option<gtk::Widget> = None;
     while let Some(w) = child {
-        if w.css_classes().iter().any(|c| c == "layer_row") {
-            if let Some(bounds) = w.compute_bounds(content) {
-                let top = bounds.y() as f64;
-                let h = bounds.height() as f64;
-                if y < top + h * 0.5 {
-                    return Some((w, true));
-                }
-                last_row = Some(w.clone());
+        if w.css_classes().iter().any(|c| c == "layer_row")
+            && let Some(bounds) = w.compute_bounds(content)
+        {
+            let top = bounds.y() as f64;
+            let h = bounds.height() as f64;
+            if y < top + h * 0.5 {
+                return Some((w, true));
             }
+            last_row = Some(w.clone());
         }
         child = w.next_sibling();
     }
@@ -4639,8 +4622,7 @@ impl Component for SketchBoard {
                                         // Defaults to off so a stray Esc
                                         // doesn't kill the window mid-
                                         // annotation.
-                                        let mut a =
-                                            APP_CONFIG.read().actions_on_escape();
+                                        let mut a = APP_CONFIG.read().actions_on_escape();
                                         if APP_CONFIG.read().close_on_esc()
                                             && !a.contains(&Action::Exit)
                                         {
@@ -4716,10 +4698,7 @@ impl Component for SketchBoard {
                             if in_edit {
                                 let factor = APP_CONFIG.read().zoom_factor();
                                 let multiplier = factor.powf(-me.pos.y);
-                                if crop_tool
-                                    .borrow_mut()
-                                    .resize_proportional(multiplier)
-                                {
+                                if crop_tool.borrow_mut().resize_proportional(multiplier) {
                                     self.renderer.request_render(&[]);
                                 }
                                 true
@@ -4772,8 +4751,7 @@ impl Component for SketchBoard {
                         && (me.type_ == MouseEventType::PointerPos
                             || me.type_ == MouseEventType::EndDrag)
                     {
-                        let image_pos =
-                            self.renderer.abs_canvas_to_image_coordinates(me.pos);
+                        let image_pos = self.renderer.abs_canvas_to_image_coordinates(me.pos);
                         self.update_hover_cursor(image_pos);
                     }
 
@@ -4796,51 +4774,48 @@ impl Component for SketchBoard {
                     // click and select whatever drawable sits behind the
                     // edited text (e.g. another text box overlapping it).
                     let in_active_editing_body = if let InputEvent::Mouse(me) = &ie {
-                        matches!(
-                            me.type_,
-                            MouseEventType::Click | MouseEventType::BeginDrag
-                        ) && self
-                            .active_tool
-                            .borrow()
-                            .editing_body_rect()
-                            .map(|r| r.contains(me.pos))
-                            .unwrap_or(false)
+                        matches!(me.type_, MouseEventType::Click | MouseEventType::BeginDrag)
+                            && self
+                                .active_tool
+                                .borrow()
+                                .editing_body_rect()
+                                .map(|r| r.contains(me.pos))
+                                .unwrap_or(false)
                     } else {
                         false
                     };
 
-                    let pointer_consumed = if active_type != Tools::Pointer
-                        && !in_active_editing_body
-                    {
-                        // Hint to the pointer which drawing tool is active
-                        // so it can pass body-grabs through on type-mismatch
-                        // (letting the user place a new annotation on top
-                        // of a different-typed existing one).
-                        self.tools
-                            .get(&Tools::Pointer)
-                            .borrow_mut()
-                            .set_implicit_other_tool(Some(active_type));
-                        let r = self
-                            .tools
-                            .get(&Tools::Pointer)
-                            .borrow_mut()
-                            .handle_event(ToolEvent::Input(ie.clone()));
-                        match r {
-                            ToolUpdateResult::StopPropagation
-                            | ToolUpdateResult::RedrawAndStopPropagation
-                            | ToolUpdateResult::RaiseAndRedrawStop(_)
-                            | ToolUpdateResult::ModifyDrawable(_, _)
-                            | ToolUpdateResult::ModifyDrawables(_)
-                            | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
-                            | ToolUpdateResult::ModifyDrawablesCoalesce(_)
-                            | ToolUpdateResult::DeleteDrawable(_)
-                            | ToolUpdateResult::DeleteDrawables(_)
-                            | ToolUpdateResult::EditTextDrawable(_) => Some(r),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
+                    let pointer_consumed =
+                        if active_type != Tools::Pointer && !in_active_editing_body {
+                            // Hint to the pointer which drawing tool is active
+                            // so it can pass body-grabs through on type-mismatch
+                            // (letting the user place a new annotation on top
+                            // of a different-typed existing one).
+                            self.tools
+                                .get(&Tools::Pointer)
+                                .borrow_mut()
+                                .set_implicit_other_tool(Some(active_type));
+                            let r = self
+                                .tools
+                                .get(&Tools::Pointer)
+                                .borrow_mut()
+                                .handle_event(ToolEvent::Input(ie.clone()));
+                            match r {
+                                ToolUpdateResult::StopPropagation
+                                | ToolUpdateResult::RedrawAndStopPropagation
+                                | ToolUpdateResult::RaiseAndRedrawStop(_)
+                                | ToolUpdateResult::ModifyDrawable(_, _)
+                                | ToolUpdateResult::ModifyDrawables(_)
+                                | ToolUpdateResult::ModifyDrawableCoalesce(_, _)
+                                | ToolUpdateResult::ModifyDrawablesCoalesce(_)
+                                | ToolUpdateResult::DeleteDrawable(_)
+                                | ToolUpdateResult::DeleteDrawables(_)
+                                | ToolUpdateResult::EditTextDrawable(_) => Some(r),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
 
                     if let Some(r) = pointer_consumed {
                         r
@@ -4997,10 +4972,7 @@ impl Component for SketchBoard {
                 // Pointer if we never recorded one (initial app state
                 // where Crop is somehow the first tool picked).
                 let target = self.tool_before_crop.unwrap_or(Tools::Pointer);
-                self.handle_toolbar_event(
-                    ToolbarEvent::ToolSelected(target),
-                    sender,
-                )
+                self.handle_toolbar_event(ToolbarEvent::ToolSelected(target), sender)
             }
             SketchBoardInput::ToggleLayerPanel => {
                 self.layer_panel_open = !self.layer_panel_open;
@@ -5009,8 +4981,7 @@ impl Component for SketchBoard {
                 // not visible, so toggling visibility on
                 // `layer_panel_content` is enough to show/hide the
                 // whole panel column.
-                self.layer_panel_content
-                    .set_visible(self.layer_panel_open);
+                self.layer_panel_content.set_visible(self.layer_panel_open);
                 if self.layer_panel_open {
                     // Restore the saved width so re-opening lands at
                     // the user's chosen size, not whatever the Paned
@@ -5093,8 +5064,7 @@ impl Component for SketchBoard {
                         .renderer
                         .root()
                         .and_then(|r| r.downcast::<gtk::Window>().ok());
-                    let dialog =
-                        gtk::ColorChooserDialog::new(Some("Pick color"), parent.as_ref());
+                    let dialog = gtk::ColorChooserDialog::new(Some("Pick color"), parent.as_ref());
                     dialog.set_use_alpha(true);
                     dialog.set_rgba(&initial);
                     let sender = outer_sender.input_sender().clone();
@@ -5262,9 +5232,7 @@ impl Component for SketchBoard {
                             PanelMoveDir::ToTop => self.renderer.move_drawable_to_top(id),
                             PanelMoveDir::Up => self.renderer.move_drawable_up(id),
                             PanelMoveDir::Down => self.renderer.move_drawable_down(id),
-                            PanelMoveDir::ToBottom => {
-                                self.renderer.move_drawable_to_bottom(id)
-                            }
+                            PanelMoveDir::ToBottom => self.renderer.move_drawable_to_bottom(id),
                         };
                     }
                     if moved {
@@ -5433,8 +5401,7 @@ impl Component for SketchBoard {
         // snap-to-edges preference BEFORE the renderer consumes `image`
         // — `CropTool::set_image_bounds` needs the raw pixel size to
         // know what edges to snap to.
-        let image_bounds =
-            crate::math::Vec2D::new(image.width() as f32, image.height() as f32);
+        let image_bounds = crate::math::Vec2D::new(image.width() as f32, image.height() as f32);
         {
             let crop_tool = model.tools.get_crop_tool();
             let mut ct = crop_tool.borrow_mut();
@@ -5487,10 +5454,7 @@ impl Component for SketchBoard {
         // computes the target + above/below from the cursor's y in
         // panel-local coords.
         {
-            let drop_target = gtk::DropTarget::new(
-                u64::static_type(),
-                gtk::gdk::DragAction::MOVE,
-            );
+            let drop_target = gtk::DropTarget::new(u64::static_type(), gtk::gdk::DragAction::MOVE);
             let content = model.layer_panel_content.clone();
             let input_sender = sender.input_sender().clone();
             // `connect_enter` is also wired (even though `motion`
@@ -5502,11 +5466,7 @@ impl Component for SketchBoard {
                 drop_target.connect_enter(move |_dt, _x, y| {
                     clear_drop_indicators(&content);
                     if let Some((row, above)) = drop_target_row(&content, y) {
-                        row.add_css_class(if above {
-                            "drop_above"
-                        } else {
-                            "drop_below"
-                        });
+                        row.add_css_class(if above { "drop_above" } else { "drop_below" });
                     }
                     gtk::gdk::DragAction::MOVE
                 });
@@ -5516,11 +5476,7 @@ impl Component for SketchBoard {
                 drop_target.connect_motion(move |_dt, _x, y| {
                     clear_drop_indicators(&content);
                     if let Some((row, above)) = drop_target_row(&content, y) {
-                        row.add_css_class(if above {
-                            "drop_above"
-                        } else {
-                            "drop_below"
-                        });
+                        row.add_css_class(if above { "drop_above" } else { "drop_below" });
                     }
                     gtk::gdk::DragAction::MOVE
                 });
@@ -5538,8 +5494,7 @@ impl Component for SketchBoard {
                     let Ok(src_u64) = value.get::<u64>() else {
                         return false;
                     };
-                    let Some((row, above_target)) = drop_target_row(&content, y)
-                    else {
+                    let Some((row, above_target)) = drop_target_row(&content, y) else {
                         return false;
                     };
                     let Some(target_u64) = row
@@ -5687,7 +5642,10 @@ impl Component for SketchBoard {
         // tool. The pointer tool also handles implicit selection while another
         // tool is active, so it always needs a live renderer handle.
         let store: Rc<dyn DrawableStore> = Rc::new(model.renderer.clone());
-        model.active_tool.borrow_mut().set_drawable_store(store.clone());
+        model
+            .active_tool
+            .borrow_mut()
+            .set_drawable_store(store.clone());
         model
             .tools
             .get(&Tools::Pointer)

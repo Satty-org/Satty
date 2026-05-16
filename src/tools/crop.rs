@@ -55,7 +55,7 @@ pub struct CropTool {
     /// bottom-left checkbox, persisted via
     /// `state::save_snap_to_edges`. Defaults to true. Holding Alt
     /// during a drag temporarily bypasses snap regardless of this
-    /// flag 
+    /// flag
     snap_to_edges: bool,
     /// Image dimensions in image-space pixels. Set once at app
     /// startup; snap targets are derived from this (image edges +
@@ -158,8 +158,8 @@ impl CropBgColor {
     /// the matte rect entirely.
     pub fn paint_color(self) -> Color {
         match self {
-            // 0.5 alpha black gives the dim that lets the screenshot 
-            // show through. Other "named" colors are fully opaque so 
+            // 0.5 alpha black gives the dim that lets the screenshot
+            // show through. Other "named" colors are fully opaque so
             // they read as a solid frame.
             CropBgColor::Auto => Color::rgbaf(0.0, 0.0, 0.0, 0.5),
             CropBgColor::Transparent => Color::rgbaf(0.0, 0.0, 0.0, 0.0),
@@ -604,12 +604,10 @@ impl Drawable for Crop {
         // and resetting the transform for the dim fill lets us anchor
         // the outer dim to the literal canvas (0,0)→(canvas_w,canvas_h)
         // rectangle, which is what the user can actually see.
-        let crop_canvas_x = saved_transform[0] * self.pos.x
-            + saved_transform[2] * self.pos.y
-            + saved_transform[4];
-        let crop_canvas_y = saved_transform[1] * self.pos.x
-            + saved_transform[3] * self.pos.y
-            + saved_transform[5];
+        let crop_canvas_x =
+            saved_transform[0] * self.pos.x + saved_transform[2] * self.pos.y + saved_transform[4];
+        let crop_canvas_y =
+            saved_transform[1] * self.pos.x + saved_transform[3] * self.pos.y + saved_transform[5];
         let crop_canvas_w = size.x * scale;
         let crop_canvas_h = size.y * scale;
 
@@ -620,8 +618,7 @@ impl Drawable for Crop {
         canvas.save();
         canvas.reset_transform();
         if matte.a > 0.0 {
-            let shadow_paint =
-                Paint::color(matte).with_fill_rule(femtovg::FillRule::EvenOdd);
+            let shadow_paint = Paint::color(matte).with_fill_rule(femtovg::FillRule::EvenOdd);
             let mut shadow_path = Path::new();
             shadow_path.rect(0.0, 0.0, canvas.width() as f32, canvas.height() as f32);
             shadow_path.rect(crop_canvas_x, crop_canvas_y, crop_canvas_w, crop_canvas_h);
@@ -661,14 +658,7 @@ impl Drawable for Crop {
             scale,
             &paint,
         );
-        Self::draw_corner_bracket(
-            canvas,
-            self.pos + size,
-            -1.0,
-            -1.0,
-            scale,
-            &paint,
-        );
+        Self::draw_corner_bracket(canvas, self.pos + size, -1.0, -1.0, scale, &paint);
 
         // Edge midpoints — fat segments lying ALONG each edge so
         // they overlay the border line and read as a draggable
@@ -914,9 +904,9 @@ impl CropTool {
         // pick whichever tool next via the top toolbar.
         if let Some(sender) = &self.sender {
             sender
-                .send(SketchBoardInput::ToolbarEvent(
-                    ToolbarEvent::ToolSelected(Tools::Pointer),
-                ))
+                .send(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToolSelected(
+                    Tools::Pointer,
+                )))
                 .ok();
         }
         ToolUpdateResult::Redraw
@@ -927,9 +917,7 @@ impl CropTool {
     /// count). Used to gate edit-only gestures such as the `Ctrl+wheel`
     /// proportional resize.
     pub fn is_active_edit(&self) -> bool {
-        self.crop
-            .as_ref()
-            .is_some_and(|c| c.active && !c.committed)
+        self.crop.as_ref().is_some_and(|c| c.active && !c.committed)
     }
 
     /// Push the renderer's current image→canvas scale into the tool
@@ -980,9 +968,7 @@ impl CropTool {
         let max_y = (bounds.y - c.size.y).max(0.0);
         let new_x = (c.pos.x + dx).clamp(0.0, max_x);
         let new_y = (c.pos.y + dy).clamp(0.0, max_y);
-        if (new_x - c.pos.x).abs() < f32::EPSILON
-            && (new_y - c.pos.y).abs() < f32::EPSILON
-        {
+        if (new_x - c.pos.x).abs() < f32::EPSILON && (new_y - c.pos.y).abs() < f32::EPSILON {
             return false;
         }
         c.pos = Vec2D::new(new_x, new_y);
@@ -1108,7 +1094,7 @@ impl CropTool {
     const SNAP_PIXELS: f32 = 8.0;
 
     fn snap_active(&self, modifier: ModifierType) -> bool {
-        // "Snap on, hold the modifier to defeat" semantic. Moved from 
+        // "Snap on, hold the modifier to defeat" semantic. Moved from
         // Ctrl to Alt. Shift is already the global "snap-to-angle"
         // modifier on Line/Arrow/Rect/Ellipse so reusing it as a
         // snap-defeat would be the opposite of the established
@@ -1269,18 +1255,18 @@ impl CropTool {
             // each axis. 0 means "centered on anchor" (edge drags
             // where the parallel axis is symmetric).
             let sign_x = match state.handle {
-                CropHandle::TopLeftCorner
-                | CropHandle::BottomLeftCorner
-                | CropHandle::LeftEdge => -1.0,
+                CropHandle::TopLeftCorner | CropHandle::BottomLeftCorner | CropHandle::LeftEdge => {
+                    -1.0
+                }
                 CropHandle::TopRightCorner
                 | CropHandle::BottomRightCorner
                 | CropHandle::RightEdge => 1.0,
                 CropHandle::TopEdge | CropHandle::BottomEdge => 0.0,
             };
             let sign_y = match state.handle {
-                CropHandle::TopLeftCorner
-                | CropHandle::TopRightCorner
-                | CropHandle::TopEdge => -1.0,
+                CropHandle::TopLeftCorner | CropHandle::TopRightCorner | CropHandle::TopEdge => {
+                    -1.0
+                }
                 CropHandle::BottomLeftCorner
                 | CropHandle::BottomRightCorner
                 | CropHandle::BottomEdge => 1.0,
@@ -1494,9 +1480,8 @@ impl CropTool {
         // 1.0 until the first `set_render_scale` push on tool
         // activation, which runs before any user click.
         let scale = self.render_scale;
-        let is_handle = |c: &Crop, pos: Vec2D| {
-            matches!(c.hit_kind(pos, scale), Some(CropHit::Handle(_)))
-        };
+        let is_handle =
+            |c: &Crop, pos: Vec2D| matches!(c.hit_kind(pos, scale), Some(CropHit::Handle(_)));
         let handle_of = |c: &Crop, pos: Vec2D| match c.hit_kind(pos, scale) {
             Some(CropHit::Handle(h)) => Some(h),
             _ => None,
@@ -1511,10 +1496,7 @@ impl CropTool {
         if let Some(b) = self.image_bounds {
             let outside = pos.x < 0.0 || pos.y < 0.0 || pos.x > b.x || pos.y > b.y;
             if outside {
-                let near_handle = self
-                    .crop
-                    .as_ref()
-                    .is_some_and(|c| is_handle(c, pos));
+                let near_handle = self.crop.as_ref().is_some_and(|c| is_handle(c, pos));
                 if !near_handle {
                     return ToolUpdateResult::Unmodified;
                 }
@@ -1636,7 +1618,7 @@ impl CropTool {
             None => return ToolUpdateResult::Unmodified,
         };
 
-        let result = match action {
+        match action {
             CropToolAction::NewCrop => {
                 // Drag-to-create: snap the dragged corner (start + dir)
                 // to image edges if applicable. The starting corner
@@ -1740,8 +1722,7 @@ impl CropTool {
                 crop.pos = Vec2D::new(final_x, final_y);
                 ToolUpdateResult::Redraw
             }
-        };
-        result
+        }
     }
 
     fn end_drag(&mut self, direction: Vec2D, modifier: ModifierType) -> ToolUpdateResult {
@@ -1805,8 +1786,7 @@ impl Tool for CropTool {
         // firing on the same event.
         let ctrl = event.modifier.contains(ModifierType::CONTROL_MASK);
         let shift = event.modifier.contains(ModifierType::SHIFT_MASK);
-        let other_mods = event.modifier
-            & !(ModifierType::SHIFT_MASK | ModifierType::CONTROL_MASK);
+        let other_mods = event.modifier & !(ModifierType::SHIFT_MASK | ModifierType::CONTROL_MASK);
         if other_mods.is_empty()
             && let Some(bit) = arrow_bit(event.key)
         {
@@ -1948,10 +1928,10 @@ impl Tool for CropTool {
             // Re-entry edit that's leaving without re-pressing Enter:
             // roll pos/size back to the last committed snapshot and
             // re-commit so the renderer snaps the view back to the
-            // prior cropped frame. Pending adjustments are discarded 
-            // unless explicitly committed. `ever_committed=false` 
-            // skips this entirely (first-time draft) so accidentally 
-            // clicking another tool while shaping a brand-new crop 
+            // prior cropped frame. Pending adjustments are discarded
+            // unless explicitly committed. `ever_committed=false`
+            // skips this entirely (first-time draft) so accidentally
+            // clicking another tool while shaping a brand-new crop
             // keeps the in-progress region around for re-entry.
             if c.ever_committed
                 && !c.committed

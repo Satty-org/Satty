@@ -9,8 +9,8 @@ use std::{
 };
 
 use femtovg::{
-    Canvas, CompositeOperation, FontId, ImageFlags, ImageId, ImageSource, Paint, Path,
-    PixelFormat, RenderTarget, Transform2D,
+    Canvas, CompositeOperation, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat,
+    RenderTarget, Transform2D,
     imgref::{Img, ImgVec},
     renderer,
     rgb::{RGB, RGBA, RGBA8},
@@ -98,8 +98,8 @@ fn rubber_band(value: f32, limit: f32, max_overshoot: f32) -> f32 {
     }
     let sign = value.signum();
     let beyond = value.abs() - limit;
-    let damped = max_overshoot
-        * (1.0 - 1.0 / (1.0 + beyond * RUBBER_BAND_RESISTANCE / max_overshoot));
+    let damped =
+        max_overshoot * (1.0 - 1.0 / (1.0 + beyond * RUBBER_BAND_RESISTANCE / max_overshoot));
     sign * (limit + damped)
 }
 
@@ -116,8 +116,7 @@ fn inverse_rubber_band(visible: f32, limit: f32, max_overshoot: f32) -> f32 {
     }
     let sign = visible.signum();
     let v_over = (visible.abs() - limit).min(max_overshoot - 0.001);
-    let drag_over =
-        max_overshoot * v_over / (RUBBER_BAND_RESISTANCE * (max_overshoot - v_over));
+    let drag_over = max_overshoot * v_over / (RUBBER_BAND_RESISTANCE * (max_overshoot - v_over));
     sign * (limit + drag_over)
 }
 
@@ -196,11 +195,9 @@ fn resize_pixbuf_to_rect(
     let depth = AUTO_EXTEND_EDGE_SAMPLE_DEPTH.min(orig_w).min(orig_h).max(1);
     let has_alpha = original.has_alpha();
     let left_color = dominant_color(original, 0, 0, depth, orig_h, has_alpha);
-    let right_color =
-        dominant_color(original, orig_w - depth, 0, depth, orig_h, has_alpha);
+    let right_color = dominant_color(original, orig_w - depth, 0, depth, orig_h, has_alpha);
     let top_color = dominant_color(original, 0, 0, orig_w, depth, has_alpha);
-    let bottom_color =
-        dominant_color(original, 0, orig_h - depth, orig_w, depth, has_alpha);
+    let bottom_color = dominant_color(original, 0, orig_h - depth, orig_w, depth, has_alpha);
 
     // Grow amounts on each side (0 when that side is shrinking or
     // unchanged). These delineate the strips of `new` whose source
@@ -211,7 +208,14 @@ fn resize_pixbuf_to_rect(
     let grow_bottom = ((src_y + new_h) - orig_h).max(0);
 
     if grow_left > 0 {
-        fill_rect(&new, 0, grow_top, grow_left, new_h - grow_top - grow_bottom, left_color);
+        fill_rect(
+            &new,
+            0,
+            grow_top,
+            grow_left,
+            new_h - grow_top - grow_bottom,
+            left_color,
+        );
     }
     if grow_right > 0 {
         fill_rect(
@@ -224,7 +228,14 @@ fn resize_pixbuf_to_rect(
         );
     }
     if grow_top > 0 {
-        fill_rect(&new, grow_left, 0, new_w - grow_left - grow_right, grow_top, top_color);
+        fill_rect(
+            &new,
+            grow_left,
+            0,
+            new_w - grow_left - grow_right,
+            grow_top,
+            top_color,
+        );
     }
     if grow_bottom > 0 {
         fill_rect(
@@ -240,19 +251,35 @@ fn resize_pixbuf_to_rect(
     // matching the longer of the two strips so we get a continuous
     // band along the dominant direction.
     if grow_top > 0 && grow_left > 0 {
-        let c = if grow_top >= grow_left { top_color } else { left_color };
+        let c = if grow_top >= grow_left {
+            top_color
+        } else {
+            left_color
+        };
         fill_rect(&new, 0, 0, grow_left, grow_top, c);
     }
     if grow_top > 0 && grow_right > 0 {
-        let c = if grow_top >= grow_right { top_color } else { right_color };
+        let c = if grow_top >= grow_right {
+            top_color
+        } else {
+            right_color
+        };
         fill_rect(&new, new_w - grow_right, 0, grow_right, grow_top, c);
     }
     if grow_bottom > 0 && grow_left > 0 {
-        let c = if grow_bottom >= grow_left { bottom_color } else { left_color };
+        let c = if grow_bottom >= grow_left {
+            bottom_color
+        } else {
+            left_color
+        };
         fill_rect(&new, 0, new_h - grow_bottom, grow_left, grow_bottom, c);
     }
     if grow_bottom > 0 && grow_right > 0 {
-        let c = if grow_bottom >= grow_right { bottom_color } else { right_color };
+        let c = if grow_bottom >= grow_right {
+            bottom_color
+        } else {
+            right_color
+        };
         fill_rect(
             &new,
             new_w - grow_right,
@@ -831,8 +858,7 @@ impl FemtoVgAreaMut {
         let counter = self.next_label_index.entry(kind).or_insert(1);
         let label_index = *counter;
         *counter += 1;
-        self.drawables
-            .push(Stacked::new(id, drawable, label_index));
+        self.drawables.push(Stacked::new(id, drawable, label_index));
         self.undo_stack.push(UndoAction::Add(id));
         self.redo_stack.clear();
         id
@@ -874,11 +900,7 @@ impl FemtoVgAreaMut {
         let dy_min = tight.pos.y.floor() as i32;
         let dx_max = (tight.pos.x + tight.size.x).ceil() as i32;
         let dy_max = (tight.pos.y + tight.size.y).ceil() as i32;
-        if dx_min == 0
-            && dy_min == 0
-            && dx_max == cur_w as i32
-            && dy_max == cur_h as i32
-        {
+        if dx_min == 0 && dy_min == 0 && dx_max == cur_w as i32 && dy_max == cur_h as i32 {
             return None;
         }
         let new_w = dx_max - dx_min;
@@ -887,13 +909,7 @@ impl FemtoVgAreaMut {
             return None;
         }
         let prev_image = self.background_image.clone();
-        let resized = resize_pixbuf_to_rect(
-            &self.background_image,
-            dx_min,
-            dy_min,
-            new_w,
-            new_h,
-        )?;
+        let resized = resize_pixbuf_to_rect(&self.background_image, dx_min, dy_min, new_w, new_h)?;
         let translation = Vec2D::new(-dx_min as f32, -dy_min as f32);
         self.original_rect.pos += translation;
         let exclude: HashSet<DrawableId> = ids_to_exclude.iter().copied().collect();
@@ -916,8 +932,7 @@ impl FemtoVgAreaMut {
             .undo_stack
             .pop()
             .expect("auto_resize called with empty undo stack");
-        self.undo_stack
-            .push(UndoAction::Batch(vec![resize, prior]));
+        self.undo_stack.push(UndoAction::Batch(vec![resize, prior]));
         Some((new_w as f32, new_h as f32))
     }
 
@@ -980,10 +995,7 @@ impl FemtoVgAreaMut {
     /// Multi-select counterpart of `modify_coalesce`. Coalesces only
     /// when the top undo entry is a `Batch` whose contained `Modify`
     /// ids match the requested update set exactly.
-    pub fn modify_many_coalesce(
-        &mut self,
-        updates: Vec<(DrawableId, Box<dyn Drawable>)>,
-    ) -> bool {
+    pub fn modify_many_coalesce(&mut self, updates: Vec<(DrawableId, Box<dyn Drawable>)>) -> bool {
         let top_matches = if let Some(UndoAction::Batch(actions)) = self.undo_stack.last() {
             let top_ids: Vec<DrawableId> = actions
                 .iter()
@@ -1027,8 +1039,7 @@ impl FemtoVgAreaMut {
         if pos + 1 == self.drawables.len() {
             return false;
         }
-        let mut snapshot: Vec<DrawableId> =
-            self.drawables.iter().map(|s| s.id).collect();
+        let mut snapshot: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
         let stacked = self.drawables.remove(pos);
         self.drawables.push(stacked);
 
@@ -1158,11 +1169,7 @@ impl FemtoVgAreaMut {
 
     /// Set or clear the custom panel name for `id`. Records a `Rename`
     /// undo entry; no-op when the new value matches the current one.
-    pub fn set_drawable_custom_name(
-        &mut self,
-        id: DrawableId,
-        name: Option<String>,
-    ) -> bool {
+    pub fn set_drawable_custom_name(&mut self, id: DrawableId, name: Option<String>) -> bool {
         let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
             return false;
         };
@@ -1178,12 +1185,7 @@ impl FemtoVgAreaMut {
 
     /// Set the visible+locked flags for `id`, recording a `SetLayerFlags`
     /// undo entry when anything actually changes. Returns true on apply.
-    pub fn set_drawable_flags(
-        &mut self,
-        id: DrawableId,
-        visible: bool,
-        locked: bool,
-    ) -> bool {
+    pub fn set_drawable_flags(&mut self, id: DrawableId, visible: bool, locked: bool) -> bool {
         let Some(pos) = self.drawables.iter().position(|s| s.id == id) else {
             return false;
         };
@@ -1298,11 +1300,8 @@ impl FemtoVgAreaMut {
         if snapshot == new_order {
             return false;
         }
-        let mut by_id: std::collections::HashMap<DrawableId, Stacked> = self
-            .drawables
-            .drain(..)
-            .map(|s| (s.id, s))
-            .collect();
+        let mut by_id: std::collections::HashMap<DrawableId, Stacked> =
+            self.drawables.drain(..).map(|s| (s.id, s)).collect();
         for id in &new_order {
             if let Some(s) = by_id.remove(id) {
                 self.drawables.push(s);
@@ -1456,17 +1455,13 @@ impl FemtoVgAreaMut {
                 prev_order,
                 last_raised,
             } => {
-                let cur_order: Vec<DrawableId> =
-                    self.drawables.iter().map(|s| s.id).collect();
+                let cur_order: Vec<DrawableId> = self.drawables.iter().map(|s| s.id).collect();
                 // Rebuild stack in `prev_order`. Move-by-take with a HashMap so
                 // each Stacked transfers exactly once and drawables not named
                 // in `prev_order` (shouldn't happen, but defensive) end up at
                 // the top in their original relative order.
-                let mut by_id: std::collections::HashMap<DrawableId, Stacked> = self
-                    .drawables
-                    .drain(..)
-                    .map(|s| (s.id, s))
-                    .collect();
+                let mut by_id: std::collections::HashMap<DrawableId, Stacked> =
+                    self.drawables.drain(..).map(|s| (s.id, s)).collect();
                 for id in &prev_order {
                     if let Some(s) = by_id.remove(id) {
                         self.drawables.push(s);
@@ -1491,8 +1486,7 @@ impl FemtoVgAreaMut {
             } => {
                 let cur_image = std::mem::replace(&mut self.background_image, prev_image);
                 self.background_image_id = None;
-                let translated_set: HashSet<DrawableId> =
-                    translated_ids.iter().copied().collect();
+                let translated_set: HashSet<DrawableId> = translated_ids.iter().copied().collect();
                 for s in &mut self.drawables {
                     if translated_set.contains(&s.id) {
                         s.drawable.translate(-applied_offset);
@@ -1679,10 +1673,8 @@ impl FemtoVgAreaMut {
             // and the crop stays centered.
             let excess_x = (crop_canvas_w - canvas_w).max(0.0);
             let excess_y = (crop_canvas_h - canvas_h).max(0.0);
-            self.drag_offset.x =
-                self.drag_offset.x.clamp(-excess_x / 2.0, excess_x / 2.0);
-            self.drag_offset.y =
-                self.drag_offset.y.clamp(-excess_y / 2.0, excess_y / 2.0);
+            self.drag_offset.x = self.drag_offset.x.clamp(-excess_x / 2.0, excess_x / 2.0);
+            self.drag_offset.y = self.drag_offset.y.clamp(-excess_y / 2.0, excess_y / 2.0);
             self.last_offset = self.drag_offset;
             let offset_x = pad_x - scale * crop_pos.x + self.drag_offset.x;
             let offset_y = pad_y - scale * crop_pos.y + self.drag_offset.y;
@@ -1690,10 +1682,8 @@ impl FemtoVgAreaMut {
             // drop-shadow path so the shadow falls around the
             // cropped region, not the full background image
             // (whose edges are off-canvas / scissored out).
-            self.display_rect_origin = Vec2D::new(
-                pad_x + self.drag_offset.x,
-                pad_y + self.drag_offset.y,
-            );
+            self.display_rect_origin =
+                Vec2D::new(pad_x + self.drag_offset.x, pad_y + self.drag_offset.y);
             self.display_rect_size = Vec2D::new(crop_canvas_w, crop_canvas_h);
             let mut t = Transform2D::identity();
             t.scale(scale, scale);
@@ -1748,13 +1738,7 @@ impl FemtoVgAreaMut {
         // setting the scissor, the blur would be clipped and the
         // cropped view would have no visible shadow.
         canvas.reset_transform();
-        canvas.clear_rect(
-            0,
-            0,
-            canvas.width(),
-            canvas.height(),
-            CANVAS_BG,
-        );
+        canvas.clear_rect(0, 0, canvas.width(), canvas.height(), CANVAS_BG);
 
         {
             let dpr = self.device_pixel_ratio.max(0.0001);
@@ -1763,27 +1747,26 @@ impl FemtoVgAreaMut {
             let img_x = self.display_rect_origin.x;
             let img_y = self.display_rect_origin.y;
 
-            let mut draw_layer =
-                |center_x: f32, center_y: f32, blur: f32, alpha: f32| {
-                    let mut path = Path::new();
-                    path.rect(
-                        center_x - blur,
-                        center_y - blur,
-                        img_w + 2.0 * blur,
-                        img_h + 2.0 * blur,
-                    );
-                    let paint = Paint::box_gradient(
-                        center_x,
-                        center_y,
-                        img_w,
-                        img_h,
-                        0.0,
-                        blur,
-                        femtovg::Color::rgbaf(0.0, 0.0, 0.0, alpha),
-                        femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
-                    );
-                    canvas.fill_path(&path, &paint);
-                };
+            let mut draw_layer = |center_x: f32, center_y: f32, blur: f32, alpha: f32| {
+                let mut path = Path::new();
+                path.rect(
+                    center_x - blur,
+                    center_y - blur,
+                    img_w + 2.0 * blur,
+                    img_h + 2.0 * blur,
+                );
+                let paint = Paint::box_gradient(
+                    center_x,
+                    center_y,
+                    img_w,
+                    img_h,
+                    0.0,
+                    blur,
+                    femtovg::Color::rgbaf(0.0, 0.0, 0.0, alpha),
+                    femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+                );
+                canvas.fill_path(&path, &paint);
+            };
 
             // Ambient (contact) layer — tight halo, no offset.
             draw_layer(
@@ -1862,7 +1845,12 @@ impl FemtoVgAreaMut {
         if std::env::var("TENSAKU_DEBUG_BANDS").is_ok() {
             for b in crate::text_bands::bands() {
                 let mut path = femtovg::Path::new();
-                path.rect(0.0, b.y_start, self.background_image.width() as f32, b.height());
+                path.rect(
+                    0.0,
+                    b.y_start,
+                    self.background_image.width() as f32,
+                    b.height(),
+                );
                 let paint = femtovg::Paint::color(femtovg::Color::rgba(255, 60, 60, 50));
                 canvas.fill_path(&path, &paint);
                 // Solid edge lines at top/bottom for sharp visual.
@@ -1963,9 +1951,7 @@ impl FemtoVgAreaMut {
         // The pointer tool's working copy during an implicit-mode drag (active
         // tool is something else, like Arrow). Same "no glow, no selection
         // decoration mid-drag" treatment as the active-tool branch above.
-        if !pointer_is_active
-            && let Some(d) = self.pointer_tool.borrow().get_drawable()
-        {
+        if !pointer_is_active && let Some(d) = self.pointer_tool.borrow().get_drawable() {
             d.draw(canvas, font, bounds)?;
         }
 
@@ -2073,12 +2059,8 @@ impl FemtoVgAreaMut {
         // GL framebuffer-attached textures are bottom-up; without it
         // the composited image lands upside-down on the screen
         // target.
-        let overlay_id = canvas.create_image_empty(
-            img_w,
-            img_h,
-            PixelFormat::Rgba8,
-            ImageFlags::FLIP_Y,
-        )?;
+        let overlay_id =
+            canvas.create_image_empty(img_w, img_h, PixelFormat::Rgba8, ImageFlags::FLIP_Y)?;
 
         canvas.flush();
         canvas.set_render_target(RenderTarget::Image(overlay_id));
@@ -2116,15 +2098,7 @@ impl FemtoVgAreaMut {
 
         let mut final_path = Path::new();
         final_path.rect(0.0, 0.0, img_w as f32, img_h as f32);
-        let composited = Paint::image(
-            overlay_id,
-            0.0,
-            0.0,
-            img_w as f32,
-            img_h as f32,
-            0.0,
-            1.0,
-        );
+        let composited = Paint::image(overlay_id, 0.0, 0.0, img_w as f32, img_h as f32, 0.0, 1.0);
         canvas.fill_path(&final_path, &composited);
         canvas.flush();
 
@@ -2219,7 +2193,10 @@ impl FemtoVgAreaMut {
     /// the toolbar's "Image size: W×H" label to show what the
     /// resize popover would default the W/H inputs to.
     pub fn image_dimensions(&self) -> (i32, i32) {
-        (self.background_image.width(), self.background_image.height())
+        (
+            self.background_image.width(),
+            self.background_image.height(),
+        )
     }
 
     fn render_background_image(
@@ -2427,7 +2404,9 @@ impl FemtoVgAreaMut {
             // computed scale stays finite during initial layout.
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
             let inner_w = (canvas_width - 2.0 * pad).max(canvas_width * 0.5).max(1.0);
-            let inner_h = (canvas_height - 2.0 * pad).max(canvas_height * 0.5).max(1.0);
+            let inner_h = (canvas_height - 2.0 * pad)
+                .max(canvas_height * 0.5)
+                .max(1.0);
             let fit_scale = (inner_w / image_width).min(inner_h / image_height);
             self.scale_factor = fit_scale.min(1.0);
         }
@@ -2450,7 +2429,9 @@ impl FemtoVgAreaMut {
         self.effective_scale = if let Some((_, crop_size)) = committed_crop {
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
             let inner_w = (canvas_width - 2.0 * pad).max(canvas_width * 0.5).max(1.0);
-            let inner_h = (canvas_height - 2.0 * pad).max(canvas_height * 0.5).max(1.0);
+            let inner_h = (canvas_height - 2.0 * pad)
+                .max(canvas_height * 0.5)
+                .max(1.0);
             let fit_scale = (inner_w / crop_size.x).min(inner_h / crop_size.y);
             fit_scale.min(1.0) * self.crop_zoom
         } else {
@@ -2485,14 +2466,18 @@ impl FemtoVgAreaMut {
         if excess_x <= 0.0 {
             self.drag_offset.x = 0.0;
         } else {
-            self.drag_offset.x =
-                self.drag_offset.x.clamp(-limit_x - runaway_cap, limit_x + runaway_cap);
+            self.drag_offset.x = self
+                .drag_offset
+                .x
+                .clamp(-limit_x - runaway_cap, limit_x + runaway_cap);
         }
         if excess_y <= 0.0 {
             self.drag_offset.y = 0.0;
         } else {
-            self.drag_offset.y =
-                self.drag_offset.y.clamp(-limit_y - runaway_cap, limit_y + runaway_cap);
+            self.drag_offset.y = self
+                .drag_offset
+                .y
+                .clamp(-limit_y - runaway_cap, limit_y + runaway_cap);
         }
 
         // Spring-back: once the user is idle, ease `drag_offset` back
@@ -2523,10 +2508,8 @@ impl FemtoVgAreaMut {
                 }
             };
             let elapsed_ms = start_time.elapsed().as_millis() as f32;
-            let (vis_x, done_x) =
-                spring_back_progress(start_visible.x, limit_x, elapsed_ms);
-            let (vis_y, done_y) =
-                spring_back_progress(start_visible.y, limit_y, elapsed_ms);
+            let (vis_x, done_x) = spring_back_progress(start_visible.x, limit_x, elapsed_ms);
+            let (vis_y, done_y) = spring_back_progress(start_visible.y, limit_y, elapsed_ms);
             // Back-solve drag_offset so the rubber-band render below
             // reproduces the eased visible value.
             self.drag_offset.x = inverse_rubber_band(vis_x, limit_x, max_overshoot);
@@ -2629,7 +2612,7 @@ impl FemtoVgAreaMut {
     }
 
     /// The renderer's current image→canvas transform: effective scale
-    /// + offset. The crop tool reads the scale on activation and after
+    /// and offset. The crop tool reads the scale on activation and after
     /// transform-changing gestures to keep handle hit-testing
     /// screen-constant.
     pub fn render_transform(&self) -> (f32, Vec2D) {

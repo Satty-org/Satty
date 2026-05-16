@@ -13,8 +13,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, Handle, halo_in_image_units,
-    HandleId, Tool, ToolUpdateResult, Tools,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    halo_in_image_units,
 };
 
 /// Arrow geometry variants.
@@ -436,7 +436,12 @@ impl Arrow {
 
     /// Translate + rotate the canvas so a triangular head can be drawn at
     /// `tip` pointing in `dir`. Caller must canvas.restore() afterwards.
-    fn orient_head(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>, tip: Vec2D, dir: Vec2D) -> bool {
+    fn orient_head(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        tip: Vec2D,
+        dir: Vec2D,
+    ) -> bool {
         let len = dir.norm();
         if len < f32::EPSILON {
             return false;
@@ -570,15 +575,9 @@ impl Drawable for Arrow {
         };
         let paint: Paint = self.style.into();
         match self.arrow_style {
-            ArrowStyle::Standard => self.draw_solid(
-                canvas,
-                end,
-                &paint,
-                STANDARD_SHOULDER_RATIO,
-                0.0,
-                0.0,
-                true,
-            ),
+            ArrowStyle::Standard => {
+                self.draw_solid(canvas, end, &paint, STANDARD_SHOULDER_RATIO, 0.0, 0.0, true)
+            }
             ArrowStyle::Pointy => self.draw_solid(
                 canvas,
                 end,
@@ -683,9 +682,7 @@ impl Drawable for Arrow {
         // can bend the arc. The handle sits *on the curve* (at t=0.5)
         // rather than on the off-curve Bezier control point so it tracks
         // the visible shaft.
-        if curved
-            && let Some(c) = self.bezier_control(end)
-        {
+        if curved && let Some(c) = self.bezier_control(end) {
             // B(0.5) for a quadratic Bezier with control C = 0.25 S + 0.5 C + 0.25 E.
             let midpoint = self.start * 0.25 + c * 0.5 + end * 0.25;
             handles.push(Handle::new(HandleId::Control, midpoint).with_hit_radius(radius));
@@ -776,14 +773,7 @@ impl Drawable for Arrow {
                     ),
                     _ => {
                         let stroke = self.rounded_outline_stroke();
-                        (
-                            STANDARD_SHOULDER_RATIO,
-                            0.0,
-                            0.0,
-                            stroke,
-                            stroke * 0.5,
-                            0.0,
-                        )
+                        (STANDARD_SHOULDER_RATIO, 0.0, 0.0, stroke, stroke * 0.5, 0.0)
                     }
                 };
                 let direction = chord * (1.0 / length);

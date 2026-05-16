@@ -278,7 +278,10 @@ impl Tool for PointerTool {
     }
 
     fn is_resizing(&self) -> bool {
-        matches!(self.drag.as_ref().map(|d| d.mode), Some(DragMode::Handle(_)))
+        matches!(
+            self.drag.as_ref().map(|d| d.mode),
+            Some(DragMode::Handle(_))
+        )
     }
 
     fn input_enabled(&self) -> bool {
@@ -348,9 +351,8 @@ impl Tool for PointerTool {
         // Arrow-key nudge: move the selection by 1 px (10 px with Shift).
         // Accepts no modifier or Shift only; any other modifier falls
         // through so e.g. Alt+arrow (canvas pan) keeps working.
-        let blocking_mods = ModifierType::CONTROL_MASK
-            | ModifierType::ALT_MASK
-            | ModifierType::SUPER_MASK;
+        let blocking_mods =
+            ModifierType::CONTROL_MASK | ModifierType::ALT_MASK | ModifierType::SUPER_MASK;
         if !event.modifier.intersects(blocking_mods) && !self.selected.is_empty() {
             let step = if event.modifier.intersects(ModifierType::SHIFT_MASK) {
                 NUDGE_STEP_SHIFT
@@ -389,12 +391,11 @@ impl Tool for PointerTool {
                 // selected so the user has something to act on after
                 // unlocking.
                 let store = self.store.as_ref();
-                let (to_delete, to_keep): (Vec<_>, Vec<_>) =
-                    std::mem::take(&mut self.selected).into_iter().partition(|id| {
-                        match &store {
-                            Some(s) => !s.is_drawable_locked(*id),
-                            None => true,
-                        }
+                let (to_delete, to_keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.selected)
+                    .into_iter()
+                    .partition(|id| match &store {
+                        Some(s) => !s.is_drawable_locked(*id),
+                        None => true,
                     });
                 self.selected = to_keep;
                 if to_delete.is_empty() {

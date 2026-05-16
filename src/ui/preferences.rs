@@ -105,9 +105,7 @@ pub fn open<W: IsA<gtk::Widget>>(
         std::cell::RefCell<Option<(gtk::SpinButton, gtk::glib::SignalHandlerId)>>,
     >,
 ) {
-    let toplevel = root
-        .root()
-        .and_then(|r| r.downcast::<gtk::Window>().ok());
+    let toplevel = root.root().and_then(|r| r.downcast::<gtk::Window>().ok());
 
     let dialog = gtk::Window::builder()
         .title("Preferences")
@@ -192,11 +190,7 @@ pub fn open<W: IsA<gtk::Widget>>(
 
     // Working keybind map — clones the current APP_CONFIG state so the
     // user's edits are scratch until they press Save.
-    let initial_shortcuts: HashMap<char, Tools> = APP_CONFIG
-        .read()
-        .keybinds()
-        .shortcuts()
-        .clone();
+    let initial_shortcuts: HashMap<char, Tools> = APP_CONFIG.read().keybinds().shortcuts().clone();
     let working: Rc<RefCell<HashMap<char, Tools>>> = Rc::new(RefCell::new(initial_shortcuts));
 
     // Shared "is some row currently recording" flag. We only allow one
@@ -305,13 +299,11 @@ pub fn open<W: IsA<gtk::Widget>>(
                 // Disallow modifier-combined keys — shortcuts are
                 // single chars throughout the codebase.
                 if !modifier.is_empty()
-                    && modifier
-                        .intersection(
-                            gdk::ModifierType::CONTROL_MASK
-                                | gdk::ModifierType::ALT_MASK
-                                | gdk::ModifierType::SUPER_MASK,
-                        )
-                        != gdk::ModifierType::empty()
+                    && modifier.intersection(
+                        gdk::ModifierType::CONTROL_MASK
+                            | gdk::ModifierType::ALT_MASK
+                            | gdk::ModifierType::SUPER_MASK,
+                    ) != gdk::ModifierType::empty()
                 {
                     return gtk::glib::Propagation::Proceed;
                 }
@@ -341,9 +333,7 @@ pub fn open<W: IsA<gtk::Widget>>(
 
                 let working_snapshot = working_inner.borrow();
                 for (i, row) in rows_inner.borrow().iter().enumerate() {
-                    if i == row_index
-                        || displaced == Some(row.tool)
-                    {
+                    if i == row_index || displaced == Some(row.tool) {
                         row.refresh(&working_snapshot);
                     }
                 }
@@ -405,8 +395,9 @@ pub fn open<W: IsA<gtk::Widget>>(
     factor_help.add_css_class("flat");
     let factor_help_sender = sketch_board_sender.clone();
     factor_help.connect_clicked(move |_| {
-        let _ = factor_help_sender
-            .send(SketchBoardInput::Output(SketchBoardOutput::OpenWelcomeDialog));
+        let _ = factor_help_sender.send(SketchBoardInput::Output(
+            SketchBoardOutput::OpenWelcomeDialog,
+        ));
     });
     factor_row.append(&factor_help);
     // Spacer so the spin lands flush against the right edge instead of

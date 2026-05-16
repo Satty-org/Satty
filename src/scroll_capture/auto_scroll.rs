@@ -145,12 +145,7 @@ pub fn scroll_down(
 ) {
     pointer.axis_source(wl_pointer::AxisSource::Wheel);
     for _ in 0..notches {
-        pointer.axis_discrete(
-            time,
-            wl_pointer::Axis::VerticalScroll,
-            NOTCH_VALUE,
-            1,
-        );
+        pointer.axis_discrete(time, wl_pointer::Axis::VerticalScroll, NOTCH_VALUE, 1);
         pointer.axis(time, wl_pointer::Axis::VerticalScroll, NOTCH_VALUE);
     }
     pointer.frame();
@@ -168,8 +163,7 @@ fn make_keymap_fd() -> Result<(OwnedFd, u32)> {
     let keymap = format!("{}\0", KEYMAP_TEMPLATE);
     let size = keymap.len() as u32;
     let fd: OwnedFd = memfd_create("tensaku-keymap", MemfdFlags::empty())
-        .context("memfd_create for keymap failed")?
-        .into();
+        .context("memfd_create for keymap failed")?;
     let mut file = std::fs::File::from(fd);
     file.write_all(keymap.as_bytes())
         .context("writing keymap to memfd")?;
@@ -195,8 +189,7 @@ pub fn spawn_worker(
     cursor_y: i32,
     direction: ScrollDirection,
 ) -> Result<()> {
-    let conn = Connection::connect_to_env()
-        .context("auto-scroll: failed to connect to wayland")?;
+    let conn = Connection::connect_to_env().context("auto-scroll: failed to connect to wayland")?;
     let (globals, mut event_queue) =
         registry_queue_init::<State>(&conn).context("auto-scroll: registry init")?;
     let qh = event_queue.handle();
@@ -204,9 +197,7 @@ pub fn spawn_worker(
         .bind::<zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=2, ())
         .context("compositor does not expose zwlr_virtual_pointer_manager_v1")?;
     let kbd_manager = globals
-        .bind::<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, _, _>(
-            &qh, 1..=1, (),
-        )
+        .bind::<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ())
         .context("compositor does not expose zwp_virtual_keyboard_manager_v1")?;
     let seat = globals
         .bind::<wl_seat::WlSeat, _, _>(&qh, 1..=8, ())
@@ -312,11 +303,7 @@ pub fn spawn_worker(
             // captured frames overlap enough for the stitcher to align.
             let t = time_ms(start);
             for i in 0..ARROWS_PER_TICK {
-                keyboard.key(
-                    t + i * 2,
-                    keycode,
-                    wl_keyboard::KeyState::Pressed.into(),
-                );
+                keyboard.key(t + i * 2, keycode, wl_keyboard::KeyState::Pressed.into());
                 keyboard.key(
                     t + i * 2 + 1,
                     keycode,

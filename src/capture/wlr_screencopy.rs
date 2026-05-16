@@ -4,9 +4,7 @@ use relm4::gtk::glib::Bytes;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::shm::slot::SlotPool;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
-use smithay_client_toolkit::{
-    delegate_registry, delegate_shm, registry_handlers,
-};
+use smithay_client_toolkit::{delegate_registry, delegate_shm, registry_handlers};
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_output, wl_shm};
 use wayland_client::{Connection, Dispatch, QueueHandle};
@@ -71,7 +69,14 @@ pub fn capture(region: Option<Rect>) -> Result<Pixbuf> {
     let frame = match region {
         None => screencopy_manager.capture_output(0, &output, &qh, ()),
         Some(r) => screencopy_manager.capture_output_region(
-            0, &output, r.x, r.y, r.width, r.height, &qh, (),
+            0,
+            &output,
+            r.x,
+            r.y,
+            r.width,
+            r.height,
+            &qh,
+            (),
         ),
     };
 
@@ -94,8 +99,7 @@ pub fn capture(region: Option<Rect>) -> Result<Pixbuf> {
 
     // Allocate an SHM buffer of the announced size and submit it.
     let pool_size = (info.stride as usize) * (info.height as usize);
-    let mut pool = SlotPool::new(pool_size, &state.shm)
-        .context("failed to create SHM pool")?;
+    let mut pool = SlotPool::new(pool_size, &state.shm).context("failed to create SHM pool")?;
     let (buffer, _canvas) = pool
         .create_buffer(
             info.width as i32,
@@ -204,15 +208,18 @@ impl Dispatch<zwlr_screencopy_frame_v1::ZwlrScreencopyFrameV1, ()> for CaptureSt
     ) {
         use zwlr_screencopy_frame_v1::Event::*;
         match event {
-            Buffer { format, width, height, stride } => {
-                if let wayland_client::WEnum::Value(format) = format {
-                    state.shm_buffer_info = Some(ShmBufferInfo {
-                        format,
-                        width,
-                        height,
-                        stride,
-                    });
-                }
+            Buffer {
+                format: wayland_client::WEnum::Value(format),
+                width,
+                height,
+                stride,
+            } => {
+                state.shm_buffer_info = Some(ShmBufferInfo {
+                    format,
+                    width,
+                    height,
+                    stride,
+                });
             }
             BufferDone => {
                 state.buffer_done = true;

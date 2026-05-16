@@ -128,10 +128,7 @@ impl FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .modify_coalesce(id, drawable)
     }
-    pub fn modify_many_coalesce(
-        &mut self,
-        updates: Vec<(DrawableId, Box<dyn Drawable>)>,
-    ) -> bool {
+    pub fn modify_many_coalesce(&mut self, updates: Vec<(DrawableId, Box<dyn Drawable>)>) -> bool {
         self.imp()
             .inner()
             .as_mut()
@@ -159,12 +156,7 @@ impl FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .drawable_flags(id)
     }
-    pub fn set_drawable_flags(
-        &mut self,
-        id: DrawableId,
-        visible: bool,
-        locked: bool,
-    ) -> bool {
+    pub fn set_drawable_flags(&mut self, id: DrawableId, visible: bool, locked: bool) -> bool {
         self.imp()
             .inner()
             .as_mut()
@@ -220,11 +212,7 @@ impl FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .drawable_auto_label_index(id)
     }
-    pub fn set_drawable_custom_name(
-        &mut self,
-        id: DrawableId,
-        name: Option<String>,
-    ) -> bool {
+    pub fn set_drawable_custom_name(&mut self, id: DrawableId, name: Option<String>) -> bool {
         self.imp()
             .inner()
             .as_mut()
@@ -346,7 +334,6 @@ impl FemtoVGArea {
             .map(|i| i.image_dimensions())
             .unwrap_or((0, 0))
     }
-
 
     /// Current image-to-canvas scale factor — image-space lengths
     /// multiplied by this give canvas-pixel sizes. Used by callers

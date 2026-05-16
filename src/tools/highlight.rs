@@ -46,14 +46,12 @@ pub enum Highlighters {
 /// Per-tool highlighter style — picks between the classic freehand
 /// drawing path and the text-band snap. Persisted via
 /// state.toml; double-tapping the highlighter shortcut cycles.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HighlighterStyle {
-    /// "Smart" highlighter. Detects the text band under the cursor 
-    /// and locks the stroke horizontally at that band's center, 
-    /// sized to the band's height — covers a line of text cleanly 
+    /// "Smart" highlighter. Detects the text band under the cursor
+    /// and locks the stroke horizontally at that band's center,
+    /// sized to the band's height — covers a line of text cleanly
     /// with no vertical drift from trackpad jitter.
     #[default]
     TextLocked,
@@ -363,12 +361,12 @@ pub struct HighlightTool {
     /// anchor; that's what `drag_anchor` stores. None when no drag is
     /// in flight.
     drag_anchor: Option<Vec2D>,
-    /// Active style: TextLocked (smart highlighter) vs Normal 
-    /// (classic freehand). Persisted via state.toml; the toolbar 
+    /// Active style: TextLocked (smart highlighter) vs Normal
+    /// (classic freehand). Persisted via state.toml; the toolbar
     /// dropdown and double-tap-shortcut cycle both drive
-    /// `set_highlighter_style` to update this. Branches in 
-    /// `handle_mouse_event` dispatch on it at BeginDrag, snapshotted 
-    /// into `drag_style` so a mid-drag toolbar flip doesn't change 
+    /// `set_highlighter_style` to update this. Branches in
+    /// `handle_mouse_event` dispatch on it at BeginDrag, snapshotted
+    /// into `drag_style` so a mid-drag toolbar flip doesn't change
     /// behavior of the in-flight stroke.
     highlight_style: HighlighterStyle,
     /// Snapshot of `highlight_style` taken at BeginDrag. UpdateDrag /
@@ -419,18 +417,12 @@ impl Tool for HighlightTool {
                         // is placed at (click.x, anchor.y) so the very
                         // first vertex sits on the locked line — no
                         // vertical lump at stroke start.
-                        let band = crate::text_bands::detect_local_band(
-                            event.pos.x,
-                            event.pos.y,
-                        );
-                        let anchor_y = band
-                            .map(|b| b.center_y())
-                            .unwrap_or(event.pos.y);
+                        let band = crate::text_bands::detect_local_band(event.pos.x, event.pos.y);
+                        let anchor_y = band.map(|b| b.center_y()).unwrap_or(event.pos.y);
                         self.locked_band = band;
                         let pad = band
                             .map(|b| {
-                                2.0 * b.height()
-                                    * crate::text_bands::BAND_PAD_PERCENT_PER_SIDE
+                                2.0 * b.height() * crate::text_bands::BAND_PAD_PERCENT_PER_SIDE
                             })
                             .unwrap_or(0.0);
                         self.stroke = Some(HighlightStroke {
@@ -503,8 +495,7 @@ impl Tool for HighlightTool {
                         stroke.rest.pop();
                     }
                     let last = stroke.rest.last().copied().unwrap_or(Vec2D::zero());
-                    let snapped =
-                        rest_entry.sub(last).snapped_vector_15deg().add(last);
+                    let snapped = rest_entry.sub(last).snapped_vector_15deg().add(last);
                     stroke.rest.push(snapped);
                 } else {
                     let last = stroke.rest.last().copied().unwrap_or(Vec2D::zero());
@@ -555,14 +546,11 @@ impl Tool for HighlightTool {
                     for p in &stroke.rest {
                         absolute.push(stroke.first + *p);
                     }
-                    let smoothed = crate::tools::brush::smooth_polyline(
-                        &absolute,
-                        HIGHLIGHT_SMOOTH_LEVEL,
-                    );
+                    let smoothed =
+                        crate::tools::brush::smooth_polyline(&absolute, HIGHLIGHT_SMOOTH_LEVEL);
                     if let Some((&new_first, new_rest_abs)) = smoothed.split_first() {
                         stroke.first = new_first;
-                        stroke.rest =
-                            new_rest_abs.iter().map(|p| *p - new_first).collect();
+                        stroke.rest = new_rest_abs.iter().map(|p| *p - new_first).collect();
                     }
                 }
                 let committed: Box<dyn Drawable> = Box::new(stroke.clone());

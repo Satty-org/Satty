@@ -1,6 +1,6 @@
 use relm4::{
-    gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 use crate::sketch_board::ZoomCommand;
@@ -187,10 +187,7 @@ fn make_row(label: &str, shortcut: Option<&str>) -> gtk::Button {
         s_lbl.add_css_class("dim-label");
         row.append(&s_lbl);
     }
-    let button = gtk::Button::builder()
-        .child(&row)
-        .focusable(false)
-        .build();
+    let button = gtk::Button::builder().child(&row).focusable(false).build();
     button.add_css_class("flat");
     button.add_css_class("zoom-indicator-row");
     button

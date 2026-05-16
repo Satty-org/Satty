@@ -215,7 +215,6 @@ impl Color {
             None
         }
     }
-
 }
 
 impl From<RGBA> for Color {

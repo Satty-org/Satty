@@ -19,8 +19,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, DrawableId, GLOW_COLOR, Handle, HandleId, HandleKind,
-    InputContext, SELECTION_BLUE, Tool, ToolUpdateResult, Tools,
+    Drawable, DrawableClone, DrawableId, GLOW_COLOR, Handle, HandleId, HandleKind, InputContext,
+    SELECTION_BLUE, Tool, ToolUpdateResult, Tools,
 };
 use crate::sketch_board::SketchBoardInput;
 use relm4::Sender;
@@ -192,9 +192,7 @@ fn dashed_rounded_rect_path(
 /// active). `Plain` renders the text glyphs directly on the canvas;
 /// `Rounded` adds a cream-colored rounded pill behind each line of
 /// text (the pill snugly fits each line's glyph metrics).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextBackground {
     Plain,
@@ -549,16 +547,18 @@ impl Drawable for Text {
         let css_to_image_dpr_for_caret =
             dpr_for_pads / canvas.transform().average_scale().max(0.0001);
         let pill_pad_y_top_img_for_caret = PILL_PAD_Y_TOP_CSS * css_to_image_dpr_for_caret;
-        let descender_estimate_img_for_caret =
-            line_height.abs() * DESCENDER_RATIO_OF_LINE_HEIGHT;
-        let pill_pad_y_bottom_img_for_caret = (PILL_PAD_Y_BOTTOM_CSS
-            * css_to_image_dpr_for_caret)
-            .max(descender_estimate_img_for_caret + DESCENDER_SAFETY_CSS * css_to_image_dpr_for_caret);
+        let descender_estimate_img_for_caret = line_height.abs() * DESCENDER_RATIO_OF_LINE_HEIGHT;
+        let pill_pad_y_bottom_img_for_caret = (PILL_PAD_Y_BOTTOM_CSS * css_to_image_dpr_for_caret)
+            .max(
+                descender_estimate_img_for_caret
+                    + DESCENDER_SAFETY_CSS * css_to_image_dpr_for_caret,
+            );
         // Caret spans the full cream pill: pad above cap-top + glyph
         // body + pad (or descender) below baseline — the blinking caret
         // reads as a full-height insertion mark rather than a short bar.
         let caret_top_offset = cursor_top_offset - pill_pad_y_top_img_for_caret;
-        let caret_height = cursor_height + pill_pad_y_top_img_for_caret + pill_pad_y_bottom_img_for_caret;
+        let caret_height =
+            cursor_height + pill_pad_y_top_img_for_caret + pill_pad_y_bottom_img_for_caret;
 
         // Build line layouts up-front and capture each line's natural
         // width so we can compute the `center_off` that horizontally
@@ -690,8 +690,7 @@ impl Drawable for Text {
         // also factors DPR). Without DPR the editing visuals end up
         // half-sized on retina.
         let dpr_for_pads = crate::femtovg_area::current_device_pixel_ratio().max(0.0001);
-        let css_to_image_dpr =
-            dpr_for_pads / canvas.transform().average_scale().max(0.0001);
+        let css_to_image_dpr = dpr_for_pads / canvas.transform().average_scale().max(0.0001);
         let pill_pad_x_img = PILL_PAD_X_CSS * css_to_image_dpr;
         let pill_pad_y_top_img = PILL_PAD_Y_TOP_CSS * css_to_image_dpr;
         // Bottom pad floors at 8 CSS px (symmetric with the top), but
@@ -952,8 +951,7 @@ impl Drawable for Text {
         let descender_estimate_img = line_height * DESCENDER_RATIO_OF_LINE_HEIGHT;
         let pill_pad_bottom_dyn = (PILL_PAD_Y_BOTTOM_CSS * css_to_image)
             .max(descender_estimate_img + DESCENDER_SAFETY_CSS * css_to_image);
-        let total_pad_y_bottom =
-            pill_pad_bottom_dyn + OUTLINE_PADDING_CSS * css_to_image;
+        let total_pad_y_bottom = pill_pad_bottom_dyn + OUTLINE_PADDING_CSS * css_to_image;
 
         // Width: text_box_width when set, else the cached glyph
         // width + jitter buffer (matches the auto-fit branch in
@@ -1068,8 +1066,7 @@ impl Drawable for Text {
         // the bottom). Used to convert a dragged BottomRight handle
         // position back into glyph-height units: the handle sits on
         // the outline, which extends `pad_y` beyond the glyphs.
-        let pad_y =
-            (SELECTION_PAD_Y_TOP_CSS + SELECTION_PAD_Y_BOTTOM_CSS) * css_to_image;
+        let pad_y = (SELECTION_PAD_Y_TOP_CSS + SELECTION_PAD_Y_BOTTOM_CSS) * css_to_image;
         match handle {
             HandleId::Right => {
                 let new_w = (to.x - self.pos.x - pad_x).max(MIN_TEXT_BOX_WIDTH);
@@ -1092,8 +1089,7 @@ impl Drawable for Text {
                 // wrap separately from font size.
                 let new_h = (to.y - current_top - pad_y).max(current_height * 0.2);
                 let scale = (new_h / current_height).clamp(0.2, 5.0);
-                let new_factor =
-                    (self.style.annotation_size_factor * scale).clamp(0.2, 5.0);
+                let new_factor = (self.style.annotation_size_factor * scale).clamp(0.2, 5.0);
                 self.style.annotation_size_factor = new_factor;
                 let new_w = (to.x - self.pos.x - pad_x).max(MIN_TEXT_BOX_WIDTH);
                 self.text_box_width = Some(new_w);
@@ -1392,8 +1388,7 @@ impl Text {
                 if line_text.ends_with('\n') {
                     // The caret is positioned right after a manual line break,
                     // so place it on the next visual line instead.
-                    newline_pending_baseline =
-                        Some(line.baseline + caret_top + cursor.line_height);
+                    newline_pending_baseline = Some(line.baseline + caret_top + cursor.line_height);
                     continue;
                 }
                 let offset = Self::text_width(canvas, context.paint, line_text);
@@ -1462,7 +1457,13 @@ impl Text {
             let half_w = 1.0 * css_to_image_dpr;
             let radius = 1.0 * css_to_image_dpr;
             let mut path = Path::new();
-            path.rounded_rect(cursor_x - half_w, cursor_top, half_w * 2.0, caret_height, radius);
+            path.rounded_rect(
+                cursor_x - half_w,
+                cursor_top,
+                half_w * 2.0,
+                caret_height,
+                radius,
+            );
             canvas.fill_path(&path, &caret_paint);
         }
 
@@ -1612,13 +1613,10 @@ impl TextTool {
         let Some(sender) = self.sender.clone() else {
             return;
         };
-        let id = gtk::glib::timeout_add_local(
-            std::time::Duration::from_millis(250),
-            move || {
-                let _ = sender.send(SketchBoardInput::Refresh);
-                gtk::glib::ControlFlow::Continue
-            },
-        );
+        let id = gtk::glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+            let _ = sender.send(SketchBoardInput::Refresh);
+            gtk::glib::ControlFlow::Continue
+        });
         self.cursor_blink_timer = Some(id);
     }
 
@@ -2041,9 +2039,10 @@ impl Tool for TextTool {
                         if let Some(t) = &self.text
                             && t.editing
                         {
-                            let on_handle = t.editing_handles().into_iter().any(|h| {
-                                h.pos.distance_to(&pos) <= h.hit_radius
-                            });
+                            let on_handle = t
+                                .editing_handles()
+                                .into_iter()
+                                .any(|h| h.pos.distance_to(&pos) <= h.hit_radius);
                             if on_handle {
                                 return ToolUpdateResult::StopPropagation;
                             }
@@ -2401,11 +2400,7 @@ impl Tool for TextTool {
             .map(|t| t.editing_box())
     }
 
-    fn enter_text_edit_mode(
-        &mut self,
-        id: DrawableId,
-        drawable: Box<dyn Drawable>,
-    ) -> bool {
+    fn enter_text_edit_mode(&mut self, id: DrawableId, drawable: Box<dyn Drawable>) -> bool {
         // Drop any unfinished new text or in-flight handle drag first
         // so the re-edit starts clean.
         if let Some(t) = self.text.as_mut() {

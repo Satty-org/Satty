@@ -55,9 +55,8 @@ pub fn build_brush_cursor(
     device_pixel_ratio: f64,
 ) -> Option<gdk::Cursor> {
     let dpr = device_pixel_ratio.max(1.0);
-    let diameter = style.size.to_line_width(style.annotation_size_factor) as f64
-        * render_scale
-        / dpr;
+    let diameter =
+        style.size.to_line_width(style.annotation_size_factor) as f64 * render_scale / dpr;
     let diameter = diameter.max(MIN_CURSOR_PX);
     // Brush cursor is always centered on the pointer; no vertical
     // hotspot offset.
@@ -87,9 +86,7 @@ pub fn build_highlighter_cursor(
     band_vertical_offset_image_px: f32,
 ) -> Option<gdk::Cursor> {
     let dpr = device_pixel_ratio.max(1.0);
-    let style_height = style
-        .size
-        .to_highlight_width(style.annotation_size_factor) as f64;
+    let style_height = style.size.to_highlight_width(style.annotation_size_factor) as f64;
     let base_height = band_height_image_px
         .map(|h| h as f64)
         .unwrap_or(style_height);
@@ -154,8 +151,7 @@ fn build_ibeam_cursor(height: f64, hotspot_y_offset_tex_px: f64) -> Option<gdk::
     if total_w > 128 || total_h > 128 {
         return None;
     }
-    let surface =
-        cairo::ImageSurface::create(cairo::Format::ARgb32, total_w, total_h).ok()?;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, total_w, total_h).ok()?;
     let ctx = cairo::Context::new(&surface).ok()?;
 
     let cx = total_w as f64 / 2.0;
@@ -197,8 +193,7 @@ fn build_ibeam_cursor(height: f64, hotspot_y_offset_tex_px: f64) -> Option<gdk::
     let pixbuf: Pixbuf = gdk::pixbuf_get_from_surface(&surface, 0, 0, total_w, total_h)?;
     let texture = gdk::Texture::for_pixbuf(&pixbuf);
     let hot_x = total_w / 2;
-    let hot_y_raw =
-        (total_h as f64 / 2.0 - hotspot_y_offset_tex_px).round() as i32;
+    let hot_y_raw = (total_h as f64 / 2.0 - hotspot_y_offset_tex_px).round() as i32;
     let hot_y = hot_y_raw.clamp(0, total_h - 1);
     Some(gdk::Cursor::from_texture(&texture, hot_x, hot_y, None))
 }
@@ -226,8 +221,7 @@ fn build_double_ring_cursor(
         return None;
     }
 
-    let surface =
-        cairo::ImageSurface::create(cairo::Format::ARgb32, total_w, total_h).ok()?;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, total_w, total_h).ok()?;
     let ctx = cairo::Context::new(&surface).ok()?;
 
     let cx = total_w as f64 / 2.0;
@@ -254,8 +248,7 @@ fn build_double_ring_cursor(
 
     drop(ctx);
 
-    let pixbuf: Pixbuf =
-        gdk::pixbuf_get_from_surface(&surface, 0, 0, total_w, total_h)?;
+    let pixbuf: Pixbuf = gdk::pixbuf_get_from_surface(&surface, 0, 0, total_w, total_h)?;
     let texture = gdk::Texture::for_pixbuf(&pixbuf);
     // Hotspot Y starts at the geometric center; the caller can
     // push it up so the rendered cursor lands BELOW the pointer
@@ -264,8 +257,7 @@ fn build_double_ring_cursor(
     // hotspots outside the texture and would fall back to the
     // default cursor silently.
     let hot_x = total_w / 2;
-    let hot_y_raw =
-        (total_h as f64 / 2.0 - hotspot_y_offset_tex_px).round() as i32;
+    let hot_y_raw = (total_h as f64 / 2.0 - hotspot_y_offset_tex_px).round() as i32;
     let hot_y = hot_y_raw.clamp(0, total_h - 1);
     Some(gdk::Cursor::from_texture(&texture, hot_x, hot_y, None))
 }
@@ -274,14 +266,7 @@ fn build_double_ring_cursor(
 /// cairo context's current path. Geometry is centered on `(cx, cy)`
 /// with the given half-width and half-height; `r` is the corner
 /// radius (clamped to half-w for cap fullness).
-fn draw_capsule_path(
-    ctx: &cairo::Context,
-    cx: f64,
-    cy: f64,
-    half_w: f64,
-    half_h: f64,
-    r: f64,
-) {
+fn draw_capsule_path(ctx: &cairo::Context, cx: f64, cy: f64, half_w: f64, half_h: f64, r: f64) {
     let r = r.min(half_w).min(half_h);
     let left = cx - half_w;
     let right = cx + half_w;

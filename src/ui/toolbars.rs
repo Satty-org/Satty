@@ -1,10 +1,4 @@
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    collections::HashMap,
-    rc::Rc,
-    time::Duration,
-};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
 use crate::{
     configuration::APP_CONFIG,
@@ -136,8 +130,7 @@ fn attach_tooltip<W: IsA<gtk::Widget> + Clone>(
     // `pending_show` holds the SourceId of a timer that will pop the
     // tooltip up after `TOOLTIP_DELAY`. Re-entering cancels and
     // re-arms; leaving (or destroying the widget) cancels outright.
-    let pending_show: Rc<RefCell<Option<gtk::glib::SourceId>>> =
-        Rc::new(RefCell::new(None));
+    let pending_show: Rc<RefCell<Option<gtk::glib::SourceId>>> = Rc::new(RefCell::new(None));
 
     let motion = gtk::EventControllerMotion::new();
     {
@@ -450,11 +443,7 @@ impl ToolsToolbar {
                 palette.get(i as usize).copied() == Some(self.current_color)
             }
             ColorButtons::CustomSaved(i) => {
-                self.custom_colors
-                    .get(i as usize)
-                    .copied()
-                    .flatten()
-                    == Some(self.current_color)
+                self.custom_colors.get(i as usize).copied().flatten() == Some(self.current_color)
             }
             ColorButtons::Custom => false,
         });
@@ -494,7 +483,6 @@ impl ToolsToolbar {
             }
         }
     }
-
 }
 
 /// Number of saved-custom slots per popover column. Matches the
@@ -552,6 +540,7 @@ struct ColorPopoverHandles {
 /// Build the popover that hangs off the unified color-picker MenuButton.
 /// Layout:
 ///
+/// ```text
 ///   ┌── popover ───────────────────────────┬── revealer ──┐
 ///   │ ┌── swatch_stack ─┐                   │ inline       │
 ///   │ │ swatches grid   │                   │ picker       │
@@ -560,6 +549,7 @@ struct ColorPopoverHandles {
 ///   │ │ [wheel]   [⇄]   │                   │ + Add to     │
 ///   │ └─────────────────┘                   │ My Colors)   │
 ///   └──────────────────────────────────────┴──────────────┘
+/// ```
 ///
 /// The swatches grid is wrapped in a `Stack` so reorder drag-and-drop
 /// can crossfade between layouts. The controls and inline picker live
@@ -991,9 +981,7 @@ fn build_inline_picker_panel(
     let button_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .build();
-    let left_spacer = gtk::Box::builder()
-        .width_request(ALPHA_LEFT_OFFSET)
-        .build();
+    let left_spacer = gtk::Box::builder().width_request(ALPHA_LEFT_OFFSET).build();
     button_row.append(&left_spacer);
 
     let add_btn = gtk::Button::with_label("+ Add to custom colors");
@@ -1130,8 +1118,7 @@ fn attach_floating_swatch_tooltip(target: &impl IsA<gtk::Widget>, text: &str) {
     // Delay the show by `TOOLTIP_DELAY` — re-arm on every enter,
     // cancel on leave. Keeps quick passes over the swatches from
     // flashing a tooltip the user never asked to see.
-    let pending_show: Rc<RefCell<Option<gtk::glib::SourceId>>> =
-        Rc::new(RefCell::new(None));
+    let pending_show: Rc<RefCell<Option<gtk::glib::SourceId>>> = Rc::new(RefCell::new(None));
 
     {
         let pending_show = pending_show.clone();
@@ -1176,7 +1163,6 @@ fn attach_floating_swatch_tooltip(target: &impl IsA<gtk::Widget>, text: &str) {
     }
     target_widget.add_controller(motion);
 }
-
 
 /// Build the grid that lives inside the picker popover. Separated from
 /// `build_color_popover` so the contents can be regenerated when the
@@ -1327,7 +1313,11 @@ fn build_color_popover_grid(
     // the popover from resizing the moment a drag starts. During
     // drag the preview / shift extras may push the count further.
     let used_cols = saved.len().div_ceil(SLOTS_PER_COLUMN);
-    let extra_col = if model.picker_expanded || hide_palette { 1 } else { 0 };
+    let extra_col = if model.picker_expanded || hide_palette {
+        1
+    } else {
+        0
+    };
     let min_cols = if hide_palette { 2 } else { 1 };
     let base = (used_cols + extra_col).max(min_cols) * SLOTS_PER_COLUMN;
     let total_slots = if dragging {
@@ -1366,7 +1356,11 @@ fn build_color_popover_grid(
                     Some(absorb) => visual_slot <= absorb,
                     None => true,
                 };
-            let saved_idx = if shifted { visual_slot - 1 } else { visual_slot };
+            let saved_idx = if shifted {
+                visual_slot - 1
+            } else {
+                visual_slot
+            };
             match saved.get(saved_idx).copied().flatten() {
                 Some(color) => {
                     let selected = color == model.current_color;
@@ -1546,7 +1540,7 @@ pub struct StyleToolbar {
     /// dropdown's `connect_selected_notify` skips its upstream emit.
     /// Without this, syncing the dropdown to a freshly-selected
     /// drawable's background would re-fire `TextBackgroundSelected`
-    /// and toast + re-apply pointlessly. Rc<Cell<bool>> because the notify
+    /// and toast + re-apply pointlessly. `Rc<Cell<bool>>` because the notify
     /// closure captures it independently from the model.
     text_background_silent: std::rc::Rc<std::cell::Cell<bool>>,
     /// Currently-selected highlighter style — drives the
@@ -2047,7 +2041,10 @@ pub enum ToolbarEvent {
     /// crop-mode W/H text inputs (or pressed the ↔ swap button).
     /// Sketch_board recenters the crop rect on the image at the
     /// requested dimensions via `CropTool::set_dimensions`.
-    CropDimensionsSet { width: i32, height: i32 },
+    CropDimensionsSet {
+        width: i32,
+        height: i32,
+    },
     /// User picked a background-color preset for the matte shown
     /// outside the crop region. Sketch_board forwards to
     /// `CropTool::set_bg_color`.
@@ -2066,7 +2063,10 @@ pub enum ToolbarEvent {
     /// the background image to the target pixel dimensions; the new
     /// `(width, height)` flow back through `ContentSizeChanged` to
     /// resize the window and reseed the crop rect.
-    ResizeImage { width: i32, height: i32 },
+    ResizeImage {
+        width: i32,
+        height: i32,
+    },
     /// User picked a different background style for new text
     /// drawables (Plain or Rounded). Sketch_board pushes through to
     /// the Text tool's `set_text_background`.
@@ -2131,12 +2131,16 @@ pub enum ToolsToolbarInput {
     /// for `target_slot`. The handler relocates the dragged color to
     /// that slot in real time so the user sees a live preview instead
     /// of having to release to see the final order.
-    LiveReorderCustomColor { target: usize },
+    LiveReorderCustomColor {
+        target: usize,
+    },
     /// Drag finished. `success = true` if the drop landed on a valid
     /// target (we persist the latest order); `false` means cancel
     /// (drop outside the popover, Esc, etc.) and the handler restores
     /// the pre-drag snapshot.
-    EndCustomDrag { success: bool },
+    EndCustomDrag {
+        success: bool,
+    },
     /// Escape was pressed while the popover had keyboard focus. If a
     /// drag is in flight, cancel the drag (restore the pre-drag list,
     /// keep the popover open). Otherwise close the popover.
@@ -2149,7 +2153,10 @@ pub enum ToolsToolbarInput {
     /// (drag tick, ratio snap, or explicit set). The handler updates
     /// `crop_width` / `crop_height` and refreshes the W/H entries
     /// unless they currently have focus (don't clobber typed input).
-    CropDimensionsChanged { width: i32, height: i32 },
+    CropDimensionsChanged {
+        width: i32,
+        height: i32,
+    },
     /// User pressed Enter in the W entry (or `None` if the typed
     /// text didn't parse — we ignore it).
     CropWidthEntered(Option<i32>),
@@ -2163,7 +2170,10 @@ pub enum ToolsToolbarInput {
     /// so the MenuButton label refreshes via `#[watch]`, and
     /// pre-fills the resize popover's entries so it opens already
     /// populated next time.
-    ImageDimensionsChanged { width: i32, height: i32 },
+    ImageDimensionsChanged {
+        width: i32,
+        height: i32,
+    },
     /// User picked a crop-mode background-color preset from the
     /// swatch popover. Mirrors the choice into `crop_bg_color`
     /// (so the MenuButton's swatch image refreshes) and re-emits
@@ -2248,9 +2258,15 @@ pub enum StyleToolbarInput {
     /// the active BlurTool + persists; when false (selection-sync
     /// path) only the local mirror + MenuButton icon + tooltip
     /// refresh, no toast, no re-apply.
-    SetBlurStyle { style: BlurStyle, emit_upstream: bool },
+    SetBlurStyle {
+        style: BlurStyle,
+        emit_upstream: bool,
+    },
     /// Same shape as `SetBlurStyle` for the arrow-geometry picker.
-    SetArrowStyle { style: ArrowStyle, emit_upstream: bool },
+    SetArrowStyle {
+        style: ArrowStyle,
+        emit_upstream: bool,
+    },
     /// Same shape for the highlighter style (TextLocked / Normal).
     /// Handler updates local mirror + MenuButton preview and re-emits
     /// `HighlighterStyleSelected` upstream so sketch_board persists +
@@ -2264,7 +2280,10 @@ pub enum StyleToolbarInput {
     /// idempotently. When false (selection-sync path) the silent
     /// flag suppresses the dropdown's notify so the just-clicked
     /// drawable isn't redundantly re-styled or toasted.
-    SetTextBackground { bg: crate::tools::TextBackground, emit_upstream: bool },
+    SetTextBackground {
+        bg: crate::tools::TextBackground,
+        emit_upstream: bool,
+    },
     /// Snap the Spotlight / Highlighter slider widgets to the given
     /// values without re-emitting upstream. Fired by sketch_board
     /// when the user re-enters those tools so the slider always
@@ -3420,8 +3439,7 @@ impl Component for ToolsToolbar {
                             .map(|i| ColorButtons::CustomSaved(i as u64))
                     })
                     .unwrap_or(ColorButtons::Custom);
-                self.color_action
-                    .change_state(&matched_button.to_variant());
+                self.color_action.change_state(&matched_button.to_variant());
                 self.current_color = color;
                 self.current_color_pixbuf = create_icon_pixbuf(color);
                 crate::state::save_last_color(color);
@@ -3633,9 +3651,7 @@ impl Component for ToolsToolbar {
                     } else if self.custom_colors[target].is_none() {
                         // REPLACE an empty slot — no shift.
                         self.custom_colors[target] = Some(color);
-                    } else if let Some(absorb) =
-                        find_same_column_gap(&self.custom_colors, target)
-                    {
+                    } else if let Some(absorb) = find_same_column_gap(&self.custom_colors, target) {
                         // INSERT-with-shift, but stop at the first
                         // `None` in the same column past the target.
                         // Items at [target..absorb] each move one
@@ -3742,10 +3758,12 @@ impl Component for ToolsToolbar {
                 if let Some(w_logical) = value
                     && w_logical > 0
                 {
-                    sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
-                        width: w_logical * s,
-                        height: self.crop_height.max(1),
-                    });
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::CropDimensionsSet {
+                            width: w_logical * s,
+                            height: self.crop_height.max(1),
+                        });
                     sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                 } else if let Some(e) = &self.crop_width_entry {
                     // Snap back to the last known good value so the
@@ -3759,10 +3777,12 @@ impl Component for ToolsToolbar {
                 if let Some(h_logical) = value
                     && h_logical > 0
                 {
-                    sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
-                        width: self.crop_width.max(1),
-                        height: h_logical * s,
-                    });
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::CropDimensionsSet {
+                            width: self.crop_width.max(1),
+                            height: h_logical * s,
+                        });
                     sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                 } else if let Some(e) = &self.crop_height_entry {
                     e.set_text(&(self.crop_height / s).to_string());
@@ -3770,10 +3790,12 @@ impl Component for ToolsToolbar {
             }
             ToolsToolbarInput::CropDimensionsSwap => {
                 if self.crop_width > 0 && self.crop_height > 0 {
-                    sender.output_sender().emit(ToolbarEvent::CropDimensionsSet {
-                        width: self.crop_height,
-                        height: self.crop_width,
-                    });
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::CropDimensionsSet {
+                            width: self.crop_height,
+                            height: self.crop_width,
+                        });
                 }
             }
             ToolsToolbarInput::CropBgColorSelected(bg) => {
@@ -3788,9 +3810,8 @@ impl Component for ToolsToolbar {
                         cell.set((r, g, b));
                     }
                     if let Some(swatch) = &self.crop_bg_custom_swatch {
-                        swatch.set_from_pixbuf(Some(&create_icon_pixbuf(
-                            crop_bg_preset_swatch(bg),
-                        )));
+                        swatch
+                            .set_from_pixbuf(Some(&create_icon_pixbuf(crop_bg_preset_swatch(bg))));
                     }
                 }
                 sender
@@ -3852,13 +3873,7 @@ impl Component for ToolsToolbar {
                 if self.layout == target {
                     return;
                 }
-                let (
-                    Some(right),
-                    Some(end_host),
-                    Some(wrap_row),
-                    Some(left),
-                    Some(start_box),
-                ) = (
+                let (Some(right), Some(end_host), Some(wrap_row), Some(left), Some(start_box)) = (
                     self.right_cluster.as_ref(),
                     self.normal_end_host.as_ref(),
                     self.top_wrap_row.as_ref(),
@@ -3918,11 +3933,7 @@ impl Component for ToolsToolbar {
         // first stroke. The helper restores the user's previous color
         // across launches; falls back to red so a fresh state file
         // starts on the most-reached-for annotation color.
-        let palette: Vec<Color> = APP_CONFIG
-            .read()
-            .color_palette()
-            .palette()
-            .to_vec();
+        let palette: Vec<Color> = APP_CONFIG.read().color_palette().palette().to_vec();
         let saved_customs = crate::state::load_custom_colors();
         let initial_color = crate::state::initial_color();
         // Mirror the popover's "checked" highlight onto whichever
@@ -3950,13 +3961,11 @@ impl Component for ToolsToolbar {
         // Initial state matches `initial_button` so the popover's
         // ":checked" highlight lands on the restored color on first open.
         let sender_tmp = sender.clone();
-        let color_action: RelmAction<ColorAction> = RelmAction::new_stateful_with_target_value(
-            &initial_button,
-            move |_, state, value| {
+        let color_action: RelmAction<ColorAction> =
+            RelmAction::new_stateful_with_target_value(&initial_button, move |_, state, value| {
                 *state = value;
                 sender_tmp.input(ToolsToolbarInput::ColorButtonSelected(value));
-            },
-        );
+            });
 
         let mut model = ToolsToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
@@ -4053,7 +4062,10 @@ impl Component for ToolsToolbar {
             .margin_end(8)
             .build();
 
-        let grid = gtk::Grid::builder().row_spacing(6).column_spacing(8).build();
+        let grid = gtk::Grid::builder()
+            .row_spacing(6)
+            .column_spacing(8)
+            .build();
         let w_label = gtk::Label::builder()
             .label("Width:")
             .halign(gtk::Align::End)
@@ -4117,10 +4129,7 @@ impl Component for ToolsToolbar {
             .homogeneous(true)
             .margin_top(4)
             .build();
-        let cancel_btn = gtk::Button::builder()
-            .label("Cancel")
-            .hexpand(true)
-            .build();
+        let cancel_btn = gtk::Button::builder().label("Cancel").hexpand(true).build();
         let resize_btn = gtk::Button::builder()
             .label("Resize")
             .css_classes(["suggested-action"])
@@ -4351,11 +4360,8 @@ impl Component for ToolsToolbar {
             CropBgColor::Custom(r, g, b) => (r, g, b),
             _ => (0.5, 0.5, 0.5),
         };
-        let custom_seed = CropBgColor::Custom(
-            custom_seed_rgb.0,
-            custom_seed_rgb.1,
-            custom_seed_rgb.2,
-        );
+        let custom_seed =
+            CropBgColor::Custom(custom_seed_rgb.0, custom_seed_rgb.1, custom_seed_rgb.2);
         let custom_rgb_cell = std::rc::Rc::new(std::cell::Cell::new(custom_seed_rgb));
         let mut custom_swatch_handle: Option<gtk::Image> = None;
         for (bg, label_text) in [
@@ -4401,9 +4407,7 @@ impl Component for ToolsToolbar {
                     // `Custom(r, g, b)` selection (alpha is dropped —
                     // the matte is always fully opaque, the named
                     // "Auto" preset is the semi-transparent option).
-                    let top = btn
-                        .root()
-                        .and_then(|r| r.downcast::<gtk::Window>().ok());
+                    let top = btn.root().and_then(|r| r.downcast::<gtk::Window>().ok());
                     let mut builder = gtk::ColorChooserDialog::builder()
                         .modal(true)
                         .title("Pick crop background color");
@@ -4417,13 +4421,8 @@ impl Component for ToolsToolbar {
                     dialog.connect_response(move |dlg, response| {
                         if response == gtk::ResponseType::Ok {
                             let rgba = dlg.rgba();
-                            let picked = CropBgColor::Custom(
-                                rgba.red(),
-                                rgba.green(),
-                                rgba.blue(),
-                            );
-                            sender_for_dialog
-                                .input(ToolsToolbarInput::CropBgColorSelected(picked));
+                            let picked = CropBgColor::Custom(rgba.red(), rgba.green(), rgba.blue());
+                            sender_for_dialog.input(ToolsToolbarInput::CropBgColorSelected(picked));
                         }
                         dlg.close();
                     });
@@ -4437,7 +4436,9 @@ impl Component for ToolsToolbar {
         model.crop_bg_custom_swatch = custom_swatch_handle;
         model.crop_bg_custom_rgb = Some(custom_rgb_cell);
         bg_popover.set_child(Some(&bg_box));
-        widgets.crop_bg_color_menu_btn.set_popover(Some(&bg_popover));
+        widgets
+            .crop_bg_color_menu_btn
+            .set_popover(Some(&bg_popover));
         install_menu_toggle_dismiss(&widgets.crop_bg_color_menu_btn, &bg_popover);
 
         // Build the popover for the unified color picker. Stash the
@@ -4662,17 +4663,13 @@ impl StyleToolbar {
                 // equivalent of ~+2px on the slider's typical font)
                 // for a visible-at-a-glance pop without overflowing
                 // the tick row's vertical budget.
-                format!(
-                    "<span weight=\"heavy\" size=\"large\">{}</span>",
-                    letter
-                )
+                format!("<span weight=\"heavy\" size=\"large\">{}</span>", letter)
             } else {
                 letter.to_string()
             };
             slider.add_mark(pos, gtk::PositionType::Bottom, Some(&markup));
         }
     }
-
 }
 
 #[relm4::component(pub)]
@@ -5168,8 +5165,7 @@ impl Component for StyleToolbar {
                 // switch. (Selection-driven size changes go through
                 // SyncFromSelection / SyncMultiAgreement, not here.)
                 if !matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
-                    self.session_size_per_tool
-                        .insert(self.current_tool, size);
+                    self.session_size_per_tool.insert(self.current_tool, size);
                 }
             }
             StyleToolbarInput::SyncToToolDefault => {
@@ -5214,8 +5210,7 @@ impl Component for StyleToolbar {
                 // pref is off, and lets toggling the pref mid-session
                 // pick up the user's already-made adjustments.
                 if !matches!(self.current_tool, Tools::Pointer | Tools::Crop) {
-                    self.session_size_per_tool
-                        .insert(self.current_tool, size);
+                    self.session_size_per_tool.insert(self.current_tool, size);
                 }
                 sender
                     .output_sender()
@@ -5247,10 +5242,7 @@ impl Component for StyleToolbar {
                     label.set_label(size_tooltip_text(true));
                 }
             }
-            StyleToolbarInput::SyncMultiAgreement {
-                size,
-                smooth,
-            } => {
+            StyleToolbarInput::SyncMultiAgreement { size, smooth } => {
                 // Size: `Some(v)` → reflect on slider + enable it (so
                 // a slider drag will group-update); `None` → disable
                 // so a stray drag can't collapse a mixed selection.
@@ -5313,7 +5305,10 @@ impl Component for StyleToolbar {
                     label.set_text(fill_tooltip_text(self.fill_shapes));
                 }
             }
-            StyleToolbarInput::SetBlurStyle { style, emit_upstream } => {
+            StyleToolbarInput::SetBlurStyle {
+                style,
+                emit_upstream,
+            } => {
                 // Local mirror drives the MenuButton's `#[watch]`ed icon;
                 // tooltip wording refreshes either way. Upstream emit
                 // skipped on the selection-sync path so the same value
@@ -5329,7 +5324,10 @@ impl Component for StyleToolbar {
                     sender.output_sender().emit(ToolbarEvent::FocusCanvas);
                 }
             }
-            StyleToolbarInput::SetArrowStyle { style, emit_upstream } => {
+            StyleToolbarInput::SetArrowStyle {
+                style,
+                emit_upstream,
+            } => {
                 self.arrow_style = style;
                 // Flip the MenuButton's preview to the new shape.
                 if let Some(cell) = &self.arrow_preview_cell {
@@ -5418,13 +5416,11 @@ impl Component for StyleToolbar {
         // can suppress the upstream emit. Lives outside the model field
         // because relm4's view! macro captures plain identifiers from
         // the enclosing scope, not model paths.
-        let text_background_silent =
-            std::rc::Rc::new(std::cell::Cell::new(false));
+        let text_background_silent = std::rc::Rc::new(std::cell::Cell::new(false));
 
         // create model
         let initial_tool = APP_CONFIG.read().initial_tool();
-        let initial_size =
-            crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
+        let initial_size = crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
         let mut model = StyleToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             current_tool: initial_tool,
@@ -5453,8 +5449,7 @@ impl Component for StyleToolbar {
             blur_style_tooltip_label: None,
             text_background_dropdown: None,
             text_background_silent: text_background_silent.clone(),
-            highlighter_style: crate::state::load_highlighter_style()
-                .unwrap_or_default(),
+            highlighter_style: crate::state::load_highlighter_style().unwrap_or_default(),
             highlighter_style_popover: None,
             highlighter_style_tooltip_label: None,
             session_size_per_tool: HashMap::new(),
@@ -5478,9 +5473,11 @@ impl Component for StyleToolbar {
                 ArrowStyle::Curved,
                 ArrowStyle::Double,
             ],
-            |s| make_arrow_preview(s, ARROW_ROW_PREVIEW_W, ARROW_ROW_PREVIEW_H)
-                .0
-                .upcast::<gtk::Widget>(),
+            |s| {
+                make_arrow_preview(s, ARROW_ROW_PREVIEW_W, ARROW_ROW_PREVIEW_H)
+                    .0
+                    .upcast::<gtk::Widget>()
+            },
             arrow_style_label,
             |s| StyleToolbarInput::SetArrowStyle {
                 style: s,
@@ -5510,10 +5507,7 @@ impl Component for StyleToolbar {
                 crate::tools::HighlighterStyle::TextLocked,
                 crate::tools::HighlighterStyle::Normal,
             ],
-            |s| {
-                gtk::Image::from_icon_name(highlighter_style_icon(s))
-                    .upcast::<gtk::Widget>()
-            },
+            |s| gtk::Image::from_icon_name(highlighter_style_icon(s)).upcast::<gtk::Widget>(),
             highlighter_style_label,
             StyleToolbarInput::SetHighlighterStyle,
         ));
@@ -5714,4 +5708,3 @@ impl FromVariant for ColorButtons {
         })
     }
 }
-

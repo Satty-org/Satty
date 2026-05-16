@@ -264,7 +264,12 @@ pub enum Action {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScrollCaptureTest {
     Full,
-    Region { x: i32, y: i32, width: i32, height: i32 },
+    Region {
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
 }
 
 impl FromStr for ScrollCaptureTest {

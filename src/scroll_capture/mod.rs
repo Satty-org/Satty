@@ -403,7 +403,12 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
                     let (ox, oy) = s.drag_origin;
                     let x = ox.min(ox + dx);
                     let y = oy.min(oy + dy);
-                    s.selection = Selection { x, y, w: dx.abs(), h: dy.abs() };
+                    s.selection = Selection {
+                        x,
+                        y,
+                        w: dx.abs(),
+                        h: dy.abs(),
+                    };
                     drop(s);
                     drawing_w.queue_draw();
                     return;
@@ -427,7 +432,12 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
             let (ox, oy) = s.drag_origin;
             let x = ox.min(ox + dx);
             let y = oy.min(oy + dy);
-            s.selection = Selection { x, y, w: dx.abs(), h: dy.abs() };
+            s.selection = Selection {
+                x,
+                y,
+                w: dx.abs(),
+                h: dy.abs(),
+            };
             drop(s);
             drawing_w.queue_draw();
         });
@@ -461,9 +471,7 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
                 drawing_w.queue_draw();
                 match phase {
                     Phase::Selected => {
-                        position_action_pill_and_input(
-                            &window_w, &overlay_w, &action_pill_w, sel,
-                        );
+                        position_action_pill_and_input(&window_w, &overlay_w, &action_pill_w, sel);
                     }
                     Phase::Capturing => {
                         position_capturing_pill_and_input(
@@ -641,6 +649,7 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
     window.present();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_capture(
     state: &Rc<RefCell<OverlayState>>,
     window: &gtk::ApplicationWindow,
@@ -743,9 +752,8 @@ fn capture_tick(state: &Rc<RefCell<OverlayState>>, sel: Selection) -> glib::Cont
             let is_dup = match s.frames.last() {
                 Some(prev) => {
                     let sad_zero = stitch::sad_at_offset(&prev.gray, &gray, 0);
-                    let sad_full = stitch::sad_at_offset(
-                        &prev.gray, &gray, SCROLL_DELTA_DEVICE_PX_HINT,
-                    );
+                    let sad_full =
+                        stitch::sad_at_offset(&prev.gray, &gray, SCROLL_DELTA_DEVICE_PX_HINT);
                     sad_zero <= sad_full
                 }
                 None => false,
@@ -991,7 +999,13 @@ fn start_auto_scroll_at(
             // Roll back the active flag and restore buttons.
             state_w.borrow_mut().auto_scroll_active = false;
             position_capturing_pill_and_input(
-                &window_w, &overlay_w, &pill_w, &vert_btn_w, &horiz_btn_w, sel, false,
+                &window_w,
+                &overlay_w,
+                &pill_w,
+                &vert_btn_w,
+                &horiz_btn_w,
+                sel,
+                false,
             );
             return;
         }
@@ -1068,10 +1082,15 @@ fn end_of_content_ui(
     // Bring the inside Auto-Scroll buttons back so the user can run
     // another pass or click Done.
     position_capturing_pill_and_input(
-        window, overlay, capturing_pill, vert_btn, horiz_btn, sel, false,
+        window,
+        overlay,
+        capturing_pill,
+        vert_btn,
+        horiz_btn,
+        sel,
+        false,
     );
 }
-
 
 fn build_prompt_pill() -> gtk::Box {
     let pill = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -1191,7 +1210,9 @@ fn set_pill_input_region(
     sel: Selection,
     include_handles: bool,
 ) {
-    let Some(surface) = window.surface() else { return };
+    let Some(surface) = window.surface() else {
+        return;
+    };
     let pad: i32 = 6;
     let pill_rect = cairo::RectangleInt::new(
         (pill_x as i32) - pad,
@@ -1280,7 +1301,9 @@ fn position_capturing_pill_and_input(
         pill.set_margin_start(x as i32);
         pill.set_margin_top(y as i32);
 
-        let Some(surface) = window.surface() else { return };
+        let Some(surface) = window.surface() else {
+            return;
+        };
         let pad: i32 = 6;
         let pill_rect = cairo::RectangleInt::new(
             (x as i32) - pad,
@@ -1299,8 +1322,7 @@ fn position_capturing_pill_and_input(
             let vx = (sel.x + (sel.w - vw) / 2.0)
                 .max(sel.x + 4.0)
                 .min((sel.x + sel.w - vw - 4.0).max(sel.x + 4.0));
-            let vy = (sel.y + sel.h - INSIDE_AUTO_SCROLL_INSET - vh)
-                .max(sel.y + 4.0);
+            let vy = (sel.y + sel.h - INSIDE_AUTO_SCROLL_INSET - vh).max(sel.y + 4.0);
             vert_btn.set_margin_start(vx as i32);
             vert_btn.set_margin_top(vy as i32);
             vert_btn.set_visible(true);
@@ -1318,8 +1340,7 @@ fn position_capturing_pill_and_input(
 
             // Horizontal Auto-Scroll: right-center inside the selection.
             let (hw, hh) = (HORIZ_AUTO_SCROLL_W, HORIZ_AUTO_SCROLL_H);
-            let hx = (sel.x + sel.w - INSIDE_AUTO_SCROLL_INSET - hw)
-                .max(sel.x + 4.0);
+            let hx = (sel.x + sel.w - INSIDE_AUTO_SCROLL_INSET - hw).max(sel.x + 4.0);
             let hy = (sel.y + (sel.h - hh) / 2.0)
                 .max(sel.y + 4.0)
                 .min((sel.y + sel.h - hh - 4.0).max(sel.y + 4.0));
@@ -1337,8 +1358,14 @@ fn position_capturing_pill_and_input(
 
             eprintln!(
                 "scroll-capture: auto-scroll buttons placed vert=({},{},{}x{}) horiz=({},{},{}x{})",
-                vx as i32, vy as i32, vw as i32, vh as i32,
-                hx as i32, hy as i32, hw as i32, hh as i32,
+                vx as i32,
+                vy as i32,
+                vw as i32,
+                vh as i32,
+                hx as i32,
+                hy as i32,
+                hw as i32,
+                hh as i32,
             );
         }
         surface.set_input_region(&region);
@@ -1357,7 +1384,6 @@ fn measured_pill_size(pill: &gtk::Box) -> (f64, f64) {
     let (_, h_nat, _, _) = pill.measure(gtk::Orientation::Vertical, w_nat);
     (w_nat as f64, h_nat as f64)
 }
-
 
 fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
     let _ = cr.save();
@@ -1379,12 +1405,7 @@ fn draw_backdrop(cr: &cairo::Context, w: f64, h: f64, s: &OverlayState) {
         // some of our dark backdrop, which becomes a faint dark line at
         // every frame seam in the stitched output.
         cr.set_operator(cairo::Operator::Clear);
-        cr.rectangle(
-            sel.x.round(),
-            sel.y.round(),
-            sel.w.round(),
-            sel.h.round(),
-        );
+        cr.rectangle(sel.x.round(), sel.y.round(), sel.w.round(), sel.h.round());
         let _ = cr.fill();
 
         cr.set_operator(cairo::Operator::Over);
@@ -1499,10 +1520,38 @@ fn draw_handles(cr: &cairo::Context, sel: Selection) {
     cr.line_to(cx + arm, cy);
     let _ = cr.stroke();
     for (ax, ay, hx1, hy1, hx2, hy2) in [
-        (cx, cy - arm, cx - head, cy - arm + head, cx + head, cy - arm + head),
-        (cx, cy + arm, cx - head, cy + arm - head, cx + head, cy + arm - head),
-        (cx - arm, cy, cx - arm + head, cy - head, cx - arm + head, cy + head),
-        (cx + arm, cy, cx + arm - head, cy - head, cx + arm - head, cy + head),
+        (
+            cx,
+            cy - arm,
+            cx - head,
+            cy - arm + head,
+            cx + head,
+            cy - arm + head,
+        ),
+        (
+            cx,
+            cy + arm,
+            cx - head,
+            cy + arm - head,
+            cx + head,
+            cy + arm - head,
+        ),
+        (
+            cx - arm,
+            cy,
+            cx - arm + head,
+            cy - head,
+            cx - arm + head,
+            cy + head,
+        ),
+        (
+            cx + arm,
+            cy,
+            cx + arm - head,
+            cy - head,
+            cx + arm - head,
+            cy + head,
+        ),
     ] {
         cr.move_to(hx1, hy1);
         cr.line_to(ax, ay);

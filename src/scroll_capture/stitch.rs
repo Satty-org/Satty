@@ -54,13 +54,13 @@ pub fn downsample_to_gray(p: &Pixbuf) -> GrayView {
     for y in 0..src_h {
         let src_row = &src[y * src_stride..y * src_stride + src_w * 4];
         let dst_row = &mut dst[y * dst_w..y * dst_w + dst_w];
-        for gx in 0..dst_w {
+        for (gx, dst_px) in dst_row.iter_mut().enumerate() {
             let off = (gx * DOWNSAMPLE_W) * 4;
             let r = src_row[off] as u32;
             let g = src_row[off + 1] as u32;
             let b = src_row[off + 2] as u32;
             // Luminance (Rec. 601, integer approx): (77R + 150G + 29B) / 256.
-            dst_row[gx] = ((r * 77 + g * 150 + b * 29) >> 8) as u8;
+            *dst_px = ((r * 77 + g * 150 + b * 29) >> 8) as u8;
         }
     }
     GrayView {
@@ -89,7 +89,10 @@ pub fn stitch(frames: &[Pixbuf], expected_delta: usize) -> Result<Pixbuf> {
     let width = frames[0].width();
     let height = frames[0].height();
     let row_bytes = (width as usize) * 4;
-    if !frames.iter().all(|f| f.width() == width && f.height() == height) {
+    if !frames
+        .iter()
+        .all(|f| f.width() == width && f.height() == height)
+    {
         bail!("frames have inconsistent dimensions");
     }
 
@@ -242,18 +245,13 @@ pub fn stitch(frames: &[Pixbuf], expected_delta: usize) -> Result<Pixbuf> {
 /// discriminative than single-band SAD. Returns `(offset, confidence)`
 /// where confidence is the ratio of runner-up SAD to best SAD (≫ 1 means
 /// the best offset is clearly the winner).
-fn find_scroll_offset_multiband(
-    prev: &GrayView,
-    cur: &GrayView,
-    hint: usize,
-) -> (usize, f64) {
+fn find_scroll_offset_multiband(prev: &GrayView, cur: &GrayView, hint: usize) -> (usize, f64) {
     let w = prev.width;
     let h = prev.height;
     let band_height = (h * BAND_HEIGHT_FRAC_NUM / BAND_HEIGHT_FRAC_DEN).max(32);
     let band_top_a = h * BAND_TOP_FRAC_NUM / BAND_TOP_FRAC_DEN;
     let band_top_b = h * BAND_TOP_2_FRAC_NUM / BAND_TOP_2_FRAC_DEN;
-    let absolute_max =
-        h.saturating_sub(band_height.max(band_top_a).max(band_top_b) + 1);
+    let absolute_max = h.saturating_sub(band_height.max(band_top_a).max(band_top_b) + 1);
 
     let min_off = hint.saturating_sub(SEARCH_RADIUS).max(4);
     let max_off = hint.saturating_add(SEARCH_RADIUS).min(absolute_max);
@@ -303,7 +301,7 @@ fn find_scroll_offset_multiband(
 fn sad_row(a: &[u8], b: &[u8]) -> u64 {
     let mut s: u64 = 0;
     for (x, y) in a.iter().zip(b.iter()) {
-        let d = if x >= y { x - y } else { y - x };
+        let d = x.abs_diff(*y);
         s += d as u64;
     }
     s

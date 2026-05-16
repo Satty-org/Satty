@@ -254,10 +254,7 @@ impl Rect {
     pub fn intersects(&self, other: Rect) -> bool {
         let a_br = self.bottom_right();
         let b_br = other.bottom_right();
-        self.pos.x < b_br.x
-            && other.pos.x < a_br.x
-            && self.pos.y < b_br.y
-            && other.pos.y < a_br.y
+        self.pos.x < b_br.x && other.pos.x < a_br.x && self.pos.y < b_br.y && other.pos.y < a_br.y
     }
 }
 

@@ -11,7 +11,9 @@ use crate::{
     sketch_board::MouseEventMsg,
 };
 
-use super::{Drawable, DrawableClone, GLOW_COLOR, Tool, ToolUpdateResult, Tools, halo_in_image_units};
+use super::{
+    Drawable, DrawableClone, GLOW_COLOR, Tool, ToolUpdateResult, Tools, halo_in_image_units,
+};
 use relm4::Sender;
 
 pub struct MarkerTool {

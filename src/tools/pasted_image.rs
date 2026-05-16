@@ -1,9 +1,7 @@
 use anyhow::Result;
 use femtovg::{
-    Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat,
-    imgref::Img,
-    renderer::OpenGl,
-    rgb::RGBA8,
+    Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat, imgref::Img,
+    renderer::OpenGl, rgb::RGBA8,
 };
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use std::cell::RefCell;
@@ -12,8 +10,7 @@ use std::rc::Rc;
 
 use crate::math::{Rect, Vec2D};
 use crate::tools::{
-    Drawable, GLOW_COLOR, Handle, HandleId, bbox_handles, bbox_resize,
-    halo_in_image_units,
+    Drawable, GLOW_COLOR, Handle, HandleId, bbox_handles, bbox_resize, halo_in_image_units,
 };
 
 /// Pre-converted RGBA pixel buffer, shared (cheaply cloneable) so the

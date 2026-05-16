@@ -13,8 +13,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, halo_in_image_units,
-    ToolUpdateResult, Tools, bbox_handles, bbox_resize,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    bbox_handles, bbox_resize, halo_in_image_units,
 };
 
 #[derive(Clone, Copy, Debug)]

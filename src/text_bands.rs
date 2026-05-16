@@ -151,7 +151,13 @@ pub fn init_from_pixbuf(pixbuf: &Pixbuf) {
         bands.len()
     );
     for (i, b) in bands.iter().enumerate() {
-        eprintln!("  [{:2}] y=[{:.0}..{:.0}] h={:.0}", i, b.y_start, b.y_end, b.height());
+        eprintln!(
+            "  [{:2}] y=[{:.0}..{:.0}] h={:.0}",
+            i,
+            b.y_start,
+            b.y_end,
+            b.height()
+        );
     }
     let _ = BANDS.set(bands);
 }
@@ -253,10 +259,7 @@ pub fn detect_local_band(x: f32, y: f32) -> Option<TextBand> {
     }
     let fresh = detect_local_band_uncached(x, y);
     BAND_CACHE.with(|c| {
-        *c.borrow_mut() = fresh.map(|band| BandCacheEntry {
-            band,
-            cache_x: x,
-        });
+        *c.borrow_mut() = fresh.map(|band| BandCacheEntry { band, cache_x: x });
     });
     fresh
 }

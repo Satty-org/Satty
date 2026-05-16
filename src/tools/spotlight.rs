@@ -63,9 +63,7 @@ enum SpotlightKind {
 
 impl SpotlightKind {
     fn freehand_thickness(style: &Style) -> f32 {
-        style
-            .size
-            .to_highlight_width(style.annotation_size_factor)
+        style.size.to_highlight_width(style.annotation_size_factor)
     }
 }
 
@@ -129,7 +127,14 @@ impl Drawable for SpotlightKind {
                     // Single point — drop a circle so a click-and-tap
                     // still produces a visible spotlight.
                     let r = half.max(1.0);
-                    path.arc(first.x, first.y, r, 0.0, std::f32::consts::TAU, femtovg::Solidity::Solid);
+                    path.arc(
+                        first.x,
+                        first.y,
+                        r,
+                        0.0,
+                        std::f32::consts::TAU,
+                        femtovg::Solidity::Solid,
+                    );
                     return;
                 }
                 // Reify the polyline as a filled outline by walking
@@ -273,7 +278,9 @@ impl Drawable for SpotlightKind {
     }
 
     fn move_handle(&mut self, handle: HandleId, to: Vec2D) {
-        let SpotlightKind::Block(s) = self else { return };
+        let SpotlightKind::Block(s) = self else {
+            return;
+        };
         let Some(size) = s.data.size else { return };
         let cur = Rect::new(s.data.top_left, size);
         let new = bbox_resize(cur, handle, to);

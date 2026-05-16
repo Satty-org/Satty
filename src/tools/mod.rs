@@ -35,12 +35,12 @@ mod brush;
 mod crop;
 mod ellipse;
 mod highlight;
-mod spotlight;
 mod line;
 mod marker;
 mod pasted_image;
 mod pointer;
 mod rectangle;
+mod spotlight;
 mod text;
 
 pub enum ToolEvent {
@@ -215,7 +215,7 @@ pub trait Tool {
     /// Current highlighter style — Highlighter returns its active
     /// value; everyone else returns `None`. Read by sketch_board's
     /// hover-cursor path so the cursor knows whether to do the
-    /// band lookup (TextLocked) or fall through to the 
+    /// band lookup (TextLocked) or fall through to the
     /// style.size-derived freehand cursor (Normal).
     fn highlighter_style(&self) -> Option<HighlighterStyle> {
         None
@@ -231,11 +231,7 @@ pub trait Tool {
     /// Resume editing an existing committed text drawable. Only `TextTool`
     /// implements this; the default no-op lets sketch_board dispatch
     /// uniformly. Returns true if the tool accepted the request.
-    fn enter_text_edit_mode(
-        &mut self,
-        _id: DrawableId,
-        _drawable: Box<dyn Drawable>,
-    ) -> bool {
+    fn enter_text_edit_mode(&mut self, _id: DrawableId, _drawable: Box<dyn Drawable>) -> bool {
         false
     }
 
@@ -492,10 +488,10 @@ pub trait Drawable: DrawableClone + Debug {
         None
     }
 
-    /// Render a selection "glow" — a semi-transparent blue trace of the 
-    /// shape, drawn under the original. Each shape's impl chooses how 
-    /// to map `HALO_PAD` (a CSS-pixel target) into image units using 
-    /// `glow_scale_image_units` so the halo appears at constant on-screen 
+    /// Render a selection "glow" — a semi-transparent blue trace of the
+    /// shape, drawn under the original. Each shape's impl chooses how
+    /// to map `HALO_PAD` (a CSS-pixel target) into image units using
+    /// `glow_scale_image_units` so the halo appears at constant on-screen
     /// thickness regardless of zoom or DPR.
     fn render_glow(
         &self,
@@ -567,10 +563,7 @@ pub enum PanelSwatch {
 /// current image→canvas transform and the host display's DPR. Use this
 /// inside any `render_glow` impl that wants a halo of constant on-screen
 /// thickness.
-pub fn halo_in_image_units(
-    canvas: &Canvas<OpenGl>,
-    device_pixel_ratio: f32,
-) -> f32 {
+pub fn halo_in_image_units(canvas: &Canvas<OpenGl>, device_pixel_ratio: f32) -> f32 {
     let img_to_canvas = canvas.transform().average_scale().max(0.0001);
     let css_to_image = device_pixel_ratio / img_to_canvas;
     HALO_PAD * css_to_image
@@ -653,11 +646,7 @@ impl Handle {
 /// `css_to_image` converts CSS-pixel diameters into image units so the
 /// on-screen size stays constant across zoom + DPR. Callers compute it
 /// as `device_pixel_ratio / canvas.transform.average_scale()`.
-pub fn render_handles(
-    canvas: &mut Canvas<OpenGl>,
-    handles: &[Handle],
-    css_to_image: f32,
-) {
+pub fn render_handles(canvas: &mut Canvas<OpenGl>, handles: &[Handle], css_to_image: f32) {
     // CSS-pixel diameters. The pipeline is image_units →
     // (image_to_canvas scale) → physical pixels (canvas is sized
     // in physical px); to display N CSS px we want N × DPR physical
@@ -804,11 +793,7 @@ pub fn aspect_lock_corner_target(orig: Rect, handle: HandleId, to: Vec2D) -> Vec
 /// Returns `None` if `handle` is not a side handle. Callers should apply
 /// `move_handle(handle, to)` first, then `move_handle(opp, mirrored)` so
 /// shapes with vertex-scaling resize (brush, highlight) compose correctly.
-pub fn mirror_side_target(
-    orig: Rect,
-    handle: HandleId,
-    to: Vec2D,
-) -> Option<(HandleId, Vec2D)> {
+pub fn mirror_side_target(orig: Rect, handle: HandleId, to: Vec2D) -> Option<(HandleId, Vec2D)> {
     let tl = orig.top_left();
     let br = orig.bottom_right();
     match handle {
@@ -863,11 +848,7 @@ pub struct Stacked {
 }
 
 impl Stacked {
-    pub fn new(
-        id: DrawableId,
-        drawable: Box<dyn Drawable>,
-        auto_label_index: u32,
-    ) -> Self {
+    pub fn new(id: DrawableId, drawable: Box<dyn Drawable>, auto_label_index: u32) -> Self {
         Self {
             id,
             drawable,
@@ -994,12 +975,12 @@ pub enum UndoAction {
 }
 
 pub use arrow::{ArrowStyle, ArrowTool};
-pub use pasted_image::PastedImage;
 pub use blur::{BlurStyle, BlurTool};
 pub use crop::{AspectRatio, CropBgColor, CropHit, CropTool};
 pub use ellipse::EllipseTool;
-pub use highlight::{HighlighterStyle, HighlightTool, Highlighters};
+pub use highlight::{HighlightTool, HighlighterStyle, Highlighters};
 pub use line::LineTool;
+pub use pasted_image::PastedImage;
 pub use rectangle::RectangleTool;
 pub use spotlight::SpotlightTool;
 pub use text::{Text, TextBackground, TextTool};
@@ -1011,16 +992,7 @@ use self::{brush::BrushTool, marker::MarkerTool, pointer::PointerTool};
 pub use self::pointer::{HANDLE_HIT_RADIUS, HIT_TOLERANCE};
 
 #[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Copy,
-    Hash,
-    Deserialize,
-    serde::Serialize,
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize, serde::Serialize,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Tools {

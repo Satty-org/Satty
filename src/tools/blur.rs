@@ -161,10 +161,7 @@ impl Blur {
         let canvas_w = canvas.width() as usize;
         let canvas_h = canvas.height() as usize;
 
-        if pos_x < 1
-            || pos_y < 1
-            || pos_x + width + 1 >= canvas_w
-            || pos_y + height + 1 >= canvas_h
+        if pos_x < 1 || pos_y < 1 || pos_x + width + 1 >= canvas_w || pos_y + height + 1 >= canvas_h
         {
             let buf = vec![RGBA8::new(0, 0, 0, 255); width * height];
             let img = Img::new(buf, width, height);

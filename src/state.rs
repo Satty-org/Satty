@@ -137,7 +137,9 @@ pub fn load() -> PersistedState {
 
 fn save(state: &PersistedState) {
     let Some(path) = state_path() else { return };
-    let Ok(s) = toml::to_string(state) else { return };
+    let Ok(s) = toml::to_string(state) else {
+        return;
+    };
     let _ = fs::write(path, s);
 }
 
@@ -425,10 +427,8 @@ pub fn save_sticky_session_defaults(value: bool) {
 /// Preferences dialog's Save handler with the user's edited set.
 pub fn save_keybinds(shortcuts: &HashMap<char, Tools>) {
     let mut state = load();
-    let serialized: HashMap<Tools, String> = shortcuts
-        .iter()
-        .map(|(c, t)| (*t, c.to_string()))
-        .collect();
+    let serialized: HashMap<Tools, String> =
+        shortcuts.iter().map(|(c, t)| (*t, c.to_string())).collect();
     state.keybinds = Some(serialized);
     save(&state);
 }
