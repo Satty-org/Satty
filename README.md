@@ -76,7 +76,7 @@ Default single-key shortcuts:
 
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
-- Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
+- Highlight: Hold <kbd>Alt</kbd> to center the block highlight around origin <sup>NEXTRELEASE</sup>, hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
 - Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
 - Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
 - Text:
