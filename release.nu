@@ -1,10 +1,18 @@
 #!/usr/bin/env nu
+#
+# release.nu — cut a new tensaku release:  nu release.nu 0.22.0
+#
+# Bumps the version, commits + tags, pushes to GitHub, builds the
+# release tarball, and publishes it to the GitHub releases page.
 
 use std assert
 
 export def main [version: string] {   
     # make sure the working tree is clean
     assert_repo_is_clean
+
+    # make sure gh is installed + authenticated before we mutate anything
+    assert_gh_ready
 
     let read_version = version_read_cargo_toml
     let requested_version = $version | version_parse
@@ -42,10 +50,12 @@ export def main [version: string] {
     git_tag $requested_version_tag
 
     ## from here on we go online!
-    # push
-    git_push 
+    # push the bump commit + tag to GitHub
+    git_push
 
-    # the rest is being handled by the github release action
+    # build the release tarball and publish it to the GitHub releases page
+    build_release_tarball
+    github_release $requested_version_tag
 }
 
 def echo_section_headline []: string -> nothing {
@@ -73,6 +83,40 @@ def git_tag [tag: string] {
 def git_push [] {
     "Pushing to GitHub" | echo_section_headline
     git push; git push --tags
+}
+
+def assert_gh_ready [] {
+    if (which gh | is-empty) {
+        print "gh CLI not found — install it and run 'gh auth login'. Aborting."
+        exit 1
+    }
+    if (gh auth status | complete | get exit_code) != 0 {
+        print "gh is not authenticated — run 'gh auth login'. Aborting."
+        exit 1
+    }
+}
+
+def build_release_tarball [] {
+    "Building release tarball" | echo_section_headline
+    make package
+}
+
+def github_release [tag: string] {
+    $"Publishing GitHub release ($tag)" | echo_section_headline
+    let tarball = $"tensaku-($tag)-x86_64.tar.gz"
+    if not ($tarball | path exists) {
+        print $"Expected release tarball '($tarball)' not found. Aborting."
+        exit 1
+    }
+    # Create the release; if one already exists for the tag (e.g. a
+    # rerun), just attach/refresh the tarball asset instead.
+    let release_exists = (gh release view $tag | complete | get exit_code) == 0
+    if $release_exists {
+        print $"Release ($tag) already exists — uploading the tarball as an asset."
+        gh release upload $tag $tarball --clobber
+    } else {
+        gh release create $tag $tarball --title $tag --generate-notes
+    }
 }
 
 def patch_cargo_toml [version: list<int>] {
