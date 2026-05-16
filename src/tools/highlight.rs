@@ -15,7 +15,7 @@ use crate::{
     style::Style,
 };
 
-use satty_cli::command_line;
+use tensaku_cli::command_line;
 
 use super::{
     Drawable, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools, bbox_handles,

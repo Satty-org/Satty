@@ -19,7 +19,7 @@ use crate::{
     tools::{Highlighters, Tools},
 };
 
-use satty_cli::command_line::{
+use tensaku_cli::command_line::{
     Action as CommandLineAction, CommandLine, Fullscreen, Resize, ScrollCaptureTest,
 };
 

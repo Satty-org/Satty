@@ -1492,14 +1492,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "satty_cli"
-version = "0.21.0"
-dependencies = [
- "clap",
- "serde",
-]
-
-[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1708,10 +1700,10 @@ dependencies = [
  "relm4-icons-build",
  "resource",
  "rustix 1.1.4",
- "satty_cli",
  "serde",
  "serde_derive",
  "smithay-client-toolkit",
+ "tensaku_cli",
  "thiserror 2.0.18",
  "tokio",
  "toml 1.1.0+spec-1.1.0",
@@ -1719,6 +1711,14 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "xdg",
+]
+
+[[package]]
+name = "tensaku_cli"
+version = "0.21.0"
+dependencies = [
+ "clap",
+ "serde",
 ]
 
 [[package]]

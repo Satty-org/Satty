@@ -10,7 +10,7 @@ use clap_complete_fig::Fig;
 use clap_complete_nushell::Nushell;
 use clap_mangen::Man;
 
-use satty_cli::command_line;
+use tensaku_cli::command_line;
 
 fn main() -> Result<(), io::Error> {
     let out_dir =

@@ -27,7 +27,7 @@ use crate::{
     style::Style,
 };
 
-use satty_cli::command_line;
+use tensaku_cli::command_line;
 
 mod arrow;
 mod blur;

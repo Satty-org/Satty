@@ -17,7 +17,7 @@ use relm4::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use satty_cli::command_line::{Fullscreen, Resize, ScrollCaptureTest};
+use tensaku_cli::command_line::{Fullscreen, Resize, ScrollCaptureTest};
 
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{

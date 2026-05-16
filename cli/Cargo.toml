@@ -1,5 +1,5 @@
 [package]
-name = "satty_cli"
+name = "tensaku_cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
