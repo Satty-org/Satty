@@ -1077,7 +1077,9 @@ impl Component for SketchBoard {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
                         _ => {
-                            if ke.is_one_of(Key::z, KeyMappingId::UsZ)
+                            if ke.key == Key::y && ke.modifier == ModifierType::CONTROL_MASK {
+                                self.handle_redo()
+                            } else if ke.is_one_of(Key::z, KeyMappingId::UsZ)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_undo()
