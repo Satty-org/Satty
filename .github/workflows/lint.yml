@@ -31,7 +31,7 @@ jobs:
       image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
     steps:
       - name: Install dependencies
-        run: yum install -y gtk4-devel libadwaita-devel
+        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -48,7 +48,7 @@ jobs:
       image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
     steps:
       - name: Install dependencies
-        run: yum install -y gtk4-devel libadwaita-devel
+        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-deadlinks
