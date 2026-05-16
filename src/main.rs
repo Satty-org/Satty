@@ -257,11 +257,15 @@ impl Component for App {
                     .emit(ToolsToolbarInput::SwitchSelectedTool(tool));
             }
             AppInput::ColorSwitchShortcut(index) => {
+                let palette_len = APP_CONFIG.read().color_palette().palette().len() as u64;
+                let color_button = if index < palette_len {
+                    ui::toolbars::ColorButtons::Palette(index)
+                } else {
+                    ui::toolbars::ColorButtons::Custom
+                };
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::ColorButtonSelected(
-                        ui::toolbars::ColorButtons::Palette(index),
-                    ));
+                    .emit(StyleToolbarInput::ColorButtonSelected(color_button));
             }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
