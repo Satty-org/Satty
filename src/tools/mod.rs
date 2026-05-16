@@ -1,10 +1,6 @@
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    collections::HashMap,
-    fmt::{Debug, Display},
-    rc::Rc,
-};
+use std::fmt;
+use std::str::FromStr;
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 use anyhow::Result;
 use femtovg::{Canvas, FontId, renderer::OpenGl};
@@ -189,9 +185,9 @@ pub enum Tools {
     Brush = 10,
 }
 
-impl Tools {
-    pub fn display_name(&self) -> &'static str {
-        match self {
+impl fmt::Display for Tools {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
             Tools::Pointer => "Pointer",
             Tools::Crop => "Crop",
             Tools::Brush => "Brush",
@@ -200,28 +196,35 @@ impl Tools {
             Tools::Rectangle => "Rectangle",
             Tools::Ellipse => "Ellipse",
             Tools::Text => "Text",
-            Tools::Marker => "Numbered Marker",
+            Tools::Marker => "Marker",
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
-        }
+        };
+        write!(f, "{}", name)
     }
 }
 
-// used for printing
-impl Display for Tools {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Pointer => write!(f, "pointer"),
-            Self::Crop => write!(f, "crop"),
-            Self::Line => write!(f, "line"),
-            Self::Arrow => write!(f, "arrow"),
-            Self::Rectangle => write!(f, "rectangle"),
-            Self::Ellipse => write!(f, "ellipse"),
-            Self::Text => write!(f, "text"),
-            Self::Marker => write!(f, "marker"),
-            Self::Blur => write!(f, "blur"),
-            Self::Highlight => write!(f, "highlight"),
-            Self::Brush => write!(f, "brush"),
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseCommandError;
+
+impl FromStr for Tools {
+    type Err = ParseCommandError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lower_name = s.to_lowercase();
+        match lower_name.as_str() {
+            "pointer" => Ok(Self::Pointer),
+            "crop" => Ok(Self::Crop),
+            "line" => Ok(Self::Line),
+            "arrow" => Ok(Self::Arrow),
+            "rectangle" => Ok(Self::Rectangle),
+            "ellipse" => Ok(Self::Ellipse),
+            "text" => Ok(Self::Text),
+            "marker" => Ok(Self::Marker),
+            "blur" => Ok(Self::Blur),
+            "highlight" => Ok(Self::Highlight),
+            "brush" => Ok(Self::Brush),
+            _ => Err(ParseCommandError),
         }
     }
 }
@@ -229,6 +232,7 @@ impl Display for Tools {
 pub struct ToolsManager {
     tools: HashMap<Tools, Rc<RefCell<dyn Tool>>>,
     crop_tool: Rc<RefCell<CropTool>>,
+    text_tool: Rc<RefCell<TextTool>>,
 }
 
 impl ToolsManager {
@@ -259,12 +263,18 @@ impl ToolsManager {
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
 
         let crop_tool = Rc::new(RefCell::new(CropTool::default()));
-        Self { tools, crop_tool }
+        let text_tool = Rc::new(RefCell::new(TextTool::default()));
+        Self {
+            tools,
+            crop_tool,
+            text_tool,
+        }
     }
 
     pub fn get(&self, tool: &Tools) -> Rc<RefCell<dyn Tool>> {
         match tool {
             Tools::Crop => self.crop_tool.clone(),
+            Tools::Text => self.text_tool.clone(),
             _ => self
                 .tools
                 .get(tool)
@@ -277,6 +287,10 @@ impl ToolsManager {
 
     pub fn get_crop_tool(&self) -> Rc<RefCell<CropTool>> {
         self.crop_tool.clone()
+    }
+
+    pub fn get_text_tool(&self) -> Rc<RefCell<TextTool>> {
+        self.text_tool.clone()
     }
 }
 
