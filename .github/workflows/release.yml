@@ -1,65 +1,13 @@
 name: release
 
+# Fires when release.sh publishes a GitHub Release. release.sh bundles
+# and attaches the x86_64 Linux tarball itself; this workflow adds the
+# Flatpak bundle as an extra asset on the same release.
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-
-env:
-  CARGO_TERM_COLOR: always
+  release:
+    types: [published]
 
 jobs:
-  release:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: tar.gz
-
-    runs-on: ${{ matrix.os }}
-    container:
-      image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Install dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: yum install -y gtk4-devel libadwaita-devel
-
-      - uses: actions/checkout@v3
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache Dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }} --features ci-release
-
-      - name: Pack Artifacts
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          RELEASE_NAME: tensaku-${{ matrix.target }}
-          ARTIFACTS_DIR: target/${{ matrix.target }}/release
-        run: |
-          mkdir $RELEASE_NAME
-          cp target/${{ matrix.target }}/release/tensaku -t $RELEASE_NAME
-          cp -r completions -t $RELEASE_NAME
-          cp -r man -t $RELEASE_NAME
-          cp -r README.md assets LICENSE NOTICE tensaku.desktop -t $RELEASE_NAME
-          tar -zcvf $RELEASE_NAME.${{ matrix.archive }} -C $RELEASE_NAME .
-
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: tensaku-${{ matrix.target }}.${{ matrix.archive }}
-
   flatpak:
     runs-on: ubuntu-latest
     container:
@@ -86,7 +34,8 @@ jobs:
           branch: ${{ github.ref_name }}
           cache-key: flatpak-builder-${{ github.sha }}
 
-      - name: Release Flatpak
+      - name: Attach Flatpak to the release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           files: tensaku-${{ github.ref_name }}.flatpak
