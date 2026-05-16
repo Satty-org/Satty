@@ -1,14 +1,14 @@
 [Desktop Entry]
-Name=Satty
+Name=Tensaku
 GenericName=Modern Screenshot Annotation.
-TryExec=satty
-Exec=satty -f %f
+TryExec=tensaku
+Exec=tensaku -f %f
 Terminal=false
 NoDisplay=true
 Type=Application
 Keywords=wayland;snapshot;annotation;editing;
-Icon=satty
+Icon=tensaku
 Categories=Utility;Graphics;
 StartupNotify=true
 MimeType=image/png;image/jpeg;
-StartupWMClass=com.gabm.satty
+StartupWMClass=dev.tensaku.Tensaku

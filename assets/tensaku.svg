@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <title>Tensaku</title>
+  <!-- 添削: the teacher's red correction circle (maru), drawn by hand with a slight overshoot tail. -->
+  <path
+    d="M 110,52
+       C 146,40 188,62 202,102
+       C 214,140 196,184 158,198
+       C 118,212 70,192 56,152
+       C 44,116 60,72 100,56
+       C 124,48 150,50 170,60
+       C 180,64 192,58 204,46"
+    fill="none"
+    stroke="#e3392f"
+    stroke-width="27"
+    stroke-linecap="round"
+    stroke-linejoin="round" />
+</svg>

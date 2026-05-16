@@ -1,0 +1,59 @@
+app-id: dev.tensaku.Tensaku
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: tensaku
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/tensaku/cargo
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+    RUSTFLAGS: -C link-arg=-Wl,-z,now
+finish-args:
+  # Wayland support
+  - --socket=wayland
+  - --socket=x11
+  - --device=dri
+  # File access
+  - --filesystem=home
+  - --filesystem=xdg-config/tensaku:ro
+  - --filesystem=xdg-data/tensaku:rw
+  # Clipboard access
+  - --talk-name=org.freedesktop.portal.Clipboard
+  - --talk-name=org.freedesktop.portal.Secret
+  # Screenshot/desktop integration
+  - --talk-name=org.freedesktop.portal.Screenshot
+  - --talk-name=org.freedesktop.portal.Desktop
+  # Notifications
+  - --talk-name=org.freedesktop.Notifications
+  # Share MIME types
+  - --share=ipc
+  # Allow reading from stdin
+  - --share=network
+
+modules:
+  - name: tensaku
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked --features ci-release
+      - install -Dm755 target/release/tensaku /app/bin/tensaku
+      - install -Dm644 tensaku.desktop /app/share/applications/dev.tensaku.Tensaku.desktop
+      - install -Dm644 dev.tensaku.Tensaku.metainfo.xml /app/share/metainfo/dev.tensaku.Tensaku.metainfo.xml
+      - install -Dm644 assets/tensaku.svg /app/share/icons/hicolor/scalable/apps/dev.tensaku.Tensaku.svg
+      - install -Dm644 LICENSE /app/share/licenses/dev.tensaku.Tensaku/LICENSE
+      - install -Dm644 NOTICE /app/share/licenses/dev.tensaku.Tensaku/NOTICE
+      - install -Dm644 completions/tensaku.bash /app/share/bash-completion/completions/tensaku
+      - install -Dm644 completions/tensaku.fish /app/share/fish/vendor_completions.d/tensaku.fish
+      - install -Dm644 completions/tensaku.elv /app/share/elvish/lib/tensaku.elv
+      - install -Dm644 completions/tensaku.nu /app/share/nushell/completions/tensaku.nu
+      - install -Dm644 man/tensaku.1 /app/share/man/tensaku.1
+      - sed -i 's|^Exec=tensaku|Exec=/app/bin/tensaku|' /app/share/applications/dev.tensaku.Tensaku.desktop
+      - sed -i 's|^TryExec=tensaku|TryExec=/app/bin/tensaku|' /app/share/applications/dev.tensaku.Tensaku.desktop
+      - sed -i 's|^Icon=tensaku|Icon=dev.tensaku.Tensaku|' /app/share/applications/dev.tensaku.Tensaku.desktop
+    sources:
+      - type: dir
+        path: .

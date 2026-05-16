@@ -14,9 +14,9 @@ ELVDIR:=$(PREFIX)/share/elvish/lib
 NUDIR:=$(PREFIX)/share/nushell/completions
 FIGDIR:=$(PREFIX)/share/fig/autocomplete
 
-build: target/debug/satty
+build: target/debug/tensaku
 
-build-release: target/release/satty
+build-release: target/release/tensaku
 
 force-build:
 	cargo build --features ci-release
@@ -24,72 +24,74 @@ force-build:
 force-build-release:
 	cargo build --release --features ci-release
 
-target/debug/satty: $(SOURCEFILES) Cargo.lock Cargo.toml
+target/debug/tensaku: $(SOURCEFILES) Cargo.lock Cargo.toml
 	cargo build --features ci-release
 
-target/release/satty: $(SOURCEFILES) Cargo.lock Cargo.toml
+target/release/tensaku: $(SOURCEFILES) Cargo.lock Cargo.toml
 	cargo build --release --features ci-release
 
 clean:
 	cargo clean
 
-install: target/release/satty
-	install -s -Dm755 target/release/satty -t $(BINDIR)
-	install -Dm644 satty.desktop $(PREFIX)/share/applications/satty.desktop
-	install -Dm644 assets/satty.svg $(PREFIX)/share/icons/hicolor/scalable/apps/satty.svg
-	install -Dm644 LICENSE $(PREFIX)/share/licenses/satty/LICENSE
-	install -Dm644 completions/_satty $(ZSHDIR)/_satty
-	install -Dm644 completions/satty.bash $(BASHDIR)/satty
-	install -Dm644 completions/satty.fish $(FISHDIR)/satty.fish
-	install -Dm644 completions/satty.elv $(ELVDIR)/satty.elv
-	install -Dm644 completions/satty.nu $(NUDIR)/satty.nu
-	install -Dm644 completions/satty.ts $(FIGDIR)/satty.ts
-	install -Dm644 man/satty.1 ${PREFIX}/share/man/man1
+install: target/release/tensaku
+	install -s -Dm755 target/release/tensaku -t $(BINDIR)
+	install -Dm644 tensaku.desktop $(PREFIX)/share/applications/tensaku.desktop
+	install -Dm644 assets/tensaku.svg $(PREFIX)/share/icons/hicolor/scalable/apps/tensaku.svg
+	install -Dm644 LICENSE $(PREFIX)/share/licenses/tensaku/LICENSE
+	install -Dm644 NOTICE $(PREFIX)/share/licenses/tensaku/NOTICE
+	install -Dm644 completions/_tensaku $(ZSHDIR)/_tensaku
+	install -Dm644 completions/tensaku.bash $(BASHDIR)/tensaku
+	install -Dm644 completions/tensaku.fish $(FISHDIR)/tensaku.fish
+	install -Dm644 completions/tensaku.elv $(ELVDIR)/tensaku.elv
+	install -Dm644 completions/tensaku.nu $(NUDIR)/tensaku.nu
+	install -Dm644 completions/tensaku.ts $(FIGDIR)/tensaku.ts
+	install -Dm644 man/tensaku.1 ${PREFIX}/share/man/man1
 
 uninstall:
-	rm ${BINDIR}/satty
+	rm ${BINDIR}/tensaku
 	rmdir -p ${PREFIX}/bin || true
 
-	rm ${PREFIX}/share/applications/satty.desktop
+	rm ${PREFIX}/share/applications/tensaku.desktop
 	rmdir -p ${PREFIX}/share/applications || true
 
-	rm ${PREFIX}/share/icons/hicolor/scalable/apps/satty.svg
+	rm ${PREFIX}/share/icons/hicolor/scalable/apps/tensaku.svg
 	rmdir -p ${PREFIX}/share/icons/hicolor/scalable/apps || true
 
-	rm ${PREFIX}/share/licenses/satty/LICENSE
-	rmdir -p ${PREFIX}/share/licenses/satty || true
+	rm ${PREFIX}/share/licenses/tensaku/LICENSE
+	rm ${PREFIX}/share/licenses/tensaku/NOTICE
+	rmdir -p ${PREFIX}/share/licenses/tensaku || true
 
-	rm ${PREFIX}/share/man/man1/satty.1
+	rm ${PREFIX}/share/man/man1/tensaku.1
 
-	rm $(ZSHDIR)/_satty
+	rm $(ZSHDIR)/_tensaku
 	rmdir -p $(ZSHDIR) || true
 
-	rm $(BASHDIR)/satty
+	rm $(BASHDIR)/tensaku
 	rmdir -p $(BASHDIR) || true
 
-	rm $(FISHDIR)/satty.fish
+	rm $(FISHDIR)/tensaku.fish
 	rmdir -p $(FISHDIR) || true
 
-	rm $(ELVDIR)/satty.elv
+	rm $(ELVDIR)/tensaku.elv
 	rmdir -p $(ELVDIR) || true
 
-	rm $(NUDIR)/satty.nu
+	rm $(NUDIR)/tensaku.nu
 	rmdir -p $(NUDIR) || true
 
-	rm $(FIGDIR)/satty.ts
+	rm $(FIGDIR)/tensaku.ts
 	rmdir -p $(FIGDIR) || true
 
 package: clean build-release
 	$(eval TMP := $(shell mktemp -d))
 	echo "Temporary folder ${TMP}"
-	
+
 	# install to tmp
 	PREFIX=${TMP} make install
-	
+
 	# create package
 	$(eval LATEST_TAG := $(shell git describe --tags --abbrev=0))
-	tar -czvf satty-${LATEST_TAG}-x86_64.tar.gz -C ${TMP} .
-	
+	tar -czvf tensaku-${LATEST_TAG}-x86_64.tar.gz -C ${TMP} .
+
 	# clean up
 	rm -rf $(TMP)
 
@@ -97,19 +99,17 @@ fix:
 	cargo fmt --all
 	cargo clippy --fix --allow-dirty --all-targets --all-features -- -D warnings
 
-STARTPATTERN:=» satty --help
+STARTPATTERN:=» tensaku --help
 ENDPATTERN=```
 
 # sed command adds command line help to README.md
-# within startpattern and endpattern: 
+# within startpattern and endpattern:
 #   when startpattern is found, print it and read stdin
 #   when endpattern is found, print it
 #   everything else, delete
 #
 # The double -e is needed because r command cannot be terminated with semicolon.
 # -i is tricky to use for both BSD/busybox sed AND GNU sed at the same time, so use mv instead.
-update-readme: target/release/satty
-	target/release/satty --help 2>&1 | sed -e '/${STARTPATTERN}/,/${ENDPATTERN}/{ /${STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
+update-readme: target/release/tensaku
+	target/release/tensaku --help 2>&1 | sed -e '/${STARTPATTERN}/,/${ENDPATTERN}/{ /${STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
 	mv README.md.new README.md
-
-

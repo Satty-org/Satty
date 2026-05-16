@@ -19,8 +19,8 @@
         pkgs = nixpkgs.legacyPackages.${system};
         rustPkgs = rust-overlay.packages.${system};
       in rec {
-        default = satty;
-        satty = pkgs.mkShell {
+        default = tensaku;
+        tensaku = pkgs.mkShell {
           buildInputs = with pkgs; [
             pkg-config
             libGL

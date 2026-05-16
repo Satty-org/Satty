@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.tensaku.Tensaku</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+  <name>Tensaku</name>
+  <summary>Modern Screenshot Annotation</summary>
+  <icon type="stock">dev.tensaku.Tensaku</icon>
+  <description>
+    <p>
+      Tensaku is a modern screenshot annotation tool for Linux, designed for wlroots-based compositors.
+      It provides a simple, intuitive toolset for annotating screenshots with smooth hardware-accelerated rendering.
+    </p>
+    <p>
+      Tensaku is a fork of Satty by Matthias Gabriel, used under the MPL-2.0 license.
+    </p>
+  </description>
+  <url type="homepage">https://tensaku.dev</url>
+  <url type="bugtracker">https://github.com/jondkinney/tensaku/issues</url>
+  <developer_name>Jon Kinney</developer_name>
+</component>

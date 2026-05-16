@@ -1,5 +1,5 @@
 [general]
-# Start Satty in fullscreen mode
+# Start Tensaku in fullscreen mode
 fullscreen = true
 # Exit directly after copy/save action
 early-exit = true
