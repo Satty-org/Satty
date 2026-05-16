@@ -52,6 +52,7 @@ pub enum SketchBoardOutput {
     ColorSwitchShortcut(u64),
     SizeCycleShortcut,
     FillToggled(bool),
+    ColorToggled(crate::style::Color),
     DimensionsUpdate(Option<(i32, i32)>),
 }
 
@@ -866,6 +867,12 @@ impl SketchBoard {
                 self.renderer.get_drawable_clone(sel_idx),
                 self.renderer.get_drawable_bounds(sel_idx),
             ) {
+                if let Some(color) = drawable.get_color() {
+                    self.style.color = color;
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ColorToggled(self.style.color));
+                }
                 self.style.fill = drawable.get_fill();
                 sender
                     .output_sender()

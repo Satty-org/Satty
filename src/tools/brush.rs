@@ -104,6 +104,10 @@ impl Drawable for BrushDrawable {
         self.style.color = color;
     }
 
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

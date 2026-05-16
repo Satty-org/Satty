@@ -72,6 +72,7 @@ pub enum StyleToolbarInput {
     ColorButtonSelected(ColorButtons),
     SizeButtonSelected(Size),
     CycleSize,
+    SetColor(Color),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
@@ -618,6 +619,24 @@ impl Component for StyleToolbar {
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
+            }
+            StyleToolbarInput::SetColor(color) => {
+                let palette_match = APP_CONFIG
+                    .read()
+                    .color_palette()
+                    .palette()
+                    .iter()
+                    .position(|&p| p == color)
+                    .map(|index| ColorButtons::Palette(index as u64))
+                    .unwrap_or(ColorButtons::Custom);
+
+                // Only update custom_color if this is not a palette color
+                if matches!(palette_match, ColorButtons::Custom) {
+                    self.custom_color = color;
+                    self.custom_color_pixbuf = create_icon_pixbuf(color);
+                }
+
+                self.color_action.change_state(&palette_match.to_variant());
             }
 
             StyleToolbarInput::SizeButtonSelected(size) => {

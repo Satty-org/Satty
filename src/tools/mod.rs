@@ -175,6 +175,11 @@ pub trait Drawable: DrawableClone + Debug {
     /// Updates only the drawable color when supported. No-op for unsupported drawables.
     fn set_color(&mut self, _color: crate::style::Color) {}
 
+    /// Returns the drawable color when supported.
+    fn get_color(&self) -> Option<crate::style::Color> {
+        None
+    }
+
     /// Returns whether the drawable is filled when supported. Returns false for unsupported drawables.
     fn get_fill(&self) -> bool {
         false

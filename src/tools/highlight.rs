@@ -302,6 +302,13 @@ impl Drawable for HighlightKind {
         }
     }
 
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(match self {
+            HighlightKind::Block(h) => h.style.color,
+            HighlightKind::Freehand(h) => h.style.color,
+        })
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

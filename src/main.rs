@@ -36,6 +36,7 @@ mod tools;
 mod ui;
 
 use crate::sketch_board::{SketchBoard, SketchBoardInput};
+use crate::style::Color;
 use crate::tools::Tools;
 
 pub static START_TIME: LazyLock<chrono::DateTime<chrono::Local>> =
@@ -71,6 +72,7 @@ enum AppInput {
     ColorSwitchShortcut(u64),
     SizeCycleShortcut,
     FillToggled(bool),
+    ColorToggled(Color),
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
@@ -279,6 +281,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetFill(fill_enabled));
             }
+            AppInput::ColorToggled(color) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetColor(color));
+            }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
                     .sender()
@@ -343,6 +350,7 @@ impl Component for App {
                     SketchBoardOutput::FillToggled(fill_enabled) => {
                         AppInput::FillToggled(fill_enabled)
                     }
+                    SketchBoardOutput::ColorToggled(color) => AppInput::ColorToggled(color),
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
                     }

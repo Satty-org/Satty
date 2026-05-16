@@ -173,6 +173,10 @@ impl Drawable for Arrow {
         self.style.color = color;
     }
 
+    fn get_color(&self) -> Option<crate::style::Color> {
+        Some(self.style.color)
+    }
+
     fn get_fill(&self) -> bool {
         self.style.fill
     }
