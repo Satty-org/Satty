@@ -95,7 +95,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub save_after_copy: bool,
 
-    /// Automatically copy to clipboard after every annotation change (NEXTRELEASE)
+    /// Automatically copy to clipboard after every annotation change (0.21.0)
     #[arg(long)]
     pub auto_copy: bool,
 
@@ -182,11 +182,11 @@ pub struct CommandLine {
     #[arg(long)]
     pub input_scale: Option<f32>,
 
-    /// Experimental feature (NEXTRELEASE): Set window title
+    /// Experimental feature (0.21.0): Set window title
     #[arg(long)]
     pub title: Option<String>,
 
-    /// Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it.
+    /// Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it.
     #[arg(long)]
     pub app_id: Option<String>,
 

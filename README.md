@@ -44,7 +44,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/t
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
 - <kbd>Ctrl+S</kbd>: Save to specified output file
-- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>0.21.0</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
 - <kbd>Ctrl+Y</kbd>: Redo
@@ -91,9 +91,9 @@ Default single-key shortcuts:
   - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
   - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 - Crop:
-   - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>NEXTRELEASE</sup>
-   - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>NEXTRELEASE</sup>
-   - Left click crop area when tool is active but not editing to resume editing<sup>NEXTRELEASE</sup>
+   - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>
+   - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>
+   - Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>
 
 ### Configuration File
 
@@ -110,7 +110,7 @@ fullscreen = true
 resize = { mode = "size", width=2000, height=800 }
 # try to have the window float (0.20.1). This may depend on the compositor.
 floating-hack = true
-# Change to true to automatically copy to clipboard after every annotation change (NEXTRELEASE)
+# Change to true to automatically copy to clipboard after every annotation change (0.21.0)
 auto-copy = false
 # Exit directly after copy/save action. 0.20.1: Does not apply to save as
 early-exit = true
@@ -126,7 +126,7 @@ copy-command = "wl-copy"
 annotation-size-factor = 2
 # Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 # starting with 0.20.0, can contain leading tilde (~) for home directory
-# starting with NEXTRELEASE, save as uses this as initial filename/path when available
+# starting with 0.21.0, save as uses this as initial filename/path when available
 output-filename = "/tmp/test-%Y-%m-%d_%H:%M:%S.png"
 # After copying the screenshot, save it to a file as well
 save-after-copy = false
@@ -170,9 +170,9 @@ text-move-length = 50.0
 # This may be more useful to set via the command line.
 # Note, this is ignored with explicit resize.
 input-scale = 2.0
-# experimental feature (NEXTRELEASE): set window title
+# experimental feature (0.21.0): set window title
 title = "Tensaku"
-# experimental feature (NEXTRELEASE): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
+# experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "dev.tensaku.Tensaku"
 
 
@@ -273,7 +273,7 @@ Options:
       --save-after-copy
           After copying the screenshot, save it to a file as well Preferably use the `action_on_copy` option instead
       --auto-copy
-          Automatically copy to clipboard after every annotation change (NEXTRELEASE)
+          Automatically copy to clipboard after every annotation change (0.21.0)
       --actions-on-enter <ACTIONS_ON_ENTER>
           Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
       --actions-on-escape <ACTIONS_ON_ESCAPE>
@@ -309,9 +309,9 @@ Options:
       --input-scale <INPUT_SCALE>
           Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that this is ignored with explicit resize
       --title <TITLE>
-          Experimental feature (NEXTRELEASE): Set window title
+          Experimental feature (0.21.0): Set window title
       --app-id <APP_ID>
-          Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
+          Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
@@ -324,7 +324,7 @@ Options:
 
 ### CSS
 
-Tensaku ships with [minimal builtin CSS](https://github.com/jondkinney/tensaku/tree/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/tensaku/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Tensaku uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
+Tensaku ships with [minimal builtin CSS](https://github.com/jondkinney/tensaku/tree/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/tensaku/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Tensaku uses <sup>0.21.0</sup> may lack transparency, here's an override example:
 
 ```css
 .outer_box,
