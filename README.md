@@ -86,6 +86,7 @@ Default single-key shortcuts:
 
 - Pointer: <sup>NEXTRELEASE</sup>
   - <kbd>Click</kbd> on annotation to select and raise it to top
+  - <kbd>Alt+Click</kbd> on overlapping annotations cycles selection through them without raising them
   - <kbd>Delete</kbd> to delete selected annotation
   - <kbd>Double-Click</kbd> to edit selected text annotation
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps

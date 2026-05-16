@@ -309,9 +309,10 @@ impl FemtoVgAreaMut {
         self.redo_stack.clear();
     }
 
-    /// Hit-test all drawables and return the index of the topmost one whose bounds contain `pos`.
+    /// Hit-test all drawables and return all indices whose bounds contain `pos`, in order from topmost to bottommost.
     /// A small tolerance is applied to make thin shapes (lines, arrows) easier to click.
-    pub fn hit_test(&self, pos: Vec2D) -> Option<usize> {
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
+        let mut results = Vec::new();
         const HIT_TOLERANCE: f32 = 5.0;
         for (i, d) in self.drawables.iter().enumerate().rev() {
             if let Some((tl, br)) = d.bounds()
@@ -320,10 +321,10 @@ impl FemtoVgAreaMut {
                 && pos.y >= tl.y - HIT_TOLERANCE
                 && pos.y <= br.y + HIT_TOLERANCE
             {
-                return Some(i);
+                results.push(i);
             }
         }
-        None
+        results
     }
 
     /// Returns the bounds of the drawable at `index`, if it supports bounds.
@@ -514,16 +515,23 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+        let mut active_tool_drawn_in_stack = false;
+
         // render the whole stack
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index == Some(i) {
-                continue; // skip original while a drag preview is shown
+                // Draw the active tool preview in the original z position.
+                if let Some(preview) = self.active_tool.borrow().get_drawable() {
+                    preview.draw(canvas, font, bounds)?;
+                    active_tool_drawn_in_stack = true;
+                }
+                continue;
             }
             d.draw(canvas, font, bounds)?;
         }
 
-        // render active tool
-        if let Some(d) = self.active_tool.borrow().get_drawable() {
+        // render active tool (default: on top) when not already drawn in stack order
+        if !active_tool_drawn_in_stack && let Some(d) = self.active_tool.borrow().get_drawable() {
             d.draw(canvas, font, bounds)?;
         }
 

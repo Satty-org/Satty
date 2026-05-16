@@ -170,7 +170,7 @@ impl FemtoVGArea {
         self.imp().resize(width, height);
     }
 
-    pub fn hit_test(&self, pos: Vec2D) -> Option<usize> {
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
         self.imp()
             .inner()
             .as_ref()

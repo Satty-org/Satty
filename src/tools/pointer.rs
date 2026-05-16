@@ -239,6 +239,12 @@ pub struct PointerTool {
     /// Shown as the active-tool drawable: either a moved/resized preview, or a selection overlay.
     preview: Option<Box<dyn Drawable>>,
     selection_overlay: Option<SelectionOverlay>,
+    /// For cycling through overlapping objects: last click position
+    last_click_pos: Option<Vec2D>,
+    /// For cycling through overlapping objects: all hit objects at last click position
+    hit_objects_at_pos: Vec<usize>,
+    /// For cycling through overlapping objects: current index in hit_objects list
+    current_cycle_index: usize,
 }
 
 impl Default for PointerTool {
@@ -251,6 +257,9 @@ impl Default for PointerTool {
             drag_state: DragState::None,
             preview: None,
             selection_overlay: None,
+            last_click_pos: None,
+            hit_objects_at_pos: Vec::new(),
+            current_cycle_index: 0,
         }
     }
 }
@@ -322,6 +331,43 @@ impl PointerTool {
         self.selection_overlay = None;
         self.drag_state = DragState::None;
         self.preview = None;
+        // Reset cycling state when deselecting
+        self.last_click_pos = None;
+        self.hit_objects_at_pos.clear();
+        self.current_cycle_index = 0;
+    }
+
+    /// Cycle through overlapping objects at the same position.
+    /// When Alt+Click is used, this method determines which object to select next.
+    /// Returns the next object index to cycle through, or None if no objects are at the position.
+    pub fn cycle_to_next_object(
+        &mut self,
+        click_pos: Vec2D,
+        hit_indices: Vec<usize>,
+    ) -> Option<usize> {
+        if hit_indices.is_empty() {
+            return None;
+        }
+
+        // Check if this is the same position as last click
+        if let Some(last_pos) = self.last_click_pos {
+            if (last_pos.x - click_pos.x).abs() < 0.1 && (last_pos.y - click_pos.y).abs() < 0.1 {
+                // Same position: advance to next object in cycle
+                self.current_cycle_index = (self.current_cycle_index + 1) % hit_indices.len();
+            } else {
+                // Different position: reset cycle
+                self.current_cycle_index = 0;
+            }
+        } else {
+            // First time: reset cycle
+            self.current_cycle_index = 0;
+        }
+
+        // Store position for next cycle check
+        self.last_click_pos = Some(click_pos);
+
+        // Return the object at current cycle index
+        hit_indices.get(self.current_cycle_index).copied()
     }
 }
 
