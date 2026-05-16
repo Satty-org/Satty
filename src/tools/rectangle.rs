@@ -1,9 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     configuration::APP_CONFIG,
@@ -12,7 +9,10 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
+    drag_box::{DragBox, draw_center_marker},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Rectangle {
@@ -47,12 +47,7 @@ impl Drawable for Rectangle {
         );
 
         if !self.finishing && self.centered {
-            let mut helpers = Path::new();
-            helpers.circle(self.origin.x, self.origin.y, 2.0);
-            canvas.stroke_path(
-                &helpers,
-                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255)),
-            );
+            draw_center_marker(canvas, self.origin);
         }
 
         if self.style.fill {
@@ -68,35 +63,10 @@ impl Drawable for Rectangle {
 
 impl Rectangle {
     fn calculate_shape(&mut self, event: &MouseEventMsg) {
-        self.centered = event.modifier & ModifierType::ALT_MASK == ModifierType::ALT_MASK;
-        match event.modifier & (ModifierType::ALT_MASK | ModifierType::SHIFT_MASK) {
-            v if v == ModifierType::ALT_MASK | ModifierType::SHIFT_MASK => {
-                let max_size = event.pos.x.abs().max(event.pos.y.abs());
-                self.top_left.x = self.origin.x - max_size * event.pos.x.signum() / 2.0;
-                self.top_left.y = self.origin.y - max_size * event.pos.y.signum() / 2.0;
-                self.size = Some(Vec2D {
-                    x: max_size * event.pos.x.signum(),
-                    y: max_size * event.pos.y.signum(),
-                });
-            }
-            ModifierType::ALT_MASK => {
-                self.top_left.x = self.origin.x - event.pos.x / 2.0;
-                self.top_left.y = self.origin.y - event.pos.y / 2.0;
-                self.size = Some(event.pos);
-            }
-            ModifierType::SHIFT_MASK => {
-                self.top_left = self.origin;
-                let max_size = event.pos.x.abs().max(event.pos.y.abs());
-                self.size = Some(Vec2D {
-                    x: max_size * event.pos.x.signum(),
-                    y: max_size * event.pos.y.signum(),
-                });
-            }
-            _ => {
-                self.top_left = self.origin;
-                self.size = Some(event.pos);
-            }
-        }
+        let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
+        self.centered = drag_box.centered;
+        self.top_left = drag_box.top_left;
+        self.size = Some(drag_box.size);
     }
 }
 

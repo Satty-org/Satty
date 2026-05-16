@@ -19,7 +19,10 @@ use crate::{
 
 use satty_cli::command_line;
 
-use super::{Drawable, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, Tool, ToolUpdateResult, Tools,
+    drag_box::{DragBox, draw_center_marker},
+};
 
 const HIGHLIGHT_OPACITY: f64 = 0.4;
 
@@ -41,8 +44,11 @@ impl From<command_line::Highlighters> for Highlighters {
 
 #[derive(Clone, Debug)]
 struct BlockHighlight {
+    origin: Vec2D,
     top_left: Vec2D,
     size: Option<Vec2D>,
+    centered: bool,
+    finishing: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +112,10 @@ impl Highlight for Highlighter<BlockHighlight> {
 
         let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, size);
 
+        if !self.data.finishing && self.data.centered {
+            draw_center_marker(canvas, self.data.origin);
+        }
+
         let mut shadow_path = Path::new();
         shadow_path.rounded_rect(
             pos.x,
@@ -124,6 +134,15 @@ impl Highlight for Highlighter<BlockHighlight> {
 
         canvas.fill_path(&shadow_path, &shadow_paint);
         Ok(())
+    }
+}
+
+impl BlockHighlight {
+    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
+        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
+        self.centered = drag_box.centered;
+        self.top_left = drag_box.top_left;
+        self.size = Some(drag_box.size);
     }
 }
 
@@ -192,8 +211,11 @@ impl Tool for HighlightTool {
                         self.highlighter =
                             Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
                                 data: BlockHighlight {
+                                    origin: event.pos,
                                     top_left: event.pos,
                                     size: None,
+                                    centered: false,
+                                    finishing: false,
                                 },
                                 style: self.style,
                             }))
@@ -226,17 +248,7 @@ impl Tool for HighlightTool {
                 let mut highlighter_kind = self.highlighter.as_mut().unwrap();
                 let update: ToolUpdateResult = match &mut highlighter_kind {
                     HighlightKind::Block(highlighter) => {
-                        // When shift is pressed when using the block highlighter, it transforms
-                        // the area into a perfect square (in the direction they intended).
-                        if shift_pressed {
-                            let max_size = event.pos.x.abs().max(event.pos.y.abs());
-                            highlighter.data.size = Some(Vec2D {
-                                x: max_size * event.pos.x.signum(),
-                                y: max_size * event.pos.y.signum(),
-                            });
-                        } else {
-                            highlighter.data.size = Some(event.pos);
-                        };
+                        highlighter.data.calculate_shape(event.pos, event.modifier);
                         ToolUpdateResult::Redraw
                     }
                     HighlightKind::Freehand(highlighter) => {
@@ -287,9 +299,15 @@ impl Tool for HighlightTool {
                         ToolUpdateResult::Redraw
                     }
                 };
+
                 if event.type_ == MouseEventType::UpdateDrag {
                     return update;
-                };
+                }
+
+                if let HighlightKind::Block(highlighter) = &mut *highlighter_kind {
+                    highlighter.data.finishing = true;
+                }
+
                 let result = highlighter_kind.clone_box();
                 self.highlighter = None;
                 ToolUpdateResult::Commit(result)

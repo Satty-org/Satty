@@ -3,7 +3,10 @@ use std::cell::RefCell;
 use anyhow::Result;
 use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
 
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::{
+    Sender,
+    gtk::gdk::{Key, ModifierType},
+};
 
 use crate::{
     configuration::APP_CONFIG,
@@ -12,18 +15,30 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
+    drag_box::{DragBox, draw_center_marker},
+};
 
 #[derive(Clone, Debug)]
 pub struct Blur {
+    origin: Vec2D,
     top_left: Vec2D,
     size: Option<Vec2D>,
     style: Style,
+    centered: bool,
     editing: bool,
     cached_image: RefCell<Option<ImageId>>,
 }
 
 impl Blur {
+    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
+        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
+        self.centered = drag_box.centered;
+        self.top_left = drag_box.top_left;
+        self.size = Some(drag_box.size);
+    }
+
     fn blur(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         pos: Vec2D,
@@ -80,6 +95,10 @@ impl Drawable for Blur {
             bounds,
         );
         if self.editing {
+            if self.centered {
+                draw_center_marker(canvas, self.origin);
+            }
+
             // set style
             let mut color = Color::black();
             color.set_alphaf(0.6);
@@ -178,9 +197,11 @@ impl Tool for BlurTool {
 
                 // start new
                 self.blur = Some(Blur {
+                    origin: event.pos,
                     top_left: event.pos,
                     size: None,
                     style: self.style,
+                    centered: false,
                     editing: true,
                     cached_image: RefCell::new(None),
                 });
@@ -198,7 +219,7 @@ impl Tool for BlurTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        a.size = Some(event.pos);
+                        a.calculate_shape(event.pos, event.modifier);
                         a.editing = false;
 
                         let result = a.clone_box();
@@ -219,7 +240,7 @@ impl Tool for BlurTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    a.size = Some(event.pos);
+                    a.calculate_shape(event.pos, event.modifier);
 
                     ToolUpdateResult::Redraw
                 } else {

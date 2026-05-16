@@ -85,29 +85,39 @@ Default single-key shortcuts:
 
 ### Tool Modifiers and Keys
 
-- Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
-- Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
-- Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
-- Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
-- Marker: Hold <kbd>Alt</kbd> to get extra ring. <sup>NEXTRELEASE</sup>
-- Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
-- Text:
-  - Press <kbd>Shift+Enter</kbd> to insert line break.
-  - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
-  - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
-  - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
-  - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
-  - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
-  - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
-  - <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
-  - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
-  - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
-  - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
-  - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
-- Crop:
-   - Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>
-   - Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>
-   - Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>
+Crop:
+- Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>.
+- Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
+- Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>.
+
+Arrow and line:
+- <kbd>Shift</kbd> to make tool snap to 15° steps.
+
+Rectangle, ellipse, blur <sup>NEXTRELEASE</sup> and highlight block mode<sup>NEXTRELEASE</sup>: 
+- <kbd>Alt</kbd> to center the tool around origin.
+- <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
+- Hold both to combine them.
+
+Text:
+- Press <kbd>Shift+Enter</kbd> to insert line break.
+- Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
+- Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
+- <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
+- <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
+- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
+- <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
+- <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
+- <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>
+- <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
+- <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
+- <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
+
+Marker:
+- Hold <kbd>Alt</kbd> to get extra ring. <sup>NEXTRELEASE</sup>
+
+Highlight: 
+- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
+- Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
 ### Configuration File
 

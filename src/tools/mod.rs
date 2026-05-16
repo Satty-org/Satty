@@ -32,6 +32,7 @@ mod arrow;
 mod blur;
 mod brush;
 mod crop;
+mod drag_box;
 mod ellipse;
 mod highlight;
 mod line;

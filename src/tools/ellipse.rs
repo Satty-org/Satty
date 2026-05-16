@@ -1,9 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     math::Vec2D,
@@ -11,7 +8,10 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
+    drag_box::{DragBox, draw_center_marker},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Ellipse {
@@ -39,18 +39,8 @@ impl Drawable for Ellipse {
         let mut path = Path::new();
         path.ellipse(self.middle.x, self.middle.y, radii.x, radii.y);
 
-        if !self.finishing {
-            let mut helpers = Path::new();
-            if self.centered {
-                helpers.circle(self.middle.x, self.middle.y, 2.0);
-            } else {
-                helpers.rect(self.origin.x, self.origin.y, radii.x * 2.0, radii.y * 2.0);
-            }
-            canvas.stroke_path(
-                &helpers,
-                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255))
-                    .with_line_width(2.0), //TODO: hardcoding this is no good if we use this in more places
-            );
+        if !self.finishing && self.centered {
+            draw_center_marker(canvas, self.middle);
         }
 
         if self.style.fill {
@@ -66,38 +56,10 @@ impl Drawable for Ellipse {
 
 impl Ellipse {
     fn calculate_shape(&mut self, event: &MouseEventMsg) {
-        self.centered = event.modifier & ModifierType::ALT_MASK == ModifierType::ALT_MASK;
-        match event.modifier & (ModifierType::ALT_MASK | ModifierType::SHIFT_MASK) {
-            v if v == ModifierType::ALT_MASK | ModifierType::SHIFT_MASK => {
-                self.middle = self.origin;
-                let max_size = event.pos.x.abs().max(event.pos.y.abs());
-                self.radii = Some(Vec2D {
-                    x: max_size * event.pos.x.signum(),
-                    y: max_size * event.pos.y.signum(),
-                });
-            }
-            ModifierType::ALT_MASK => {
-                self.middle = self.origin;
-                self.radii = Some(event.pos);
-            }
-            ModifierType::SHIFT_MASK => {
-                let max_size = (event.pos.x / 2.0).abs().max((event.pos.y / 2.0).abs());
-                self.radii = Some(Vec2D {
-                    x: max_size * event.pos.x.signum(),
-                    y: max_size * event.pos.y.signum(),
-                });
-                self.middle.x = self.origin.x + max_size * event.pos.x.signum();
-                self.middle.y = self.origin.y + max_size * event.pos.y.signum();
-            }
-            _ => {
-                self.radii = Some(Vec2D {
-                    x: event.pos.x / 2.0,
-                    y: event.pos.y / 2.0,
-                });
-                self.middle.x = self.origin.x + event.pos.x / 2.0;
-                self.middle.y = self.origin.y + event.pos.y / 2.0;
-            }
-        }
+        let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
+        self.centered = drag_box.centered;
+        self.middle = drag_box.middle();
+        self.radii = Some(drag_box.size * 0.5);
     }
 }
 
