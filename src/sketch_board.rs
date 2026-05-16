@@ -50,6 +50,7 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SizeCycleShortcut,
     DimensionsUpdate(Option<(i32, i32)>),
 }
 
@@ -876,6 +877,8 @@ impl SketchBoard {
                     sender.input(SketchBoardInput::new_text_event(TextEventMsg::Commit(
                         txt.to_string(),
                     )));
+                } else if txt.chars().next().is_some_and(|char| char.eq(&'-')) {
+                    sender.output(SketchBoardOutput::SizeCycleShortcut).ok();
                 } else if let Some(tool) = txt
                     .chars()
                     .next()

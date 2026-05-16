@@ -69,6 +69,7 @@ enum AppInput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SizeCycleShortcut,
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
@@ -263,6 +264,11 @@ impl Component for App {
                         ui::toolbars::ColorButtons::Palette(index),
                     ));
             }
+            AppInput::SizeCycleShortcut => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::CycleSize);
+            }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
                     .sender()
@@ -323,6 +329,7 @@ impl Component for App {
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
                     }
+                    SketchBoardOutput::SizeCycleShortcut => AppInput::SizeCycleShortcut,
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
                     }
