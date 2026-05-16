@@ -12,15 +12,15 @@ pub fn log_result(msg: &str, notify: bool) {
 
 fn show_notification(msg: &str) {
     // construct
-    let notification = Notification::new("Satty");
+    let notification = Notification::new("Tensaku");
     notification.set_body(Some(msg));
 
-    // lookup sattys icon
+    // lookup tensaku's icon
     let theme = IconTheme::default();
-    if theme.has_icon("satty")
+    if theme.has_icon("tensaku")
         && let Some(icon_file) = theme
             .lookup_icon(
-                "satty",
+                "tensaku",
                 &[],
                 96,
                 1,

@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::str::FromStr;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None, name="satty")]
+#[command(author, version, about, long_about = None, name="tensaku")]
 pub struct CommandLine {
     /// Show manpage. Pipe to man -l -.
     #[arg(long, exclusive = true)]
@@ -13,7 +13,7 @@ pub struct CommandLine {
     #[arg(long, exclusive = true)]
     pub license: bool,
 
-    /// Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
+    /// Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/tensaku/config.toml
     #[arg(short, long)]
     pub config: Option<String>,
 
@@ -38,11 +38,11 @@ pub struct CommandLine {
 
     /// Dev-only smoke test for the scrolling-screenshot capture pipeline.
     /// `FULL` captures the whole focused output; `x,y,w,h` captures a region.
-    /// The captured frame is fed into satty's normal annotation canvas.
+    /// The captured frame is fed into tensaku's normal annotation canvas.
     #[arg(long, value_name = "FULL|X,Y,W,H", value_parser = ScrollCaptureTest::from_str)]
     pub scroll_capture_test: Option<ScrollCaptureTest>,
 
-    /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
+    /// Start Tensaku in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
     /// Mileage may vary depending on compositor.
     #[arg(long, num_args = 0..=1, default_missing_value = "current-screen", value_enum)]

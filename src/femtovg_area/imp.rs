@@ -1854,12 +1854,12 @@ impl FemtoVgAreaMut {
         // render background
         self.render_background_image(canvas, onscreen)?;
 
-        // Debug overlay: when `SATTY_DEBUG_BANDS=1`, draw a faint
+        // Debug overlay: when `TENSAKU_DEBUG_BANDS=1`, draw a faint
         // colored stripe at each detected text band so we can
         // visually correlate the cursor's anchored position against
         // the heuristic's output. Temporary — strip once the
         // detector is dialed in.
-        if std::env::var("SATTY_DEBUG_BANDS").is_ok() {
+        if std::env::var("TENSAKU_DEBUG_BANDS").is_ok() {
             for b in crate::text_bands::bands() {
                 let mut path = femtovg::Path::new();
                 path.rect(0.0, b.y_start, self.background_image.width() as f32, b.height());

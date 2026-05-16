@@ -167,7 +167,7 @@ fn time_ms(start: Instant) -> u32 {
 fn make_keymap_fd() -> Result<(OwnedFd, u32)> {
     let keymap = format!("{}\0", KEYMAP_TEMPLATE);
     let size = keymap.len() as u32;
-    let fd: OwnedFd = memfd_create("satty-keymap", MemfdFlags::empty())
+    let fd: OwnedFd = memfd_create("tensaku-keymap", MemfdFlags::empty())
         .context("memfd_create for keymap failed")?
         .into();
     let mut file = std::fs::File::from(fd);

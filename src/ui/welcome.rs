@@ -82,7 +82,7 @@ impl Component for WelcomeDialog {
         gtk::Window {
             set_modal: true,
             set_resizable: false,
-            set_title: Some("Welcome to Satty"),
+            set_title: Some("Welcome to Tensaku"),
             set_default_width: 460,
 
             connect_close_request[sender, saving_for_close] => move |_| {
@@ -117,7 +117,7 @@ impl Component for WelcomeDialog {
                 gtk::Label {
                     set_wrap: true,
                     set_xalign: 0.0,
-                    set_label: "Satty sizes annotations (text, line width, arrow heads, blur radius, …) in image-space pixels, not relative to the screenshot's dimensions. To compensate for high-DPI screenshots, set a factor that matches your display scale.",
+                    set_label: "Tensaku sizes annotations (text, line width, arrow heads, blur radius, …) in image-space pixels, not relative to the screenshot's dimensions. To compensate for high-DPI screenshots, set a factor that matches your display scale.",
                 },
 
                 gtk::Label {

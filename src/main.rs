@@ -1736,9 +1736,9 @@ fn start_gui(image: Pixbuf) -> Result<()> {
         Some(id) if Application::id_is_valid(id) => Some(id),
         Some(id) => {
             eprintln!("Invalid app id: {}, using fallback", id);
-            Some("com.gabm.satty")
+            Some("dev.tensaku.Tensaku")
         }
-        None => Some("com.gabm.satty"),
+        None => Some("dev.tensaku.Tensaku"),
     };
     app.set_application_id(app_id);
     app.set_flags(ApplicationFlags::NON_UNIQUE);
@@ -1757,7 +1757,7 @@ fn main() -> Result<()> {
     // config file. this might exit, if an error occurred.
     Configuration::load();
     if APP_CONFIG.read().man() {
-        print!(include_str!(concat!(env!("OUT_DIR"), "/satty.1")));
+        print!(include_str!(concat!(env!("OUT_DIR"), "/tensaku.1")));
         exit(0);
     }
     if APP_CONFIG.read().license() {

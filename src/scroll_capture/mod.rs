@@ -248,7 +248,7 @@ pub fn run() -> Result<Option<Pixbuf>> {
     let result: Rc<RefCell<Option<Pixbuf>>> = Rc::new(RefCell::new(None));
 
     let app = gtk::Application::builder()
-        .application_id("com.gabm.satty.scroll-capture")
+        .application_id("dev.tensaku.Tensaku.scroll-capture")
         .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
@@ -291,7 +291,7 @@ fn build_overlay(app: &gtk::Application, result: &Rc<RefCell<Option<Pixbuf>>>) {
     window.init_layer_shell();
     window.set_layer(Layer::Overlay);
     window.set_keyboard_mode(KeyboardMode::Exclusive);
-    window.set_namespace(Some("satty-scroll-capture"));
+    window.set_namespace(Some("tensaku-scroll-capture"));
     for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         window.set_anchor(edge, true);
     }

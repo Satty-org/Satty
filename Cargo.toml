@@ -1,5 +1,5 @@
 [package]
-name = "satty"
+name = "tensaku"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -12,6 +12,7 @@ include = [
   "Cargo.toml",
   "Cargo.lock",
   "LICENSE*",
+  "NOTICE",
   "README.md",
   "assets/",
   "build.rs"
@@ -78,10 +79,12 @@ members = [ "cli" ]
 [workspace.package]
 version = "0.20.1"
 edition = "2024"
-authors = ["Matthias Gabriel <gabm+aur@mailbox.org>"]
+# Tensaku is a fork of Satty; Matthias Gabriel is retained as the
+# original author per the MPL-2.0 (see NOTICE).
+authors = ["Matthias Gabriel <gabm+aur@mailbox.org>", "Jon Kinney"]
 description = "Modern Screenshot Annotation."
-homepage = "https://github.com/Satty-org/Satty"
-repository = "https://github.com/Satty-org/Satty"
+homepage = "https://tensaku.dev"
+repository = "https://github.com/jondkinney/tensaku"
 license = "MPL-2.0"
 
 [workspace.dependencies]

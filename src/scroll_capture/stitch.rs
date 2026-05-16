@@ -222,7 +222,7 @@ pub fn stitch(frames: &[Pixbuf], expected_delta: usize) -> Result<Pixbuf> {
 
     // Debug aid: write the stitched output to a known path so it can be
     // examined after the satty canvas closes (lost-clipboard scenario).
-    let dbg_path = "/tmp/satty-scroll-capture-debug.png";
+    let dbg_path = "/tmp/tensaku-scroll-capture-debug.png";
     let t_save = std::time::Instant::now();
     match pixbuf.savev(dbg_path, "png", &[]) {
         Ok(()) => eprintln!(

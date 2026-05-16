@@ -1,6 +1,6 @@
 //! Per-user persistent UI state — survives across launches, separate
 //! from the read-only user config in `configuration.rs`. Lives in the
-//! XDG state dir (`~/.local/state/satty/state.toml` on Linux).
+//! XDG state dir (`~/.local/state/tensaku/state.toml` on Linux).
 
 use std::collections::HashMap;
 use std::fs;

@@ -17,7 +17,7 @@ fn main() -> Result<(), io::Error> {
         std::path::PathBuf::from(std::env::var_os("OUT_DIR").ok_or(std::io::ErrorKind::NotFound)?);
     let mut cmd = command_line::CommandLine::command();
     let cmd2 = cmd.borrow_mut();
-    let bin = "satty";
+    let bin = "tensaku";
     let completions = if cfg!(feature = "ci-release") {
         PathBuf::from("completions")
     } else {
@@ -45,7 +45,7 @@ fn main() -> Result<(), io::Error> {
 
     relm4_icons_build::bundle_icons(
         "icon_names.rs",
-        Some("com.gabm.satty"),
+        Some("dev.tensaku.Tensaku"),
         None,
         None::<&str>,
         [
