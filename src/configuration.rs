@@ -168,6 +168,7 @@ impl Keybinds {
         self.update_keybind(file_keybinds.marker, Tools::Marker);
         self.update_keybind(file_keybinds.blur, Tools::Blur);
         self.update_keybind(file_keybinds.highlight, Tools::Highlighter);
+        self.update_keybind(file_keybinds.spotlight, Tools::Spotlight);
     }
 }
 
@@ -996,6 +997,7 @@ struct KeybindsFile {
     marker: Option<String>,
     blur: Option<String>,
     highlight: Option<String>,
+    spotlight: Option<String>,
 }
 
 #[derive(Deserialize)]

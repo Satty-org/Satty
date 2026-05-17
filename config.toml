@@ -59,6 +59,7 @@ text = "t"
 marker = "c"
 blur = "b"
 highlight = "w"
+spotlight = "g"
 
 # Font to use for text annotations
 [font]
