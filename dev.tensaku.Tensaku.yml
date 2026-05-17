@@ -41,7 +41,7 @@ modules:
     build-commands:
       - cargo build --release --locked --features ci-release
       - install -Dm755 target/release/tensaku /app/bin/tensaku
-      - install -Dm644 tensaku.desktop /app/share/applications/dev.tensaku.Tensaku.desktop
+      - install -Dm644 dev.tensaku.Tensaku.desktop /app/share/applications/dev.tensaku.Tensaku.desktop
       - install -Dm644 dev.tensaku.Tensaku.metainfo.xml /app/share/metainfo/dev.tensaku.Tensaku.metainfo.xml
       - install -Dm644 assets/tensaku.svg /app/share/icons/hicolor/scalable/apps/dev.tensaku.Tensaku.svg
       - install -Dm644 LICENSE /app/share/licenses/dev.tensaku.Tensaku/LICENSE
@@ -53,7 +53,6 @@ modules:
       - install -Dm644 man/tensaku.1 /app/share/man/tensaku.1
       - sed -i 's|^Exec=tensaku|Exec=/app/bin/tensaku|' /app/share/applications/dev.tensaku.Tensaku.desktop
       - sed -i 's|^TryExec=tensaku|TryExec=/app/bin/tensaku|' /app/share/applications/dev.tensaku.Tensaku.desktop
-      - sed -i 's|^Icon=tensaku|Icon=dev.tensaku.Tensaku|' /app/share/applications/dev.tensaku.Tensaku.desktop
     sources:
       - type: dir
         path: .

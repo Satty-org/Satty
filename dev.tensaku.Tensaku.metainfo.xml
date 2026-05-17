@@ -6,6 +6,7 @@
   <name>Tensaku</name>
   <summary>Modern Screenshot Annotation</summary>
   <icon type="stock">dev.tensaku.Tensaku</icon>
+  <launchable type="desktop-id">dev.tensaku.Tensaku.desktop</launchable>
   <description>
     <p>
       Tensaku is a modern screenshot annotation tool for Linux, designed for wlroots-based compositors.
