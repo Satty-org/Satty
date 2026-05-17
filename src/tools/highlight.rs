@@ -309,6 +309,20 @@ impl Drawable for HighlightKind {
         })
     }
 
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(match self {
+            HighlightKind::Block(h) => h.style.size,
+            HighlightKind::Freehand(h) => h.style.size,
+        })
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        match self {
+            HighlightKind::Block(h) => h.style.size = size,
+            HighlightKind::Freehand(h) => h.style.size = size,
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

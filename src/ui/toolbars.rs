@@ -73,6 +73,7 @@ pub enum StyleToolbarInput {
     SizeButtonSelected(Size),
     CycleSize,
     SetColor(Color),
+    SetSize(Size),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
@@ -637,6 +638,10 @@ impl Component for StyleToolbar {
                 }
 
                 self.color_action.change_state(&palette_match.to_variant());
+            }
+            StyleToolbarInput::SetSize(size) => {
+                self.current_size = size;
+                self.size_action.change_state(&size.to_variant());
             }
 
             StyleToolbarInput::SizeButtonSelected(size) => {

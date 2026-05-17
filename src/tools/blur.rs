@@ -83,6 +83,15 @@ impl Drawable for Blur {
         *self.cached_image.borrow_mut() = None;
     }
 
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+        *self.cached_image.borrow_mut() = None;
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

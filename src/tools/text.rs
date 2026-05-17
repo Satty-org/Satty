@@ -196,6 +196,40 @@ impl Drawable for Text {
         Some(self.style.color)
     }
 
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        let old_font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+        self.style.size = size;
+
+        let new_font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+
+        if old_font_size > 0.0 {
+            let scale = new_font_size / old_font_size;
+            let old = *self.rect.borrow();
+
+            if old.width() != 0 || old.height() != 0 {
+                let dx = old.x() as f32 - self.pos.x;
+                let dy = old.y() as f32 - self.pos.y;
+
+                *self.rect.borrow_mut() = Rectangle::new(
+                    (self.pos.x + dx * scale).round() as i32,
+                    (self.pos.y + dy * scale).round() as i32,
+                    ((old.width() as f32) * scale).round().max(1.0) as i32,
+                    ((old.height() as f32) * scale).round().max(1.0) as i32,
+                );
+            }
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

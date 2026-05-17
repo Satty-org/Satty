@@ -49,6 +49,25 @@ impl Drawable for Marker {
         Some(self.style.color)
     }
 
+    fn get_size(&self) -> Option<crate::style::Size> {
+        Some(self.style.size)
+    }
+
+    fn set_size(&mut self, size: crate::style::Size) {
+        self.style.size = size;
+
+        // Keep bounds in sync before the next draw call by updating the cached radius.
+        let font_size = self
+            .style
+            .size
+            .to_text_size(self.style.annotation_size_factor) as f32;
+        let digit_count = self.number.to_string().chars().count().max(1) as f32;
+        let approx_text_width = font_size * 0.6 * digit_count;
+        let approx_radius =
+            (approx_text_width * approx_text_width + font_size * font_size).sqrt() * 0.8;
+        self.radius.set(approx_radius);
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,

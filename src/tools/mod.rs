@@ -187,6 +187,14 @@ pub trait Drawable: DrawableClone + Debug {
 
     /// Updates only the drawable fill flag when supported. No-op for unsupported drawables.
     fn set_fill(&mut self, _fill: bool) {}
+
+    /// Returns the drawable size when supported.
+    fn get_size(&self) -> Option<crate::style::Size> {
+        None
+    }
+
+    /// Updates only the drawable size when supported. No-op for unsupported drawables.
+    fn set_size(&mut self, _size: crate::style::Size) {}
 }
 
 #[derive(Debug)]
