@@ -36,6 +36,17 @@ finish-args:
   - --share=network
 
 modules:
+  # gtk4-layer-shell isn't part of the GNOME runtime; build it into /app
+  # so the `gtk4-layer-shell` crate (scroll-capture overlay) can link it.
+  - name: gtk4-layer-shell
+    buildsystem: meson
+    config-opts:
+      - -Dintrospection=false
+      - -Dvapi=false
+    sources:
+      - type: archive
+        url: https://github.com/wmww/gtk4-layer-shell/archive/refs/tags/v1.3.0.tar.gz
+        sha256: 1ebb01ab14e98afd1727f68f64981c37bd23305b1f131f5667c02b94cf593192
   - name: tensaku
     buildsystem: simple
     build-commands:
