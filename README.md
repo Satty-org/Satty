@@ -6,18 +6,56 @@ Tensaku is a screenshot annotation tool inspired by [Swappy](https://github.com/
 
 ![](assets/usage.gif)
 
-Tensaku has been created to provide the following improvements over existing screenshot annotation tools:
+Tensaku provides:
 
-- very simple and easy to understand toolset (like Swappy)
-- fullscreen annotation mode and post shot cropping (like Flameshot)
+- a simple, easy-to-understand toolset (like Swappy)
+- fullscreen annotation mode and post-shot cropping (like Flameshot)
 - extremely smooth rendering thanks to HW acceleration (OpenGL)
-- working on wlroots based compositors (Sway, Hyprland, River, ...)
-- minimal, modern looking UI, thanks to GTK and Adwaita
-- be a playground for new features (post window selection, post paint editing, ...)
+- support for wlroots-based compositors (Sway, Hyprland, River, ...)
+- a minimal, modern-looking UI, thanks to GTK and Adwaita
+
+## What Tensaku adds
+
+Tensaku extends Satty with a number of new capabilities:
+
+- **Movable annotations** — select, move, resize, multi-select, duplicate, and delete annotations *after* drawing them with the Pointer tool. The Arrow tool also gains Standard, Pointy, Curved, and Double styles.
+- **Scrolling screenshots** — capture content taller than the screen. `tensaku --scroll-capture` opens a fullscreen overlay; drag-select a region, then capture by manual or automatic scrolling, and the frames are stitched into one tall image on the annotation canvas.
+- **Layers panel** — treat annotations as layers you can reorder, lock, hide, rename, and drag-and-drop. Toggle it with <kbd>Ctrl+L</kbd>.
+- **Paste images** — <kbd>Ctrl+V</kbd> drops a clipboard image onto the canvas as a resizable layer.
+- **Spotlight tool** — dim the screenshot everywhere except the regions you highlight.
+- **Redaction-grade blur** — the Blur tool adds irreversible *Secure Blur* and *Black Out* styles alongside Gaussian and Pixelate.
+- **Zoom** — zoom the canvas with <kbd>Ctrl</kbd>+scroll or the <kbd>Ctrl</kbd>+digit shortcuts, with an on-screen zoom indicator.
+- **Reworked crop** — aspect-ratio presets, exact width/height entry, rotate and flip, a background-color matte, and pan/zoom while cropping.
+- **Reworked color picker** — a swatch grid with drag-to-reorder custom colors that persist across launches.
+- **Preferences dialog** — open with <kbd>Ctrl+,</kbd> to rebind tool shortcuts and toggle behaviors; choices persist to a state file kept separate from `config.toml`.
 
 ## Install
 
-Tensaku is currently distributed as source — there are no distribution packages yet. Build it with:
+### Arch Linux (AUR)
+
+Tensaku is published on the [AUR](https://aur.archlinux.org/packages/tensaku):
+
+```sh
+yay -S tensaku   # or: paru -S tensaku
+```
+
+### cargo
+
+```sh
+cargo install tensaku
+```
+
+This builds from source, so it needs a Rust toolchain and the GTK-4 / Adwaita native dependencies — see [Dependencies](#dependencies).
+
+### Pre-built binary and Flatpak
+
+Each [GitHub release](https://github.com/jondkinney/tensaku/releases) attaches an x86-64 Linux tarball and a Flatpak bundle:
+
+```sh
+flatpak install tensaku-<version>.flatpak
+```
+
+### From source
 
 ```sh
 git clone https://github.com/jondkinney/tensaku.git
@@ -26,15 +64,17 @@ make build-release              # binary at ./target/release/tensaku
 PREFIX=/usr/local make install  # optional: install system-wide
 ```
 
-This needs a Rust toolchain and the GTK-4 / Adwaita native dependencies — see [Dependencies](#dependencies) and [Build from source](#build-from-source) below for the full list and for uninstall instructions.
-
-Prebuilt x86-64 binaries and a Flatpak bundle will be attached to each [GitHub release](https://github.com/jondkinney/tensaku/releases) once the project starts publishing them.
+See [Dependencies](#dependencies) and [Build from source](#build-from-source) for the full dependency list and uninstall instructions.
 
 ## Usage
 
-Start by providing a filename or a screenshot via stdin and annotate using the available tools. Save to clipboard or file when finished. Tools and Interface have been kept simple.
+Start by providing a filename or a screenshot via stdin (or use `--scroll-capture`, below) and annotate using the available tools. Save to clipboard or file when finished. Tools and interface have been kept simple.
 
-All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/tensaku/config.toml` or via the command line interface. In case both are specified, the command line options always override the configuration file.
+Tensaku reads its settings from three places:
+
+- **`config.toml`** — a config file you edit by hand, at `~/.config/tensaku/config.toml` (see [Configuration File](#configuration-file)). Tensaku never writes to it.
+- **Command-line flags** — override `config.toml` for a single run (see [Command Line](#command-line)).
+- **The Preferences dialog** — in-app settings and tool-shortcut edits (see [Preferences Dialog](#preferences-dialog)). These persist to a *separate* state file (`~/.local/state/tensaku/state.toml`) and are applied on top of `config.toml` — so a shortcut or toggle you change in Preferences wins over `config.toml`, and `config.toml` itself is left untouched.
 
 ### Shortcuts
 
@@ -47,8 +87,14 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/t
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>0.21.0</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
+- <kbd>Ctrl+L</kbd>: Toggle the layers panel (configurable — see `layer-panel-shortcut`)
+- <kbd>Ctrl+,</kbd>: Open Preferences
 - <kbd>Ctrl+Y</kbd>: Redo
 - <kbd>Ctrl+Z</kbd>: Undo
+- <kbd>Ctrl+D</kbd>: Delete the selected annotation(s) — same as <kbd>Delete</kbd>, but reachable with the left hand
+- <kbd>Alt+D</kbd>: Duplicate the selected annotation(s)
+- <kbd>Ctrl</kbd>+scroll, or <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>: Zoom the canvas in/out
+- <kbd>Ctrl+0</kbd>: Reset zoom to 100%; <kbd>Ctrl+1</kbd>: fit to window; <kbd>Ctrl+2</kbd>–<kbd>5</kbd>: zoom to 200–500%; <kbd>Ctrl+9</kbd>: zoom to 50%
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
 #### Color Selection Shortcuts <sup>0.20.1</sup>
@@ -70,8 +116,13 @@ Default single-key shortcuts:
 - <kbd>w</kbd>: Highlighter tool
 - <kbd>g</kbd>: Spotlight tool
 
+These defaults all sit on the **left half of a QWERTY keyboard** by design — you can switch tools one-handed while your right hand stays on the mouse. That makes Tensaku comfortable to drive on split keyboards and for left-hand-only use, and it's why the duplicate / delete chords are <kbd>Alt+D</kbd> / <kbd>Ctrl+D</kbd> rather than keys on the far side of the board.
+
+Shortcuts can be rebound either in the `[keybinds]` section of `config.toml` (see below) or, more conveniently, in the [Preferences dialog](#preferences-dialog) (<kbd>Ctrl+,</kbd>). Each binding is a single character.
+
 ### Tool Modifiers and Keys
 
+- Pointer: Click an annotation to select it, drag to move it, and drag a handle to resize it (hold <kbd>Shift</kbd> while dragging a handle to scale from the center). Multiple annotations can be selected and moved together; arrow keys nudge the selection.
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
 - Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
@@ -159,6 +210,8 @@ right-click-copy = false
 no-window-decoration = true
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
+# experimental feature: Chaikin post-stroke smoothing passes for the brush (default 2)
+brush-post-smooth-iterations = 2
 # experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
 pan-step-size = 50.0
 # experimental feature (0.20.1): The zoom factor to use for the image.
@@ -174,21 +227,27 @@ input-scale = 2.0
 title = "Tensaku"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "dev.tensaku.Tensaku"
+# Chord that toggles the layers panel (default "ctrl+l"). Optional ctrl/alt/
+# shift modifiers plus a single key, joined with "+".
+layer-panel-shortcut = "ctrl+l"
 
 
-# Tool selection keyboard shortcuts (since 0.20.0)
+# Tool selection keyboard shortcuts. The values below are the defaults;
+# each must be a single character. Shortcuts changed in the Preferences
+# dialog are saved to state.toml and take precedence over this section.
 [keybinds]
-pointer = "p"
-crop = "c"
-brush = "b"
-line = "i"
-arrow = "z"
+pointer = "v"
+crop = "x"
+brush = "z"
+line = "s"
+arrow = "a"
 rectangle = "r"
 ellipse = "e"
 text = "t"
-marker = "m"
-blur = "u"
-highlight = "g"
+marker = "c"
+blur = "b"
+highlight = "w"
+spotlight = "g"
 
 # Font to use for text annotations
 [font]
@@ -233,13 +292,22 @@ custom = [
 ]
 ```
 
+### Preferences Dialog
+
+Open the Preferences dialog with <kbd>Ctrl+,</kbd> or the gear button in the top toolbar. It has two parts:
+
+- **Keyboard Shortcuts** — a recorder row for every tool, Spotlight included. Click a row, press a key, then <kbd>Save</kbd> to commit (or <kbd>Cancel</kbd> to discard).
+- **Behavior** — settings that apply immediately: the annotation size factor, invert scrolling direction, close window on Esc, hide the default palette colors, and keep in-session tool adjustments across tool switches.
+
+Everything set here is written to `~/.local/state/tensaku/state.toml` — **not** to `config.toml`. State is applied on top of `config.toml`, so a value changed in Preferences overrides the same setting in `config.toml`, and `config.toml` itself is never modified. Tensaku also records other remembered state in this file: the last-used color, saved custom colors, per-tool "save as default" sizes and fill states, and the last arrow / blur / highlighter style.
+
 ### Command Line
 
 ```
 » tensaku --help
 Modern Screenshot Annotation.
 
-Usage: tensaku [OPTIONS] --filename <FILENAME>
+Usage: tensaku [OPTIONS]
 
 Options:
       --man
@@ -250,6 +318,12 @@ Options:
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/tensaku/config.toml
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
+      --auto-scroll-test
+          Dev-only smoke test for the xdg-desktop-portal RemoteDesktop / libei handshake used by Auto-Scroll. Opens a portal session, requests pointer capability, reads back the EIS file descriptor, and exits
+      --scroll-capture
+          Enter scrolling-screenshot capture mode: opens a fullscreen overlay, drag to select a region, then capture by manual scroll or auto-scroll
+      --scroll-capture-test <FULL|X,Y,W,H>
+          Dev-only smoke test for the scrolling-screenshot capture pipeline. `FULL` captures the whole focused output; `x,y,w,h` captures a region. The captured frame is fed into tensaku's normal annotation canvas
       --fullscreen [<FULLSCREEN>]
           Start Tensaku in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
       --resize [<MODE|WIDTHxHEIGHT>]
@@ -300,6 +374,8 @@ Options:
           Disable the window decoration (title bar, borders, etc.) Please note that the compositor has the final say in this. Requires xdg-decoration-unstable-v1
       --brush-smooth-history-size <BRUSH_SMOOTH_HISTORY_SIZE>
           Experimental feature: How many points to use for the brush smoothing algorithm. 0 disables smoothing. The default value is 0 (disabled)
+      --brush-post-smooth-iterations <BRUSH_POST_SMOOTH_ITERATIONS>
+          How many Chaikin corner-cutting passes to run over a brush stroke once the user releases (post-stroke smoothing). 0 disables. Defaults to 2
       --zoom-factor <ZOOM_FACTOR>
           Experimental feature (0.20.1): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
       --pan-step-size <PAN_STEP_SIZE>
@@ -386,51 +462,6 @@ mode $printscreen_mode {
 bindsym $mod+Shift+p mode $printscreen_mode
 ```
 
-## Hyprland integration: Super+scroll zoom
-
-Tensaku uses **Super + scroll** on its canvas to zoom in and out. On
-Hyprland (especially with Omarchy's defaults) the compositor binds
-that same gesture to workspace switching — and compositor binds fire
-*before* GTK sees the event, so Tensaku's scroll handler never runs
-unless we explicitly opt out while Tensaku is focused.
-
-**Nothing to configure.** Tensaku handles this automatically: at
-startup it snapshots your current `SUPER, mouse_up` and `SUPER,
-mouse_down` binds via `hyprctl binds -j`. On focus-in it issues
-`hyprctl keyword unbind` for those two keys so Super+wheel falls
-through to GTK. On focus-out / window-close / destroy it re-issues
-`hyprctl keyword bind` from the snapshot to restore workspace
-switching. Your `hyprland.conf` is never touched — it's a runtime
-overlay that disappears the moment Tensaku exits.
-
-Everything else stays alive while Tensaku is focused:
-Super+left-click to move the window, Super+right-click to resize,
-launchers, app-switching, every other Super-modified bind in your
-config. We only suspend the two wheel binds we directly conflict
-with.
-
-If you'd previously added a `submap = tensaku` block to your Hyprland
-config for an older version, you can delete it — it's no
-longer used and just sits in the config as dead text. Run
-`hyprctl reload` after editing.
-
-### Recovery if Tensaku hard-crashes mid-focus
-
-Normal exits (focus-loss, window close, GTK destroy) all restore
-the binds via Tensaku's GTK focus / destroy hooks, called
-synchronously so the dispatch can't race the process exit. SIGKILL
-or a hard crash can still leave the two wheel binds suspended —
-workspace-switching with Super+wheel will appear dead globally
-until you run `hyprctl reload` from any terminal (which re-parses
-your `hyprland.conf` and re-installs everything).
-
-### On non-Hyprland compositors
-
-The integration is Hyprland-specific. Tensaku's focus handler still
-shells out to `hyprctl`, but the calls fail silently on Sway / KDE
-/ GNOME / etc. — other compositors don't typically grab Super+scroll
-for workspace switching, so the override isn't needed there.
-
 ## Hyprland integration: floating-window size rule
 
 Tensaku sizes its own window around the captured image at startup, on
@@ -487,9 +518,9 @@ PREFIX=/usr/local make install
 PREFIX=/usr/local make uninstall
 ```
 
-### Flatpak <sup>0.20.1</sup>
+### Flatpak
 
-Tensaku can be built as a Flatpak bundle. Once published, pre-built bundles will be attached to each release and can be downloaded from the [GitHub Releases](https://github.com/jondkinney/tensaku/releases) page.
+Tensaku can be built as a Flatpak bundle, and a pre-built bundle is attached to each [GitHub release](https://github.com/jondkinney/tensaku/releases).
 
 #### Installing from Flatpak bundle
 
