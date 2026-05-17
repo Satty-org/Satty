@@ -1652,7 +1652,7 @@ impl FemtoVgAreaMut {
             // scale only as last resort" cascade. Main.rs resizes the
             // window to fit (cropped + padding) on commit so the
             // canvas usually has enough room for the 1:1 path.
-            // `crop_zoom` still multiplies on top so Super+scroll
+            // `crop_zoom` still multiplies on top so Ctrl+scroll
             // zooms further once cropped.
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
             let inner_w = (canvas_w - 2.0 * pad).max(canvas_w * 0.5).max(1.0);
