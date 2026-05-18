@@ -1457,18 +1457,6 @@ impl SketchBoard {
         }
     }
 
-    fn handle_resize(&mut self) -> ToolUpdateResult {
-        self.renderer.reset_size(0.);
-        self.renderer.request_render(&[]);
-        ToolUpdateResult::Unmodified
-    }
-
-    fn handle_original_scale(&mut self) -> ToolUpdateResult {
-        self.renderer.reset_size(1.);
-        self.renderer.request_render(&[]);
-        ToolUpdateResult::Unmodified
-    }
-
     /// Apply a zoom command from the zoom-indicator dropdown. Each path
     /// triggers a render whose `update_transformation` then pushes a
     /// `ZoomDisplayChanged` back up to keep the indicator in sync.
@@ -2087,8 +2075,6 @@ impl SketchBoard {
                 })
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
-            ToolbarEvent::Resize => self.handle_resize(),
-            ToolbarEvent::OriginalScale => self.handle_original_scale(),
             ToolbarEvent::OpenPreferences => {
                 sender
                     .output_sender()

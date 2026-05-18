@@ -352,11 +352,11 @@ pub struct ToolsToolbar {
     normal_end_host: Option<gtk::Box>,
     /// Second row sitting below the main CenterBox in the
     /// toolbar's vertical wrapper. In Wrap layout it hosts
-    /// `left_cluster` in its start slot and `right_cluster` in
-    /// its end slot; hidden otherwise. CenterBox is the right
-    /// shape here because we want flush-left / flush-right
-    /// pinning without an explicit spacer.
-    top_wrap_row: Option<gtk::CenterBox>,
+    /// `left_cluster` followed by `right_cluster` as one centered
+    /// group; hidden otherwise. A centered horizontal Box (not a
+    /// CenterBox) so the two clusters sit together under the
+    /// centered tool row rather than splitting flush to the edges.
+    top_wrap_row: Option<gtk::Box>,
     /// The Box wrapping the left cluster (1:1 / fit / reset /
     /// undo / redo). Captured in init so `SetLayout` can move it
     /// between its Normal home (`start_widget_box`) and its
@@ -1979,8 +1979,6 @@ pub enum ToolbarEvent {
     ToggleFill,
     Reset,
     SaveFileAs,
-    Resize,
-    OriginalScale,
     /// User clicked the gear button (or pressed Ctrl+,). Opens the
     /// preferences dialog where shortcut keys can be edited.
     OpenPreferences,
@@ -2813,22 +2811,14 @@ impl Component for ToolsToolbar {
                     #[watch]
                     set_visible: model.current_tool != Tools::Crop,
 
-                    gtk::Button {
-                        set_focusable: false,
-                        set_hexpand: false,
-
-                        set_icon_name: "resize-large-regular",
-                        install_tooltip: "1:1",
-                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
-                    },
-                    gtk::Button {
-                        set_focusable: false,
-                        set_hexpand: false,
-
-                        set_icon_name: "page-fit-regular",
-                        install_tooltip: "Fit to window",
-                        connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
-                    },
+                    // 1:1 and Fit-to-window buttons used to sit here;
+                    // both are reachable from the zoom control's
+                    // popover (100% / Fit Canvas), so they were dropped
+                    // to keep the left cluster about the same width as
+                    // the right one — GtkCenterBox reserves symmetric
+                    // side space, so balanced clusters are what let the
+                    // tool row wrap right at its packed width instead
+                    // of ~70 px early.
                     gtk::Button {
                         set_focusable: false,
                         set_hexpand: false,
@@ -2892,10 +2882,25 @@ impl Component for ToolsToolbar {
                 // Normal center cluster — the 12 tool toggle buttons.
                 // Hidden in Crop mode so the crop-options cluster
                 // (next sibling below) takes over the center slot.
+                // FlowBox (not a plain Box) so the 12 tool buttons can
+                // wrap onto a second row when the window is too narrow
+                // for all of them. That collapses the cluster's minimum
+                // width to ~6 buttons, which is what lets the whole
+                // window shrink past the single-row toolbar width —
+                // a plain Box would pin the window minimum at the full
+                // 12-button width. `min_children_per_line: 6` caps the
+                // wrap at two rows (12 buttons ÷ 6 = 2); `max: 12` keeps
+                // every tool on one row while there's room.
                 #[name(normal_center_box)]
-                gtk::Box {
+                gtk::FlowBox {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 2,
+                set_selection_mode: gtk::SelectionMode::None,
+                set_homogeneous: true,
+                set_min_children_per_line: 6,
+                set_max_children_per_line: 12,
+                set_row_spacing: 2,
+                set_column_spacing: 2,
+                set_can_focus: false,
                 #[watch]
                 set_visible: model.current_tool != Tools::Crop,
 
@@ -3369,19 +3374,18 @@ impl Component for ToolsToolbar {
             },
             },
 
-            // Second-row container for Wrap layout. Empty in
-            // Normal and Narrow layouts; when the `SetLayout(Wrap)`
-            // handler fires it receives `left_cluster` in its
-            // start slot and `right_cluster` in its end slot,
-            // pinning them flush-left / flush-right via the
-            // CenterBox's native start/end behavior — no spacer
-            // widget needed. `set_visible` is toggled imperatively
-            // alongside the re-parenting so the row only takes
-            // vertical space when there's content in it.
+            // Second-row container for Wrap layout. Empty in Normal
+            // layout; when the `SetLayout(Wrap)` handler fires it
+            // receives `left_cluster` then `right_cluster` appended
+            // in order. A centered horizontal Box so the two clusters
+            // sit together as one group under the centered tool row
+            // — both rows read as centered. `set_visible` is watched
+            // so the row only takes vertical space in Wrap.
             #[name(top_wrap_row)]
-            gtk::CenterBox {
-                set_halign: gtk::Align::Fill,
-                set_hexpand: true,
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_halign: gtk::Align::Center,
+                set_spacing: 6,
                 #[watch]
                 set_visible: matches!(model.layout, TopBarLayout::Wrap),
             },
@@ -3889,8 +3893,8 @@ impl Component for ToolsToolbar {
                 };
                 match target {
                     TopBarLayout::Normal => {
-                        wrap_row.set_start_widget(None::<&gtk::Widget>);
-                        wrap_row.set_end_widget(None::<&gtk::Widget>);
+                        wrap_row.remove(left);
+                        wrap_row.remove(right);
                         start_box.prepend(left);
                         // Prepend the right cluster so it sits
                         // ahead of the crop-mode end cluster
@@ -3902,8 +3906,10 @@ impl Component for ToolsToolbar {
                     TopBarLayout::Wrap => {
                         start_box.remove(left);
                         end_host.remove(right);
-                        wrap_row.set_start_widget(Some(left));
-                        wrap_row.set_end_widget(Some(right));
+                        // Append left then right so they read
+                        // left-to-right inside the centered group.
+                        wrap_row.append(left);
+                        wrap_row.append(right);
                     }
                 }
                 self.layout = target;

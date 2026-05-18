@@ -156,6 +156,13 @@ struct App {
     /// breakpoint without round-tripping through the toolbar
     /// Controller every frame width moves.
     tools_toolbar_layout: ui::toolbars::TopBarLayout,
+    /// Cached natural width (CSS px) of the top toolbar in its
+    /// single-row layout — the width it wants to lay `[left | tools |
+    /// right]` out on one line. Refreshed every frame the bar is on a
+    /// single row; `None` until the first such measurement. This width
+    /// is the wrap breakpoint: once the window is narrower, left and
+    /// right drop to a row below (and the tool FlowBox itself wraps).
+    toolbar_single_row_min_width: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -295,6 +302,25 @@ enum AppInput {
 enum AppCommandOutput {
     ResetResizable,
 }
+
+/// Hysteresis margin (CSS px) added on top of the top bar's measured
+/// single-row width before a wrapped bar springs back to one row.
+/// The wrap-*down* point is the measured width itself (icons just
+/// touching); this gap only delays the wrap-*up* so a drag-resize
+/// hovering at the boundary doesn't flicker between layouts.
+const TOP_BAR_WRAP_HYSTERESIS: i32 = 60;
+
+/// Slack (CSS px) added to the measured single-row width when
+/// flooring the *initial* window size, so compositor rounding around
+/// the launch configure can't open the window a hair too narrow and
+/// wrap the bar on the first frame.
+const TOP_BAR_LAUNCH_SLACK: i32 = 16;
+
+/// Fallback for the top bar's single-row width, used only when the
+/// live measurement (`measure_toolbar_single_row`) can't be taken.
+/// Generously above the measured value (~870 px on a standard theme)
+/// so even a fallback launch still opens on a single row.
+const TOP_BAR_SINGLE_ROW_FALLBACK_WIDTH: i32 = 900;
 
 impl App {
     /// Inline "Hold Alt to disable snapping." hint visibility. It
@@ -460,6 +486,30 @@ impl App {
         (final_w as i32, final_h as i32)
     }
 
+    /// Width (CSS px) the top toolbar needs for its single-row
+    /// layout — its natural width. Below this, the main `GtkCenterBox`
+    /// squeezes the centered tool `FlowBox` and it wraps in place, so
+    /// this is the width at which to switch to the proper two-row
+    /// layout instead.
+    ///
+    /// `GtkCenterBox`'s natural width reserves symmetric side padding
+    /// (`2×max(start,end)+center`) to keep the tools dead-centered.
+    /// That's only the true packed width when the left and right
+    /// clusters are about equal — which the toolbar deliberately
+    /// keeps them (see the trimmed left cluster in `toolbars.rs`); if
+    /// they diverged, this would read wider than the real wrap point.
+    ///
+    /// Callers must only consult this in Normal layout: in Wrap the
+    /// side clusters are re-parented onto a second row, so the bar no
+    /// longer measures its one-row width.
+    fn measure_toolbar_single_row(&self) -> Option<i32> {
+        let (_, natural, _, _) = self
+            .tools_toolbar
+            .widget()
+            .measure(gtk::Orientation::Horizontal, -1);
+        (natural > 0).then_some(natural)
+    }
+
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
         let fullscreen = APP_CONFIG.read().fullscreen();
         let resize = APP_CONFIG.read().resize();
@@ -517,14 +567,27 @@ impl App {
         let padded_image_w = image_width + 2.0 * IMAGE_PAD_CSS;
         let padded_image_h = image_height + 2.0 * IMAGE_PAD_CSS + TOOLBAR_CHROME_CSS;
 
+        // Width floor so the top toolbar opens on a single row no
+        // matter how narrow the image is. Measured live — the toolbar
+        // is realized by the time `connect_show` fires this — so it
+        // tracks the real one-row width instead of a guessed constant;
+        // a fixed fallback covers the case where the measure fails.
+        // Only the *initial* size is floored; `pin_size` drops the
+        // size request after 50 ms, so a manual drag or a tiling WM
+        // can still take the window narrower and let the bar wrap.
+        let single_row_floor = self
+            .measure_toolbar_single_row()
+            .map(|w| w + TOP_BAR_LAUNCH_SLACK)
+            .unwrap_or(TOP_BAR_SINGLE_ROW_FALLBACK_WIDTH) as f64;
+
         let size_with_screen_cap = |max_w: f64, max_h: f64| -> (f64, f64) {
             // If padded image fits within caps, use it as-is so the
             // image renders at 1:1 with full padding. Otherwise clamp
             // to the cap on whichever axis is constrained — the
             // renderer will drop padding on that axis and scale the
             // image down to fit.
-            let final_w = padded_image_w.min(max_w);
             let final_h = padded_image_h.min(max_h);
+            let final_w = padded_image_w.min(max_w).max(single_row_floor);
             (final_w, final_h)
         };
 
@@ -543,6 +606,10 @@ impl App {
             root.set_default_size(w, h);
             root.set_size_request(w, h);
             let root_clone = root.clone();
+            // Release the forced size so the user can resize freely.
+            // The vertical floor (image can't shrink below 10 % zoom)
+            // is enforced by the canvas widget's own minimum height,
+            // not here — see `FemtoVGArea`'s `measure` override.
             gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
                 root_clone.set_size_request(-1, -1);
             });
@@ -573,7 +640,12 @@ impl App {
                     let (w, h) = size_with_screen_cap(max_w, max_h);
                     pin_size(w as i32, h as i32);
                 } else {
-                    pin_size(padded_image_w as i32, padded_image_h as i32);
+                    // No monitor info — still floor the width so the
+                    // top bar opens single-row (see `size_with_screen_cap`).
+                    pin_size(
+                        padded_image_w.max(single_row_floor) as i32,
+                        padded_image_h as i32,
+                    );
                 }
             }
         }
@@ -749,27 +821,32 @@ impl Component for App {
             }
             AppInput::WindowWidthChanged(width) => {
                 use ui::toolbars::TopBarLayout;
-                // Two-state hysteresis. Below `WRAP_ENTER` the top
-                // toolbar collapses to two rows (left + right
-                // clusters drop below the 12-tool row); above
-                // `WRAP_LEAVE` it returns to the single-row
-                // three-section layout. The 60 px gap between
-                // enter / leave keeps a wiggle near the boundary
-                // from oscillating. Numbers come from the measured
-                // natural-min of the three-section bar (~780 px) —
-                // tune if the toolbar contents change.
-                const WRAP_ENTER: i32 = 820;
-                const WRAP_LEAVE: i32 = 880;
+                // Wrap the top bar exactly when a single row no longer
+                // fits — the width where the controls' hit boxes just
+                // touch (see `measure_toolbar_single_row`). Re-measure
+                // every Normal frame; in Wrap layout the bar can't be
+                // measured for this, so the last value stays cached.
+                if self.tools_toolbar_layout == TopBarLayout::Normal
+                    && let Some(single_row) = self.measure_toolbar_single_row()
+                {
+                    self.toolbar_single_row_min_width = Some(single_row);
+                }
+                let wrap_at = self
+                    .toolbar_single_row_min_width
+                    .unwrap_or(TOP_BAR_SINGLE_ROW_FALLBACK_WIDTH);
+                // Two-state hysteresis: drop to two rows the moment
+                // the window is narrower than that width; spring
+                // back only once it clears that width plus a margin.
                 let target = match self.tools_toolbar_layout {
                     TopBarLayout::Normal => {
-                        if width < WRAP_ENTER {
+                        if width < wrap_at {
                             TopBarLayout::Wrap
                         } else {
                             TopBarLayout::Normal
                         }
                     }
                     TopBarLayout::Wrap => {
-                        if width >= WRAP_LEAVE {
+                        if width >= wrap_at + TOP_BAR_WRAP_HYSTERESIS {
                             TopBarLayout::Normal
                         } else {
                             TopBarLayout::Wrap
@@ -1501,6 +1578,7 @@ impl Component for App {
             cycle_toast_revealer,
             cycle_toast_timer,
             tools_toolbar_layout: ui::toolbars::TopBarLayout::Normal,
+            toolbar_single_row_min_width: None,
         };
 
         // Apply the initial tool's snap-control visibility — these
