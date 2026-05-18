@@ -123,7 +123,7 @@ Shortcuts can be rebound either in the `[keybinds]` section of `config.toml` (se
 
 ### Tool Modifiers and Keys
 
-- Pointer: Click an annotation to select it, drag to move it, and drag a handle to resize it (hold <kbd>Shift</kbd> while dragging a handle to scale from the center). Multiple annotations can be selected and moved together; arrow keys nudge the selection.
+- Pointer: Click an annotation to select it, drag to move it, and drag a handle to resize it (hold <kbd>Shift</kbd> on a corner handle to keep the aspect ratio, or on a side handle to resize symmetrically about the center). Multiple annotations can be selected and moved together; <kbd>Ctrl+A</kbd> selects all and arrow keys nudge the selection.
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
 - Highlight: Hold <kbd>Shift</kbd> to snap segments to 15° steps. The Highlighter has two styles — freehand, and a "smart" mode that snaps to lines of text — switched from the toolbar's style menu or by double-tapping <kbd>w</kbd>.
