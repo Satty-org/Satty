@@ -22,7 +22,7 @@ default-hide-toolbars = false
 focus-toggles-toolbars = false
 # Fill shapes by default
 default-fill-shapes = false
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
+# The primary highlighter style [possible values: block, freehand]
 primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false

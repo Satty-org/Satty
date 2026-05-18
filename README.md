@@ -126,7 +126,7 @@ Shortcuts can be rebound either in the `[keybinds]` section of `config.toml` (se
 - Pointer: Click an annotation to select it, drag to move it, and drag a handle to resize it (hold <kbd>Shift</kbd> while dragging a handle to scale from the center). Multiple annotations can be selected and moved together; arrow keys nudge the selection.
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
-- Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
+- Highlight: Hold <kbd>Shift</kbd> to snap segments to 15° steps. The Highlighter has two styles — freehand, and a "smart" mode that snaps to lines of text — switched from the toolbar's style menu or by double-tapping <kbd>w</kbd>.
 - Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
 - Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
 - Text:
@@ -188,7 +188,7 @@ default-hide-toolbars = false
 focus-toggles-toolbars = false
 # Fill shapes by default (since 0.20.0)
 default-fill-shapes = false
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
+# The primary highlighter style [possible values: block, freehand]
 primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false
