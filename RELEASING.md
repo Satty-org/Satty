@@ -6,12 +6,13 @@ need this — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 A release goes out over four channels:
 
-1. **GitHub Release** — source tarball, scripted.
+1. **GitHub Release** — source tarball, by `release.sh`.
 2. **Flatpak bundle** — attached to the release automatically by CI.
-3. **crates.io** — `tensaku` + `tensaku_cli`, published manually.
-4. **AUR** — the `tensaku` package, updated manually in a separate repo.
+3. **crates.io** — `tensaku` + `tensaku_cli`, the one manual step.
+4. **AUR** — the `tensaku` package, updated by `release.sh` (separate repo).
 
-Steps 1–2 are one command. Steps 3–4 are short manual follow-ups.
+`release.sh` handles 1 and 4, CI handles 2 — so the only manual
+follow-up is crates.io (3).
 
 Before you start
 --
@@ -42,6 +43,8 @@ The script does everything for the GitHub release:
 - Builds the release tarball (`make package`).
 - Publishes the GitHub Release with auto-generated notes and the
   tarball attached.
+- Updates the AUR package (see step 4), then prints the crates.io
+  publish command as a reminder (step 3).
 
 If the script aborts on a precondition, fix the issue and re-run — it is
 safe to re-run as long as the tag does not yet exist.
@@ -54,11 +57,13 @@ which builds the Flatpak bundle from `dev.tensaku.Tensaku.yml` and
 attaches `tensaku-vX.Y.Z.flatpak` to the same release. No action needed —
 just check the workflow run succeeded.
 
-3. crates.io
+3. crates.io — the one manual step
 --
 
-Not handled by `release.sh`. The workspace has two crates and `tensaku`
-depends on `tensaku_cli`, so **publish the CLI crate first**:
+`release.sh` prints a reminder but does **not** publish to crates.io —
+it's deliberately the only manual channel, because crates.io publishes
+are permanent (yank-only, no delete). The workspace has two crates and
+`tensaku` depends on `tensaku_cli`, so **publish the CLI crate first**:
 
 ```sh
 cargo publish -p tensaku_cli
@@ -68,36 +73,34 @@ cargo publish -p tensaku
 Both carry the workspace version, so they are already bumped by step 1.
 Run this after the tag is pushed so the published crate matches the tag.
 
-4. AUR
+4. AUR — automatic
 --
 
-The AUR package lives in a **separate git repo**, not in this one:
-`ssh://aur@aur.archlinux.org/tensaku.git` (maintainer keeps a clone at
-`~/Code/aur/tensaku`). It is never nested inside this repo.
+`release.sh` updates the AUR package as its last step. The AUR package
+is a **separate git repo** — `ssh://aur@aur.archlinux.org/tensaku.git`,
+cloned at `~/Code/aur/tensaku` (override with the `TENSAKU_AUR_DIR`
+environment variable). The script pulls the clone, bumps
+`pkgver`/`pkgrel`, recomputes `sha256sums` from the new source tarball,
+regenerates `.SRCINFO`, commits, and pushes. It needs `makepkg` and the
+AUR SSH key set up.
 
-In that clone:
+It is **best-effort**: if it fails — missing clone, diverged history, no
+`makepkg` — the release that already shipped still stands, and the
+script tells you to update the AUR by hand.
 
-```sh
-git pull                                    # in case of out-of-band edits
-# edit PKGBUILD: set pkgver=0.22.0, reset pkgrel=1
-updpkgsums                                  # refresh sha256sums from the new tarball
-makepkg --printsrcinfo > .SRCINFO           # regenerate .SRCINFO
-makepkg -f                                  # verify it builds clean
-git add PKGBUILD .SRCINFO
-git commit -m "Update to 0.22.0"
-git push
-```
-
-`makepkg` leaves `pkg/`, `src/`, and `*.tar.*` artifacts behind; the
-repo's `.gitignore` keeps them out of commits — only `PKGBUILD` and
-`.SRCINFO` are tracked.
+The rest of the `PKGBUILD` — `depends` and the `package()` install
+lines — is **hand-maintained**. `release.sh` only touches the version
+fields; when a native dependency changes or a packaged file is renamed,
+edit the `PKGBUILD` in the AUR clone directly.
 
 Post-release checklist
 --
 
 - [ ] GitHub Release published with the source tarball.
 - [ ] `release.yml` workflow succeeded; Flatpak bundle attached.
-- [ ] `tensaku_cli` and `tensaku` published to crates.io.
-- [ ] AUR package updated and pushed.
+- [ ] AUR push succeeded — `release.sh` reports it; spot-check the
+      [AUR page](https://aur.archlinux.org/packages/tensaku).
+- [ ] **crates.io published** — `tensaku_cli` then `tensaku` (the one
+      step `release.sh` leaves to you).
 - [ ] `https://tensaku.dev` install commands still point at the latest
       version (the `tensaku-site` repo).
