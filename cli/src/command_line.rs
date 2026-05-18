@@ -171,7 +171,7 @@ pub struct CommandLine {
 
     /// How many Chaikin corner-cutting passes to run over a brush stroke
     /// once the user releases (post-stroke smoothing).
-    /// 0 disables. Defaults to 2.
+    /// 0 disables. Defaults to 5.
     #[arg(long)]
     pub brush_post_smooth_iterations: Option<usize>,
 

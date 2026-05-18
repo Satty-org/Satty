@@ -211,8 +211,8 @@ right-click-copy = false
 no-window-decoration = true
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
-# experimental feature: Chaikin post-stroke smoothing passes for the brush (default 2)
-brush-post-smooth-iterations = 2
+# experimental feature: Chaikin post-stroke smoothing passes for the brush (default 5)
+brush-post-smooth-iterations = 5
 # experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
 pan-step-size = 50.0
 # experimental feature (0.20.1): The zoom factor to use for the image.
@@ -380,7 +380,7 @@ Options:
       --brush-smooth-history-size <BRUSH_SMOOTH_HISTORY_SIZE>
           Experimental feature: How many points to use for the brush smoothing algorithm. 0 disables smoothing. The default value is 0 (disabled)
       --brush-post-smooth-iterations <BRUSH_POST_SMOOTH_ITERATIONS>
-          How many Chaikin corner-cutting passes to run over a brush stroke once the user releases (post-stroke smoothing). 0 disables. Defaults to 2
+          How many Chaikin corner-cutting passes to run over a brush stroke once the user releases (post-stroke smoothing). 0 disables. Defaults to 5
       --zoom-factor <ZOOM_FACTOR>
           Experimental feature (0.20.1): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
       --pan-step-size <PAN_STEP_SIZE>

@@ -73,8 +73,8 @@ pub struct Configuration {
     /// Ramer–Douglas–Peucker simplification
     /// before Chaikin's, with tolerance scaling per level — the
     /// upper end of the slider produces visibly stylized arcs.
-    /// Default is 2: visibly smooth without dropping any input
-    /// detail.
+    /// Default is 5: flattens free-hand mousing jitter while
+    /// keeping intentional curvature.
     brush_post_smooth_iterations: usize,
     keybinds: Keybinds,
     zoom_factor: f32,

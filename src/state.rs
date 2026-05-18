@@ -93,7 +93,7 @@ pub struct PersistedState {
     pub hide_default_palette: Option<bool>,
     /// Saved-default number of Chaikin post-stroke smoothing passes
     /// for the brush tool. `None` = "never explicitly saved"; callers
-    /// fall back to the config / built-in default (2).
+    /// fall back to the config / built-in default (5).
     #[serde(default)]
     pub brush_post_smooth_iterations: Option<usize>,
     /// Per-tool saved-default fill state (true = filled, false =
