@@ -1701,7 +1701,7 @@ checksum = "df7f62577c25e07834649fc3b39fafdc597c0a3527dc1c60129201ccfcbaa50c"
 
 [[package]]
 name = "tensaku"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1738,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "tensaku_cli"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "clap",
  "serde",
