@@ -271,6 +271,11 @@ pub struct ToolsToolbar {
     /// save.
     custom_colors: Vec<Option<Color>>,
     color_action: SimpleAction,
+    /// The color-picker `MenuButton` the popover hangs off. Stored so
+    /// the eyedropper-recovery path can re-open the popover *through*
+    /// the MenuButton — keeping its `active` state in sync — instead
+    /// of calling `popover.popup()` directly.
+    color_button: Option<gtk::MenuButton>,
     /// Reference to the popover so `update` can rebuild the right
     /// column when a saved color is appended.
     color_popover: Option<gtk::Popover>,
@@ -708,6 +713,19 @@ fn build_color_popover(
     // controls drifting up/down on toggle.
     let (picker_revealer, picker_chooser) = build_inline_picker_panel(model, sender);
 
+    // When the user triggers GTK's screen eyedropper, pop the
+    // picker down for the duration of the pick — it otherwise
+    // floats on top of the very screen content the user is trying
+    // to sample. The popover comes back automatically once the
+    // picked color arrives (the `InlinePickerColorChanged` handler
+    // re-opens it through the MenuButton).
+    if let Some(eyedropper) = find_eyedropper_button(&picker_chooser) {
+        let popover_for_eyedropper = popover.clone();
+        eyedropper.connect_clicked(move |_| {
+            popover_for_eyedropper.popdown();
+        });
+    }
+
     // 4-px transparent gutters on BOTH sides of LEFT col. The right
     // gutter sits between LEFT col and `picker_revealer` so the
     // rightmost saved-customs column's `:checked` box-shadow (which
@@ -852,6 +870,30 @@ fn shrink_color_chooser_internals(chooser: &gtk::ColorChooserWidget) {
             grand = g.next_sibling();
         }
     }
+}
+
+/// Find GTK's screen-eyedropper button inside the color chooser's
+/// editor — the `GtkButton` carrying the `color-select-symbolic`
+/// icon (tooltip "Pick a color from the screen"). The chooser is a
+/// stock `GtkColorChooserWidget`, so this leans on a GTK-internal
+/// widget: if a future GTK reworks the editor and the button can't
+/// be found, callers degrade gracefully (the popover simply won't
+/// auto-close while the eyedropper runs).
+fn find_eyedropper_button(chooser: &gtk::ColorChooserWidget) -> Option<gtk::Button> {
+    let mut stack: Vec<gtk::Widget> = vec![chooser.clone().upcast()];
+    while let Some(w) = stack.pop() {
+        if let Some(btn) = w.downcast_ref::<gtk::Button>()
+            && btn.icon_name().as_deref() == Some("color-select-symbolic")
+        {
+            return Some(btn.clone());
+        }
+        let mut c = w.first_child();
+        while let Some(child) = c {
+            stack.push(child.clone());
+            c = child.next_sibling();
+        }
+    }
+    None
 }
 
 /// Build the inline color-picker panel — chooser + "+ Add" button
@@ -3453,6 +3495,21 @@ impl Component for ToolsToolbar {
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
+                // The eyedropper button's click handler popped the
+                // picker down so it wouldn't cover the screen during
+                // the pick (see the `find_eyedropper_button` hook in
+                // `build_color_popover`). A color arriving here while
+                // the popover is hidden is therefore an eyedropper
+                // result — re-open the picker so the user lands back
+                // on it with the freshly-picked color, ready to "Add
+                // to custom colors" or keep editing. Re-opening through
+                // the MenuButton (not `popover.popup()`) keeps its
+                // `active` state in sync so the next click still
+                // toggles correctly.
+                let popover_hidden = self.color_popover.as_ref().is_some_and(|p| !p.is_visible());
+                if popover_hidden && let Some(btn) = &self.color_button {
+                    btn.popup();
+                }
             }
             ToolsToolbarInput::TogglePickerExpansion => {
                 self.picker_expanded = !self.picker_expanded;
@@ -4003,6 +4060,7 @@ impl Component for ToolsToolbar {
             custom_color,
             custom_colors: saved_customs,
             color_action: SimpleAction::from(color_action.clone()),
+            color_button: None,
             color_popover: None,
             dragging_color: None,
             pre_drag_snapshot: None,
@@ -4458,6 +4516,7 @@ impl Component for ToolsToolbar {
         widgets.color_button.set_popover(Some(&handles.popover));
         let popover = handles.popover.clone();
         model.color_popover = Some(handles.popover);
+        model.color_button = Some(widgets.color_button.clone());
         model.color_popover_stack = Some(handles.swatch_stack);
         model.color_popover_page_id = 1;
         model.picker_revealer = Some(handles.picker_revealer);
