@@ -1608,6 +1608,7 @@ impl FemtoVgAreaMut {
             true,
             RenderTarget::Image(image_id),
             transform,
+            None,
         )?;
 
         // return screenshot
@@ -1804,6 +1805,7 @@ impl FemtoVgAreaMut {
             false,
             RenderTarget::Screen,
             transform,
+            scissor,
         )?;
 
         if scissor.is_some() {
@@ -1824,6 +1826,7 @@ impl FemtoVgAreaMut {
         clear_canvas: bool,
         restore_target: RenderTarget,
         restore_transform: Transform2D,
+        restore_scissor: Option<(f32, f32, f32, f32)>,
     ) -> Result<()> {
         // Clear canvas. Skipped when the caller has already filled
         // the canvas + drawn the drop shadow pre-scissor (the
@@ -1885,7 +1888,13 @@ impl FemtoVgAreaMut {
         // Multiple spotlight shapes still union into one dark layer
         // because the punch-out happens against an offscreen image
         // first; running this pass earlier doesn't change that.
-        self.render_spotlight_overlay(canvas, bounds, restore_target, restore_transform)?;
+        self.render_spotlight_overlay(
+            canvas,
+            bounds,
+            restore_target,
+            restore_transform,
+            restore_scissor,
+        )?;
 
         // Skip rendering of any drawable currently being dragged by either
         // tool — the tool will render the moved/transformed copy below.
@@ -1998,12 +2007,23 @@ impl FemtoVgAreaMut {
     /// `restore_target` and composite back. The caller's transform
     /// is re-established here too (image-space → canvas-space) so
     /// callers don't need to re-set their transform afterward.
+    ///
+    /// `restore_scissor` is the caller's clip rect (image-space
+    /// coords, as passed to `Canvas::scissor`), or `None` when the
+    /// caller had no scissor set. The offscreen pass must run with
+    /// the clip *off* — the overlay buffer spans the whole image, so
+    /// inheriting the committed-crop scissor would dark-fill only a
+    /// misplaced sub-rectangle of it. We clear the scissor for the
+    /// offscreen pass and re-apply this rect before compositing, so
+    /// the final paint still clips to the crop and the clip stays
+    /// active for the annotation pass that follows.
     fn render_spotlight_overlay(
         &self,
         canvas: &mut Canvas<renderer::OpenGl>,
         bounds: (Vec2D, Vec2D),
         restore_target: RenderTarget,
         restore_transform: Transform2D,
+        restore_scissor: Option<(f32, f32, f32, f32)>,
     ) -> Result<()> {
         let darkness = self.spotlight_darkness.clamp(0.0, 1.0);
         if darkness < 0.001 {
@@ -2065,6 +2085,14 @@ impl FemtoVgAreaMut {
         canvas.flush();
         canvas.set_render_target(RenderTarget::Image(overlay_id));
         canvas.reset_transform();
+        // Drop any scissor the caller left set. femtovg keeps the
+        // scissor in canvas state across `set_render_target`, so in
+        // committed-crop mode the clip would still be the on-screen
+        // crop rect — and it would clip the dark fill below to that
+        // rect *inside* this full-image offscreen buffer, leaving the
+        // overlay dark only in a misplaced sub-rectangle. The clip is
+        // re-applied before the composite (see below).
+        canvas.reset_scissor();
         canvas.clear_rect(
             0,
             0,
@@ -2095,6 +2123,14 @@ impl FemtoVgAreaMut {
         canvas.set_render_target(restore_target);
         canvas.reset_transform();
         canvas.set_transform(&restore_transform);
+        // Re-apply the caller's scissor that the offscreen pass
+        // cleared. `Canvas::scissor` bakes in the current transform,
+        // so this has to follow `set_transform`. It clips the
+        // composite to the committed crop and leaves the clip active
+        // for the annotation pass that runs after this returns.
+        if let Some((sx, sy, sw, sh)) = restore_scissor {
+            canvas.scissor(sx, sy, sw, sh);
+        }
 
         let mut final_path = Path::new();
         final_path.rect(0.0, 0.0, img_w as f32, img_h as f32);
