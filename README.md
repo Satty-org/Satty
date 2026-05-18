@@ -298,7 +298,7 @@ custom = [
 Open the Preferences dialog with <kbd>Ctrl+,</kbd> or the gear button in the top toolbar. It has two parts:
 
 - **Keyboard Shortcuts** — a recorder row for every tool, Spotlight included. Click a row, press a key, then <kbd>Save</kbd> to commit (or <kbd>Cancel</kbd> to discard).
-- **Behavior** — settings that apply immediately: the annotation size factor, invert scrolling direction, close window on Esc, hide the default palette colors, and keep in-session tool adjustments across tool switches.
+- **Behavior** — settings that apply immediately: the annotation size factor, invert scrolling direction, close window on Esc, close window on copy, close window on save, hide the default palette colors, and keep in-session tool adjustments across tool switches.
 
 Everything set here is written to `~/.local/state/tensaku/state.toml` — **not** to `config.toml`. State is applied on top of `config.toml`, so a value changed in Preferences overrides the same setting in `config.toml`, and `config.toml` itself is never modified. Tensaku also records other remembered state in this file: the last-used color, saved custom colors, per-tool "save as default" sizes and fill states, and the last arrow / blur / highlighter style.
 

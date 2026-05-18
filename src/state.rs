@@ -85,6 +85,14 @@ pub struct PersistedState {
     /// explicit per-Esc-action config keep their behavior either way.
     #[serde(default)]
     pub close_on_esc: Option<bool>,
+    /// Close the window after a copy-to-clipboard. `None` = follow the
+    /// `early-exit` config value. Set from the Preferences dialog.
+    #[serde(default)]
+    pub close_on_copy: Option<bool>,
+    /// Close the window after a save-to-file. `None` = follow the
+    /// `early-exit` config value. Set from the Preferences dialog.
+    #[serde(default)]
+    pub close_on_save: Option<bool>,
     /// Whether to hide the default 10-color palette in the color
     /// picker popover. When true, the palette column disappears and
     /// the 1–9, 0 shortcut keys map to the first column of saved
@@ -365,6 +373,32 @@ pub fn load_close_on_esc() -> bool {
 pub fn save_close_on_esc(value: bool) {
     let mut state = load();
     state.close_on_esc = Some(value);
+    save(&state);
+}
+
+/// Raw "close window on copy" preference from `state.toml`. `None`
+/// means the user hasn't set it in Preferences — callers fall back to
+/// the `early-exit` config value.
+pub fn load_close_on_copy() -> Option<bool> {
+    load().close_on_copy
+}
+
+pub fn save_close_on_copy(value: bool) {
+    let mut state = load();
+    state.close_on_copy = Some(value);
+    save(&state);
+}
+
+/// Raw "close window on save" preference from `state.toml`. `None`
+/// means the user hasn't set it in Preferences — callers fall back to
+/// the `early-exit` config value.
+pub fn load_close_on_save() -> Option<bool> {
+    load().close_on_save
+}
+
+pub fn save_close_on_save(value: bool) {
+    let mut state = load();
+    state.close_on_save = Some(value);
     save(&state);
 }
 

@@ -96,6 +96,13 @@ pub struct Configuration {
     /// app-globally, leaving each tool's own Esc handling intact (Crop
     /// cancel, Text exit-edit, in-progress shape abort, etc.).
     close_on_esc: bool,
+    /// Close the window after a copy-to-clipboard. Effective value:
+    /// the Preferences toggle when the user has set it, else the
+    /// `early-exit` config flag (resolved in `Configuration::load`).
+    close_on_copy: bool,
+    /// Close the window after a save-to-file. Effective value: the
+    /// Preferences toggle when set, else `early-exit`.
+    close_on_save: bool,
     /// Whether to hide the default 10-color palette in the color
     /// picker. When true, the popover's left column disappears and
     /// the 1–9, 0 number-key shortcuts pick from the first column
@@ -367,6 +374,20 @@ impl Configuration {
         APP_CONFIG
             .write()
             .set_sticky_session_defaults(crate::state::load_sticky_session_defaults());
+
+        // "Close window on copy / save" — per-action refinements of the
+        // combined `early-exit` config flag. `merge` above has already
+        // finalized `early_exit` from config + CLI; when the user
+        // hasn't toggled these in Preferences (state field is `None`),
+        // each falls back to `early-exit`, so config-file / CLI
+        // behavior is unchanged.
+        let early_exit = APP_CONFIG.read().early_exit();
+        APP_CONFIG
+            .write()
+            .set_close_on_copy(crate::state::load_close_on_copy().unwrap_or(early_exit));
+        APP_CONFIG
+            .write()
+            .set_close_on_save(crate::state::load_close_on_save().unwrap_or(early_exit));
 
         // Brush post-stroke smoothing iterations: if the user has
         // saved a default via the slider's right-click menu, fold
@@ -837,6 +858,26 @@ impl Configuration {
         self.close_on_esc = value;
     }
 
+    pub fn close_on_copy(&self) -> bool {
+        self.close_on_copy
+    }
+
+    /// Toggle "close window on copy". Wired from the Preferences dialog
+    /// and persisted to `state.toml`.
+    pub fn set_close_on_copy(&mut self, value: bool) {
+        self.close_on_copy = value;
+    }
+
+    pub fn close_on_save(&self) -> bool {
+        self.close_on_save
+    }
+
+    /// Toggle "close window on save". Wired from the Preferences dialog
+    /// and persisted to `state.toml`.
+    pub fn set_close_on_save(&mut self, value: bool) {
+        self.close_on_save = value;
+    }
+
     pub fn hide_default_palette(&self) -> bool {
         self.hide_default_palette
     }
@@ -957,6 +998,8 @@ impl Default for Configuration {
             // consistent whether or not state.toml has been written.
             invert_scrolling: true,
             close_on_esc: false,
+            close_on_copy: false,
+            close_on_save: false,
             hide_default_palette: false,
             sticky_session_defaults: false,
             layer_panel_shortcut: "ctrl+l".into(),

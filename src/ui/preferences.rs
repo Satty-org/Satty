@@ -470,6 +470,30 @@ pub fn open<W: IsA<gtk::Widget>>(
     });
     outer.append(&close_on_esc_check);
 
+    let close_on_copy_check = gtk::CheckButton::builder()
+        .label("Close window on copy")
+        .tooltip_text("Close Tensaku after copying the annotated image to the clipboard (Ctrl+C).")
+        .active(APP_CONFIG.read().close_on_copy())
+        .build();
+    close_on_copy_check.connect_toggled(|btn| {
+        let value = btn.is_active();
+        crate::state::save_close_on_copy(value);
+        APP_CONFIG.write().set_close_on_copy(value);
+    });
+    outer.append(&close_on_copy_check);
+
+    let close_on_save_check = gtk::CheckButton::builder()
+        .label("Close window on save")
+        .tooltip_text("Close Tensaku after saving the annotated image to a file (Ctrl+S).")
+        .active(APP_CONFIG.read().close_on_save())
+        .build();
+    close_on_save_check.connect_toggled(|btn| {
+        let value = btn.is_active();
+        crate::state::save_close_on_save(value);
+        APP_CONFIG.write().set_close_on_save(value);
+    });
+    outer.append(&close_on_save_check);
+
     let hide_palette_check = gtk::CheckButton::builder()
         .label("Hide default palette colors")
         .active(APP_CONFIG.read().hide_default_palette())
