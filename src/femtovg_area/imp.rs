@@ -1939,29 +1939,36 @@ impl FemtoVgAreaMut {
 
         // In-progress drawable from the active tool (e.g. the shape currently
         // being drawn). When the pointer tool is the active tool *and* it's
-        // mid-drag, this is the selection's working copy — draw it WITHOUT
-        // the selection glow / outline so the user can see exactly where
-        // the shape's edges land while moving or resizing. The halo + the
-        // per-drawable selection decorations (text dashed outline, etc.)
-        // come back the moment the drag ends (drag state cleared → next
-        // frame goes through the stored-drawables path above, which still
-        // renders the glow for selected items).
+        // mid-drag, this is the selection's working copy — drawn without the
+        // selection glow so the user can see exactly where the edges land.
+        //
+        // Exception: during a handle *resize* we still publish the selection
+        // flag. A text box's dashed outline IS the box being resized — hiding
+        // it would leave nothing to aim the drag with. Only `Text::draw`
+        // reads the flag, so this is a no-op for every other drawable, and
+        // the glow stays off either way (`render_glow` isn't called here).
+        // A move drag (`DragMode::Body`) keeps the old no-decoration look.
         {
             let at = self.active_tool.borrow();
             if let Some(d) = at.get_drawable() {
-                // No glow + no `is_selected` publish during drag. (When
-                // the active tool is creating a NEW shape — not a pointer
-                // drag — `dragging_drawable_id` is None, so we never had
-                // a glow there anyway.)
+                let resizing = at.is_resizing();
+                super::set_current_drawable_is_selected(resizing);
                 d.draw(canvas, font, bounds)?;
+                super::set_current_drawable_is_selected(false);
             }
         }
 
         // The pointer tool's working copy during an implicit-mode drag (active
-        // tool is something else, like Arrow). Same "no glow, no selection
-        // decoration mid-drag" treatment as the active-tool branch above.
-        if !pointer_is_active && let Some(d) = self.pointer_tool.borrow().get_drawable() {
-            d.draw(canvas, font, bounds)?;
+        // tool is something else, like Arrow). Same treatment as the
+        // active-tool branch above — including the resize exception that
+        // keeps a text box's dashed outline visible while its handles drag.
+        if !pointer_is_active {
+            let pt = self.pointer_tool.borrow();
+            if let Some(d) = pt.get_drawable() {
+                super::set_current_drawable_is_selected(pt.is_resizing());
+                d.draw(canvas, font, bounds)?;
+                super::set_current_drawable_is_selected(false);
+            }
         }
 
         // Selection overlay (marquee + handles for single selection).
