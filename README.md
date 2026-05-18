@@ -437,6 +437,15 @@ absolute path (e.g. an `env =` line in `~/.config/hypr/envs.conf`), and
 run `hyprctl reload`. Your normal screenshot keys now open each capture
 straight into Tensaku — with Omarchy's window/output highlighting intact.
 
+**Scrolling capture** is a separate mode — `omarchy-capture-screenshot`
+doesn't cover it. Bind a key straight to `tensaku --scroll-capture`,
+alongside the screenshot binds in `~/.config/hypr/bindings.conf` — for
+example an Alt variant of your screenshot key:
+
+```
+bindd = ALT, <your screenshot key>, Scrolling screenshot, exec, tensaku --scroll-capture --copy-command wl-copy --actions-on-enter save-to-clipboard
+```
+
 ### Other wlroots compositors (Sway, Hyprland, river, …)
 
 Not on Omarchy? Bind a key to a `grim` + `slurp` pipeline yourself:
