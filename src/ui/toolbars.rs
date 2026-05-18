@@ -3301,16 +3301,6 @@ impl Component for ToolsToolbar {
                         set_focusable: false,
                         set_hexpand: false,
 
-                        set_icon_name: "settings-regular",
-                        install_tooltip: "Preferences (Ctrl+,)",
-                        connect_clicked[sender] => move |_| {
-                            sender.output_sender().emit(ToolbarEvent::OpenPreferences);
-                        },
-                    },
-                    gtk::Button {
-                        set_focusable: false,
-                        set_hexpand: false,
-
                         set_icon_name: "copy-regular",
                         install_tooltip: "Copy to clipboard (Ctrl+C)",
                         connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
@@ -3332,6 +3322,19 @@ impl Component for ToolsToolbar {
                         set_icon_name: "save-multiple-regular",
                         install_tooltip: "Save as (Ctrl+Shift+S)",
                         connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
+                    },
+                    // Settings sits last, set off by a separator —
+                    // mirrors the left cluster's trailing layers button.
+                    gtk::Separator {},
+                    gtk::Button {
+                        set_focusable: false,
+                        set_hexpand: false,
+
+                        set_icon_name: "settings-regular",
+                        install_tooltip: "Preferences (Ctrl+,)",
+                        connect_clicked[sender] => move |_| {
+                            sender.output_sender().emit(ToolbarEvent::OpenPreferences);
+                        },
                     },
                 },
 
