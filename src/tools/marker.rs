@@ -12,7 +12,8 @@ use crate::{
 };
 
 use super::{
-    Drawable, DrawableClone, GLOW_COLOR, Tool, ToolUpdateResult, Tools, halo_in_image_units,
+    Drawable, DrawableClone, GLOW_COLOR, Handle, HandleId, Tool, ToolUpdateResult, Tools,
+    halo_in_image_units,
 };
 use relm4::Sender;
 
@@ -26,6 +27,10 @@ pub struct MarkerTool {
 #[derive(Clone, Debug)]
 pub struct Marker {
     pos: Vec2D,
+    /// Uniform resize multiplier on top of the style-derived size.
+    /// 1.0 is the size picked in the toolbar; dragging a selected
+    /// marker's handles adjusts this.
+    scale: f32,
     number: u16,
     style: Style,
     tool_next_number: Rc<RefCell<u16>>,
@@ -124,6 +129,34 @@ impl Drawable for Marker {
         self.pos += delta;
     }
 
+    /// Four corner handles around the marker's bounding box. Markers
+    /// scale uniformly, so only corners are exposed — side handles
+    /// would imply a non-uniform resize the round badge can't take.
+    fn handles(&self) -> Vec<Handle> {
+        let Some(b) = self.bounds() else {
+            return Vec::new();
+        };
+        vec![
+            Handle::new(HandleId::TopLeft, b.top_left()),
+            Handle::new(HandleId::TopRight, b.top_right()),
+            Handle::new(HandleId::BottomLeft, b.bottom_left()),
+            Handle::new(HandleId::BottomRight, b.bottom_right()),
+        ]
+    }
+
+    /// Uniform resize about the marker's center. `pos` is a meaningful
+    /// anchor — the spot being numbered — so it stays put while the
+    /// badge scales. A bbox corner sits r·√2 from the center, so the
+    /// dragged point's distance from center sets the new radius.
+    fn move_handle(&mut self, _handle: HandleId, to: Vec2D) {
+        let current_r = self.approx_radius();
+        if current_r <= f32::EPSILON {
+            return;
+        }
+        let target_r = self.pos.distance_to(&to) * std::f32::consts::FRAC_1_SQRT_2;
+        self.scale = (self.scale * target_r / current_r).clamp(0.2, 10.0);
+    }
+
     fn set_style(&mut self, style: Style) {
         self.style = style;
     }
@@ -167,14 +200,15 @@ impl Marker {
     /// are compact badges, not paragraphs.
     fn marker_text_size(&self) -> f32 {
         let factor = self.style.annotation_size_factor;
-        match self.style.size {
-            crate::style::Size::XSmall => 14.0 * factor,
-            crate::style::Size::Small => 22.0 * factor,
-            crate::style::Size::Medium => 36.0 * factor,
-            crate::style::Size::Large => 50.0 * factor,
-            crate::style::Size::XLarge => 70.0 * factor,
-            crate::style::Size::XXLarge => 96.0 * factor,
-        }
+        let base = match self.style.size {
+            crate::style::Size::XSmall => 14.0,
+            crate::style::Size::Small => 22.0,
+            crate::style::Size::Medium => 36.0,
+            crate::style::Size::Large => 50.0,
+            crate::style::Size::XLarge => 70.0,
+            crate::style::Size::XXLarge => 96.0,
+        };
+        base * factor * self.scale
     }
 
     /// Approximate hit-test/selection radius without canvas-bound text metrics.
@@ -215,6 +249,7 @@ impl Tool for MarkerTool {
                 if event.button == MouseButton::Primary {
                     let marker = Marker {
                         pos: event.pos,
+                        scale: 1.0,
                         number: *self.next_number.borrow(),
                         style: self.style,
                         tool_next_number: self.next_number.clone(),

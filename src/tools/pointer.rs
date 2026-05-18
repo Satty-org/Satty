@@ -628,6 +628,17 @@ impl Tool for PointerTool {
                     self.consume_next_click = false;
                     return ToolUpdateResult::RedrawAndStopPropagation;
                 }
+                // A click on the selected drawable's resize handle is a
+                // selection interaction — consume it so it doesn't bubble
+                // to a click-to-create tool (e.g. Marker dropping a fresh
+                // counter). Handles sit outside the body, so the
+                // `hit_test` below would miss and the click would
+                // otherwise fall through. Covers both a bare click on a
+                // handle and the Click GTK interleaves into a
+                // BeginDrag→Click→…→EndDrag handle-resize gesture.
+                if self.hit_handle(event.pos).is_some() {
+                    return ToolUpdateResult::RedrawAndStopPropagation;
+                }
                 let hit = store.hit_test(event.pos, HIT_TOLERANCE);
                 // Implicit mode + tool-type mismatch: don't select or
                 // consume — let the click propagate to the active
