@@ -416,19 +416,46 @@ You can discover styleable elements by using the GTK inspector with env variable
 
 Tensaku supports IME via GTK with and without preediting. Please note, at this point Tensaku has no proper fallback font handling so the font used needs to contain the entered glyphs.
 
-### wlroots based compositors (Sway, Wayfire, River, ...)
+### Omarchy
 
-You can bind a key to the following command:
+Omarchy already ships screenshot keybinds — they run
+`omarchy-capture-screenshot`, which handles the region/window selection
+and hands the capture to whatever `OMARCHY_SCREENSHOT_EDITOR` points at.
+Wire that to Tensaku.
+
+Tensaku takes its input as a flag, not a positional argument, so add a
+small wrapper at `~/.local/bin/tensaku-edit`:
 
 ```sh
-grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | tensaku --filename - --fullscreen --output-filename ~/Pictures/Screenshots/tensaku-$(date '+%Y%m%d-%H:%M:%S').png
+#!/bin/bash
+exec tensaku --filename "$1" --output-filename "$1" \
+  --actions-on-enter save-to-clipboard --save-after-copy --copy-command wl-copy
+```
+
+Make it executable, point `OMARCHY_SCREENSHOT_EDITOR` at the wrapper's
+absolute path (e.g. an `env =` line in `~/.config/hypr/envs.conf`), and
+run `hyprctl reload`. Your normal screenshot keys now open each capture
+straight into Tensaku — with Omarchy's window/output highlighting intact.
+
+### Other wlroots compositors (Sway, Hyprland, river, …)
+
+Not on Omarchy? Bind a key to a `grim` + `slurp` pipeline yourself:
+
+```sh
+grim -g "$(slurp -c '#ff0000ff')" -t ppm - | tensaku --filename - --fullscreen --output-filename ~/Pictures/Screenshots/tensaku-$(date '+%Y%m%d-%H:%M:%S').png
 ```
 
 Hyprland users must escape the `#` with another `#`:
 
 ```sh
-grim -g "$(slurp -o -r -c '##ff0000ff')" -t ppm - | tensaku --filename - --fullscreen --output-filename ~/Pictures/Screenshots/tensaku-$(date '+%Y%m%d-%H:%M:%S').png
+grim -g "$(slurp -c '##ff0000ff')" -t ppm - | tensaku --filename - --fullscreen --output-filename ~/Pictures/Screenshots/tensaku-$(date '+%Y%m%d-%H:%M:%S').png
 ```
+
+`slurp` is a region picker — **drag a box** to select. A plain click
+selects nothing and the pipeline aborts with `selection cancelled`.
+`slurp` doesn't highlight windows on its own; for window/output
+snapping, pipe it the rectangles (see the Sway example below) or use a
+wrapper such as `grimblast` or `hyprshot`.
 
 Please note we're using ppm in both examples. Compared to png, ppm is uncompressed and this can save time.
 
