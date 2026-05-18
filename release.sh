@@ -2,9 +2,12 @@
 #
 # release.sh — cut a new tensaku release.
 #
-# Run from a clean working tree on `main`:
+# Run from a clean working tree on `main`. With no argument it
+# suggests the next version from the commits since the last release
+# and asks you to confirm; pass an explicit X.Y.Z to override:
 #
-#   ./release.sh 0.22.0
+#   ./release.sh            # suggest the next version, then confirm
+#   ./release.sh 0.25.0     # use an explicit version
 #
 # The script bumps the version, refreshes Cargo.lock, fills in the
 # NEXTRELEASE placeholder, commits + tags, pushes to GitHub, builds
@@ -19,15 +22,18 @@ die() { printf '\033[1;31m!! %s\033[0m\n' "$*" >&2; exit 1; }
 
 #--- arguments -----------------------------------------------------------------
 
+# The version is optional. With no argument the script suggests the
+# next one from the commits since the last release (see "pick the new
+# version" below); pass an explicit X.Y.Z to override the suggestion.
 NEW_VER="${1:-}"
 NEW_VER="${NEW_VER#v}"
-[[ -n "$NEW_VER" ]] || die "usage: $0 <new-version>   e.g. $0 0.22.0"
-[[ "$NEW_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+# Fail fast on a malformed explicit argument, before the slow `op`
+# auth in preconditions. An empty NEW_VER is filled in — and validated
+# — by "pick the new version" below.
+[[ -z "$NEW_VER" || "$NEW_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "version '$NEW_VER' is not a plain X.Y.Z semver"
 
-TAG="v$NEW_VER"
 GH_REPO="jondkinney/tensaku"
-TARBALL="tensaku-$TAG-x86_64.tar.gz"
 
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
@@ -51,9 +57,6 @@ CRATESIO_TOKEN="$(op read 'op://Private/crates.io/tensaku-release')" \
     || die "not on the main branch — check out main first"
 [[ -z "$(git status --porcelain)" ]] \
     || die "working tree is not clean — commit or stash your changes first"
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    die "tag $TAG already exists"
-fi
 
 # Read the version from the [workspace.package] section specifically.
 # A bare `^version =` match would grab the first dependency table's
@@ -64,9 +67,72 @@ CUR_VER="$(awk -F'"' '
     /^\[/                     { in_wp = 0 }
     in_wp && /^version = "/   { print $2; exit }
 ' Cargo.toml)"
+[[ "$CUR_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "couldn't read a valid current version from Cargo.toml"
+
+#--- pick the new version ------------------------------------------------------
+
+# With no version argument, suggest the next one from the Conventional
+# Commit types landed since the current release was tagged. Standard
+# SemVer mapping, highest bump any commit calls for wins: a breaking
+# change (a `type!:` subject or a `BREAKING CHANGE` footer) bumps
+# major, a `feat` bumps minor, anything else bumps patch.
+if [[ -z "$NEW_VER" ]]; then
+    # "Since the last release" is measured from the tag for the
+    # current version; fall back to the newest v* tag if it's missing.
+    base_ref="v$CUR_VER"
+    git rev-parse -q --verify "refs/tags/$base_ref" >/dev/null \
+        || base_ref="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+    [[ -n "$base_ref" ]] || die "no release tag to compare against — pass the version explicitly"
+
+    range="$base_ref..HEAD"
+    count="$(git rev-list --count "$range")"
+    [[ "$count" -gt 0 ]] || die "no commits since $base_ref — nothing to release"
+
+    # Subjects carry the type and the optional breaking `!`; bodies
+    # carry a `BREAKING CHANGE:` footer. `grep -c` exits non-zero on
+    # zero matches, hence the `|| true`.
+    subjects="$(git log --format='%s' "$range")"
+    n_feat="$(grep -cE '^feat(\([^)]*\))?!?:' <<<"$subjects" || true)"
+    n_fix="$(grep -cE '^fix(\([^)]*\))?!?:'   <<<"$subjects" || true)"
+    n_break="$(grep -cE '^[a-z]+(\([^)]*\))?!:' <<<"$subjects" || true)"
+    if git log --format='%b' "$range" | grep -qE 'BREAKING[ -]CHANGE'; then
+        n_break=$((n_break + 1))
+    fi
+
+    if   [[ "$n_break" -gt 0 ]]; then level="major"
+    elif [[ "$n_feat"  -gt 0 ]]; then level="minor"
+    else                              level="patch"
+    fi
+
+    # Bump the chosen field of X.Y.Z; `10#` forces base-10 so a value
+    # like `08` isn't mis-read as octal.
+    IFS=. read -r vmaj vmin vpat <<<"$CUR_VER"
+    case "$level" in
+        major) suggested="$((10#$vmaj + 1)).0.0" ;;
+        minor) suggested="$vmaj.$((10#$vmin + 1)).0" ;;
+        patch) suggested="$vmaj.$vmin.$((10#$vpat + 1))" ;;
+    esac
+
+    say "$count commit(s) since $base_ref — $n_feat feat, $n_fix fix, $n_break breaking"
+    say "suggested $level bump: $CUR_VER -> $suggested"
+    read -r -p $'\nRelease version? (Enter to accept the suggestion) ['"$suggested"$'] ' ans
+    NEW_VER="${ans:-$suggested}"
+    NEW_VER="${NEW_VER#v}"
+fi
+
+[[ "$NEW_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "version '$NEW_VER' is not a plain X.Y.Z semver"
+
+TAG="v$NEW_VER"
+TARBALL="tensaku-$TAG-x86_64.tar.gz"
+
 [[ "$NEW_VER" != "$CUR_VER" ]] || die "$NEW_VER is already the current version"
 [[ "$(printf '%s\n%s\n' "$CUR_VER" "$NEW_VER" | sort -V | tail -1)" == "$NEW_VER" ]] \
     || die "$NEW_VER is older than the current version $CUR_VER"
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    die "tag $TAG already exists"
+fi
 say "bumping $CUR_VER -> $NEW_VER"
 
 #--- bump versions + refresh Cargo.lock ----------------------------------------

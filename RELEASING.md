@@ -22,17 +22,25 @@ Before you start
 - The crates.io token must live in 1Password at
   `op://Private/crates.io/tensaku-release` — `release.sh` reads it
   via `op` at the start of the run, so nothing is stored on disk.
-- Pick the next version as plain `X.Y.Z` semver (no `v` prefix).
+- You don't need to pick the version up front — `release.sh` suggests
+  the next one from the commits since the last release. Pass an
+  explicit `X.Y.Z` (plain semver, no `v` prefix) only to override it.
 
 1. GitHub Release — `release.sh`
 --
 
 ```sh
-./release.sh 0.22.0
+./release.sh            # suggest the next version, then confirm
+./release.sh 0.25.0     # or pass an explicit version
 ```
 
 The script does everything for the GitHub release:
 
+- Picks the new version: with no argument, suggests the next one from
+  the Conventional Commit types since the last release tag — a `feat`
+  bumps minor, a breaking change (`type!:` or a `BREAKING CHANGE`
+  footer) bumps major, anything else bumps patch — and prompts you to
+  accept or override it.
 - Bumps `workspace.package.version` in `Cargo.toml`, and the matching
   `tensaku_cli` path-dependency version requirement.
 - Refreshes `Cargo.lock` (`cargo generate-lockfile`).
