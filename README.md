@@ -4,7 +4,7 @@ Tensaku is a screenshot annotation tool inspired by [Swappy](https://github.com/
 
 > **Tensaku is a fork of [Satty](https://github.com/Satty-org/Satty)** by Matthias Gabriel, used under the MPL-2.0 license. See [`NOTICE`](NOTICE) for attribution details — thanks to the Satty project and its contributors for the foundation this builds on.
 
-![](assets/usage.gif)
+![A screenshot annotated in Tensaku — arrows, colored text callouts, numbered markers, a highlight box, and a redaction blur](assets/annotation-example.png)
 
 Tensaku provides:
 
