@@ -40,10 +40,13 @@ const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 /// fully contain the `SHADOW_KEY_*` extent below so the wide key
 /// shadow doesn't get clipped at the canvas edge.
 const CANVAS_PADDING_CSS: f32 = 60.0;
-/// Lowest auto-fit zoom the canvas will allow itself to shrink to.
-/// The widget reports a minimum height that holds the image at this
-/// zoom (see `min_canvas_height` / the `measure` override), so a
-/// vertical window resize can't squeeze the image below it.
+/// Lowest auto-fit zoom a vertical window resize will shrink the
+/// image to. Enforced two ways so it holds under any window manager:
+/// `apply_vertical_resize_floor` pins a minimum height on `outer_box`
+/// so a *floating* window can't be dragged shorter, and
+/// `auto_fit_scale` floors the vertical fit term at render time so a
+/// *tiled* window — whose compositor ignores that min-size request —
+/// clips the image instead of squeezing it past this zoom.
 const MIN_AUTO_FIT_ZOOM: f32 = 0.10;
 /// Ambient ("contact") shadow: a tight, even halo right at the image
 /// edge. No vertical offset — sells the "the image is sitting on the
@@ -887,6 +890,18 @@ impl FemtoVGArea {
     }
 }
 
+/// Auto-fit scale that fits `content` (device px) inside the padded
+/// `inner` area, capped at 1:1. The *vertical* fit term is floored at
+/// `MIN_AUTO_FIT_ZOOM`: shrinking the window's height — including a
+/// tiling-WM resize that ignores our `outer_box` min-size request —
+/// can't squeeze the image past that zoom; the canvas clips it
+/// instead. The horizontal term is left unfloored, matching the
+/// height-only `min_canvas_height_logical` / size-request floor.
+fn auto_fit_scale(inner_w: f32, inner_h: f32, content_w: f32, content_h: f32) -> f32 {
+    let fit_h = (inner_h / content_h).max(MIN_AUTO_FIT_ZOOM);
+    (inner_w / content_w).min(fit_h).min(1.0)
+}
+
 impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) -> DrawableId {
         let id = DrawableId(self.next_drawable_id);
@@ -1697,8 +1712,7 @@ impl FemtoVgAreaMut {
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
             let inner_w = (canvas_w - 2.0 * pad).max(canvas_w * 0.5).max(1.0);
             let inner_h = (canvas_h - 2.0 * pad).max(canvas_h * 0.5).max(1.0);
-            let fit_scale = (inner_w / crop_size.x).min(inner_h / crop_size.y);
-            let base_scale = fit_scale.min(1.0);
+            let base_scale = auto_fit_scale(inner_w, inner_h, crop_size.x, crop_size.y);
             let scale = base_scale * self.crop_zoom;
             let crop_canvas_w = crop_size.x * scale;
             let crop_canvas_h = crop_size.y * scale;
@@ -2508,17 +2522,19 @@ impl FemtoVgAreaMut {
             // at 100 %. Otherwise scale it down so it still fits
             // inside the padded area — never go edge-to-edge
             // automatically. The user can pinch / scroll to zoom in
-            // past this if they want. The `.max(canvas * 0.5)` floor
-            // is a degenerate-case guard for canvases smaller than
-            // 2 × pad — keeps the inner area positive so the
-            // computed scale stays finite during initial layout.
+            // past this if they want. `auto_fit_scale` floors the
+            // result at `MIN_AUTO_FIT_ZOOM` so a window squeezed
+            // shorter than that clips the image instead of shrinking
+            // it further. The `.max(canvas * 0.5)` floor is a
+            // degenerate-case guard for canvases smaller than 2 × pad
+            // — keeps the inner area positive so the computed scale
+            // stays finite during initial layout.
             let pad = CANVAS_PADDING_CSS * self.device_pixel_ratio.max(0.0001);
             let inner_w = (canvas_width - 2.0 * pad).max(canvas_width * 0.5).max(1.0);
             let inner_h = (canvas_height - 2.0 * pad)
                 .max(canvas_height * 0.5)
                 .max(1.0);
-            let fit_scale = (inner_w / image_width).min(inner_h / image_height);
-            self.scale_factor = fit_scale.min(1.0);
+            self.scale_factor = auto_fit_scale(inner_w, inner_h, image_width, image_height);
         }
 
         // `effective_scale` is what the zoom indicator should show:
@@ -2542,8 +2558,7 @@ impl FemtoVgAreaMut {
             let inner_h = (canvas_height - 2.0 * pad)
                 .max(canvas_height * 0.5)
                 .max(1.0);
-            let fit_scale = (inner_w / crop_size.x).min(inner_h / crop_size.y);
-            fit_scale.min(1.0) * self.crop_zoom
+            auto_fit_scale(inner_w, inner_h, crop_size.x, crop_size.y) * self.crop_zoom
         } else {
             self.scale_factor
         };
