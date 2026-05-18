@@ -13,6 +13,19 @@ pub struct CommandLine {
     #[arg(long, exclusive = true)]
     pub license: bool,
 
+    /// Install the desktop entry and app icon into the user's XDG data
+    /// directory (~/.local/share), then exit. Run this once after
+    /// `cargo install tensaku`; package installs (AUR, make install)
+    /// register these files already.
+    #[arg(long, exclusive = true)]
+    pub install_desktop: bool,
+
+    /// Report whether the optional external tools Tensaku relies on
+    /// (grim, slurp, wl-copy) are installed and the session looks
+    /// right, then exit.
+    #[arg(long, exclusive = true)]
+    pub doctor: bool,
+
     /// Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/tensaku/config.toml
     #[arg(short, long)]
     pub config: Option<String>,

@@ -40,6 +40,8 @@ enum ConfigurationFileError {
 pub struct Configuration {
     man: bool,
     license: bool,
+    install_desktop: bool,
+    doctor: bool,
     input_filename: Option<String>,
     output_filename: Option<String>,
     fullscreen: Option<Fullscreen>,
@@ -517,6 +519,12 @@ impl Configuration {
         if command_line.license {
             self.license = command_line.license;
         }
+        if command_line.install_desktop {
+            self.install_desktop = true;
+        }
+        if command_line.doctor {
+            self.doctor = true;
+        }
         if command_line.early_exit {
             self.early_exit = command_line.early_exit;
         }
@@ -653,6 +661,14 @@ impl Configuration {
 
     pub fn license(&self) -> bool {
         self.license
+    }
+
+    pub fn install_desktop(&self) -> bool {
+        self.install_desktop
+    }
+
+    pub fn doctor(&self) -> bool {
+        self.doctor
     }
 
     pub fn early_exit(&self) -> bool {
@@ -890,6 +906,8 @@ impl Default for Configuration {
         Self {
             man: false,
             license: false,
+            install_desktop: false,
+            doctor: false,
             input_filename: Some(String::new()),
             output_filename: None,
             fullscreen: None,

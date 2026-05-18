@@ -43,9 +43,10 @@ yay -S tensaku   # or: paru -S tensaku
 
 ```sh
 cargo install tensaku
+tensaku --install-desktop   # add the icon + desktop entry
 ```
 
-This builds from source, so it needs a Rust toolchain and the GTK-4 / Adwaita native dependencies — see [Dependencies](#dependencies).
+This builds from source, so it needs a Rust toolchain and the GTK-4 / Adwaita native dependencies — see [Dependencies](#dependencies). `cargo install` places only the binary; `tensaku --install-desktop` then registers the icon and `.desktop` entry under `~/.local/share/` (launcher icon, file associations) — the AUR package and `make install` do this already.
 
 ### Pre-built binary and Flatpak
 
@@ -314,6 +315,10 @@ Options:
           Show manpage. Pipe to man -l -
       --license
           Show license
+      --install-desktop
+          Install the desktop entry and app icon into the user's XDG data directory (~/.local/share), then exit. Run this once after `cargo install tensaku`; package installs (AUR, make install) register these files already
+      --doctor
+          Report whether the optional external tools Tensaku relies on (grim, slurp, wl-copy) are installed and the session looks right, then exit
   -c, --config <CONFIG>
           Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/tensaku/config.toml
   -f, --filename <FILENAME>
@@ -465,6 +470,9 @@ selects nothing and the pipeline aborts with `selection cancelled`.
 `slurp` doesn't highlight windows on its own; for window/output
 snapping, pipe it the rectangles (see the Sway example below) or use a
 wrapper such as `grimblast` or `hyprshot`.
+
+`tensaku --doctor` reports whether `grim`, `slurp`, and `wl-copy` are
+installed — a quick way to confirm the screenshot pipeline is complete.
 
 Please note we're using ppm in both examples. Compared to png, ppm is uncompressed and this can save time.
 

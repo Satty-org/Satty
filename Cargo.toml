@@ -15,7 +15,8 @@ include = [
   "NOTICE",
   "README.md",
   "assets/",
-  "build.rs"
+  "build.rs",
+  "dev.tensaku.Tensaku.desktop"
 ]
 
 [features]

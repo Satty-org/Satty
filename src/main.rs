@@ -30,7 +30,9 @@ use xdg::BaseDirectories;
 
 mod capture;
 mod configuration;
+mod desktop_install;
 mod display;
+mod doctor;
 mod femtovg_area;
 mod icons;
 mod ime;
@@ -1761,6 +1763,12 @@ fn main() -> Result<()> {
     if APP_CONFIG.read().license() {
         print!(include_str!("../LICENSE"));
         exit(0);
+    }
+    if APP_CONFIG.read().install_desktop() {
+        return desktop_install::run();
+    }
+    if APP_CONFIG.read().doctor() {
+        return doctor::run();
     }
     if APP_CONFIG.read().profile_startup() {
         eprintln!(
