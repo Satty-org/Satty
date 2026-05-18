@@ -4600,17 +4600,17 @@ impl StyleToolbar {
     /// `sticky_session_defaults` preference. When the preference is
     /// on AND the user has touched the slider for `tool` already in
     /// this session, return that in-session value; otherwise fall
-    /// back to `state.toml`'s saved default. Returns `None` for tools
-    /// without a saved default (or sticky-off + never-saved), matching
-    /// the prior `load_size_for_tool` semantics so the existing
-    /// callers can keep their `if let Some` shape.
+    /// back to `state.toml`'s saved default, then to the tool's
+    /// `builtin_default_size`. Returns `None` for tools with no saved
+    /// and no builtin default — most tools — so the existing callers
+    /// keep their `if let Some` shape.
     fn effective_size_for_tool(&self, tool: Tools) -> Option<Size> {
         if APP_CONFIG.read().sticky_session_defaults()
             && let Some(s) = self.session_size_per_tool.get(&tool).copied()
         {
             return Some(s);
         }
-        crate::state::load_size_for_tool(tool)
+        crate::state::load_size_for_tool(tool).or_else(|| tool.builtin_default_size())
     }
 
     fn refresh_brush_smooth_slider_marks(&self) {
@@ -4652,6 +4652,7 @@ impl StyleToolbar {
                 None
             } else {
                 crate::state::load_size_for_tool(self.current_tool)
+                    .or_else(|| self.current_tool.builtin_default_size())
             };
         slider.clear_marks();
         for (pos, letter, size) in labels {
@@ -5420,7 +5421,9 @@ impl Component for StyleToolbar {
 
         // create model
         let initial_tool = APP_CONFIG.read().initial_tool();
-        let initial_size = crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
+        let initial_size = crate::state::load_size_for_tool(initial_tool)
+            .or_else(|| initial_tool.builtin_default_size())
+            .unwrap_or_default();
         let mut model = StyleToolbar {
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             current_tool: initial_tool,

@@ -1027,6 +1027,16 @@ impl Tools {
             Tools::Spotlight => "Spotlight",
         }
     }
+
+    /// Starting annotation size for a tool when the user has saved no
+    /// per-tool default. `None` means "use the global default"
+    /// (Medium); Numbered Markers read best at the small size.
+    pub fn builtin_default_size(&self) -> Option<crate::style::Size> {
+        match self {
+            Tools::Marker => Some(crate::style::Size::Small),
+            _ => None,
+        }
+    }
 }
 
 // used for printing

@@ -5343,7 +5343,9 @@ impl Component for SketchBoard {
         // preferred size for that tool. Falls back to Style::default()
         // (Medium) when nothing has been saved yet.
         let initial_tool = config.initial_tool();
-        let initial_size = crate::state::load_size_for_tool(initial_tool).unwrap_or_default();
+        let initial_size = crate::state::load_size_for_tool(initial_tool)
+            .or_else(|| initial_tool.builtin_default_size())
+            .unwrap_or_default();
 
         // Layer panel scaffold. Built up-front so the view! macro can
         // pin the Paned via `#[local_ref]`. Starts hidden (panel
