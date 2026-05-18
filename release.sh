@@ -43,7 +43,7 @@ gh auth status >/dev/null 2>&1 || die "gh is not authenticated — run 'gh auth 
 # crates.io token, read from 1Password up front so an `op` auth
 # failure aborts before anything is published. Held in a plain
 # (un-exported) variable — only the `cargo publish` calls below see it.
-CRATESIO_TOKEN="$(op read 'op://Private/crates.io/mousehop-release')" \
+CRATESIO_TOKEN="$(op read 'op://Private/crates.io/tensaku-publish-new')" \
     || die "couldn't read the crates.io token from 1Password (op)"
 [[ -n "$CRATESIO_TOKEN" ]] || die "the crates.io token from 1Password is empty"
 

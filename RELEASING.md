@@ -20,8 +20,8 @@ Before you start
   and `gh` authenticated (`gh auth login`). `release.sh` checks all of
   this and aborts otherwise.
 - The crates.io token must live in 1Password at
-  `op://Private/crates.io/mousehop-release` — `release.sh` reads it via
-  `op` at the start of the run, so nothing is stored on disk.
+  `op://Private/crates.io/tensaku-publish-new` — `release.sh` reads it
+  via `op` at the start of the run, so nothing is stored on disk.
 - Pick the next version as plain `X.Y.Z` semver (no `v` prefix).
 
 1. GitHub Release — `release.sh`
@@ -68,7 +68,7 @@ script publishes **`tensaku_cli` first** — `cargo publish` waits for it
 to land in the registry index, then publishes `tensaku` against it.
 
 The crates.io token is **read from 1Password** at the start of the run
-(`op read op://Private/crates.io/mousehop-release`) and passed to
+(`op read op://Private/crates.io/tensaku-publish-new`) and passed to
 `cargo publish` via `CARGO_REGISTRY_TOKEN` — it never touches disk and
 isn't taken from `~/.cargo/credentials.toml`. Use a token scoped to
 `publish-update` on the `tensaku*` crates.
