@@ -480,7 +480,9 @@ Please note we're using ppm in both examples. Compared to png, ppm is uncompress
 
 #### Image Resize
 
-Tensaku does not provide a resize mechanism other than cropping. But you can pipe the result to other tools such as ImageMagick:
+Tensaku can resample the whole screenshot from the Crop tool (<kbd>x</kbd>): open the **Image size** control in the crop toolbar, enter a new width or height — with an optional aspect-ratio lock — and click **Resize**. The image is rescaled with bilinear interpolation.
+
+For scripted or headless workflows you can also resize by piping the output through a tool such as ImageMagick:
 
 ```sh
 grim -g "0,0 3840x2160" -t ppm - | tensaku --filename - --output-filename - | convert -resize 50% - out.png
