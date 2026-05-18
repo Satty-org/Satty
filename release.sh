@@ -8,8 +8,9 @@
 #
 # The script bumps the version, refreshes Cargo.lock, fills in the
 # NEXTRELEASE placeholder, commits + tags, pushes to GitHub, builds
-# the release tarball, publishes the GitHub Release, and updates the
-# AUR package. crates.io stays manual — the script prints a reminder.
+# the release tarball, publishes the GitHub Release, updates the AUR
+# package, and publishes the crates to crates.io. The crates.io token
+# is read from 1Password via the `op` CLI — nothing is stored on disk.
 
 set -euo pipefail
 
@@ -34,10 +35,17 @@ cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 say "checking preconditions"
 
-for tool in gh make cargo; do
+for tool in gh make cargo op; do
     command -v "$tool" >/dev/null || die "$tool is not installed"
 done
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated — run 'gh auth login'"
+
+# crates.io token, read from 1Password up front so an `op` auth
+# failure aborts before anything is published. Held in a plain
+# (un-exported) variable — only the `cargo publish` calls below see it.
+CRATESIO_TOKEN="$(op read 'op://Private/crates.io/mousehop-release')" \
+    || die "couldn't read the crates.io token from 1Password (op)"
+[[ -n "$CRATESIO_TOKEN" ]] || die "the crates.io token from 1Password is empty"
 
 [[ "$(git rev-parse --abbrev-ref HEAD)" == "main" ]] \
     || die "not on the main branch — check out main first"
@@ -140,9 +148,15 @@ else
     say "no AUR clone at $AUR_DIR — skipping (set TENSAKU_AUR_DIR or update it by hand)"
 fi
 
+#--- publish to crates.io ------------------------------------------------------
+
+# tensaku_cli first: tensaku's path dependency on it must resolve
+# against an already-published crate. `cargo publish` waits for the
+# crate to land in the registry index before returning, so the second
+# publish builds against it. CARGO_REGISTRY_TOKEN is set per-command,
+# so the 1Password-sourced token reaches only these two processes.
+say "publishing to crates.io"
+CARGO_REGISTRY_TOKEN="$CRATESIO_TOKEN" cargo publish -p tensaku_cli
+CARGO_REGISTRY_TOKEN="$CRATESIO_TOKEN" cargo publish -p tensaku
+
 say "done — https://github.com/$GH_REPO/releases/tag/$TAG"
-
-#--- crates.io is a manual step ------------------------------------------------
-
-printf '\n\033[1;33m++ crates.io is NOT automated — publish it by hand:\033[0m\n'
-printf '   cargo publish -p tensaku_cli && cargo publish -p tensaku\n'

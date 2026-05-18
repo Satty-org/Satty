@@ -4,22 +4,24 @@ RELEASING
 Maintainer runbook for cutting a new Tensaku release. Contributors don't
 need this — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-A release goes out over four channels:
+A release goes out over four channels — `release.sh` handles 1, 3, and
+4; CI handles 2. The whole thing is one command:
 
-1. **GitHub Release** — source tarball, by `release.sh`.
+1. **GitHub Release** — source tarball.
 2. **Flatpak bundle** — attached to the release automatically by CI.
-3. **crates.io** — `tensaku` + `tensaku_cli`, the one manual step.
-4. **AUR** — the `tensaku` package, updated by `release.sh` (separate repo).
-
-`release.sh` handles 1 and 4, CI handles 2 — so the only manual
-follow-up is crates.io (3).
+3. **crates.io** — `tensaku` + `tensaku_cli`, token read from 1Password.
+4. **AUR** — the `tensaku` package (a separate repo).
 
 Before you start
 --
 
 - Work from a **clean working tree on `main`** with `main` up to date.
-- `gh`, `make`, and `cargo` must be installed, and `gh` authenticated
-  (`gh auth login`). `release.sh` checks all of this and aborts otherwise.
+- `gh`, `make`, `cargo`, and `op` (1Password CLI) must be installed,
+  and `gh` authenticated (`gh auth login`). `release.sh` checks all of
+  this and aborts otherwise.
+- The crates.io token must live in 1Password at
+  `op://Private/crates.io/mousehop-release` — `release.sh` reads it via
+  `op` at the start of the run, so nothing is stored on disk.
 - Pick the next version as plain `X.Y.Z` semver (no `v` prefix).
 
 1. GitHub Release — `release.sh`
@@ -43,8 +45,8 @@ The script does everything for the GitHub release:
 - Builds the release tarball (`make package`).
 - Publishes the GitHub Release with auto-generated notes and the
   tarball attached.
-- Updates the AUR package (see step 4), then prints the crates.io
-  publish command as a reminder (step 3).
+- Publishes both crates to crates.io (step 3) and updates the AUR
+  package (step 4).
 
 If the script aborts on a precondition, fix the issue and re-run — it is
 safe to re-run as long as the tag does not yet exist.
@@ -57,21 +59,25 @@ which builds the Flatpak bundle from `dev.tensaku.Tensaku.yml` and
 attaches `tensaku-vX.Y.Z.flatpak` to the same release. No action needed —
 just check the workflow run succeeded.
 
-3. crates.io — the one manual step
+3. crates.io — automatic
 --
 
-`release.sh` prints a reminder but does **not** publish to crates.io —
-it's deliberately the only manual channel, because crates.io publishes
-are permanent (yank-only, no delete). The workspace has two crates and
-`tensaku` depends on `tensaku_cli`, so **publish the CLI crate first**:
+`release.sh` publishes both crates after the GitHub Release. The
+workspace has two crates and `tensaku` depends on `tensaku_cli`, so the
+script publishes **`tensaku_cli` first** — `cargo publish` waits for it
+to land in the registry index, then publishes `tensaku` against it.
 
-```sh
-cargo publish -p tensaku_cli
-cargo publish -p tensaku
-```
+The crates.io token is **read from 1Password** at the start of the run
+(`op read op://Private/crates.io/mousehop-release`) and passed to
+`cargo publish` via `CARGO_REGISTRY_TOKEN` — it never touches disk and
+isn't taken from `~/.cargo/credentials.toml`. Use a token scoped to
+`publish-update` on the `tensaku*` crates.
 
-Both carry the workspace version, so they are already bumped by step 1.
-Run this after the tag is pushed so the published crate matches the tag.
+Unlike the AUR step, this is **fatal**: a `cargo publish` failure aborts
+the script (the GitHub Release and AUR update have already shipped).
+crates.io publishes are permanent — yank-only, no delete — so recovering
+from a partial publish needs care: if `tensaku_cli` already went up,
+re-run by publishing only `tensaku` by hand.
 
 4. AUR — automatic
 --
@@ -100,7 +106,7 @@ Post-release checklist
 - [ ] `release.yml` workflow succeeded; Flatpak bundle attached.
 - [ ] AUR push succeeded — `release.sh` reports it; spot-check the
       [AUR page](https://aur.archlinux.org/packages/tensaku).
-- [ ] **crates.io published** — `tensaku_cli` then `tensaku` (the one
-      step `release.sh` leaves to you).
+- [ ] crates.io publish succeeded — `release.sh` reports it; spot-check
+      [crates.io/crates/tensaku](https://crates.io/crates/tensaku).
 - [ ] `https://tensaku.dev` install commands still point at the latest
       version (the `tensaku-site` repo).
