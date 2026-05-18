@@ -55,7 +55,15 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     die "tag $TAG already exists"
 fi
 
-CUR_VER="$(awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml)"
+# Read the version from the [workspace.package] section specifically.
+# A bare `^version =` match would grab the first dependency table's
+# version line (e.g. [dependencies.relm4-icons]) — same section scope
+# as the bump sed below.
+CUR_VER="$(awk -F'"' '
+    /^\[workspace\.package\]/ { in_wp = 1; next }
+    /^\[/                     { in_wp = 0 }
+    in_wp && /^version = "/   { print $2; exit }
+' Cargo.toml)"
 [[ "$NEW_VER" != "$CUR_VER" ]] || die "$NEW_VER is already the current version"
 [[ "$(printf '%s\n%s\n' "$CUR_VER" "$NEW_VER" | sort -V | tail -1)" == "$NEW_VER" ]] \
     || die "$NEW_VER is older than the current version $CUR_VER"
