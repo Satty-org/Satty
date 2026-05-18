@@ -40,6 +40,11 @@ const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 /// fully contain the `SHADOW_KEY_*` extent below so the wide key
 /// shadow doesn't get clipped at the canvas edge.
 const CANVAS_PADDING_CSS: f32 = 60.0;
+/// Lowest auto-fit zoom the canvas will allow itself to shrink to.
+/// The widget reports a minimum height that holds the image at this
+/// zoom (see `min_canvas_height` / the `measure` override), so a
+/// vertical window resize can't squeeze the image below it.
+const MIN_AUTO_FIT_ZOOM: f32 = 0.10;
 /// Ambient ("contact") shadow: a tight, even halo right at the image
 /// edge. No vertical offset — sells the "the image is sitting on the
 /// surface" half of the macOS shadow model.
@@ -527,6 +532,7 @@ impl WidgetImpl for FemtoVGArea {
     fn realize(&self) {
         self.parent_realize();
     }
+
     fn unrealize(&self) {
         self.obj().make_current();
         self.canvas.borrow_mut().take();
@@ -558,7 +564,7 @@ impl GLAreaImpl for FemtoVGArea {
         // committed-crop mode it's `crop_zoom`, for the regular view
         // it equals `scale_factor`. update_transformation keeps it in
         // sync now, so one emit covers both paths.
-        let (eff_scale, pan_info) = {
+        let (eff_scale, pan_info, min_canvas_h) = {
             let mut inner_ref = self.inner();
             let inner = inner_ref
                 .as_mut()
@@ -586,10 +592,15 @@ impl GLAreaImpl for FemtoVGArea {
                 canvas_w: canvas.width() as f32,
                 canvas_h: canvas.height() as f32,
             };
-            (inner.effective_scale, pan_info)
+            (
+                inner.effective_scale,
+                pan_info,
+                inner.min_canvas_height_logical(),
+            )
         };
         self.notify_zoom_display(eff_scale);
         self.notify_pan_display(pan_info);
+        self.apply_vertical_resize_floor(min_canvas_h);
     }
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
         self.ensure_canvas();
@@ -640,6 +651,34 @@ impl FemtoVGArea {
     /// Forward a `ZoomDisplayChanged` event to the parent component when
     /// the rendered scale factor changes. Idempotent: skips emission when
     /// the value matches what we sent last time.
+    /// Pin the window's content (`outer_box`) to a minimum height so
+    /// a vertical resize can't shrink the image past
+    /// `MIN_AUTO_FIT_ZOOM`. The floor is `min_canvas_h` (the canvas
+    /// height for that zoom) plus the *measured* chrome — the live
+    /// `outer_box` height minus this canvas's height — so it stays
+    /// correct no matter how tall the toolbars currently are (the top
+    /// bar's height changes when it wraps). Setting the request on
+    /// `outer_box` rather than the window keeps it clear of the
+    /// launch-time `set_size_request` size-pinning, which targets the
+    /// window itself.
+    fn apply_vertical_resize_floor(&self, min_canvas_h: f32) {
+        let canvas = self.obj();
+        let mut node = canvas.parent();
+        let outer = loop {
+            match node {
+                Some(w) if w.has_css_class("outer_box") => break Some(w),
+                Some(w) => node = w.parent(),
+                None => break None,
+            }
+        };
+        let Some(outer) = outer else { return };
+        let chrome = (outer.height() - canvas.height()).max(0);
+        let floor = min_canvas_h.ceil() as i32 + chrome;
+        if outer.height_request() != floor {
+            outer.set_size_request(outer.width_request(), floor);
+        }
+    }
+
     fn notify_zoom_display(&self, scale_factor: f32) {
         let mut last = self.last_emitted_scale.borrow_mut();
         if (*last - scale_factor).abs() > 0.0005 {
@@ -2240,6 +2279,34 @@ impl FemtoVgAreaMut {
             self.background_image.width(),
             self.background_image.height(),
         )
+    }
+
+    /// Canvas height (CSS px) at which the auto-fit zoom's vertical
+    /// term equals `MIN_AUTO_FIT_ZOOM` — the shortest the canvas may
+    /// get before a window resize would shrink the image past that
+    /// zoom. The content is the committed crop region when one is
+    /// active, otherwise the full image.
+    ///
+    /// This inverts `update_transformation`'s height term exactly,
+    /// including its `inner_h = (canvas − 2·pad).max(canvas · 0.5)`
+    /// degenerate guard: the guard wins for short content, so the
+    /// answer is the smaller of the two candidate heights.
+    fn min_canvas_height_logical(&self) -> f32 {
+        let content_h = self
+            .crop_tool
+            .borrow()
+            .get_committed_rect()
+            .map(|(_, size)| size.y)
+            .filter(|h| *h > 0.0)
+            .unwrap_or(self.background_image.height() as f32);
+        let dpr = self.device_pixel_ratio.max(0.0001);
+        let pad = CANVAS_PADDING_CSS * dpr;
+        // `inner_h = 0.1·content_h` solved for the canvas DEVICE
+        // height, once via `canvas − 2·pad` and once via the
+        // `canvas · 0.5` guard; the consistent root is the smaller.
+        let device =
+            (MIN_AUTO_FIT_ZOOM * content_h + 2.0 * pad).min(2.0 * MIN_AUTO_FIT_ZOOM * content_h);
+        device / dpr
     }
 
     fn render_background_image(
