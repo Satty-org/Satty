@@ -88,8 +88,7 @@ fn packaged_entry_exists() -> bool {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
-    std::env::split_paths(&dirs)
-        .any(|d| d.join(format!("applications/{APP_ID}.desktop")).is_file())
+    std::env::split_paths(&dirs).any(|d| d.join(format!("applications/{APP_ID}.desktop")).is_file())
 }
 
 /// Install the desktop integration silently on the first normal launch,
