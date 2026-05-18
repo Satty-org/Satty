@@ -1778,6 +1778,12 @@ fn main() -> Result<()> {
     }
     generate_profile_output!("configuration loaded");
 
+    // First-launch desktop integration: a `cargo install`ed binary
+    // ships no .desktop entry, so Tensaku wouldn't appear in launchers.
+    // Do it silently on the first normal launch — best-effort, never
+    // blocks startup. --install-desktop stays the explicit, verbose path.
+    desktop_install::ensure_first_launch();
+
     if APP_CONFIG.read().scroll_capture() {
         return match scroll_capture::run() {
             Err(e) => {
