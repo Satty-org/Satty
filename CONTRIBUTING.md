@@ -43,11 +43,6 @@ README changes
 
 If a PR changes Tensaku's behaviour and where appropriate, please adjust `README.md` as well. `make update-readme` adds the command line help (output of `tensaku --help`) automatically which is relevant whenever command line arguments change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
 
-Command line parameters changes
---
-
-Please include anticipated next version in the comment for command line arguments, especially when adding arguments or options. You can use the placeholder `NEXTRELEASE` in `command_line.rs`, `configuration.rs` and `README.md`.
-
 GenAI usage
 --
 
