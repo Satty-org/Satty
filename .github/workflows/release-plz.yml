@@ -18,8 +18,11 @@ jobs:
     container:
       image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
     steps:
-      - name: Install native deps
-        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel
+      - name: Install native deps + gh CLI
+        # gh is needed by release-plz/action to look up the GitHub
+        # viewer's name/email for git authoring; the gtk-rs container
+        # doesn't ship it.
+        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel gh
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -43,8 +46,11 @@ jobs:
       group: release-plz-pr
       cancel-in-progress: false
     steps:
-      - name: Install native deps
-        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel
+      - name: Install native deps + gh CLI
+        # gh is needed by release-plz/action to look up the GitHub
+        # viewer's name/email for git authoring; the gtk-rs container
+        # doesn't ship it.
+        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel gh
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
