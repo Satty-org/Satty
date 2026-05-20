@@ -1,0 +1,91 @@
+name: release-update-site
+
+# Push the new release tag onto the tensaku landing page so the
+# eyebrow chip ('v<semver> · MPL-2.0') reflects the release that
+# just published. Uses an SSH deploy key scoped to the
+# tensaku-site repo (`TENSAKU_SITE_DEPLOY_KEY` secret) rather than
+# a PAT — the key has no expiry, can't read or write anything
+# outside this one repo, and lives entirely on the
+# tensaku ↔ tensaku-site axis.
+#
+# Mirrors release-update-site.yml in jondkinney/vernier; see that
+# file for the full design notes.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to sync (e.g. v0.26.0)'
+        required: true
+        type: string
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve target tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Syncing landing page to $TAG (version $VERSION)"
+
+      - name: Set up SSH agent with tensaku-site deploy key
+        # webfactory/ssh-agent loads the key into an in-memory
+        # ssh-agent, scopes it to one host (github.com), and tears
+        # the agent down at job end. Avoids the "private key on
+        # disk" footgun that comes with naive `mkdir ~/.ssh && cat
+        # > id_ed25519` patterns.
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.TENSAKU_SITE_DEPLOY_KEY }}
+
+      - name: Clone tensaku-site over SSH
+        run: |
+          git clone git@github.com:jondkinney/tensaku-site.git site
+          cd site && git log --oneline -1
+
+      - name: Patch version in index.html
+        id: patch
+        working-directory: site
+        run: |
+          new="${{ steps.tag.outputs.version }}"
+          # The version is wrapped in <span data-tensaku-version>...</span>
+          # so we don't have to anchor on any surrounding copy. Reword
+          # the eyebrow chip however you like — as long as that span
+          # stays wrapped around the v<semver> string, this workflow
+          # keeps working.
+          old=$(grep -oE '<span data-tensaku-version>v[0-9]+\.[0-9]+\.[0-9]+</span>' index.html \
+                | head -1 \
+                | sed -E 's|.*>v([0-9.]+)</span>|\1|')
+          if [ -z "$old" ]; then
+            echo "couldn't find <span data-tensaku-version> in index.html" >&2
+            exit 1
+          fi
+          echo "site is at $old; release is $new"
+          if [ "$old" = "$new" ]; then
+            echo "already in sync — no-op"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sed -i "s|<span data-tensaku-version>v${old}</span>|<span data-tensaku-version>v${new}</span>|g" index.html
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "old=$old"     >> "$GITHUB_OUTPUT"
+
+      - name: Commit + push
+        if: steps.patch.outputs.changed == 'true'
+        working-directory: site
+        run: |
+          git config user.name  "tensaku-release-bot"
+          git config user.email "tensaku-release-bot@users.noreply.github.com"
+          git add index.html
+          git commit -m "Bump landing-page version to v${{ steps.tag.outputs.version }}"
+          git push origin master
