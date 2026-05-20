@@ -1,0 +1,60 @@
+# Maintainer: Jon Kinney
+#
+# Source of truth for the AUR `tensaku-git` package — tracks main.
+# The pkgver() function regenerates the version from `git describe`
+# at build time; the static pkgver= line below is metadata only (for
+# AUR display). aur-publish.yml bumps that line on each release.
+pkgname=tensaku-git
+_pkgname=tensaku
+pkgver=0.25.0.r0.gabcdef
+pkgrel=1
+pkgdesc='Modern screenshot annotation tool for Wayland (latest main)'
+arch=('x86_64')
+url='https://github.com/jondkinney/tensaku'
+license=('MPL-2.0')
+depends=('gtk4' 'gtk4-layer-shell' 'libadwaita' 'libepoxy' 'fontconfig')
+makedepends=('rust' 'git')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname" "$_pkgname-bin")
+source=("$_pkgname::git+https://github.com/jondkinney/$_pkgname.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  # <last-tag>.r<commits-since>.g<short-hash> — sortable + uniquely
+  # identifies the commit. Strip the `v` prefix; rewrite the
+  # `-N-g<sha>` git-describe suffix to `.rN.g<sha>` for pacman.
+  git describe --long --tags --abbrev=7 \
+    | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+prepare() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release --features ci-release
+}
+
+package() {
+  cd "$_pkgname"
+  install -Dm755 target/release/tensaku "$pkgdir/usr/bin/tensaku"
+  install -Dm644 dev.tensaku.Tensaku.desktop \
+    "$pkgdir/usr/share/applications/dev.tensaku.Tensaku.desktop"
+  install -Dm644 assets/tensaku.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/dev.tensaku.Tensaku.svg"
+  install -Dm644 man/tensaku.1 "$pkgdir/usr/share/man/man1/tensaku.1"
+  install -Dm644 completions/tensaku.bash \
+    "$pkgdir/usr/share/bash-completion/completions/tensaku"
+  install -Dm644 completions/tensaku.fish \
+    "$pkgdir/usr/share/fish/vendor_completions.d/tensaku.fish"
+  install -Dm644 completions/_tensaku \
+    "$pkgdir/usr/share/zsh/site-functions/_tensaku"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+}
