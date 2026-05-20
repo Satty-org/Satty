@@ -1,13 +1,42 @@
 name: release
 
-# Fires when release.sh publishes a GitHub Release. release.sh bundles
-# and attaches the x86_64 Linux tarball itself; this workflow adds the
-# Flatpak bundle as an extra asset on the same release.
+# Fires when release-plz creates a GitHub Release. Builds and attaches
+# the x86_64 Linux tarball and the Flatpak bundle as release assets.
 on:
   release:
     types: [published]
 
 jobs:
+  linux-tarball:
+    name: "Linux x86_64 tarball"
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
+    permissions:
+      contents: write
+    steps:
+      - name: Install native deps + make
+        run: yum install -y gtk4-devel libadwaita-devel gtk4-layer-shell-devel wayland-devel make tar gzip
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build tarball
+        run: make package
+
+      - name: Attach tarball to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: tensaku-${{ github.ref_name }}-x86_64.tar.gz
+
   flatpak:
     runs-on: ubuntu-latest
     container:

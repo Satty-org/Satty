@@ -1,0 +1,72 @@
+name: AUR publish
+
+# Pushes the updated package to the AUR after release-plz cuts a
+# Release. packaging/aur/PKGBUILD is the source of truth; this workflow
+# pins it to the release version, refreshes the checksums, regenerates
+# .SRCINFO, and pushes — creating the AUR package on the first run.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish to the AUR (e.g. v0.26.0)'
+        required: true
+
+jobs:
+  aur:
+    name: Publish to the AUR
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      AUR_PKG: tensaku
+      GH_REPO: jondkinney/tensaku
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Install tooling
+        run: pacman -Syu --noconfirm --needed git openssh pacman-contrib curl
+
+      - name: Publish to the AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+
+          # SSH access to the AUR. Pass options inline via
+          # GIT_SSH_COMMAND so we don't depend on ~/.ssh/config being
+          # honored — accept-new writes the AUR's host key to
+          # known_hosts on first connect (TOFU).
+          install -dm700 /root/.ssh
+          echo "$AUR_SSH_KEY" > /root/.ssh/id_aur
+          chmod 600 /root/.ssh/id_aur
+          touch /root/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -i /root/.ssh/id_aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts'
+
+          # Grab packaging/aur/PKGBUILD at the released tag.
+          git clone --depth 1 --branch "$TAG" "https://github.com/$GH_REPO.git" app
+
+          # Clone the AUR repo; init a fresh one if the package is new.
+          if ! git clone "ssh://aur@aur.archlinux.org/${AUR_PKG}.git" aur; then
+            mkdir -p aur
+            git -C aur init -q -b master
+            git -C aur remote add origin "ssh://aur@aur.archlinux.org/${AUR_PKG}.git"
+          fi
+
+          # Drop in the PKGBUILD, pinned to this release.
+          cp app/packaging/aur/PKGBUILD aur/PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=$ver/;s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
+
+          # makepkg / updpkgsums refuse to run as root.
+          useradd -m builder
+          chown -R builder:builder aur
+          sudo -H -u builder bash -c 'cd aur && updpkgsums && makepkg --printsrcinfo > .SRCINFO'
+
+          # Commit + push.
+          git config --global --add safe.directory "$PWD/aur"
+          cd aur
+          git config user.name 'tensaku release'
+          git config user.email 'release@users.noreply.github.com'
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet || git commit -m "Update to $ver"
+          git push --quiet -u origin master
