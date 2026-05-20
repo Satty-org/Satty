@@ -1,0 +1,33 @@
+# Maintainer: Jon Kinney
+#
+# Source of truth for the AUR `tensaku-bin` package — prebuilt binary
+# from the GitHub Release. The release.yml `linux-tarball` job runs
+# `make package` which produces tensaku-v<ver>-x86_64.tar.gz with a
+# /usr-style layout inside (bin/, share/applications, etc.).
+# aur-publish.yml copies this file, pins pkgver/pkgrel, refreshes
+# sha256sums with updpkgsums, regenerates .SRCINFO, and pushes.
+pkgname=tensaku-bin
+_pkgname=tensaku
+pkgver=0.25.0
+pkgrel=1
+pkgdesc='Modern screenshot annotation tool for Wayland (prebuilt binary)'
+arch=('x86_64')
+url='https://github.com/jondkinney/tensaku'
+license=('MPL-2.0')
+depends=('gtk4' 'gtk4-layer-shell' 'libadwaita' 'libepoxy' 'fontconfig')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname" "$_pkgname-git")
+source=("$_pkgname-v$pkgver-x86_64.tar.gz::https://github.com/jondkinney/$_pkgname/releases/download/v$pkgver/$_pkgname-v$pkgver-x86_64.tar.gz")
+# Placeholder — CI's updpkgsums overwrites with the real hash per release.
+sha256sums=('0000000000000000000000000000000000000000000000000000000000000000')
+
+package() {
+  # `make package` tarballs the install-staged tree, so we just need
+  # to drop bin/ and share/ under /usr.
+  install -d "$pkgdir/usr"
+  cp -a "$srcdir/bin" "$srcdir/share" "$pkgdir/usr/"
+  # The Makefile's install target writes licenses under share/licenses/
+  # tensaku/; rename to match this package's name so makepkg's
+  # license-check picks them up.
+  mv "$pkgdir/usr/share/licenses/$_pkgname" "$pkgdir/usr/share/licenses/$pkgname"
+}

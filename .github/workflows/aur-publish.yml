@@ -1,9 +1,14 @@
 name: AUR publish
 
-# Pushes the updated package to the AUR after release-plz cuts a
-# Release. packaging/aur/PKGBUILD is the source of truth; this workflow
-# pins it to the release version, refreshes the checksums, regenerates
-# .SRCINFO, and pushes — creating the AUR package on the first run.
+# Publishes all three AUR variants after release-plz cuts a Release:
+#   - tensaku      (source build from the GitHub source tarball)
+#   - tensaku-bin  (prebuilt binary from the linux-tarball asset)
+#   - tensaku-git  (tracks main; pkgver() generated at build time)
+#
+# packaging/{aur,aur-bin,aur-git}/PKGBUILD are the source of truth.
+# This workflow pins per-release fields (pkgver, pkgrel, sha256sums),
+# regenerates .SRCINFO, and pushes to the matching AUR repo.
+
 on:
   release:
     types: [published]
@@ -15,11 +20,26 @@ on:
 
 jobs:
   aur:
-    name: Publish to the AUR
+    name: Publish ${{ matrix.aur_pkg }} to the AUR
     runs-on: ubuntu-latest
     container: archlinux:base-devel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - aur_pkg: tensaku
+            pkgbuild_dir: aur
+            kind: source
+          - aur_pkg: tensaku-bin
+            pkgbuild_dir: aur-bin
+            kind: bin
+          - aur_pkg: tensaku-git
+            pkgbuild_dir: aur-git
+            kind: git
     env:
-      AUR_PKG: tensaku
+      AUR_PKG: ${{ matrix.aur_pkg }}
+      PKGBUILD_DIR: ${{ matrix.pkgbuild_dir }}
+      VARIANT_KIND: ${{ matrix.kind }}
       GH_REPO: jondkinney/tensaku
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -33,17 +53,16 @@ jobs:
           set -euo pipefail
           ver="${TAG#v}"
 
-          # SSH access to the AUR. Pass options inline via
-          # GIT_SSH_COMMAND so we don't depend on ~/.ssh/config being
-          # honored — accept-new writes the AUR's host key to
-          # known_hosts on first connect (TOFU).
+          # SSH access to the AUR. Inline -o flags via GIT_SSH_COMMAND
+          # so we don't depend on ~/.ssh/config being honored —
+          # accept-new TOFUs the AUR's host key on first connect.
           install -dm700 /root/.ssh
           echo "$AUR_SSH_KEY" > /root/.ssh/id_aur
           chmod 600 /root/.ssh/id_aur
           touch /root/.ssh/known_hosts
           export GIT_SSH_COMMAND='ssh -i /root/.ssh/id_aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts'
 
-          # Grab packaging/aur/PKGBUILD at the released tag.
+          # Grab the variant's PKGBUILD at the released tag.
           git clone --depth 1 --branch "$TAG" "https://github.com/$GH_REPO.git" app
 
           # Clone the AUR repo; init a fresh one if the package is new.
@@ -53,16 +72,53 @@ jobs:
             git -C aur remote add origin "ssh://aur@aur.archlinux.org/${AUR_PKG}.git"
           fi
 
-          # Drop in the PKGBUILD, pinned to this release.
-          cp app/packaging/aur/PKGBUILD aur/PKGBUILD
-          sed -i "s/^pkgver=.*/pkgver=$ver/;s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
+          # Drop in the variant's PKGBUILD.
+          cp "app/packaging/${PKGBUILD_DIR}/PKGBUILD" aur/PKGBUILD
+
+          # Variant-specific version pin + tarball wait.
+          case "$VARIANT_KIND" in
+            source)
+              sed -i "s/^pkgver=.*/pkgver=$ver/;s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
+              ;;
+            bin)
+              # The linux-tarball job in release.yml builds the
+              # bundled tarball in parallel with this workflow. Wait
+              # up to ~30 min for it to land on the GitHub Release
+              # before updpkgsums tries to fetch it.
+              sed -i "s/^pkgver=.*/pkgver=$ver/;s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
+              tarball_url="https://github.com/${GH_REPO}/releases/download/${TAG}/tensaku-${TAG}-x86_64.tar.gz"
+              for i in $(seq 1 90); do
+                if curl -sfIL -o /dev/null "$tarball_url"; then
+                  echo "linux tarball present"
+                  break
+                fi
+                echo "waiting for linux tarball (attempt $i/90)..."
+                sleep 20
+              done
+              ;;
+            git)
+              # Static pkgver= line is metadata only — the pkgver()
+              # function regenerates it at build time. Bump it to the
+              # new tag so the AUR page shows the current version.
+              # sha256sums=('SKIP'), so no updpkgsums needed.
+              sed -i "s/^pkgver=.*/pkgver=$ver/" aur/PKGBUILD
+              ;;
+          esac
 
           # makepkg / updpkgsums refuse to run as root.
           useradd -m builder
           chown -R builder:builder aur
-          sudo -H -u builder bash -c 'cd aur && updpkgsums && makepkg --printsrcinfo > .SRCINFO'
 
-          # Commit + push.
+          case "$VARIANT_KIND" in
+            source|bin)
+              sudo -H -u builder bash -c 'cd aur && updpkgsums && makepkg --printsrcinfo > .SRCINFO'
+              ;;
+            git)
+              sudo -H -u builder bash -c 'cd aur && makepkg --printsrcinfo > .SRCINFO'
+              ;;
+          esac
+
+          # Commit + push (no-op if nothing changed).
           git config --global --add safe.directory "$PWD/aur"
           cd aur
           git config user.name 'tensaku release'
