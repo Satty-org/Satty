@@ -1,0 +1,24 @@
+# release-plz — automated crates.io releases. https://release-plz.dev
+#
+# release-plz opens a "release PR" that bumps the workspace version and
+# updates CHANGELOG.md. Merging that PR publishes every crate to
+# crates.io in dependency order, then cuts one git tag + one GitHub
+# Release for the app. That Release fires `release: published`, which
+# the packaging workflows (Flatpak, AUR) build on.
+
+[workspace]
+# Release only when the release PR is merged — not on every push.
+release_always = false
+# Libraries publish to crates.io but get no tag, Release, or changelog
+# of their own; the app crate below owns all three.
+git_tag_enable = false
+git_release_enable = false
+changelog_update = false
+
+[[package]]
+name = "tensaku"
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+git_release_name = "v{{ version }}"
+changelog_update = true
