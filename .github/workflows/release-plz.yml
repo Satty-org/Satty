@@ -26,6 +26,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Configure git safe directory
+        # Containerized job: workspace is owned by a different uid
+        # than the in-container root, so git refuses to operate on it
+        # without this exception.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: release-plz/action@v0.5
@@ -54,6 +59,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Configure git safe directory
+        # Containerized job: workspace is owned by a different uid
+        # than the in-container root, so git refuses to operate on it
+        # without this exception.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: release-plz/action@v0.5
