@@ -72,6 +72,7 @@ pub enum StyleToolbarInput {
     SetVisibility(bool),
     ToggleVisibility,
     ShowAnnotationDialog,
+    AdjustAnnotationSize(f32),
     AnnotationDialogFinished(Option<f32>),
     DimensionsChanged((i32, i32)),
 }
@@ -389,6 +390,17 @@ pub enum ColorButtons {
 }
 
 impl StyleToolbar {
+    fn set_annotation_size(&mut self, value: f32) -> bool {
+        let value = value.clamp(0.0, 100.0);
+        if (self.annotation_size - value).abs() < f32::EPSILON {
+            return false;
+        }
+
+        self.annotation_size = value;
+        self.annotation_size_formatted = format!("{value:.2}");
+        true
+    }
+
     fn show_color_dialog(&self, sender: ComponentSender<StyleToolbar>, root: Option<Window>) {
         let current_color: RGBA = self.custom_color.into();
         relm4::spawn_local(async move {
@@ -554,7 +566,18 @@ impl Component for StyleToolbar {
                 set_label: &model.annotation_size_formatted,
                 set_tooltip: "Edit Annotation Size Factor",
 
-                connect_clicked => StyleToolbarInput::ShowAnnotationDialog
+                connect_clicked => StyleToolbarInput::ShowAnnotationDialog,
+                add_controller = gtk::EventControllerScroll {
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
+                    connect_scroll[sender] => move |_, _, dy| {
+                        if dy != 0.0 {
+                            sender.input(StyleToolbarInput::AdjustAnnotationSize(
+                                if dy.is_sign_positive() { -0.01 } else { 0.01 }
+                            ));
+                        }
+                        relm4::gtk::glib::Propagation::Stop
+                    },
+                },
             },
             gtk::Separator {},
             gtk::Label {
@@ -623,11 +646,19 @@ impl Component for StyleToolbar {
                 self.show_annotation_dialog(sender, root.toplevel_window());
             }
 
-            StyleToolbarInput::AnnotationDialogFinished(value) => {
-                if let Some(value) = value {
-                    self.annotation_size = value;
-                    self.annotation_size_formatted = format!("{value:.2}");
+            StyleToolbarInput::AdjustAnnotationSize(delta) => {
+                let value = self.annotation_size + delta;
+                if self.set_annotation_size(value) {
+                    sender
+                        .output_sender()
+                        .emit(ToolbarEvent::AnnotationSizeChanged(value));
+                }
+            }
 
+            StyleToolbarInput::AnnotationDialogFinished(value) => {
+                if let Some(value) = value
+                    && self.set_annotation_size(value)
+                {
                     sender
                         .output_sender()
                         .emit(ToolbarEvent::AnnotationSizeChanged(value));
