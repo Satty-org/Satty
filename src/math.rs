@@ -1,7 +1,7 @@
 use std::{
     f32::consts::PI,
     fmt::Display,
-    ops::{Add, AddAssign, Mul, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, Mul, Sub, SubAssign},
 };
 
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
@@ -155,6 +155,14 @@ impl Mul<f32> for Vec2D {
 
     fn mul(self, rhs: f32) -> Self::Output {
         Vec2D::new(self.x * rhs, self.y * rhs)
+    }
+}
+
+impl Div<f32> for Vec2D {
+    type Output = Vec2D;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Vec2D::new(self.x / rhs, self.y / rhs)
     }
 }
 

@@ -42,7 +42,7 @@ impl Drawable for Ellipse {
         self.middle = center;
         self.origin = center;
         self.radii = Some(Vec2D::new((br.x - tl.x) / 2.0, (br.y - tl.y) / 2.0));
-        self.centered = true;
+        self.centered = false;
         self.finishing = true;
     }
 
