@@ -64,35 +64,91 @@ impl ResizeHandle {
     //
     // This intentionally preserves axis inversion (tl may become > br) so tools like
     // line/arrow can keep endpoint intent when crossing over an axis.
-    pub fn apply_delta(&self, tl: Vec2D, br: Vec2D, delta: Vec2D) -> (Vec2D, Vec2D) {
+    pub fn resize(&self, event: MouseEventMsg, tl: Vec2D, br: Vec2D) -> (Vec2D, Vec2D) {
+        let mut delta = event.pos;
+
+        if event.modifier & ModifierType::SHIFT_MASK != ModifierType::empty() {
+            (delta.x, delta.y) = match self {
+                ResizeHandle::TopRight => {
+                    let x = delta.x.max(-delta.y);
+                    (x, -x)
+                }
+                ResizeHandle::BottomRight => {
+                    let x = delta.x.max(delta.y);
+                    (x, x)
+                }
+                ResizeHandle::BottomLeft => {
+                    let x = delta.x.min(-delta.y);
+                    (x, -x)
+                }
+                ResizeHandle::TopLeft => {
+                    let x = delta.x.min(delta.y);
+                    (x, x)
+                }
+                _ => (delta.x, delta.y),
+            };
+        }
+
+        let is_centered = event.modifier & ModifierType::ALT_MASK != ModifierType::empty();
+        if is_centered {
+            delta = delta / 2.0;
+        }
+
         let mut new_tl = tl;
         let mut new_br = br;
+
         match self {
-            ResizeHandle::TopLeft => {
-                new_tl += delta;
-            }
-            ResizeHandle::TopCenter => {
-                new_tl.y += delta.y;
-            }
             ResizeHandle::TopRight => {
                 new_tl.y += delta.y;
                 new_br.x += delta.x;
-            }
-            ResizeHandle::MiddleLeft => {
-                new_tl.x += delta.x;
+                if is_centered {
+                    new_tl.x -= delta.x;
+                    new_br.y -= delta.y;
+                }
             }
             ResizeHandle::MiddleRight => {
                 new_br.x += delta.x;
+                if is_centered {
+                    new_tl.x -= delta.x;
+                }
+            }
+            ResizeHandle::BottomRight => {
+                new_br += delta;
+                if is_centered {
+                    new_tl -= delta;
+                }
+            }
+            ResizeHandle::BottomCenter => {
+                new_br.y += delta.y;
+                if is_centered {
+                    new_tl.y -= delta.y;
+                }
             }
             ResizeHandle::BottomLeft => {
                 new_tl.x += delta.x;
                 new_br.y += delta.y;
+                if is_centered {
+                    new_tl.y -= delta.y;
+                    new_br.x -= delta.x;
+                }
             }
-            ResizeHandle::BottomCenter => {
-                new_br.y += delta.y;
+            ResizeHandle::MiddleLeft => {
+                new_tl.x += delta.x;
+                if is_centered {
+                    new_br.x -= delta.x;
+                }
             }
-            ResizeHandle::BottomRight => {
-                new_br += delta;
+            ResizeHandle::TopCenter => {
+                new_tl.y += delta.y;
+                if is_centered {
+                    new_br.y -= delta.y;
+                }
+            }
+            ResizeHandle::TopLeft => {
+                new_tl += delta;
+                if is_centered {
+                    new_br -= delta;
+                }
             }
         }
 
@@ -448,8 +504,7 @@ impl Tool for PointerTool {
                     orig_bounds,
                     ..
                 } => {
-                    let delta = event.pos;
-                    let (new_tl, new_br) = handle.apply_delta(orig_bounds.0, orig_bounds.1, delta);
+                    let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
                     let mut preview = original.clone_box();
                     preview.resize_bounds(new_tl, new_br);
                     if preview.is_crop()
@@ -509,7 +564,7 @@ impl Tool for PointerTool {
                             ToolUpdateResult::Redraw
                         } else {
                             let (new_tl, new_br) =
-                                handle.apply_delta(orig_bounds.0, orig_bounds.1, delta);
+                                handle.resize(event, orig_bounds.0, orig_bounds.1);
                             let mut final_drawable = original;
                             final_drawable.resize_bounds(new_tl, new_br);
                             self.update_selection_bounds(new_tl, new_br);
