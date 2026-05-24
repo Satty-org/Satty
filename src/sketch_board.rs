@@ -50,6 +50,8 @@ pub enum SketchBoardOutput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SizeCycleShortcut,
+    FillToggled(bool),
     DimensionsUpdate(Option<(i32, i32)>),
 }
 
@@ -833,6 +835,9 @@ impl SketchBoard {
             ToolbarEvent::Reset => self.handle_reset(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::FillToggled(self.style.fill));
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
@@ -876,6 +881,14 @@ impl SketchBoard {
                     sender.input(SketchBoardInput::new_text_event(TextEventMsg::Commit(
                         txt.to_string(),
                     )));
+                } else if txt.chars().next().is_some_and(|char| char.eq(&'-')) {
+                    sender.output(SketchBoardOutput::SizeCycleShortcut).ok();
+                } else if txt
+                    .chars()
+                    .next()
+                    .is_some_and(|char| char.eq_ignore_ascii_case(&'f'))
+                {
+                    sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
                 } else if let Some(tool) = txt
                     .chars()
                     .next()
@@ -895,13 +908,9 @@ impl SketchBoard {
                     } else {
                         hotkey_digit - 1
                     };
-                    if APP_CONFIG.read().color_palette().palette().len()
-                        >= (index_digit + 1) as usize
-                    {
-                        sender
-                            .output_sender()
-                            .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
-                    }
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
                 }
             }
             TextEventMsg::Preedit {
@@ -1077,7 +1086,9 @@ impl Component for SketchBoard {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
                         _ => {
-                            if ke.is_one_of(Key::z, KeyMappingId::UsZ)
+                            if ke.key == Key::y && ke.modifier == ModifierType::CONTROL_MASK {
+                                self.handle_redo()
+                            } else if ke.is_one_of(Key::z, KeyMappingId::UsZ)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
                                 self.handle_undo()
@@ -1160,15 +1171,14 @@ impl Component for SketchBoard {
                                     .intersects(ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
                             {
                                 self.handle_reset()
-                            } else if ke.modifier.is_empty()
-                                && (ke.key == Key::Escape
-                                    || ke.key == Key::Return
-                                    || ke.key == Key::KP_Enter)
+                            } else if (matches!(ke.key, Key::Escape | Key::Return | Key::KP_Enter)
+                                && ke.modifier.is_empty())
+                                || (ke.key == Key::q && ke.modifier == ModifierType::CONTROL_MASK)
                             {
                                 // First, let the tool handle the event. If the tool does nothing, we can do our thing (otherwise require a second keyboard press)
                                 // Relying on ToolUpdateResult::Unmodified is probably not a good idea, but it's the only way at the moment. See discussion in #144
                                 if let ToolUpdateResult::Unmodified = active_tool_result {
-                                    let actions = if ke.key == Key::Escape {
+                                    let actions = if matches!(ke.key, Key::Escape | Key::q) {
                                         APP_CONFIG.read().actions_on_escape()
                                     } else {
                                         APP_CONFIG.read().actions_on_enter()

@@ -69,6 +69,8 @@ enum AppInput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SizeCycleShortcut,
+    FillToggled(bool),
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
@@ -257,11 +259,25 @@ impl Component for App {
                     .emit(ToolsToolbarInput::SwitchSelectedTool(tool));
             }
             AppInput::ColorSwitchShortcut(index) => {
+                let palette_len = APP_CONFIG.read().color_palette().palette().len() as u64;
+                let color_button = if index < palette_len {
+                    ui::toolbars::ColorButtons::Palette(index)
+                } else {
+                    ui::toolbars::ColorButtons::Custom
+                };
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::ColorButtonSelected(
-                        ui::toolbars::ColorButtons::Palette(index),
-                    ));
+                    .emit(StyleToolbarInput::ColorButtonSelected(color_button));
+            }
+            AppInput::SizeCycleShortcut => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::CycleSize);
+            }
+            AppInput::FillToggled(fill_enabled) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetFill(fill_enabled));
             }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
@@ -322,6 +338,10 @@ impl Component for App {
                     }
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
+                    }
+                    SketchBoardOutput::SizeCycleShortcut => AppInput::SizeCycleShortcut,
+                    SketchBoardOutput::FillToggled(fill_enabled) => {
+                        AppInput::FillToggled(fill_enabled)
                     }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)

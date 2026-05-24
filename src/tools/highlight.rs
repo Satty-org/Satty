@@ -41,8 +41,11 @@ impl From<command_line::Highlighters> for Highlighters {
 
 #[derive(Clone, Debug)]
 struct BlockHighlight {
+    origin: Vec2D,
     top_left: Vec2D,
     size: Option<Vec2D>,
+    centered: bool,
+    finishing: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +109,15 @@ impl Highlight for Highlighter<BlockHighlight> {
 
         let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, size);
 
+        if !self.data.finishing && self.data.centered {
+            let mut helpers = Path::new();
+            helpers.circle(self.data.origin.x, self.data.origin.y, 2.0);
+            canvas.stroke_path(
+                &helpers,
+                &femtovg::Paint::color(femtovg::Color::rgba(128, 128, 128, 255)),
+            );
+        }
+
         let mut shadow_path = Path::new();
         shadow_path.rounded_rect(
             pos.x,
@@ -124,6 +136,40 @@ impl Highlight for Highlighter<BlockHighlight> {
 
         canvas.fill_path(&shadow_path, &shadow_paint);
         Ok(())
+    }
+}
+
+impl BlockHighlight {
+    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
+        self.centered = modifier & ModifierType::ALT_MASK == ModifierType::ALT_MASK;
+        match modifier & (ModifierType::ALT_MASK | ModifierType::SHIFT_MASK) {
+            v if v == ModifierType::ALT_MASK | ModifierType::SHIFT_MASK => {
+                let max_size = pos.x.abs().max(pos.y.abs());
+                self.top_left.x = self.origin.x - max_size * pos.x.signum() / 2.0;
+                self.top_left.y = self.origin.y - max_size * pos.y.signum() / 2.0;
+                self.size = Some(Vec2D {
+                    x: max_size * pos.x.signum(),
+                    y: max_size * pos.y.signum(),
+                });
+            }
+            ModifierType::ALT_MASK => {
+                self.top_left.x = self.origin.x - pos.x / 2.0;
+                self.top_left.y = self.origin.y - pos.y / 2.0;
+                self.size = Some(pos);
+            }
+            ModifierType::SHIFT_MASK => {
+                self.top_left = self.origin;
+                let max_size = pos.x.abs().max(pos.y.abs());
+                self.size = Some(Vec2D {
+                    x: max_size * pos.x.signum(),
+                    y: max_size * pos.y.signum(),
+                });
+            }
+            _ => {
+                self.top_left = self.origin;
+                self.size = Some(pos);
+            }
+        }
     }
 }
 
@@ -188,8 +234,11 @@ impl Tool for HighlightTool {
                         self.highlighter =
                             Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
                                 data: BlockHighlight {
+                                    origin: event.pos,
                                     top_left: event.pos,
                                     size: None,
+                                    centered: false,
+                                    finishing: false,
                                 },
                                 style: self.style,
                             }))
@@ -224,15 +273,7 @@ impl Tool for HighlightTool {
                     HighlightKind::Block(highlighter) => {
                         // When shift is pressed when using the block highlighter, it transforms
                         // the area into a perfect square (in the direction they intended).
-                        if shift_pressed {
-                            let max_size = event.pos.x.abs().max(event.pos.y.abs());
-                            highlighter.data.size = Some(Vec2D {
-                                x: max_size * event.pos.x.signum(),
-                                y: max_size * event.pos.y.signum(),
-                            });
-                        } else {
-                            highlighter.data.size = Some(event.pos);
-                        };
+                        highlighter.data.calculate_shape(event.pos, event.modifier);
                         ToolUpdateResult::Redraw
                     }
                     HighlightKind::Freehand(highlighter) => {
@@ -283,9 +324,15 @@ impl Tool for HighlightTool {
                         ToolUpdateResult::Redraw
                     }
                 };
+
                 if event.type_ == MouseEventType::UpdateDrag {
                     return update;
-                };
+                }
+
+                if let HighlightKind::Block(highlighter) = &mut *highlighter_kind {
+                    highlighter.data.finishing = true;
+                }
+
                 let result = highlighter_kind.clone_box();
                 self.highlighter = None;
                 ToolUpdateResult::Commit(result)

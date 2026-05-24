@@ -42,7 +42,7 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 ### Shortcuts
 
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
-- <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
+- <kbd>Esc</kbd> or <kbd>Ctrl-Q</kbd> <sup>NEXTRELEASE</sup>: as configured (see below), default: exit (may be masked by active tool)
 - <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
@@ -54,11 +54,21 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
+#### Size Selection Shortcut
+<kbd>-</kbd>: Cycle between large, medium and small size <sup>NEXTRELEASE</sup>
+
 #### Color Selection Shortcuts <sup>0.20.1</sup>
 
 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette
 
+If out of range select custom color <sup>NEXTRELEASE</sup>
+
+#### Toggle fill <sup>NEXTRELEASE</sup>
+
+<kbd>f</kbd>
+
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
+
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
@@ -76,7 +86,7 @@ Default single-key shortcuts:
 
 - Arrow: Hold <kbd>Shift</kbd> to make arrow snap to 15° steps
 - Ellipse: Hold <kbd>Alt</kbd> to center the ellipse around origin, hold <kbd>Shift</kbd> for a circle
-- Highlight: Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
+- Highlight: Hold <kbd>Alt</kbd> to center the block highlight around origin <sup>NEXTRELEASE</sup>, hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below), hold <kbd>Shift</kbd> for a square (if the default mode is block) or a straight line (if the default mode is freehand)
 - Line: Hold <kbd>Shift</kbd> to make line snap to 15° steps
 - Rectangle: Hold <kbd>Alt</kbd> to center the rectangle around origin, hold <kbd>Shift</kbd> for a square
 - Text:
