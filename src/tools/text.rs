@@ -1,5 +1,6 @@
 use anyhow::Result;
 use femtovg::{Color, FontId, Paint, Path};
+use relm4::gtk::glib::GString;
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
     TextBuffer,
@@ -141,6 +142,14 @@ impl Text {
             }
         }
     }
+
+    fn get_text(&self) -> GString {
+        self.text_buffer.text(
+            &self.text_buffer.start_iter(),
+            &self.text_buffer.end_iter(),
+            false,
+        )
+    }
 }
 
 impl Drawable for Text {
@@ -150,11 +159,7 @@ impl Drawable for Text {
         font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let gtext = self.text_buffer.text(
-            &self.text_buffer.start_iter(),
-            &self.text_buffer.end_iter(),
-            false,
-        );
+        let gtext = self.get_text();
         let base_text = gtext.as_str();
         let display = self.display_text(base_text);
         let text = display.text.as_ref();
@@ -800,16 +805,25 @@ impl Tool for TextTool {
                         tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                     }
                     _ => {
-                        t.preedit = None;
-                        t.editing = false;
-                        t.im_context = None;
-                        t.text_buffer
-                            .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
-                        *t.draw_rect.borrow_mut() = false;
-                        let result = t.clone_box();
-                        self.text = None;
-                        self.input_enabled = false;
-                        tool_update_result = ToolUpdateResult::Commit(result);
+                        let content = t.get_text();
+                        if content.is_empty() {
+                            self.text = None;
+                            self.input_enabled = false;
+                            tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                        } else {
+                            t.preedit = None;
+                            t.editing = false;
+                            t.im_context = None;
+                            t.text_buffer.select_range(
+                                &t.text_buffer.start_iter(),
+                                &t.text_buffer.start_iter(),
+                            );
+                            *t.draw_rect.borrow_mut() = false;
+                            let result = t.clone_box();
+                            self.text = None;
+                            self.input_enabled = false;
+                            tool_update_result = ToolUpdateResult::Commit(result);
+                        }
                     }
                 },
                 Key::Escape => {
@@ -1134,15 +1148,20 @@ impl Tool for TextTool {
                         // create commit message if necessary
                         let return_value = match &mut self.text {
                             Some(l) => {
-                                l.preedit = None;
-                                l.editing = false;
-                                l.im_context = None;
-                                l.text_buffer.select_range(
-                                    &l.text_buffer.start_iter(),
-                                    &l.text_buffer.start_iter(),
-                                );
-                                *l.draw_rect.borrow_mut() = false;
-                                ToolUpdateResult::Commit(l.clone_box())
+                                let content = l.get_text();
+                                if content.is_empty() {
+                                    ToolUpdateResult::Unmodified
+                                } else {
+                                    l.preedit = None;
+                                    l.editing = false;
+                                    l.im_context = None;
+                                    l.text_buffer.select_range(
+                                        &l.text_buffer.start_iter(),
+                                        &l.text_buffer.start_iter(),
+                                    );
+                                    *l.draw_rect.borrow_mut() = false;
+                                    ToolUpdateResult::Commit(l.clone_box())
+                                }
                             }
                             None => ToolUpdateResult::Redraw,
                         };
@@ -1274,16 +1293,23 @@ impl Tool for TextTool {
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
         self.input_enabled = false;
         if let Some(t) = &mut self.text {
-            t.preedit = None;
-            t.editing = false;
-            t.im_context = None;
-            t.text_buffer
-                .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
-            *t.draw_rect.borrow_mut() = false;
-            let result = t.clone_box();
-            self.text = None;
-            self.input_enabled = false;
-            ToolUpdateResult::Commit(result)
+            let content = t.get_text();
+            if content.is_empty() {
+                // Don't create empty text objects
+                self.text = None;
+                ToolUpdateResult::Unmodified
+            } else {
+                t.preedit = None;
+                t.editing = false;
+                t.im_context = None;
+                t.text_buffer
+                    .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+                *t.draw_rect.borrow_mut() = false;
+                let result = t.clone_box();
+                self.text = None;
+                self.input_enabled = false;
+                ToolUpdateResult::Commit(result)
+            }
         } else {
             ToolUpdateResult::Unmodified
         }
@@ -1431,11 +1457,7 @@ impl TextTool {
                         if has_selection {
                             cursor_itr = end_iter.unwrap();
                         } else {
-                            let content = &text.text_buffer.text(
-                                &text.text_buffer.start_iter(),
-                                &text.text_buffer.end_iter(),
-                                false,
-                            );
+                            let content = &text.get_text();
                             let current_offset = cursor_itr.offset();
 
                             let mut next_line = 0;
@@ -1488,11 +1510,7 @@ impl TextTool {
                         if has_selection {
                             cursor_itr = start_iter.unwrap();
                         } else {
-                            let content = &text.text_buffer.text(
-                                &text.text_buffer.start_iter(),
-                                &text.text_buffer.end_iter(),
-                                false,
-                            );
+                            let content = &text.get_text();
                             let current_offset = cursor_itr.offset();
 
                             let mut last_line = 0;
@@ -1591,11 +1609,7 @@ impl TextTool {
                         }
                     }
                     ActionScope::ForwardLineAndWord => {
-                        let content = &text.text_buffer.text(
-                            &text.text_buffer.start_iter(),
-                            &text.text_buffer.end_iter(),
-                            false,
-                        );
+                        let content = &text.get_text();
                         let current_offset = end_cursor_itr.offset();
 
                         let mut next_line = 0;
@@ -1638,11 +1652,7 @@ impl TextTool {
                         end_cursor_itr.set_offset(move_offset);
                     }
                     ActionScope::BackwardLineAndWord => {
-                        let content = &text.text_buffer.text(
-                            &text.text_buffer.start_iter(),
-                            &text.text_buffer.end_iter(),
-                            false,
-                        );
+                        let content = &text.get_text();
                         let current_offset = end_cursor_itr.offset();
 
                         let mut last_line = 0;
