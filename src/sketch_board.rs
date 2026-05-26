@@ -895,13 +895,9 @@ impl SketchBoard {
                     } else {
                         hotkey_digit - 1
                     };
-                    if APP_CONFIG.read().color_palette().palette().len()
-                        >= (index_digit + 1) as usize
-                    {
-                        sender
-                            .output_sender()
-                            .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
-                    }
+                    sender
+                        .output_sender()
+                        .emit(SketchBoardOutput::ColorSwitchShortcut(index_digit as u64));
                 }
             }
             TextEventMsg::Preedit {
