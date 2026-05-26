@@ -90,10 +90,11 @@ impl App {
     }
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
-        let scale = APP_CONFIG.read().input_scale();
-        let fullscreen = APP_CONFIG.read().fullscreen();
-        let resize = APP_CONFIG.read().resize();
-        let floating_hack = APP_CONFIG.read().floating_hack();
+        let config = APP_CONFIG.read();
+        let scale = config.input_scale().unwrap_or(1.0);
+        let fullscreen = config.fullscreen();
+        let resize = config.resize();
+        let floating_hack = config.floating_hack();
 
         let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
         let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
