@@ -1,9 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, LineJoin, Paint, Path};
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::{Sender, gtk::gdk::ModifierType};
 
 use crate::{
     math::{self, Angle, Vec2D},
@@ -107,15 +104,6 @@ impl Tool for ArrowTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.arrow.is_some() {
-            self.arrow = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 

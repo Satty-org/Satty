@@ -456,14 +456,6 @@ impl Tool for HighlightTool {
         }
     }
 
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.highlighter.is_some() {
-            self.highlighter = None;
-            return ToolUpdateResult::Redraw;
-        }
-        ToolUpdateResult::Unmodified
-    }
-
     fn handle_key_release_event(
         &mut self,
         event: crate::sketch_board::KeyEventMsg,
