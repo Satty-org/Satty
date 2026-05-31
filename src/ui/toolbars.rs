@@ -842,7 +842,7 @@ impl Component for AnnotationSizeDialog {
                     set_hexpand: false,
 
                     set_tooltip: "Reset Annotation Size Factor",
-                    set_icon_name: "edit-reset-symbolic",
+                    set_icon_name: "arrow-counterclockwise-regular",
                     connect_clicked[sender] => move |_| {
                         sender.input(AnnotationSizeDialogInput::Reset);
                     },
