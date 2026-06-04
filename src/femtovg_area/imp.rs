@@ -128,7 +128,7 @@ impl GLAreaImpl for FemtoVGArea {
             {
                 Ok(t) => t,
                 Err(e) => {
-                    println!("Error while rendering image: {e}");
+                    eprintln!("Error while rendering image: {e}");
                     return glib::Propagation::Stop;
                 }
             };
@@ -149,7 +149,7 @@ impl GLAreaImpl for FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .render_framebuffer(canvas, font)
         {
-            println!("Error rendering to framebuffer: {e}");
+            eprintln!("Error rendering to framebuffer: {e}");
         }
         glib::Propagation::Stop
     }
