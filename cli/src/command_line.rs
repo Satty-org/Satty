@@ -44,7 +44,7 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub output_filename: Option<String>,
 
-    /// Exit directly after save action. NEXTRELEASE: changed to accommodate different triggers
+    /// Exit directly after save action. 0.21.0: changed to accommodate different triggers
     #[arg(long, value_delimiter = ',', num_args=0.., default_missing_value = "all")]
     pub early_exit: Option<Vec<EarlyExitTriggers>>,
 
@@ -70,7 +70,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub save_after_copy: bool,
 
-    /// Automatically copy to clipboard after every annotation change (NEXTRELEASE)
+    /// Automatically copy to clipboard after every annotation change (0.21.0)
     #[arg(long)]
     pub auto_copy: bool,
 
@@ -147,15 +147,15 @@ pub struct CommandLine {
     #[arg(long)]
     pub text_move_length: Option<f32>,
 
-    /// Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that before NEXTRELEASE this is ignored with explicit resize.
+    /// Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that before 0.21.0 this is ignored with explicit resize.
     #[arg(long)]
     pub input_scale: Option<f32>,
 
-    /// Experimental feature (NEXTRELEASE): Set window title
+    /// Experimental feature (0.21.0): Set window title
     #[arg(long)]
     pub title: Option<String>,
 
-    /// Experimental feature (NEXTRELEASE): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it.
+    /// Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it.
     #[arg(long)]
     pub app_id: Option<String>,
 
