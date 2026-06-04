@@ -80,6 +80,9 @@ def patch_cargo_toml [version: list<int>] {
     let version_str = $version | str join '.'
     # Update workspace.package.version
     sed -i $"/\\[workspace.package\\]/,/^version =/s/^version = .*/version = \"($version_str)\"/" Cargo.toml
+    open --raw Cargo.toml
+    | str replace --regex '(satty_cli = \{ path = "cli", version = ")[^"]*"' $'${1}($version_str)"'
+    | save -f Cargo.toml
 }
 
 def update_cargo_lock [] {
