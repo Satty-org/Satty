@@ -335,7 +335,7 @@ Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/m
 }
 ```
 
-You can discover styleable elements by using the GTK inspector with env variable `GTK_DEBUG=interactive`.
+You can discover styleable elements by using the GTK inspector with env variable `GTK_DEBUG=interactive`. Also, see [wiki](https://github.com/Satty-org/Satty/wiki/Config-examples#css-overridescss) for more examples.
 
 ### IME <sup>0.20.0</sup>
 
