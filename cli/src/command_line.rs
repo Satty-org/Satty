@@ -44,13 +44,9 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub output_filename: Option<String>,
 
-    /// Exit directly after copy/save action. 0.20.1: This does not apply to "save as".
-    #[arg(long)]
-    pub early_exit: bool,
-
-    /// Experimental (0.20.1): Exit directly after save as
-    #[arg(long)]
-    pub early_exit_save_as: bool,
+    /// Exit directly after save action. NEXTRELEASE: changed to accommodate different triggers
+    #[arg(long, value_delimiter = ',', num_args=0.., default_missing_value = "all")]
+    pub early_exit: Option<Vec<EarlyExitTriggers>>,
 
     /// Draw corners of rectangles round if the value is greater than 0
     /// (Defaults to 12) (0 disables rounded corners)
@@ -207,6 +203,16 @@ impl FromStr for Resize {
             }
         }
     }
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
+#[value(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum EarlyExitTriggers {
+    All,
+    Copy,
+    Save,
+    SaveAs,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
