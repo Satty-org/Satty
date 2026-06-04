@@ -44,7 +44,7 @@ install: target/release/satty
 	install -Dm644 completions/satty.elv $(ELVDIR)/satty.elv
 	install -Dm644 completions/satty.nu $(NUDIR)/satty.nu
 	install -Dm644 completions/satty.ts $(FIGDIR)/satty.ts
-	install -Dm644 man/satty.1 ${PREFIX}/share/man/man1
+	install -Dm644 man/satty.1 -t ${PREFIX}/share/man/man1
 
 uninstall:
 	rm ${BINDIR}/satty
