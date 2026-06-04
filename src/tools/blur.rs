@@ -161,6 +161,10 @@ impl Tool for BlurTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.blur.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Blur
     }

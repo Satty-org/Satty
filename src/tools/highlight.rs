@@ -164,6 +164,10 @@ impl Tool for HighlightTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.highlighter.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Highlight
     }

@@ -63,6 +63,10 @@ impl Tool for LineTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.line.is_some()
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {

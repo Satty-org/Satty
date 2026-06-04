@@ -117,6 +117,10 @@ impl Tool for RectangleTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.rectangle.is_some()
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {

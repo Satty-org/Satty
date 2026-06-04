@@ -146,6 +146,10 @@ impl Tool for BrushTool {
         ToolUpdateResult::Unmodified
     }
 
+    fn active(&self) -> bool {
+        self.drawable.is_some()
+    }
+
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
         self.sender = Some(sender);
     }

@@ -118,6 +118,10 @@ impl Tool for EllipseTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.ellipse.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Ellipse
     }

@@ -37,6 +37,10 @@ impl Tool for ArrowTool {
         self.input_enabled = value;
     }
 
+    fn active(&self) -> bool {
+        self.arrow.is_some()
+    }
+
     fn get_tool_type(&self) -> super::Tools {
         Tools::Arrow
     }

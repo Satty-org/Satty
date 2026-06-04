@@ -62,6 +62,7 @@ pub enum ToolsToolbarInput {
     SetVisibility(bool),
     ToggleVisibility,
     SwitchSelectedTool(Tools),
+    SetToolEditing(bool),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -299,8 +300,20 @@ impl SimpleComponent for ToolsToolbar {
                 // Change state of action, let GTK update the UI
                 self.tool_action.change_state(&tool.to_variant());
 
+                if let Some(button) = self.active_button.as_ref() {
+                    button.remove_css_class("editing");
+                }
                 if let Some(selected_tool_button) = self.tool_buttons.get(&tool) {
                     self.active_button = Some(selected_tool_button.clone());
+                }
+            }
+            ToolsToolbarInput::SetToolEditing(editing) => {
+                if let Some(button) = self.active_button.as_ref() {
+                    if editing {
+                        button.add_css_class("editing");
+                    } else {
+                        button.remove_css_class("editing");
+                    }
                 }
             }
         }
@@ -320,6 +333,10 @@ impl SimpleComponent for ToolsToolbar {
                 sender_tmp
                     .output_sender()
                     .emit(ToolbarEvent::ToolSelected(*state));
+                // also change tracked active button
+                sender_tmp
+                    .input_sender()
+                    .emit(ToolsToolbarInput::SwitchSelectedTool(*state))
             },
         );
 
