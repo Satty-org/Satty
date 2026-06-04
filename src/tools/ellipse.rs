@@ -186,20 +186,9 @@ impl Tool for EllipseTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if let Some(ellipse) = &mut self.ellipse {
-            match event.key {
-                Key::Escape => {
-                    self.ellipse = None;
-                    ToolUpdateResult::Redraw
-                }
-                Key::Return if ellipse.radii.is_some() => {
-                    ellipse.finishing = true;
-                    let result = ellipse.clone_box();
-                    self.ellipse = None;
-                    ToolUpdateResult::Commit(result)
-                }
-                _ => ToolUpdateResult::Unmodified,
-            }
+        if event.key == Key::Escape && self.ellipse.is_some() {
+            self.ellipse = None;
+            ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
         }

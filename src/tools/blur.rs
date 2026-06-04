@@ -231,20 +231,9 @@ impl Tool for BlurTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if let Some(blur) = &mut self.blur {
-            match event.key {
-                Key::Escape => {
-                    self.blur = None;
-                    ToolUpdateResult::Redraw
-                }
-                Key::Return if blur.size.is_some() => {
-                    blur.editing = false;
-                    let result = blur.clone_box();
-                    self.blur = None;
-                    ToolUpdateResult::Commit(result)
-                }
-                _ => ToolUpdateResult::Unmodified,
-            }
+        if event.key == Key::Escape && self.blur.is_some() {
+            self.blur = None;
+            ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
         }

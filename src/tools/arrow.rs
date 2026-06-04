@@ -111,19 +111,9 @@ impl Tool for ArrowTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if let Some(arrow) = &self.arrow {
-            match event.key {
-                Key::Escape => {
-                    self.arrow = None;
-                    ToolUpdateResult::Redraw
-                }
-                Key::Return if arrow.end.is_some() => {
-                    let result = arrow.clone_box();
-                    self.arrow = None;
-                    ToolUpdateResult::Commit(result)
-                }
-                _ => ToolUpdateResult::Unmodified,
-            }
+        if event.key == Key::Escape && self.arrow.is_some() {
+            self.arrow = None;
+            ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
         }
