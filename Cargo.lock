@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "satty"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "satty_cli"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "clap",
  "serde",
