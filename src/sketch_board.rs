@@ -105,6 +105,7 @@ pub struct MouseEventMsg {
     pub type_: MouseEventType,
     pub button: MouseButton,
     pub modifier: ModifierType,
+    pub screen_pos: Vec2D,
     pub pos: Vec2D,
     pub n_pressed: i32,
     pub release: bool,
@@ -124,6 +125,7 @@ impl SketchBoardInput {
             button: button.into(),
             n_pressed,
             modifier,
+            screen_pos: pos,
             pos,
             release,
         }))
@@ -150,6 +152,7 @@ impl SketchBoardInput {
             button: MouseButton::Middle,
             n_pressed: 0,
             modifier: ModifierType::empty(),
+            screen_pos: Vec2D::new(0.0, delta_y as f32),
             pos: Vec2D::new(0.0, delta_y as f32),
             release: false,
         }))
@@ -207,7 +210,7 @@ impl InputEvent {
                 }
                 MouseEventType::EndDrag | MouseEventType::UpdateDrag => {
                     if me.button == MouseButton::Middle {
-                        renderer.set_drag_offset(me.pos);
+                        renderer.set_drag_offset(me.screen_pos);
                         renderer.set_is_drag(true);
 
                         if me.type_ == MouseEventType::EndDrag {
