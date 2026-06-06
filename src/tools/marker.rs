@@ -57,6 +57,38 @@ impl Drawable for Marker {
         self.pos += delta;
     }
 
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let Some((old_tl, old_br)) = self.bounds() else {
+            return;
+        };
+
+        // Marker resize handles are semantic controls rather than geometric resize:
+        // left/right adjust number, vertical drag toggles extra ring.
+        let delta_left = tl.x - old_tl.x;
+        let delta_right = br.x - old_br.x;
+
+        const NUMBER_PX_THRESHOLD: f32 = 11.0;
+        let left_steps = (delta_left / NUMBER_PX_THRESHOLD).floor();
+        let right_steps = (delta_right / NUMBER_PX_THRESHOLD).floor();
+        let delta_steps = if left_steps.abs() < right_steps.abs() {
+            right_steps
+        } else {
+            left_steps
+        };
+        let new_number = self.number.saturating_add_signed(delta_steps as i16).max(1);
+        self.number = new_number;
+
+        let delta_top = tl.y - old_tl.y;
+        let delta_bottom = br.y - old_br.y;
+        let ring_offset = self.get_line_width();
+
+        if delta_top <= -ring_offset || delta_bottom >= ring_offset {
+            self.extra_ring = true;
+        } else if delta_top > ring_offset || delta_bottom < -ring_offset {
+            self.extra_ring = false;
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
