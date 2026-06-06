@@ -30,6 +30,14 @@ pub struct Marker {
     tool_next_number: Rc<RefCell<u16>>,
 }
 
+impl Marker {
+    fn get_line_width(&self) -> f32 {
+        self.style
+            .size
+            .to_line_width(self.style.annotation_size_factor)
+    }
+}
+
 impl Drawable for Marker {
     fn draw(
         &self,
@@ -61,39 +69,35 @@ impl Drawable for Marker {
         paint.set_text_baseline(femtovg::Baseline::Middle);
 
         let pos = self.pos;
-        let text_metrics = canvas.measure_text(pos.x, pos.y, &text, &paint)?;
-
-        let circle_radius = (text_metrics.width() * text_metrics.width()
-            + text_metrics.height() * text_metrics.height())
-        .sqrt();
+        // avoid size jitter due to small metric differences between numbers by using "77" for 1 to 99
+        let text_for_metric = format!("{}", if self.number < 100 { 77 } else { self.number });
+        let text_metrics = canvas.measure_text(pos.x, pos.y, &text_for_metric, &paint)?;
+        let line_width = self.get_line_width();
+        let circle_radius = text_metrics.width() * 0.5 + line_width * 1.5;
 
         let mut inner_circle_path = Path::new();
         inner_circle_path.arc(
             pos.x,
             pos.y,
-            circle_radius * 0.6,
+            circle_radius,
             0.0,
             2.0 * PI as f32,
             femtovg::Solidity::Solid,
         );
 
-        let circle_paint = Paint::color(marker_color).with_line_width(
-            self.style
-                .size
-                .to_line_width(self.style.annotation_size_factor)
-                * 2.0,
-        );
+        let circle_paint = Paint::color(marker_color).with_line_width(line_width);
 
         canvas.save();
 
         canvas.fill_path(&inner_circle_path, &circle_paint);
+        canvas.stroke_path(&inner_circle_path, &circle_paint);
 
         if self.extra_ring {
             let mut outer_ring_path = Path::new();
             outer_ring_path.arc(
                 pos.x,
                 pos.y,
-                circle_radius * 0.8,
+                circle_radius + line_width * 2.0,
                 0.0,
                 2.0 * PI as f32,
                 femtovg::Solidity::Solid,
