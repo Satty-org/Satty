@@ -102,16 +102,17 @@ Default single-key shortcuts:
 ### Configuration File
 
 ```toml
+# Satty Configuration file
 [general]
 # Start Satty in fullscreen mode
-fullscreen = true
-#fullscreen = false
+fullscreen = false
+# fullscreen = true
 # since 0.20.1, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
 #fullscreen = "all"
 #fullscreen = "current-screen"
 # resize initially (0.20.1)
-#resize = { mode="smart" }
-resize = { mode = "size", width=2000, height=800 }
+resize = { mode = "smart" }
+# resize = { mode = "size", width = 2000, height = 800 }
 # try to have the window float (0.20.1). This may depend on the compositor.
 floating-hack = true
 # Change to true to automatically copy to clipboard after every annotation change (0.21.0)
@@ -171,16 +172,15 @@ pan-step-size = 50.0
 # 1.0 means no zooming.
 zoom-factor = 1.1
 # experimental feature (0.20.1): The length to move the text when using arrow keys. defaults to 50.0
-text-move-length = 50.0 
+text-move-length = 50.0
 # experimental feature (0.20.1): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
 # This may be more useful to set via the command line.
 # Note, before 0.21.0 this is ignored with explicit resize.
-input-scale = 2.0
+input-scale = 1.0
 # experimental feature (0.21.0): set window title
 title = "Satty"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
-
 
 # Tool selection keyboard shortcuts (since 0.20.0)
 [keybinds]
@@ -204,38 +204,39 @@ style = "Regular"
 # Please note, there is no default setting for these and the fonts listed below
 # are not shipped with Satty but need to be available on the system.
 fallback = [
-    "Noto Sans CJK JP",
     "Noto Sans CJK SC",
-    "Noto Sans CJK TC",
-    "Noto Sans CJK KR",
-    "Noto Serif CJK JP",
-    "Noto Serif JP",
-    "IPAGothic",
-    "IPAexGothic",
-    "Source Han Sans"
+    # "Noto Sans CJK JP",
+    # "Noto Sans CJK TC",
+    # "Noto Sans CJK KR",
+    # "Noto Serif CJK JP",
+    # "Noto Serif JP",
+    # "IPAGothic",
+    # "IPAexGothic",
+    # "Source Han Sans",
+    # add or remove as needed - more fonts may make satty slower
 ]
 
 # Custom colours for the colour palette
 [color-palette]
 # These will be shown in the toolbar for quick selection
 palette = [
-    "#00ffff",
-    "#a52a2a",
-    "#dc143c",
-    "#ff1493",
-    "#ffd700",
-    "#008000",
+    # RRGGBBAA format, where AA is the alpha channel 
+    # (00 is fully transparent, ff is fully opaque)
+    "#f0932bff",
+    "#eb4d4bff",
+    "#6ab04cff",
+    "#22a6b3ff",
+    "#130f40FF",
+    # add or remove as needed
 ]
 
 # These will be available in the color picker as presets
 # Leave empty to use GTK's default
 custom = [
-    "#00ffff",
-    "#a52a2a",
-    "#dc143c",
-    "#ff1493",
-    "#ffd700",
-    "#008000",
+    # "#a52a2a",
+    # "#ffd700",
+    # "#008000",
+    # add or remove as needed
 ]
 ```
 
