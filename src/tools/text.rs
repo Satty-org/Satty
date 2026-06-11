@@ -1150,7 +1150,7 @@ impl Tool for TextTool {
                             Some(l) => {
                                 let content = l.get_text();
                                 if content.is_empty() {
-                                    ToolUpdateResult::Unmodified
+                                    ToolUpdateResult::Redraw
                                 } else {
                                     l.preedit = None;
                                     l.editing = false;
@@ -1297,7 +1297,7 @@ impl Tool for TextTool {
             if content.is_empty() {
                 // Don't create empty text objects
                 self.text = None;
-                ToolUpdateResult::Unmodified
+                ToolUpdateResult::Redraw
             } else {
                 t.preedit = None;
                 t.editing = false;
