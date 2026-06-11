@@ -21,7 +21,13 @@ export def main [version: string] {
     patch_cargo_toml $requested_version
 
     # update cargo lock
-    update_cargo_lock
+    let update_all_deps = if not ('Cargo.lock' | path exists) { true } else { (((input "Update dependencies in Cargo.lock? (y/N) " --numchar 1 --default "N") | str downcase) == "y") }
+
+    if $update_all_deps {
+      update_cargo_lock_all
+    } else {
+      update_cargo_lock
+    }
 
     # replace NEXTRELEASE with version
     update_next_release cli/src/command_line.rs $version
@@ -86,7 +92,12 @@ def patch_cargo_toml [version: list<int>] {
 }
 
 def update_cargo_lock [] {
-    "Updating Cargo.lock" | echo_section_headline
+    "Updating Cargo.lock - satty crates" | echo_section_headline
+    cargo update satty satty_cli
+}
+
+def update_cargo_lock_all [] {
+    "Updating Cargo.lock - satty crates and deps" | echo_section_headline
     cargo generate-lockfile
 }
 
