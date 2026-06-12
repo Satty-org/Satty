@@ -690,11 +690,11 @@ impl FemtoVgAreaMut {
         }
 
         if self.is_reset {
-            //centered
+            // centered
             self.is_reset = false;
             self.offset = center_offset;
         } else {
-            //dragged
+            // dragged
             self.offset = center_offset + self.drag_offset;
         }
     }

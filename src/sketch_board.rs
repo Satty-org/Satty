@@ -35,6 +35,9 @@ const SAVE_AS_LAST_DIR_MAX_BYTES: u64 = 10_000;
 #[derive(Debug, Clone)]
 pub enum SketchBoardInput {
     InputEvent(InputEvent),
+    PinchStart,
+    PinchScale(f32),
+    PinchEnd,
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -106,6 +109,7 @@ pub struct MouseEventMsg {
     pub button: MouseButton,
     pub modifier: ModifierType,
     pub screen_pos: Vec2D,
+    pub is_touchpad: bool,
     pub pos: Vec2D,
     pub n_pressed: i32,
     pub release: bool,
@@ -127,6 +131,7 @@ impl SketchBoardInput {
             modifier,
             screen_pos: pos,
             pos,
+            is_touchpad: false,
             release,
         }))
     }
@@ -146,14 +151,20 @@ impl SketchBoardInput {
         SketchBoardInput::CommitEvent(event)
     }
 
-    pub fn new_scroll_event(delta_y: f64) -> SketchBoardInput {
+    pub fn new_scroll_event(
+        delta_x: f64,
+        delta_y: f64,
+        modifier: ModifierType,
+        is_touchpad: bool,
+    ) -> SketchBoardInput {
         SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
             type_: MouseEventType::Scroll,
             button: MouseButton::Middle,
             n_pressed: 0,
-            modifier: ModifierType::empty(),
-            screen_pos: Vec2D::new(0.0, delta_y as f32),
-            pos: Vec2D::new(0.0, delta_y as f32),
+            modifier,
+            screen_pos: Vec2D::new(delta_x as f32, delta_y as f32),
+            pos: Vec2D::new(delta_x as f32, delta_y as f32),
+            is_touchpad,
             release: false,
         }))
     }
@@ -223,11 +234,24 @@ impl InputEvent {
                 }
 
                 MouseEventType::Scroll => {
-                    let factor = APP_CONFIG.read().zoom_factor();
-                    match me.pos.y {
-                        v if v < 0.0 => renderer.set_zoom_scale(factor),
-                        v if v > 0.0 => renderer.set_zoom_scale(1f32 / factor),
-                        _ => {}
+                    if me.modifier.contains(ModifierType::CONTROL_MASK) {
+                        let mut factor = APP_CONFIG.read().zoom_factor();
+                        if me.is_touchpad {
+                            factor = 1.0 + (factor - 1.0) / 2.0; // decrease a bit
+                        };
+                        match me.pos.y {
+                            v if v < 0.0 => renderer.set_zoom_scale(factor),
+                            v if v > 0.0 => renderer.set_zoom_scale(1f32 / factor),
+                            _ => {}
+                        }
+                    } else {
+                        let pan_step_size = if me.is_touchpad {
+                            -2.0 // invert for natural scrolling and decrease a bit
+                        } else {
+                            APP_CONFIG.read().pan_step_size()
+                        };
+                        renderer.set_drag_offset(me.screen_pos * pan_step_size);
+                        renderer.store_last_offset();
                     }
                     renderer.request_render(&[]);
                     None
@@ -249,6 +273,7 @@ pub struct SketchBoard {
     active_tool: Rc<RefCell<dyn Tool>>,
     tool_edit_mode: bool,
     tools: ToolsManager,
+    pinch_last_scale: f32,
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
@@ -1014,10 +1039,35 @@ impl Component for SketchBoard {
                 },
 
                 add_controller = gtk::EventControllerScroll{
-                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
-                    connect_scroll[sender] => move |_, _, dy| {
-                        sender.input(SketchBoardInput::new_scroll_event(dy));
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL
+                        | gtk::EventControllerScrollFlags::HORIZONTAL,
+                    connect_scroll[sender] => move |controller, dx, dy| {
+                        let is_touchpad = controller
+                            .current_event()
+                            .and_then(|event| event.device())
+                            .is_some_and(|device| {
+                                matches!(device.source(), gtk::gdk::InputSource::Touchpad)
+                            });
+
+                        sender.input(SketchBoardInput::new_scroll_event(
+                            dx,
+                            dy,
+                            controller.current_event_state(),
+                            is_touchpad,
+                        ));
                         relm4::gtk::glib::Propagation::Stop
+                    },
+                },
+
+                add_controller = gtk::GestureZoom {
+                    connect_begin[sender] => move |_, _| {
+                        sender.input(SketchBoardInput::PinchStart);
+                    },
+                    connect_scale_changed[sender] => move |_, scale| {
+                        sender.input(SketchBoardInput::PinchScale(scale as f32));
+                    },
+                    connect_end[sender] => move |_, _| {
+                        sender.input(SketchBoardInput::PinchEnd);
                     },
                 },
 
@@ -1203,6 +1253,26 @@ impl Component for SketchBoard {
                     }
                 }
             }
+            SketchBoardInput::PinchStart => {
+                self.pinch_last_scale = 1.0;
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PinchScale(scale) => {
+                if scale.is_finite() && scale > 0.0 && self.pinch_last_scale > 0.0 {
+                    let factor = scale / self.pinch_last_scale;
+                    if factor.is_finite() && factor > 0.0 {
+                        self.renderer.set_pointer_offset_center();
+                        self.renderer.set_zoom_scale(factor);
+                        self.renderer.request_render(&[]);
+                    }
+                    self.pinch_last_scale = scale;
+                }
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PinchEnd => {
+                self.pinch_last_scale = 1.0;
+                ToolUpdateResult::Unmodified
+            }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
@@ -1274,6 +1344,7 @@ impl Component for SketchBoard {
             active_tool: tools.get(&config.initial_tool()),
             tool_edit_mode: false,
             style: Style::default(),
+            pinch_last_scale: 1.0,
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
