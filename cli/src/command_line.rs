@@ -86,6 +86,10 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',')]
     pub actions_on_right_click: Option<Vec<Action>>,
 
+    /// Experimental (NEXTRELEASE): Actions to perform on double-click
+    #[arg(long, value_delimiter = ',')]
+    pub actions_on_double_click: Option<Vec<Action>>,
+
     /// Hide toolbars by default
     #[arg(short, long)]
     pub default_hide_toolbars: bool,
@@ -238,6 +242,8 @@ pub enum Action {
     SaveToFileAs,
     CopyFilepathToClipboard,
     Exit,
+    Undo,
+    UndoOrExit,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
