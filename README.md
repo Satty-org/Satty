@@ -54,6 +54,15 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
+Mouse:
+- <kbd>Ctrl+Wheel</kbd>: Zoom in/out <sup>NEXTRELEASE</sup>
+- <kbd>Middle</kbd>: Pan
+
+Touchpad: <sup>NEXTRELEASE</sup>
+- <kbd>Pinch</kbd>: Zoom (two finger)
+- <kbd>Ctrl+Scroll</kbd>: Zoom in/out  (two finger scroll)
+- <kbd>Scroll</kbd>: Pan  (two finger scroll)
+
 #### Color Selection Shortcuts <sup>0.20.1</sup>
 
 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, …, <kbd>9</kbd>, <kbd>0</kbd> — select nth color from the color palette

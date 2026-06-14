@@ -125,6 +125,14 @@ impl FemtoVGArea {
             .set_pointer_offset(offset * self.scale_factor() as f32);
     }
 
+    pub fn set_pointer_offset_center(&self) {
+        let center = Vec2D::new(
+            self.allocated_width() as f32 / 2.0,
+            self.allocated_height() as f32 / 2.0,
+        );
+        self.set_pointer_offset(center);
+    }
+
     pub fn set_drag_offset(&self, offset: Vec2D) {
         self.imp()
             .inner()
