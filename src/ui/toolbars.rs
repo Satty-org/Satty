@@ -101,6 +101,101 @@ fn create_icon(color: Color) -> gtk::Image {
     gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
 }
 
+/// Color picker for fullscreen="all". `GtkColorChooserDialog` puts its Select/Cancel in a header bar
+/// (not rendered on a layer-shell surface) and wraps the chooser in a scrolled window (scrollbar on
+/// the taller custom editor). Build it ourselves instead: a bare `GtkColorChooserWidget` — which
+/// sizes to its content, so no scrollbar — in an Overlay layer-shell window with in-content
+/// Cancel/Select buttons. Confirms on Select or a double-clicked swatch; cancels on Cancel or Esc.
+fn show_color_picker_overlay(
+    sender: ComponentSender<StyleToolbar>,
+    current_color: RGBA,
+    custom_colors: Vec<RGBA>,
+) {
+    use gtk4_layer_shell::{KeyboardMode, Layer, LayerShell};
+
+    let chooser = gtk::ColorChooserWidget::new();
+    chooser.set_use_alpha(true);
+    chooser.set_rgba(&current_color);
+    chooser.set_vexpand(true);
+    if !custom_colors.is_empty() {
+        chooser.add_palette(gtk::Orientation::Horizontal, 8, &custom_colors);
+    }
+
+    let cancel = gtk::Button::with_label("Cancel");
+    let select = gtk::Button::with_label("Select");
+    select.add_css_class("suggested-action");
+
+    let buttons = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(Align::End)
+        .margin_top(12)
+        .margin_bottom(8)
+        .margin_start(8)
+        .margin_end(8)
+        .build();
+    buttons.append(&cancel);
+    buttons.append(&select);
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    content.set_margin_top(8);
+    content.set_margin_bottom(8);
+    content.set_margin_start(8);
+    content.set_margin_end(8);
+    content.append(&chooser);
+    content.append(&buttons);
+
+    let window = gtk::Window::builder()
+        .title("Choose Color")
+        .modal(true)
+        .child(&content)
+        .build();
+    window.init_layer_shell();
+    window.set_namespace(Some("satty"));
+    window.set_layer(Layer::Overlay);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
+
+    let confirm = {
+        let window = window.clone();
+        let sender = sender.clone();
+        move |color: Color| {
+            sender.input(StyleToolbarInput::ColorDialogFinished(Some(color)));
+            window.close();
+        }
+    };
+
+    {
+        let confirm = confirm.clone();
+        let chooser = chooser.clone();
+        select.connect_clicked(move |_| confirm(Color::from_gdk(chooser.rgba())));
+    }
+    {
+        // double-clicking a swatch also confirms, matching the stock dialog
+        let confirm = confirm.clone();
+        chooser.connect_color_activated(move |_, rgba| confirm(Color::from_gdk(*rgba)));
+    }
+    {
+        let window = window.clone();
+        cancel.connect_clicked(move |_| window.close());
+    }
+
+    let key = gtk::EventControllerKey::new();
+    {
+        let window = window.clone();
+        key.connect_key_pressed(move |_, keyval, _, _| {
+            if keyval == gtk::gdk::Key::Escape {
+                window.close();
+                relm4::gtk::glib::Propagation::Stop
+            } else {
+                relm4::gtk::glib::Propagation::Proceed
+            }
+        });
+    }
+    window.add_controller(key);
+
+    window.present();
+}
+
 #[relm4::component(pub)]
 impl SimpleComponent for ToolsToolbar {
     type Init = ();
@@ -420,6 +515,23 @@ impl StyleToolbar {
 
     fn show_color_dialog(&self, sender: ComponentSender<StyleToolbar>, root: Option<Window>) {
         let current_color: RGBA = self.custom_color.into();
+        let custom_colors = APP_CONFIG
+            .read()
+            .color_palette()
+            .custom()
+            .iter()
+            .copied()
+            .map(RGBA::from)
+            .collect::<Vec<_>>();
+
+        // In fullscreen="all" a normal dialog toplevel opens behind the Overlay annotation surfaces
+        // (invisible), and a layer-shell surface doesn't render the dialog's header-bar buttons. Use
+        // a bespoke overlay window with the chooser widget and in-content Cancel/Select buttons.
+        if crate::layershell_all_active() {
+            show_color_picker_overlay(sender, current_color, custom_colors);
+            return;
+        }
+
         relm4::spawn_local(async move {
             let mut builder = ColorChooserDialog::builder()
                 .modal(true)
@@ -427,36 +539,13 @@ impl StyleToolbar {
                 .hide_on_close(true)
                 .rgba(&current_color);
 
-            // In fullscreen="all" the annotation surfaces sit on the Overlay layer and a normal
-            // dialog toplevel would open behind them (invisible). transient_for a layer-shell
-            // surface is meaningless anyway, so skip it there and promote the dialog itself to an
-            // Overlay layer-shell surface below.
-            let layershell = crate::layershell_all_active();
-            if !layershell && let Some(w) = root {
+            if let Some(w) = root {
                 builder = builder.transient_for(&w);
             }
 
             // build dialog and configure further
             let dialog = builder.build();
             dialog.set_use_alpha(true);
-
-            if layershell {
-                use gtk4_layer_shell::{KeyboardMode, Layer, LayerShell};
-                dialog.init_layer_shell();
-                dialog.set_namespace(Some("satty"));
-                dialog.set_layer(Layer::Overlay);
-                // grab the keyboard so hex/values can be typed into the dialog
-                dialog.set_keyboard_mode(KeyboardMode::Exclusive);
-            }
-
-            let custom_colors = APP_CONFIG
-                .read()
-                .color_palette()
-                .custom()
-                .iter()
-                .copied()
-                .map(RGBA::from)
-                .collect::<Vec<_>>();
 
             if !custom_colors.is_empty() {
                 dialog.add_palette(
