@@ -97,7 +97,8 @@ fix:
 	cargo fmt --all
 	cargo clippy --fix --allow-dirty --all-targets --all-features -- -D warnings
 
-STARTPATTERN:=» satty --help
+HELP_STARTPATTERN:=^» satty --help$$
+CONFIG_STARTPATTERN:=^\# Satty Configuration file$$
 ENDPATTERN=```
 
 # sed command adds command line help to README.md
@@ -109,7 +110,7 @@ ENDPATTERN=```
 # The double -e is needed because r command cannot be terminated with semicolon.
 # -i is tricky to use for both BSD/busybox sed AND GNU sed at the same time, so use mv instead.
 update-readme: target/release/satty
-	target/release/satty --help 2>&1 | sed -e '/${STARTPATTERN}/,/${ENDPATTERN}/{ /${STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
+	target/release/satty --help 2>&1 | sed -e '/${HELP_STARTPATTERN}/,/${ENDPATTERN}/{ /${HELP_STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
 	mv README.md.new README.md
-
-
+	cat config.toml | sed -e '/${CONFIG_STARTPATTERN}/,/${ENDPATTERN}/{ /${CONFIG_STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
+	mv README.md.new README.md
