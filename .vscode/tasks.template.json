@@ -8,14 +8,11 @@
                 "run",
                 "--",
                 "--filename",
-                //"/tmp/bug.png",
-                "/home/gabm/Pictures/Screenshots/satty-20240219-14:19:29.png", // small
-                //"/home/gabm/Pictures/Screenshots/satty-20240109-22:19:08.png", // big
-                //"--fullscreen",
+                "assets/usage.gif",
                 "--output-filename",
                 "/tmp/out.png",
                 "--copy-command",
-                "wl-copy",
+                "wl-copy"
             ],
             "problemMatcher": [
                 "$rustc"
