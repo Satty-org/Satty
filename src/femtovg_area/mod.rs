@@ -108,6 +108,10 @@ impl FemtoVGArea {
     }
 
     pub fn set_zoom_scale(&self, factor: f32) {
+        // fullscreen="all" pins every surface to a fixed per-monitor slice; zoom is disabled.
+        if crate::layershell_all_active() {
+            return;
+        }
         self.imp()
             .inner()
             .as_mut()
@@ -134,6 +138,10 @@ impl FemtoVGArea {
     }
 
     pub fn set_drag_offset(&self, offset: Vec2D) {
+        // fullscreen="all" pins every surface to a fixed per-monitor slice; panning is disabled.
+        if crate::layershell_all_active() {
+            return;
+        }
         self.imp()
             .inner()
             .as_mut()
@@ -160,6 +168,10 @@ impl FemtoVGArea {
     }
 
     pub fn reset_size(&self, factor: f32) {
+        // fullscreen="all" pins every surface to a fixed per-monitor slice; 1:1/fit are disabled.
+        if crate::layershell_all_active() {
+            return;
+        }
         self.imp()
             .inner()
             .as_mut()
