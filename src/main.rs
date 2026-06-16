@@ -465,7 +465,7 @@ fn is_wayland() -> bool {
 
 /// True when fullscreen="all" should be realized by spanning all monitors with per-monitor
 /// layer-shell surfaces (Wayland only; X11 keeps GDK's native all-monitor fullscreen).
-fn layershell_all_active() -> bool {
+pub(crate) fn layershell_all_active() -> bool {
     APP_CONFIG.read().fullscreen() == Some(Fullscreen::All)
         && is_wayland()
         && gtk4_layer_shell::is_supported()

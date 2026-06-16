@@ -427,13 +427,27 @@ impl StyleToolbar {
                 .hide_on_close(true)
                 .rgba(&current_color);
 
-            if let Some(w) = root {
+            // In fullscreen="all" the annotation surfaces sit on the Overlay layer and a normal
+            // dialog toplevel would open behind them (invisible). transient_for a layer-shell
+            // surface is meaningless anyway, so skip it there and promote the dialog itself to an
+            // Overlay layer-shell surface below.
+            let layershell = crate::layershell_all_active();
+            if !layershell && let Some(w) = root {
                 builder = builder.transient_for(&w);
             }
 
             // build dialog and configure further
             let dialog = builder.build();
             dialog.set_use_alpha(true);
+
+            if layershell {
+                use gtk4_layer_shell::{KeyboardMode, Layer, LayerShell};
+                dialog.init_layer_shell();
+                dialog.set_namespace(Some("satty"));
+                dialog.set_layer(Layer::Overlay);
+                // grab the keyboard so hex/values can be typed into the dialog
+                dialog.set_keyboard_mode(KeyboardMode::Exclusive);
+            }
 
             let custom_colors = APP_CONFIG
                 .read()
@@ -904,6 +918,17 @@ impl Component for AnnotationSizeDialog {
         header_bar.pack_end(&ok_button);
 
         let widgets = view_output!();
+
+        // In fullscreen="all" the annotation surfaces are on the Overlay layer and would hide this
+        // dialog (a normal toplevel). Promote it to its own Overlay layer-shell surface, grabbing
+        // the keyboard so the spin button and Enter/Escape work.
+        if crate::layershell_all_active() {
+            use gtk4_layer_shell::{KeyboardMode, Layer, LayerShell};
+            root.init_layer_shell();
+            root.set_namespace(Some("satty"));
+            root.set_layer(Layer::Overlay);
+            root.set_keyboard_mode(KeyboardMode::Exclusive);
+        }
 
         let key_controller = gtk::EventControllerKey::builder()
             // not sure if this is the correct phase, but anything higher and Enter to close doesn't work consistently
