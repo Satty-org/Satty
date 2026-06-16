@@ -3,6 +3,9 @@
 fullscreen = false
 # fullscreen = true
 # since 0.20.1, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
+# On Wayland, "all" spans every monitor using one layer-shell surface per output (requires a
+# compositor with wlr-layer-shell, e.g. Hyprland/Sway/river); it falls back to a single screen
+# otherwise. On X11 it uses GDK's native all-monitor fullscreen.
 #fullscreen = "all"
 #fullscreen = "current-screen"
 # resize initially (0.20.1)
