@@ -35,13 +35,20 @@ impl Blur {
         let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
         let transformed_size = size * canvas.transform().average_scale();
 
+        // Clamp the sampled region to the actual framebuffer. With fullscreen="all" each monitor's
+        // canvas only shows a slice of the image, so a blur belonging to another monitor maps to
+        // out-of-bounds (even negative) coordinates here; sub_image would otherwise panic.
+        let img_w = img.width() as f32;
+        let img_h = img.height() as f32;
+        let left = transformed_pos.0.clamp(0.0, img_w);
+        let top = transformed_pos.1.clamp(0.0, img_h);
+        let right = (transformed_pos.0 + transformed_size.x).clamp(0.0, img_w);
+        let bottom = (transformed_pos.1 + transformed_size.y).clamp(0.0, img_h);
+        let width = ((right - left) as usize).max(1);
+        let height = ((bottom - top) as usize).max(1);
+
         let (buf, width, height) = img
-            .sub_image(
-                transformed_pos.0 as usize,
-                transformed_pos.1 as usize,
-                (transformed_size.x as usize).max(1),
-                (transformed_size.y as usize).max(1),
-            )
+            .sub_image(left as usize, top as usize, width, height)
             .to_contiguous_buf();
         let sub = Img::new(buf.into_owned(), width, height);
 

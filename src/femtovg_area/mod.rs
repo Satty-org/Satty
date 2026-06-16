@@ -177,4 +177,22 @@ impl FemtoVGArea {
     pub fn resize(&self, width: i32, height: i32) {
         self.imp().resize(width, height);
     }
+
+    /// Pin this area to a fixed slice of the image at native scale (fullscreen="all" on Wayland).
+    /// `view` is `(image_origin, image_per_device_px)`; pass `None` to restore fit/center behaviour.
+    pub fn set_layout_view(&self, view: Option<(Vec2D, f32)>) {
+        self.prime_layout_view(view);
+        // recompute transform for the new view (area must already be realized)
+        self.imp().resize(0, 0);
+    }
+
+    /// Set the layout view without forcing a render. Use before the area is realized; the natural
+    /// resize when the surface is mapped will apply the transform.
+    pub fn prime_layout_view(&self, view: Option<(Vec2D, f32)>) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_layout_view(view);
+    }
 }

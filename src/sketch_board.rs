@@ -18,13 +18,15 @@ use gtk::prelude::*;
 use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
+use gtk4_layer_shell::{Edge, Layer, LayerShell};
+
 use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
 use crate::notification::log_result;
 use crate::style::Style;
-use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
+use crate::tools::{Drawable, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
 
@@ -45,7 +47,21 @@ pub enum SketchBoardInput {
     Refresh,
     Exit,
     ScaleFactorChanged,
+    SetupAllMonitors(Vec<MonitorViewSpec>),
     Output(SketchBoardOutput),
+}
+
+/// Describes how one monitor maps onto the screenshot for fullscreen="all" on Wayland.
+#[derive(Debug, Clone)]
+pub struct MonitorViewSpec {
+    /// gdk monitor connector (e.g. "HDMI-A-1"); used to find the matching monitor for layer-shell.
+    pub connector: String,
+    /// Image-space coordinate shown at this monitor's top-left.
+    pub image_origin: Vec2D,
+    /// Image pixels per canvas device pixel (≈ 1.0 for an unscaled grim capture).
+    pub image_per_device_px: f32,
+    /// The primary monitor reuses the App root window; others get their own layer-shell window.
+    pub is_primary: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +129,10 @@ pub struct MouseEventMsg {
     pub pos: Vec2D,
     pub n_pressed: i32,
     pub release: bool,
+    // True when `pos` is already in image coordinates (events forwarded from a secondary
+    // fullscreen="all" monitor area, which converts using its own transform). The primary area
+    // sends canvas coordinates that SketchBoard converts via its renderer.
+    pub image_space: bool,
 }
 
 impl SketchBoardInput {
@@ -133,6 +153,30 @@ impl SketchBoardInput {
             pos,
             is_touchpad: false,
             release,
+            image_space: false,
+        }))
+    }
+
+    /// Mouse event from a secondary fullscreen="all" monitor area: `pos` is already in image
+    /// coordinates, so SketchBoard must not convert it again.
+    pub fn new_image_space_mouse_event(
+        event_type: MouseEventType,
+        button: u32,
+        n_pressed: i32,
+        modifier: ModifierType,
+        pos: Vec2D,
+        release: bool,
+    ) -> SketchBoardInput {
+        SketchBoardInput::InputEvent(InputEvent::Mouse(MouseEventMsg {
+            type_: event_type,
+            button: button.into(),
+            n_pressed,
+            modifier,
+            screen_pos: pos,
+            pos,
+            is_touchpad: false,
+            release,
+            image_space: true,
         }))
     }
     pub fn new_key_event(event: KeyEventMsg) -> SketchBoardInput {
@@ -166,6 +210,7 @@ impl SketchBoardInput {
             pos: Vec2D::new(delta_x as f32, delta_y as f32),
             is_touchpad,
             release: false,
+            image_space: false,
         }))
     }
 }
@@ -277,11 +322,244 @@ pub struct SketchBoard {
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    // fullscreen="all" on Wayland: the background image and the secondary per-monitor layer-shell
+    // surfaces that mirror the scene. Empty for the normal single-window case.
+    image: Pixbuf,
+    mirrors: Vec<FemtoVGArea>,
+    mirror_windows: Vec<gtk::Window>,
 }
 
 impl SketchBoard {
     fn refresh_screen(&mut self) {
         self.renderer.queue_render();
+        for m in &self.mirrors {
+            m.queue_render();
+        }
+    }
+
+    /// Commit a drawable to every area. The primary keeps the original; each mirror gets its own
+    /// clone so that per-canvas state (e.g. the blur tool's cached image) stays independent.
+    fn commit_drawable(&mut self, drawable: Box<dyn Drawable>) {
+        for m in &mut self.mirrors {
+            m.commit(drawable.clone_box());
+        }
+        self.renderer.commit(drawable);
+    }
+
+    fn undo_all(&mut self) -> bool {
+        let undone = self.renderer.undo();
+        for m in &mut self.mirrors {
+            m.undo();
+        }
+        undone
+    }
+
+    fn redo_all(&mut self) -> bool {
+        let redone = self.renderer.redo();
+        for m in &mut self.mirrors {
+            m.redo();
+        }
+        redone
+    }
+
+    fn reset_all(&mut self) -> bool {
+        let reset = self.renderer.reset();
+        for m in &mut self.mirrors {
+            m.reset();
+        }
+        reset
+    }
+
+    /// Request a render on the primary (this is where save/copy renders the full image) and
+    /// redraw every mirror so the on-screen result stays in sync.
+    fn request_render_all(&self, actions: &[Action]) {
+        self.renderer.request_render(actions);
+        for m in &self.mirrors {
+            m.queue_render();
+        }
+    }
+
+    fn set_active_tool_all(&mut self, tool: Rc<RefCell<dyn Tool>>) {
+        self.renderer.set_active_tool(tool.clone());
+        for m in &mut self.mirrors {
+            m.set_active_tool(tool.clone());
+        }
+    }
+
+    /// fullscreen="all" on Wayland: pin the primary area to its monitor's slice and create a
+    /// layer-shell mirror window for every other monitor, each showing its own slice of the image.
+    fn setup_all_monitors(&mut self, specs: Vec<MonitorViewSpec>, sender: &ComponentSender<Self>) {
+        let Some(display) = DisplayManager::get().default_display() else {
+            eprintln!("fullscreen=all: no default display");
+            return;
+        };
+        let monitors = display.monitors();
+
+        let find_monitor = |connector: &str| -> Option<gtk::gdk::Monitor> {
+            for i in 0..monitors.n_items() {
+                if let Some(mon) = monitors
+                    .item(i)
+                    .and_then(|obj| obj.downcast::<gtk::gdk::Monitor>().ok())
+                    && mon.connector().as_deref() == Some(connector)
+                {
+                    return Some(mon);
+                }
+            }
+            None
+        };
+
+        for spec in specs {
+            let view = Some((spec.image_origin, spec.image_per_device_px));
+
+            if spec.is_primary {
+                // primary reuses the App root window / its already-realized area
+                self.renderer.set_layout_view(view);
+                continue;
+            }
+
+            let Some(monitor) = find_monitor(&spec.connector) else {
+                eprintln!(
+                    "fullscreen=all: monitor '{}' not found, skipping",
+                    spec.connector
+                );
+                continue;
+            };
+
+            let mut area = FemtoVGArea::default();
+            area.init(
+                sender.input_sender().clone(),
+                self.tools.get_crop_tool(),
+                self.active_tool.clone(),
+                self.image.clone(),
+            );
+            area.set_vexpand(true);
+            area.set_hexpand(true);
+            area.prime_layout_view(view);
+            Self::add_mirror_input_controllers(&area, sender.input_sender().clone());
+
+            let window = gtk::Window::new();
+            window.add_css_class("root");
+            window.set_child(Some(&area));
+            window.init_layer_shell();
+            window.set_namespace(Some("satty"));
+            window.set_layer(Layer::Overlay);
+            window.set_monitor(Some(&monitor));
+            for edge in [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom] {
+                window.set_anchor(edge, true);
+            }
+            window.set_exclusive_zone(-1);
+            window.present();
+
+            self.mirrors.push(area);
+            self.mirror_windows.push(window);
+        }
+
+        self.refresh_screen();
+    }
+
+    /// Input controllers for a secondary monitor's mirror area. Pointer coordinates are converted
+    /// to image space using the mirror's own transform and forwarded as image-space events.
+    fn add_mirror_input_controllers(area: &FemtoVGArea, sender: relm4::Sender<SketchBoardInput>) {
+        let drag = gtk::GestureDrag::new();
+        drag.set_button(0);
+        {
+            let sender = sender.clone();
+            let area = area.clone();
+            drag.connect_drag_begin(move |controller, x, y| {
+                let pos = area.abs_canvas_to_image_coordinates(Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::new_image_space_mouse_event(
+                    MouseEventType::BeginDrag,
+                    controller.current_button(),
+                    1,
+                    controller.current_event_state(),
+                    pos,
+                    false,
+                ));
+            });
+        }
+        {
+            let sender = sender.clone();
+            let area = area.clone();
+            drag.connect_drag_update(move |controller, x, y| {
+                let pos = area.rel_canvas_to_image_coordinates(Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::new_image_space_mouse_event(
+                    MouseEventType::UpdateDrag,
+                    controller.current_button(),
+                    1,
+                    controller.current_event_state(),
+                    pos,
+                    false,
+                ));
+            });
+        }
+        {
+            let sender = sender.clone();
+            let area = area.clone();
+            drag.connect_drag_end(move |controller, x, y| {
+                let pos = area.rel_canvas_to_image_coordinates(Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::new_image_space_mouse_event(
+                    MouseEventType::EndDrag,
+                    controller.current_button(),
+                    1,
+                    controller.current_event_state(),
+                    pos,
+                    false,
+                ));
+            });
+        }
+        area.add_controller(drag);
+
+        let click = gtk::GestureClick::new();
+        click.set_button(0);
+        {
+            let sender = sender.clone();
+            let area = area.clone();
+            click.connect_pressed(move |controller, n_pressed, x, y| {
+                let pos = area.abs_canvas_to_image_coordinates(Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::new_image_space_mouse_event(
+                    MouseEventType::Click,
+                    controller.current_button(),
+                    n_pressed,
+                    controller.current_event_state(),
+                    pos,
+                    false,
+                ));
+            });
+        }
+        {
+            let sender = sender.clone();
+            let area = area.clone();
+            click.connect_released(move |controller, n_released, x, y| {
+                let pos = area.abs_canvas_to_image_coordinates(Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::new_image_space_mouse_event(
+                    MouseEventType::Release,
+                    controller.current_button(),
+                    n_released,
+                    controller.current_event_state(),
+                    pos,
+                    true,
+                ));
+            });
+        }
+        area.add_controller(click);
+
+        let motion = gtk::EventControllerMotion::new();
+        {
+            let sender = sender.clone();
+            let area = area.clone();
+            motion.connect_motion(move |controller, x, y| {
+                let pos = area.abs_canvas_to_image_coordinates(Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::new_image_space_mouse_event(
+                    MouseEventType::PointerPos,
+                    0,
+                    0,
+                    controller.current_event_state(),
+                    pos,
+                    false,
+                ));
+            });
+        }
+        area.add_controller(motion);
     }
 
     fn image_to_pixbuf(image: RenderedImage) -> Pixbuf {
@@ -299,11 +577,13 @@ impl SketchBoard {
     }
 
     fn deactivate_active_tool(&mut self) -> bool {
-        if self.active_tool.borrow().active()
-            && let ToolUpdateResult::Commit(result) =
-                self.active_tool.borrow_mut().handle_deactivated()
-        {
-            self.renderer.commit(result);
+        if !self.active_tool.borrow().active() {
+            return false;
+        }
+        // drop the tool borrow before commit_drawable, which needs &mut self
+        let result = self.active_tool.borrow_mut().handle_deactivated();
+        if let ToolUpdateResult::Commit(drawable) = result {
+            self.commit_drawable(drawable);
             return true;
         }
         false
@@ -315,7 +595,7 @@ impl SketchBoard {
         } else {
             ToolUpdateResult::Unmodified
         };
-        self.renderer.request_render(actions);
+        self.request_render_all(actions);
         rv
     }
 
@@ -740,7 +1020,7 @@ impl SketchBoard {
     fn handle_undo(&mut self) -> ToolUpdateResult {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_undo()
-        } else if self.renderer.undo() {
+        } else if self.undo_all() {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -750,7 +1030,7 @@ impl SketchBoard {
     fn handle_redo(&mut self) -> ToolUpdateResult {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_redo()
-        } else if self.renderer.redo() {
+        } else if self.redo_all() {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -759,7 +1039,7 @@ impl SketchBoard {
 
     fn handle_reset(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
-        if self.deactivate_active_tool() | self.renderer.reset() {
+        if self.deactivate_active_tool() | self.reset_all() {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
@@ -768,13 +1048,13 @@ impl SketchBoard {
 
     fn handle_resize(&mut self) -> ToolUpdateResult {
         self.renderer.reset_size(0.);
-        self.renderer.request_render(&[]);
+        self.request_render_all(&[]);
         ToolUpdateResult::Unmodified
     }
 
     fn handle_original_scale(&mut self) -> ToolUpdateResult {
         self.renderer.reset_size(1.);
-        self.renderer.request_render(&[]);
+        self.request_render_all(&[]);
         ToolUpdateResult::Unmodified
     }
 
@@ -804,9 +1084,9 @@ impl SketchBoard {
                 old_tool.borrow_mut().set_im_context(None);
 
                 if let ToolUpdateResult::Commit(d) = deactivate_result {
-                    self.renderer.commit(d);
+                    self.commit_drawable(d);
                     if APP_CONFIG.read().auto_copy() {
-                        self.renderer.request_render(&[Action::SaveToClipboard]);
+                        self.request_render_all(&[Action::SaveToClipboard]);
                     }
                     // we handle commit directly and "downgrade" to a simple redraw result
                     deactivate_result = ToolUpdateResult::Redraw;
@@ -814,7 +1094,7 @@ impl SketchBoard {
 
                 // change active tool
                 self.active_tool = self.tools.get(&tool);
-                self.renderer.set_active_tool(self.active_tool.clone());
+                self.set_active_tool_all(self.active_tool.clone());
                 let widget_ref: gtk::Widget = self.renderer.clone().upcast();
                 self.active_tool
                     .borrow_mut()
@@ -1147,25 +1427,24 @@ impl Component for SketchBoard {
                             } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
-                                self.renderer.request_render(&[Action::SaveToFile]);
+                                self.request_render_all(&[Action::SaveToFile]);
                                 ToolUpdateResult::Unmodified
                             } else if ke.is_one_of(Key::s, KeyMappingId::UsS)
                                 && ke.modifier
                                     == (ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK)
                             {
-                                self.renderer.request_render(&[Action::SaveToFileAs]);
+                                self.request_render_all(&[Action::SaveToFileAs]);
                                 ToolUpdateResult::Unmodified
                             } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
                                 && ke.modifier == ModifierType::CONTROL_MASK
                             {
-                                self.renderer.request_render(&[Action::SaveToClipboard]);
+                                self.request_render_all(&[Action::SaveToClipboard]);
                                 ToolUpdateResult::Unmodified
                             } else if ke.is_one_of(Key::c, KeyMappingId::UsC)
                                 && ke.modifier
                                     == (ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
                             {
-                                self.renderer
-                                    .request_render(&[Action::CopyFilepathToClipboard]);
+                                self.request_render_all(&[Action::CopyFilepathToClipboard]);
                                 ToolUpdateResult::Unmodified
                             } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
                                 || ke.is_one_of(Key::i, KeyMappingId::UsI))
@@ -1206,7 +1485,7 @@ impl Component for SketchBoard {
                                 }
 
                                 self.renderer.store_last_offset();
-                                self.renderer.request_render(&[]);
+                                self.request_render_all(&[]);
                                 ToolUpdateResult::Unmodified
                             } else if ke.modifier.is_empty() && ke.key == Key::Delete {
                                 self.handle_reset()
@@ -1223,7 +1502,7 @@ impl Component for SketchBoard {
                                     } else {
                                         APP_CONFIG.read().actions_on_enter()
                                     };
-                                    self.renderer.request_render(&actions);
+                                    self.request_render_all(&actions);
                                 };
                                 active_tool_result
                             } else {
@@ -1232,7 +1511,13 @@ impl Component for SketchBoard {
                         }
                     }
                 } else {
-                    ie.handle_event_mouse_input(&self.renderer);
+                    // Events forwarded from a secondary fullscreen="all" monitor are already in
+                    // image coordinates and must not be converted again, nor drive pan/zoom (the
+                    // mirror surfaces use a fixed view).
+                    let from_mirror = matches!(&ie, InputEvent::Mouse(me) if me.image_space);
+                    if !from_mirror {
+                        ie.handle_event_mouse_input(&self.renderer);
+                    }
                     let active_tool_result = self
                         .active_tool
                         .borrow_mut()
@@ -1244,7 +1529,9 @@ impl Component for SketchBoard {
                         ToolUpdateResult::StopPropagation
                         | ToolUpdateResult::RedrawAndStopPropagation => active_tool_result,
                         _ => {
-                            if let Some(result) = ie.handle_mouse_event(&self.renderer) {
+                            if from_mirror {
+                                active_tool_result
+                            } else if let Some(result) = ie.handle_mouse_event(&self.renderer) {
                                 result
                             } else {
                                 active_tool_result
@@ -1263,7 +1550,7 @@ impl Component for SketchBoard {
                     if factor.is_finite() && factor > 0.0 {
                         self.renderer.set_pointer_offset_center();
                         self.renderer.set_zoom_scale(factor);
-                        self.renderer.request_render(&[]);
+                        self.request_render_all(&[]);
                     }
                     self.pinch_last_scale = scale;
                 }
@@ -1300,6 +1587,10 @@ impl Component for SketchBoard {
                 self.renderer.resize(0, 0);
                 ToolUpdateResult::Redraw
             }
+            SketchBoardInput::SetupAllMonitors(specs) => {
+                self.setup_all_monitors(specs, &sender);
+                ToolUpdateResult::Redraw
+            }
             SketchBoardInput::Output(output) => {
                 sender.output_sender().emit(output);
                 ToolUpdateResult::Unmodified
@@ -1316,9 +1607,9 @@ impl Component for SketchBoard {
 
         match result {
             ToolUpdateResult::Commit(drawable) => {
-                self.renderer.commit(drawable);
+                self.commit_drawable(drawable);
                 if APP_CONFIG.read().auto_copy() {
-                    self.renderer.request_render(&[Action::SaveToClipboard]);
+                    self.request_render_all(&[Action::SaveToClipboard]);
                 }
                 self.refresh_screen();
             }
@@ -1348,6 +1639,9 @@ impl Component for SketchBoard {
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            image: image.clone(),
+            mirrors: Vec::new(),
+            mirror_windows: Vec::new(),
         };
 
         let area = &mut model.renderer;

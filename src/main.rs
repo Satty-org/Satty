@@ -17,6 +17,8 @@ use relm4::{
     gtk::{self, CssProvider, Window, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel},
 };
 
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+
 use anyhow::{Context, Result, anyhow};
 use satty_cli::command_line::{Fullscreen, Resize};
 
@@ -35,7 +37,8 @@ mod style;
 mod tools;
 mod ui;
 
-use crate::sketch_board::{SketchBoard, SketchBoardInput};
+use crate::math::Vec2D;
+use crate::sketch_board::{MonitorViewSpec, SketchBoard, SketchBoardInput};
 use crate::tools::Tools;
 
 pub static START_TIME: LazyLock<chrono::DateTime<chrono::Local>> =
@@ -104,6 +107,12 @@ impl App {
             "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
             fullscreen, resize, floating_hack
         );
+
+        // On Wayland fullscreen="all" is realized via per-monitor layer-shell surfaces (set up in
+        // init), which size themselves to each output. Skip the native sizing/fullscreen path.
+        if layershell_all_active() {
+            return;
+        }
 
         if fullscreen == Some(Fullscreen::All)
             && let Some(surface) = root.surface()
@@ -417,6 +426,13 @@ impl Component for App {
             }
         });
 
+        // fullscreen="all" on Wayland: span all monitors via per-monitor layer-shell surfaces.
+        if layershell_all_active() {
+            setup_layershell_all(&root, model.sketch_board.sender(), image_dimensions);
+            // toolbars overlay the canvas (layer-shell surfaces don't emit "fullscreened")
+            sender.input(AppInput::FullscreenChanged(true));
+        }
+
         generate_profile_output!("app init end");
 
         relm4::gtk::glib::idle_add_local_once(move || {
@@ -425,6 +441,122 @@ impl Component for App {
 
         ComponentParts { model, widgets }
     }
+}
+
+fn is_wayland() -> bool {
+    DisplayManager::get()
+        .default_display()
+        .map(|d| d.type_().name() == "GdkWaylandDisplay")
+        .unwrap_or(false)
+}
+
+/// True when fullscreen="all" should be realized by spanning all monitors with per-monitor
+/// layer-shell surfaces (Wayland only; X11 keeps GDK's native all-monitor fullscreen).
+fn layershell_all_active() -> bool {
+    APP_CONFIG.read().fullscreen() == Some(Fullscreen::All)
+        && is_wayland()
+        && gtk4_layer_shell::is_supported()
+}
+
+/// Span fullscreen="all" across every monitor on Wayland. The App root window becomes the primary
+/// layer-shell surface; SketchBoard creates one more layer-shell surface per remaining monitor.
+/// Each surface shows its own slice of the screenshot at native scale.
+fn setup_layershell_all(
+    root: &Window,
+    sketch_board_sender: &relm4::Sender<SketchBoardInput>,
+    image_dimensions: (i32, i32),
+) {
+    let Some(display) = DisplayManager::get().default_display() else {
+        eprintln!("fullscreen=all: no default display");
+        return;
+    };
+    let monitor_model = display.monitors();
+
+    // (monitor, connector, geometry, scale_factor) for each connected monitor
+    let mut monitors: Vec<(gtk::gdk::Monitor, String, Rectangle, i32)> = Vec::new();
+    for i in 0..monitor_model.n_items() {
+        if let Some(mon) = monitor_model
+            .item(i)
+            .and_then(|obj| obj.downcast::<gtk::gdk::Monitor>().ok())
+        {
+            let Some(connector) = mon.connector().map(|c| c.to_string()) else {
+                continue;
+            };
+            let geometry = mon.geometry();
+            let scale = mon.scale_factor();
+            monitors.push((mon, connector, geometry, scale));
+        }
+    }
+    if monitors.is_empty() {
+        eprintln!("fullscreen=all: no monitors found");
+        return;
+    }
+
+    // bounding box of the whole layout, in logical coordinates
+    let min_x = monitors.iter().map(|m| m.2.x()).min().unwrap_or(0);
+    let min_y = monitors.iter().map(|m| m.2.y()).min().unwrap_or(0);
+    let max_right = monitors
+        .iter()
+        .map(|m| m.2.x() + m.2.width())
+        .max()
+        .unwrap_or(0);
+    let max_bottom = monitors
+        .iter()
+        .map(|m| m.2.y() + m.2.height())
+        .max()
+        .unwrap_or(0);
+    let layout_w = (max_right - min_x).max(1) as f32;
+    let layout_h = (max_bottom - min_y).max(1) as f32;
+
+    // how the screenshot maps onto the layout (≈ 1.0 for an unscaled grim capture of all outputs)
+    let sx = image_dimensions.0 as f32 / layout_w;
+    let sy = image_dimensions.1 as f32 / layout_h;
+
+    // the toolbars live on the primary monitor: prefer the one containing the layout origin (0,0)
+    let primary_idx = monitors
+        .iter()
+        .position(|m| {
+            let g = m.2;
+            g.x() <= 0 && 0 < g.x() + g.width() && g.y() <= 0 && 0 < g.y() + g.height()
+        })
+        .unwrap_or(0);
+
+    // configure the App root window as the primary layer-shell surface
+    let primary_monitor = &monitors[primary_idx].0;
+    root.init_layer_shell();
+    root.set_namespace(Some("satty"));
+    root.set_layer(Layer::Overlay);
+    root.set_monitor(Some(primary_monitor));
+    for edge in [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom] {
+        root.set_anchor(edge, true);
+    }
+    root.set_exclusive_zone(-1);
+    root.set_keyboard_mode(KeyboardMode::OnDemand);
+
+    let specs: Vec<MonitorViewSpec> = monitors
+        .iter()
+        .enumerate()
+        .map(|(i, (_, connector, geometry, scale))| MonitorViewSpec {
+            connector: connector.clone(),
+            image_origin: Vec2D::new(
+                (geometry.x() - min_x) as f32 * sx,
+                (geometry.y() - min_y) as f32 * sy,
+            ),
+            image_per_device_px: sx / (*scale).max(1) as f32,
+            is_primary: i == primary_idx,
+        })
+        .collect();
+
+    eprintln!(
+        "fullscreen=all: spanning {} monitors (layout {}x{}, image {}x{})",
+        specs.len(),
+        layout_w as i32,
+        layout_h as i32,
+        image_dimensions.0,
+        image_dimensions.1
+    );
+
+    sketch_board_sender.emit(SketchBoardInput::SetupAllMonitors(specs));
 }
 
 fn read_css_overrides() -> Option<String> {

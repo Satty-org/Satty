@@ -25,6 +25,10 @@ satty_cli.workspace = true
 relm4 = { version = "0.10.1", features = ["macros", "libadwaita", "gnome_42"] }
 tokio = { version = "1.52.3", features = ["time"] }
 
+# wayland layer-shell: used to span fullscreen="all" across all monitors
+# 0.7.x targets gtk4-rs 0.10, matching the relm4 0.10 gtk4 dependency
+gtk4-layer-shell = "0.7.0"
+
 # error handling
 anyhow = "1.0"
 thiserror = "2.0"
