@@ -111,19 +111,21 @@ impl Drawable for Crop {
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
-        _bounds: (Vec2D, Vec2D),
+        bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let size = self.size;
         let scale = canvas.transform().average_scale();
-        let dimensions = Vec2D::new(
-            canvas.width() as f32 / scale,
-            canvas.height() as f32 / scale,
-        );
+
+        // Dim the whole image (in image coordinates) and punch a hole at the crop selection.
+        // Using the image bounds rather than this canvas's dimensions keeps the overlay aligned
+        // for fullscreen="all" on Wayland, where each monitor's area only shows a fixed slice of
+        // the image at a non-zero origin.
+        let (origin, far) = bounds;
 
         let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
             .with_fill_rule(femtovg::FillRule::EvenOdd);
         let mut shadow_path = Path::new();
-        shadow_path.rect(0.0, 0.0, dimensions.x, dimensions.y);
+        shadow_path.rect(origin.x, origin.y, far.x - origin.x, far.y - origin.y);
         shadow_path.rect(self.pos.x, self.pos.y, size.x, size.y);
 
         let border_paint = Paint::color(Color::rgbf(0.1, 0.1, 0.1)).with_line_width(2.0);
