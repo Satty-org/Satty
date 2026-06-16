@@ -63,6 +63,12 @@ struct App {
     style_toolbar: Controller<StyleToolbar>,
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
+    // Whether the toolbars currently live in the overlay (fullscreen) rather than the outer box.
+    // Tracked so FullscreenChanged stays idempotent: it can fire more than once for the same state
+    // (e.g. our explicit call for layer-shell fullscreen="all" plus the window's "fullscreened"
+    // notify), and re-running the move would hit a gtk_box_remove assertion on an already-moved
+    // widget.
+    toolbars_overlaid: bool,
 }
 
 #[derive(Debug)]
@@ -292,18 +298,24 @@ impl Component for App {
                     .emit(SketchBoardInput::ScaleFactorChanged);
             }
             AppInput::FullscreenChanged(fullscreen) => {
-                let tools = self.tools_toolbar.widget();
-                let style = self.style_toolbar.widget();
-                if fullscreen {
-                    self.outer_box.remove(tools);
-                    self.outer_box.remove(style);
-                    self.overlay.add_overlay(tools);
-                    self.overlay.add_overlay(style);
-                } else {
-                    self.overlay.remove_overlay(tools);
-                    self.overlay.remove_overlay(style);
-                    self.outer_box.prepend(tools);
-                    self.outer_box.append(style);
+                // Idempotent: skip when the toolbars are already in the requested place. Without
+                // this guard a repeated FullscreenChanged(true) re-runs the move and trips a
+                // gtk_box_remove assertion on the (already moved) toolbar widgets.
+                if fullscreen != self.toolbars_overlaid {
+                    let tools = self.tools_toolbar.widget();
+                    let style = self.style_toolbar.widget();
+                    if fullscreen {
+                        self.outer_box.remove(tools);
+                        self.outer_box.remove(style);
+                        self.overlay.add_overlay(tools);
+                        self.overlay.add_overlay(style);
+                    } else {
+                        self.overlay.remove_overlay(tools);
+                        self.overlay.remove_overlay(style);
+                        self.outer_box.prepend(tools);
+                        self.outer_box.append(style);
+                    }
+                    self.toolbars_overlaid = fullscreen;
                 }
             }
             AppInput::DimensionsUpdate(dimensions) => {
@@ -381,6 +393,7 @@ impl Component for App {
             image_dimensions,
             outer_box,
             overlay,
+            toolbars_overlaid: false,
         };
 
         // Initialize style toolbar with full image dimensions
