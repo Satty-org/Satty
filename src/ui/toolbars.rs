@@ -32,12 +32,7 @@ pub struct StyleToolbar {
     visible: bool,
     annotation_size: f32,
     annotation_size_formatted: String,
-    annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
     output_dimensions: String,
-}
-
-pub struct AnnotationSizeDialog {
-    annotation_size: f32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -72,24 +67,9 @@ pub enum StyleToolbarInput {
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
-    ShowAnnotationDialog,
     AdjustAnnotationSize(f32),
-    AnnotationDialogFinished(Option<f32>),
+    ResetAnnotationSize,
     DimensionsChanged((i32, i32)),
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum AnnotationSizeDialogInput {
-    ValueChanged(f32),
-    Reset,
-    Show(f32),
-    Submit,
-    Cancel,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum AnnotationSizeDialogOutput {
-    AnnotationSizeSubmitted(f32),
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -475,33 +455,6 @@ impl StyleToolbar {
             ColorButtons::Custom => self.custom_color,
         }
     }
-
-    fn show_annotation_dialog(
-        &mut self,
-        sender: ComponentSender<StyleToolbar>,
-        root: Option<Window>,
-    ) {
-        if self.annotation_dialog_controller.is_none() {
-            let mut builder = AnnotationSizeDialog::builder();
-            if let Some(w) = root {
-                builder = builder.transient_for(&w);
-            }
-
-            let connector = builder.launch(self.annotation_size);
-
-            let mut controller = connector.forward(sender.input_sender(), |output| match output {
-                AnnotationSizeDialogOutput::AnnotationSizeSubmitted(value) => {
-                    StyleToolbarInput::AnnotationDialogFinished(Some(value))
-                }
-            });
-
-            controller.detach_runtime();
-            self.annotation_dialog_controller = Some(controller);
-        }
-
-        let ctrl = self.annotation_dialog_controller.as_mut().unwrap();
-        ctrl.emit(AnnotationSizeDialogInput::Show(self.annotation_size));
-    }
 }
 
 #[relm4::component(pub)]
@@ -579,13 +532,27 @@ impl Component for StyleToolbar {
                 set_focusable: false,
                 set_hexpand: false,
 
+                set_label: "\u{2212}", // minus sign
+                set_tooltip: "Decrease annotation size factor",
+                connect_clicked => StyleToolbarInput::AdjustAnnotationSize(-0.1),
+            },
+            // value readout; not clickable, but scrolling over it fine-tunes the factor
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+                set_can_focus: false,
+                add_css_class: "flat",
+
                 #[watch]
                 set_label: &model.annotation_size_formatted,
-                set_tooltip: "Edit Annotation Size Factor",
+                set_tooltip: "Annotation size factor (scroll to fine-tune)",
 
-                connect_clicked => StyleToolbarInput::ShowAnnotationDialog,
                 add_controller = gtk::EventControllerScroll {
-                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
+                    // DISCRETE collapses smooth/high-resolution scrolling into one ±1 step per
+                    // wheel notch; without it a single tick fires many fractional events and the
+                    // value jumps erratically (faster scroll = bigger jump).
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL
+                        | gtk::EventControllerScrollFlags::DISCRETE,
                     connect_scroll[sender] => move |_, _, dy| {
                         if dy != 0.0 {
                             sender.input(StyleToolbarInput::AdjustAnnotationSize(
@@ -595,6 +562,22 @@ impl Component for StyleToolbar {
                         relm4::gtk::glib::Propagation::Stop
                     },
                 },
+            },
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_label: "+",
+                set_tooltip: "Increase annotation size factor",
+                connect_clicked => StyleToolbarInput::AdjustAnnotationSize(0.1),
+            },
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_icon_name: "arrow-counterclockwise-regular",
+                set_tooltip: "Reset annotation size factor",
+                connect_clicked => StyleToolbarInput::ResetAnnotationSize,
             },
             gtk::Separator {},
             gtk::Label {
@@ -659,10 +642,6 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::ColorSelected(color));
             }
 
-            StyleToolbarInput::ShowAnnotationDialog => {
-                self.show_annotation_dialog(sender, root.toplevel_window());
-            }
-
             StyleToolbarInput::AdjustAnnotationSize(delta) => {
                 let value = self.annotation_size + delta;
                 if self.set_annotation_size(value) {
@@ -672,10 +651,9 @@ impl Component for StyleToolbar {
                 }
             }
 
-            StyleToolbarInput::AnnotationDialogFinished(value) => {
-                if let Some(value) = value
-                    && self.set_annotation_size(value)
-                {
+            StyleToolbarInput::ResetAnnotationSize => {
+                let value = APP_CONFIG.read().annotation_size_factor();
+                if self.set_annotation_size(value) {
                     sender
                         .output_sender()
                         .emit(ToolbarEvent::AnnotationSizeChanged(value));
@@ -755,7 +733,6 @@ impl Component for StyleToolbar {
                 "{0:.2}",
                 APP_CONFIG.read().annotation_size_factor()
             ),
-            annotation_dialog_controller: None,
             output_dimensions: String::new(),
         };
 
@@ -812,151 +789,5 @@ impl FromVariant for ColorButtons {
             std::u64::MAX => Self::Custom,
             _ => Self::Palette(v),
         })
-    }
-}
-
-#[relm4::component(pub)]
-impl Component for AnnotationSizeDialog {
-    type Init = f32;
-    type Input = AnnotationSizeDialogInput;
-    type Output = AnnotationSizeDialogOutput;
-    type CommandOutput = ();
-
-    view! {
-        gtk::Window {
-            set_modal: true,
-            set_title: Some("Choose Annotation Size"),
-            set_titlebar: Some(&header_bar),
-
-            #[wrap(Some)]
-            set_child = &gtk::Box {
-                set_spacing: 10,
-                set_margin_all: 12,
-                set_orientation: gtk::Orientation::Horizontal,
-
-                #[name = "spin"]
-                gtk::SpinButton {
-                    set_editable: true,
-                    set_can_focus: true,
-                    set_hexpand: false,
-
-                    set_tooltip: "Annotation Size Factor",
-                    set_numeric: true,
-                    set_adjustment: &gtk::Adjustment::new(0.0, 0.0, 100.0, 0.01, 0.1, 0.0),
-                    set_climb_rate: 0.1,
-                    set_digits: 2,
-                    #[watch]
-                    #[block_signal(value_changed)]
-                    set_value: model.annotation_size.into(),
-
-                    connect_value_changed[sender] => move |button| {
-                        sender.input(AnnotationSizeDialogInput::ValueChanged(button.value() as f32));
-                        } @value_changed,
-                },
-                #[name = "spin_reset"]
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
-
-                    set_tooltip: "Reset Annotation Size Factor",
-                    set_icon_name: "arrow-counterclockwise-regular",
-                    connect_clicked[sender] => move |_| {
-                        sender.input(AnnotationSizeDialogInput::Reset);
-                    },
-                },
-
-            },
-        }
-    }
-
-    fn init(
-        init_value: f32,
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
-        let model = AnnotationSizeDialog {
-            annotation_size: init_value,
-        };
-
-        // the title bar didn't really work within the view! macro.
-        let title_label = gtk::Label::builder()
-            .label("Choose Annotation Size")
-            .margin_start(6)
-            .build();
-
-        let cancel_button = gtk::Button::builder().label("Cancel").build();
-        let sender_clone = sender.clone();
-        cancel_button.connect_clicked(move |_| {
-            sender_clone.input(AnnotationSizeDialogInput::Cancel);
-        });
-
-        let ok_button = gtk::Button::builder().label("OK").build();
-
-        let sender_clone = sender.clone();
-        ok_button.connect_clicked(move |_| {
-            sender_clone.input(AnnotationSizeDialogInput::Submit);
-        });
-
-        let header_bar = gtk::HeaderBar::builder().show_title_buttons(false).build();
-
-        header_bar.set_title_widget(Some(&title_label));
-        header_bar.pack_start(&cancel_button);
-        header_bar.pack_end(&ok_button);
-
-        let widgets = view_output!();
-
-        let key_controller = gtk::EventControllerKey::builder()
-            // not sure if this is the correct phase, but anything higher and Enter to close doesn't work consistently
-            .propagation_phase(gtk::PropagationPhase::Capture)
-            .build();
-
-        key_controller.connect_key_pressed(move |_, keyval, _, _| {
-            use gtk::gdk::Key;
-            match keyval {
-                Key::Return => {
-                    sender.input(AnnotationSizeDialogInput::Submit);
-                    relm4::gtk::glib::Propagation::Stop
-                }
-                Key::Escape => {
-                    sender.input(AnnotationSizeDialogInput::Cancel);
-                    relm4::gtk::glib::Propagation::Stop
-                }
-                _ => relm4::gtk::glib::Propagation::Proceed,
-            }
-        });
-        root.add_controller(key_controller);
-
-        ComponentParts { model, widgets }
-    }
-
-    fn update(
-        &mut self,
-        message: AnnotationSizeDialogInput,
-        sender: ComponentSender<Self>,
-        root: &Self::Root,
-    ) {
-        match message {
-            AnnotationSizeDialogInput::ValueChanged(value) => self.annotation_size = value,
-            AnnotationSizeDialogInput::Reset => {
-                let a = APP_CONFIG.read().annotation_size_factor();
-                self.annotation_size = a;
-            }
-            AnnotationSizeDialogInput::Show(value) => {
-                self.annotation_size = value;
-                root.show();
-            }
-            AnnotationSizeDialogInput::Cancel => {
-                root.hide();
-            }
-            AnnotationSizeDialogInput::Submit => {
-                // yeah, not sure if this can even happen.
-                if let Err(e) = sender.output(AnnotationSizeDialogOutput::AnnotationSizeSubmitted(
-                    self.annotation_size,
-                )) {
-                    eprintln!("Error submitting annotation size factor: {e:?}");
-                }
-                root.hide();
-            }
-        }
     }
 }
