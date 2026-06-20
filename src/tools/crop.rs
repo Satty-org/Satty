@@ -111,19 +111,17 @@ impl Drawable for Crop {
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
-        _bounds: (Vec2D, Vec2D),
+        bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let size = self.size;
         let scale = canvas.transform().average_scale();
-        let dimensions = Vec2D::new(
-            canvas.width() as f32 / scale,
-            canvas.height() as f32 / scale,
-        );
 
         let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
             .with_fill_rule(femtovg::FillRule::EvenOdd);
+        let (img_tl, img_br) = bounds;
+        let img_size = img_br - img_tl;
         let mut shadow_path = Path::new();
-        shadow_path.rect(0.0, 0.0, dimensions.x, dimensions.y);
+        shadow_path.rect(img_tl.x, img_tl.y, img_size.x, img_size.y);
         shadow_path.rect(self.pos.x, self.pos.y, size.x, size.y);
 
         let border_paint = Paint::color(Color::rgbf(0.1, 0.1, 0.1)).with_line_width(2.0);
