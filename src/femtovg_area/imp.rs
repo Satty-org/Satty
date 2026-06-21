@@ -58,6 +58,12 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+    // When set, the area renders a fixed slice of the image at native scale instead of
+    // fitting/centering it. Used for fullscreen="all" on Wayland, where each monitor gets a
+    // layer-shell surface showing its own portion of the screenshot.
+    // `(image_origin, image_per_device_px)`: the image coordinate shown at the top-left of the
+    // canvas, and the image-pixels-per-canvas-device-pixel ratio.
+    layout_view: Option<(Vec2D, f32)>,
 }
 
 #[glib::object_subclass]
@@ -180,6 +186,7 @@ impl FemtoVGArea {
             last_scale: initial_scale,
             is_drag: false,
             is_reset: false,
+            layout_view: None,
         });
         self.sender.borrow_mut().replace(sender);
     }
@@ -631,10 +638,22 @@ impl FemtoVgAreaMut {
         }
     }
 
+    pub fn set_layout_view(&mut self, view: Option<(Vec2D, f32)>) {
+        self.layout_view = view;
+    }
+
     pub fn update_transformation(
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
     ) {
+        // Fixed per-monitor slice (fullscreen="all" on Wayland): render the image at native scale,
+        // with the monitor's image-space origin pinned to the canvas top-left. No fit/center/zoom.
+        if let Some((origin, image_per_device_px)) = self.layout_view {
+            self.scale_factor = 1.0 / image_per_device_px;
+            self.offset = Vec2D::new(-origin.x * self.scale_factor, -origin.y * self.scale_factor);
+            return;
+        }
+
         let image_width = self.background_image.width() as f32;
         let image_height = self.background_image.height() as f32;
         let aspect_ratio = image_width / image_height;

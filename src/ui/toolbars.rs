@@ -32,12 +32,7 @@ pub struct StyleToolbar {
     visible: bool,
     annotation_size: f32,
     annotation_size_formatted: String,
-    annotation_dialog_controller: Option<Controller<AnnotationSizeDialog>>,
     output_dimensions: String,
-}
-
-pub struct AnnotationSizeDialog {
-    annotation_size: f32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -72,24 +67,9 @@ pub enum StyleToolbarInput {
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
-    ShowAnnotationDialog,
     AdjustAnnotationSize(f32),
-    AnnotationDialogFinished(Option<f32>),
+    ResetAnnotationSize,
     DimensionsChanged((i32, i32)),
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum AnnotationSizeDialogInput {
-    ValueChanged(f32),
-    Reset,
-    Show(f32),
-    Submit,
-    Cancel,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum AnnotationSizeDialogOutput {
-    AnnotationSizeSubmitted(f32),
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -99,6 +79,101 @@ fn create_icon_pixbuf(color: Color) -> Pixbuf {
 }
 fn create_icon(color: Color) -> gtk::Image {
     gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
+}
+
+/// Color picker for fullscreen="all". `GtkColorChooserDialog` puts its Select/Cancel in a header bar
+/// (not rendered on a layer-shell surface) and wraps the chooser in a scrolled window (scrollbar on
+/// the taller custom editor). Build it ourselves instead: a bare `GtkColorChooserWidget` — which
+/// sizes to its content, so no scrollbar — in an Overlay layer-shell window with in-content
+/// Cancel/Select buttons. Confirms on Select or a double-clicked swatch; cancels on Cancel or Esc.
+fn show_color_picker_overlay(
+    sender: ComponentSender<StyleToolbar>,
+    current_color: RGBA,
+    custom_colors: Vec<RGBA>,
+) {
+    use gtk4_layer_shell::{KeyboardMode, Layer, LayerShell};
+
+    let chooser = gtk::ColorChooserWidget::new();
+    chooser.set_use_alpha(true);
+    chooser.set_rgba(&current_color);
+    chooser.set_vexpand(true);
+    if !custom_colors.is_empty() {
+        chooser.add_palette(gtk::Orientation::Horizontal, 8, &custom_colors);
+    }
+
+    let cancel = gtk::Button::with_label("Cancel");
+    let select = gtk::Button::with_label("Select");
+    select.add_css_class("suggested-action");
+
+    let buttons = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(Align::End)
+        .margin_top(12)
+        .margin_bottom(8)
+        .margin_start(8)
+        .margin_end(8)
+        .build();
+    buttons.append(&cancel);
+    buttons.append(&select);
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    content.set_margin_top(8);
+    content.set_margin_bottom(8);
+    content.set_margin_start(8);
+    content.set_margin_end(8);
+    content.append(&chooser);
+    content.append(&buttons);
+
+    let window = gtk::Window::builder()
+        .title("Choose Color")
+        .modal(true)
+        .child(&content)
+        .build();
+    window.init_layer_shell();
+    window.set_namespace(Some("satty"));
+    window.set_layer(Layer::Overlay);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
+
+    let confirm = {
+        let window = window.clone();
+        let sender = sender.clone();
+        move |color: Color| {
+            sender.input(StyleToolbarInput::ColorDialogFinished(Some(color)));
+            window.close();
+        }
+    };
+
+    {
+        let confirm = confirm.clone();
+        let chooser = chooser.clone();
+        select.connect_clicked(move |_| confirm(Color::from_gdk(chooser.rgba())));
+    }
+    {
+        // double-clicking a swatch also confirms, matching the stock dialog
+        let confirm = confirm.clone();
+        chooser.connect_color_activated(move |_, rgba| confirm(Color::from_gdk(*rgba)));
+    }
+    {
+        let window = window.clone();
+        cancel.connect_clicked(move |_| window.close());
+    }
+
+    let key = gtk::EventControllerKey::new();
+    {
+        let window = window.clone();
+        key.connect_key_pressed(move |_, keyval, _, _| {
+            if keyval == gtk::gdk::Key::Escape {
+                window.close();
+                relm4::gtk::glib::Propagation::Stop
+            } else {
+                relm4::gtk::glib::Propagation::Proceed
+            }
+        });
+    }
+    window.add_controller(key);
+
+    window.present();
 }
 
 #[relm4::component(pub)]
@@ -420,6 +495,23 @@ impl StyleToolbar {
 
     fn show_color_dialog(&self, sender: ComponentSender<StyleToolbar>, root: Option<Window>) {
         let current_color: RGBA = self.custom_color.into();
+        let custom_colors = APP_CONFIG
+            .read()
+            .color_palette()
+            .custom()
+            .iter()
+            .copied()
+            .map(RGBA::from)
+            .collect::<Vec<_>>();
+
+        // In fullscreen="all" a normal dialog toplevel opens behind the Overlay annotation surfaces
+        // (invisible), and a layer-shell surface doesn't render the dialog's header-bar buttons. Use
+        // a bespoke overlay window with the chooser widget and in-content Cancel/Select buttons.
+        if crate::layershell_all_active() {
+            show_color_picker_overlay(sender, current_color, custom_colors);
+            return;
+        }
+
         relm4::spawn_local(async move {
             let mut builder = ColorChooserDialog::builder()
                 .modal(true)
@@ -434,15 +526,6 @@ impl StyleToolbar {
             // build dialog and configure further
             let dialog = builder.build();
             dialog.set_use_alpha(true);
-
-            let custom_colors = APP_CONFIG
-                .read()
-                .color_palette()
-                .custom()
-                .iter()
-                .copied()
-                .map(RGBA::from)
-                .collect::<Vec<_>>();
 
             if !custom_colors.is_empty() {
                 dialog.add_palette(
@@ -474,33 +557,6 @@ impl StyleToolbar {
             ColorButtons::Palette(n) => config.color_palette().palette()[n as usize],
             ColorButtons::Custom => self.custom_color,
         }
-    }
-
-    fn show_annotation_dialog(
-        &mut self,
-        sender: ComponentSender<StyleToolbar>,
-        root: Option<Window>,
-    ) {
-        if self.annotation_dialog_controller.is_none() {
-            let mut builder = AnnotationSizeDialog::builder();
-            if let Some(w) = root {
-                builder = builder.transient_for(&w);
-            }
-
-            let connector = builder.launch(self.annotation_size);
-
-            let mut controller = connector.forward(sender.input_sender(), |output| match output {
-                AnnotationSizeDialogOutput::AnnotationSizeSubmitted(value) => {
-                    StyleToolbarInput::AnnotationDialogFinished(Some(value))
-                }
-            });
-
-            controller.detach_runtime();
-            self.annotation_dialog_controller = Some(controller);
-        }
-
-        let ctrl = self.annotation_dialog_controller.as_mut().unwrap();
-        ctrl.emit(AnnotationSizeDialogInput::Show(self.annotation_size));
     }
 }
 
@@ -579,13 +635,27 @@ impl Component for StyleToolbar {
                 set_focusable: false,
                 set_hexpand: false,
 
+                set_label: "\u{2212}", // minus sign
+                set_tooltip: "Decrease annotation size factor",
+                connect_clicked => StyleToolbarInput::AdjustAnnotationSize(-0.1),
+            },
+            // value readout; not clickable, but scrolling over it fine-tunes the factor
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+                set_can_focus: false,
+                add_css_class: "flat",
+
                 #[watch]
                 set_label: &model.annotation_size_formatted,
-                set_tooltip: "Edit Annotation Size Factor",
+                set_tooltip: "Annotation size factor (scroll to fine-tune)",
 
-                connect_clicked => StyleToolbarInput::ShowAnnotationDialog,
                 add_controller = gtk::EventControllerScroll {
-                    set_flags: gtk::EventControllerScrollFlags::VERTICAL,
+                    // DISCRETE collapses smooth/high-resolution scrolling into one ±1 step per
+                    // wheel notch; without it a single tick fires many fractional events and the
+                    // value jumps erratically (faster scroll = bigger jump).
+                    set_flags: gtk::EventControllerScrollFlags::VERTICAL
+                        | gtk::EventControllerScrollFlags::DISCRETE,
                     connect_scroll[sender] => move |_, _, dy| {
                         if dy != 0.0 {
                             sender.input(StyleToolbarInput::AdjustAnnotationSize(
@@ -595,6 +665,22 @@ impl Component for StyleToolbar {
                         relm4::gtk::glib::Propagation::Stop
                     },
                 },
+            },
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_label: "+",
+                set_tooltip: "Increase annotation size factor",
+                connect_clicked => StyleToolbarInput::AdjustAnnotationSize(0.1),
+            },
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_icon_name: "arrow-counterclockwise-regular",
+                set_tooltip: "Reset annotation size factor",
+                connect_clicked => StyleToolbarInput::ResetAnnotationSize,
             },
             gtk::Separator {},
             gtk::Label {
@@ -659,10 +745,6 @@ impl Component for StyleToolbar {
                     .emit(ToolbarEvent::ColorSelected(color));
             }
 
-            StyleToolbarInput::ShowAnnotationDialog => {
-                self.show_annotation_dialog(sender, root.toplevel_window());
-            }
-
             StyleToolbarInput::AdjustAnnotationSize(delta) => {
                 let value = self.annotation_size + delta;
                 if self.set_annotation_size(value) {
@@ -672,10 +754,9 @@ impl Component for StyleToolbar {
                 }
             }
 
-            StyleToolbarInput::AnnotationDialogFinished(value) => {
-                if let Some(value) = value
-                    && self.set_annotation_size(value)
-                {
+            StyleToolbarInput::ResetAnnotationSize => {
+                let value = APP_CONFIG.read().annotation_size_factor();
+                if self.set_annotation_size(value) {
                     sender
                         .output_sender()
                         .emit(ToolbarEvent::AnnotationSizeChanged(value));
@@ -755,7 +836,6 @@ impl Component for StyleToolbar {
                 "{0:.2}",
                 APP_CONFIG.read().annotation_size_factor()
             ),
-            annotation_dialog_controller: None,
             output_dimensions: String::new(),
         };
 
@@ -812,151 +892,5 @@ impl FromVariant for ColorButtons {
             std::u64::MAX => Self::Custom,
             _ => Self::Palette(v),
         })
-    }
-}
-
-#[relm4::component(pub)]
-impl Component for AnnotationSizeDialog {
-    type Init = f32;
-    type Input = AnnotationSizeDialogInput;
-    type Output = AnnotationSizeDialogOutput;
-    type CommandOutput = ();
-
-    view! {
-        gtk::Window {
-            set_modal: true,
-            set_title: Some("Choose Annotation Size"),
-            set_titlebar: Some(&header_bar),
-
-            #[wrap(Some)]
-            set_child = &gtk::Box {
-                set_spacing: 10,
-                set_margin_all: 12,
-                set_orientation: gtk::Orientation::Horizontal,
-
-                #[name = "spin"]
-                gtk::SpinButton {
-                    set_editable: true,
-                    set_can_focus: true,
-                    set_hexpand: false,
-
-                    set_tooltip: "Annotation Size Factor",
-                    set_numeric: true,
-                    set_adjustment: &gtk::Adjustment::new(0.0, 0.0, 100.0, 0.01, 0.1, 0.0),
-                    set_climb_rate: 0.1,
-                    set_digits: 2,
-                    #[watch]
-                    #[block_signal(value_changed)]
-                    set_value: model.annotation_size.into(),
-
-                    connect_value_changed[sender] => move |button| {
-                        sender.input(AnnotationSizeDialogInput::ValueChanged(button.value() as f32));
-                        } @value_changed,
-                },
-                #[name = "spin_reset"]
-                gtk::Button {
-                    set_focusable: false,
-                    set_hexpand: false,
-
-                    set_tooltip: "Reset Annotation Size Factor",
-                    set_icon_name: "arrow-counterclockwise-regular",
-                    connect_clicked[sender] => move |_| {
-                        sender.input(AnnotationSizeDialogInput::Reset);
-                    },
-                },
-
-            },
-        }
-    }
-
-    fn init(
-        init_value: f32,
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
-        let model = AnnotationSizeDialog {
-            annotation_size: init_value,
-        };
-
-        // the title bar didn't really work within the view! macro.
-        let title_label = gtk::Label::builder()
-            .label("Choose Annotation Size")
-            .margin_start(6)
-            .build();
-
-        let cancel_button = gtk::Button::builder().label("Cancel").build();
-        let sender_clone = sender.clone();
-        cancel_button.connect_clicked(move |_| {
-            sender_clone.input(AnnotationSizeDialogInput::Cancel);
-        });
-
-        let ok_button = gtk::Button::builder().label("OK").build();
-
-        let sender_clone = sender.clone();
-        ok_button.connect_clicked(move |_| {
-            sender_clone.input(AnnotationSizeDialogInput::Submit);
-        });
-
-        let header_bar = gtk::HeaderBar::builder().show_title_buttons(false).build();
-
-        header_bar.set_title_widget(Some(&title_label));
-        header_bar.pack_start(&cancel_button);
-        header_bar.pack_end(&ok_button);
-
-        let widgets = view_output!();
-
-        let key_controller = gtk::EventControllerKey::builder()
-            // not sure if this is the correct phase, but anything higher and Enter to close doesn't work consistently
-            .propagation_phase(gtk::PropagationPhase::Capture)
-            .build();
-
-        key_controller.connect_key_pressed(move |_, keyval, _, _| {
-            use gtk::gdk::Key;
-            match keyval {
-                Key::Return => {
-                    sender.input(AnnotationSizeDialogInput::Submit);
-                    relm4::gtk::glib::Propagation::Stop
-                }
-                Key::Escape => {
-                    sender.input(AnnotationSizeDialogInput::Cancel);
-                    relm4::gtk::glib::Propagation::Stop
-                }
-                _ => relm4::gtk::glib::Propagation::Proceed,
-            }
-        });
-        root.add_controller(key_controller);
-
-        ComponentParts { model, widgets }
-    }
-
-    fn update(
-        &mut self,
-        message: AnnotationSizeDialogInput,
-        sender: ComponentSender<Self>,
-        root: &Self::Root,
-    ) {
-        match message {
-            AnnotationSizeDialogInput::ValueChanged(value) => self.annotation_size = value,
-            AnnotationSizeDialogInput::Reset => {
-                let a = APP_CONFIG.read().annotation_size_factor();
-                self.annotation_size = a;
-            }
-            AnnotationSizeDialogInput::Show(value) => {
-                self.annotation_size = value;
-                root.show();
-            }
-            AnnotationSizeDialogInput::Cancel => {
-                root.hide();
-            }
-            AnnotationSizeDialogInput::Submit => {
-                // yeah, not sure if this can even happen.
-                if let Err(e) = sender.output(AnnotationSizeDialogOutput::AnnotationSizeSubmitted(
-                    self.annotation_size,
-                )) {
-                    eprintln!("Error submitting annotation size factor: {e:?}");
-                }
-                root.hide();
-            }
-        }
     }
 }
