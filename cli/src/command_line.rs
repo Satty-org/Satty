@@ -163,6 +163,10 @@ pub struct CommandLine {
     #[arg(long)]
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
+    /// Experimental feature (NEXTRELEASE): do not use Adwaita CSS variables
+    #[arg(long)]
+    pub skip_adwaita_vars: bool,
+
     // --- deprecated options ---
     /// Right click to copy.
     /// Preferably use the `action_on_right_click` option instead.

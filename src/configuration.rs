@@ -75,6 +75,7 @@ pub struct Configuration {
     title: Option<String>,
     app_id: Option<String>,
     notification_thumbnail: NotificationThumbnail,
+    skip_adwaita_vars: bool,
 }
 
 pub struct Keybinds {
@@ -432,6 +433,9 @@ impl Configuration {
         if let Some(v) = general.notification_thumbnail {
             self.notification_thumbnail = v;
         }
+        if let Some(v) = general.skip_adwaita_vars {
+            self.skip_adwaita_vars = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy
@@ -567,6 +571,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.notification_thumbnail {
             self.notification_thumbnail = v;
+        }
+        if command_line.skip_adwaita_vars {
+            self.skip_adwaita_vars = true
         }
 
         // --- deprecated options ---
@@ -738,6 +745,9 @@ impl Configuration {
     pub fn notification_thumbnail(&self) -> NotificationThumbnail {
         self.notification_thumbnail
     }
+    pub fn skip_adwaita_vars(&self) -> bool {
+        self.skip_adwaita_vars
+    }
 }
 
 impl Default for Configuration {
@@ -779,6 +789,7 @@ impl Default for Configuration {
             title: None,
             app_id: None,
             notification_thumbnail: NotificationThumbnail::default(),
+            skip_adwaita_vars: false,
         }
     }
 }
@@ -865,6 +876,7 @@ struct ConfigurationFileGeneral {
     title: Option<String>,
     app_id: Option<String>,
     notification_thumbnail: Option<NotificationThumbnail>,
+    skip_adwaita_vars: Option<bool>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,
