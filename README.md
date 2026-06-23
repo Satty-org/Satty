@@ -77,6 +77,7 @@ Minimum is 0.1 and maximum to 99.99.
 The bindings are:
 - Mouse <kbd>left-button</kbd>, <kbd>wheel</kbd> and key <kbd>up</kbd>/<kbd>down</kbd> step size is 0.1
 - Holding <kbd>Shift</kbd> will switch to 0.01 step size
+- Holding <kbd>Ctrl</kbd> will switch to 1.0 step size
 - Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 1.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
 
