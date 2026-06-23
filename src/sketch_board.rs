@@ -795,6 +795,10 @@ impl SketchBoard {
         sender: ComponentSender<Self>,
     ) -> ToolUpdateResult {
         match toolbar_event {
+            ToolbarEvent::FocusCanvas => {
+                self.renderer.grab_focus();
+                ToolUpdateResult::Unmodified
+            }
             ToolbarEvent::ToolSelected(tool) => {
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
@@ -867,7 +871,7 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
             }
-            ToolbarEvent::AnnotationSizeChanged(value) => {
+            ToolbarEvent::AnnotationSizeFactorChanged(value) => {
                 self.style.annotation_size_factor = value;
                 self.active_tool
                     .borrow_mut()
@@ -1232,6 +1236,12 @@ impl Component for SketchBoard {
                         }
                     }
                 } else {
+                    if let InputEvent::Mouse(me) = &ie
+                        && matches!(me.type_, MouseEventType::Click | MouseEventType::BeginDrag)
+                    {
+                        self.renderer.grab_focus();
+                    }
+
                     ie.handle_event_mouse_input(&self.renderer);
                     let active_tool_result = self
                         .active_tool

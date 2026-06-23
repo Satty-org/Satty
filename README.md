@@ -69,6 +69,17 @@ Touchpad: <sup>NEXTRELEASE</sup>
 
 If out of range select custom color <sup>0.21.0</sup>
 
+#### Size Selection <sup>NEXTRELEASE</sup>
+
+In the bottom toolbar the size can be edited directly or by + and - buttons.
+Minimum is 0.1 and maximum to 99.99.
+
+The bindings are:
+- Mouse <kbd>left-button</kbd>, <kbd>wheel</kbd> and key <kbd>up</kbd>/<kbd>down</kbd> step size is 0.1
+- Holding <kbd>Shift</kbd> will switch to 0.01 step size
+- Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 1.0
+- Mouse <kbd>right-button</kbd> jumps to minimum/maximum
+
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
