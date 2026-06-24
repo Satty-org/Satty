@@ -12,7 +12,7 @@ use std::{
 use anyhow::Result;
 use femtovg::imgref::ImgVec;
 use femtovg::rgb::RGBA8;
-use femtovg::{Canvas, FontId, renderer::OpenGl};
+use femtovg::{Canvas, FontId, RenderTarget, renderer::OpenGl};
 use relm4::gtk::gdk_pixbuf::{
     Pixbuf,
     glib::{Variant, VariantTy},
@@ -48,6 +48,7 @@ mod marker;
 mod pixelate;
 mod pointer;
 mod rectangle;
+pub mod spotlight;
 mod text;
 
 pub const HIT_BORDER_TOLERANCE: f32 = 7.0;
@@ -64,10 +65,16 @@ pub enum ToolEvent {
 // The rendering mode of a drawable. This is used to determine drawables
 // which should be taken out of the stack order to draw them earlier or later.
 pub enum RenderingMode {
-    Default,          // Render in stack order
-    Blur,             // Rendered below everything else, but above the background
-    Crop,             // Rendered above everything else, but below the SelectionOverlay
-    SelectionOverlay, // Render above everything else
+    // Rendered below everything else, but above the background
+    BlurOrPixelate,
+    SpotlightBlur,
+    SpotlightHighlight,
+    // Render in stack order
+    Default,
+    // Rendered above everything else, but below the SelectionOverlay
+    Crop,
+    // Render above everything else
+    SelectionOverlay,
 }
 
 pub trait Tool {
@@ -215,19 +222,47 @@ where
     }
 }
 
+pub struct SpotlightData {
+    pub tl: Vec2D,
+    pub br: Vec2D,
+    pub filled: bool,
+    pub editing: bool,
+    pub centered: bool,
+}
+
 pub trait Drawable: DrawableClone + Debug + AsAny {
-    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
-    -> Result<()>;
     fn draw_baselayer(
         &self,
         canvas: &mut Canvas<OpenGl>,
         image: &ImgVec<RGBA8>,
+        background_image_id: femtovg::ImageId,
         font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let _ = image;
+        let _ = background_image_id;
         self.draw(canvas, font, bounds)
     }
+    fn draw_spotlight(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<SpotlightData>,
+        spotlight_preview: bool,
+        background_image_id: femtovg::ImageId,
+        output_target: RenderTarget,
+    ) {
+        let _ = (
+            canvas,
+            bounds,
+            boxes,
+            spotlight_preview,
+            background_image_id,
+            output_target,
+        );
+    }
+    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
+    -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
@@ -270,8 +305,12 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_style(&self) -> Option<&Style> {
         None
     }
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        None
+    fn set_style(&mut self, style: Style) {
+        let _ = style;
+    }
+    fn get_centered(&self) -> bool {
+        let _ = self;
+        false
     }
     fn set_centered(&mut self, centered: bool) {
         let _ = centered;
@@ -448,7 +487,7 @@ pub use arrow::ArrowTool;
 pub use blur::BlurTool;
 pub use crop::CropTool;
 pub use ellipse::EllipseTool;
-pub use highlight::HighlightTool;
+pub use highlight::{HighlightTool, Highlighters};
 pub use image::{ImagePlacement, ImageTool};
 pub use line::LineTool;
 pub use pixelate::PixelateTool;
@@ -484,7 +523,9 @@ pub enum Tools {
     Pixelate,
     Fringe,
     Blur,
+    Lensblur,
     BlockHighlighter,
+    HighlightSpotlight,
     Image,
 }
 
@@ -506,7 +547,9 @@ impl fmt::Display for Tools {
             Tools::Pixelate => "Pixelate",
             Tools::Fringe => "Fringe Inpaint",
             Tools::Blur => "Blur",
+            Tools::Lensblur => "Lensblur",
             Tools::BlockHighlighter => "Block Highlighter",
+            Tools::HighlightSpotlight => "Spotlight",
             Tools::Image => "Image",
         };
         write!(f, "{}", name)
@@ -517,7 +560,7 @@ impl fmt::Display for Tools {
 pub struct ParseCommandError;
 
 /// The names of the tools in the config, the keybinds and on the command line.
-const TOOL_NAMES: [(&str, Tools); 17] = [
+const TOOL_NAMES: [(&str, Tools); 19] = [
     ("pointer", Tools::Pointer),
     ("crop", Tools::Crop),
     ("pen", Tools::Pen),
@@ -533,7 +576,9 @@ const TOOL_NAMES: [(&str, Tools); 17] = [
     ("pixelate", Tools::Pixelate),
     ("fringe", Tools::Fringe),
     ("blur", Tools::Blur),
+    ("lensblur", Tools::Lensblur),
     ("highlight", Tools::BlockHighlighter),
+    ("spotlight", Tools::HighlightSpotlight),
     ("image", Tools::Image),
 ];
 
@@ -619,8 +664,18 @@ impl ToolsManager {
         );
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
+            Tools::Lensblur,
+            Rc::new(RefCell::new(BlurTool::spotlight())),
+        );
+        tools.insert(
             Tools::BlockHighlighter,
-            Rc::new(RefCell::new(HighlightTool::default())),
+            Rc::new(RefCell::new(HighlightTool::with_mode(Highlighters::Block))),
+        );
+        tools.insert(
+            Tools::HighlightSpotlight,
+            Rc::new(RefCell::new(HighlightTool::with_mode(
+                Highlighters::Spotlight,
+            ))),
         );
         tools.insert(Tools::Image, Rc::new(RefCell::new(ImageTool::default())));
 
@@ -689,7 +744,9 @@ impl FromVariant for Tools {
             v if v == Tools::Pixelate as u32 => Some(Tools::Pixelate),
             v if v == Tools::Fringe as u32 => Some(Tools::Fringe),
             v if v == Tools::Blur as u32 => Some(Tools::Blur),
+            v if v == Tools::Lensblur as u32 => Some(Tools::Lensblur),
             v if v == Tools::BlockHighlighter as u32 => Some(Tools::BlockHighlighter),
+            v if v == Tools::HighlightSpotlight as u32 => Some(Tools::HighlightSpotlight),
             v if v == Tools::Image as u32 => Some(Tools::Image),
             _ => None,
         })
@@ -714,7 +771,9 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Pixelate => Self::Pixelate,
             command_line::Tools::Fringe => Self::Fringe,
             command_line::Tools::Blur => Self::Blur,
+            command_line::Tools::Lensblur => Self::Lensblur,
             command_line::Tools::Highlight => Self::BlockHighlighter,
+            command_line::Tools::Spotlight => Self::HighlightSpotlight,
             command_line::Tools::Image => Self::Image,
         }
     }

@@ -343,11 +343,23 @@ impl SimpleComponent for ToolsToolbar {
                     tooltip: None,
                 },
             ],
-            vec![GroupableTool {
-                tool: Tools::BlockHighlighter,
-                icon_name: "highlight-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::BlockHighlighter,
+                    icon_name: "highlight-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::HighlightSpotlight,
+                    icon_name: "flashlight-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Lensblur,
+                    icon_name: "lens-blur".into(),
+                    tooltip: None,
+                },
+            ],
             vec![GroupableTool {
                 tool: Tools::Image,
                 icon_name: "image-regular".into(),

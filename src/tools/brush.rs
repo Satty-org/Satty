@@ -131,8 +131,8 @@ impl Drawable for BrushDrawable {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn draw(
@@ -161,7 +161,7 @@ impl Drawable for BrushDrawable {
                 self.style.color.r,
                 self.style.color.g,
                 self.style.color.b,
-                (255.0 * 0.4) as u8,
+                (255.0 * self.style.highlight_alpha()) as u8,
             ));
             paint.set_line_width(self.line_width());
         }

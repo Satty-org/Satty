@@ -3,13 +3,14 @@ use glow::HasContext;
 use std::{
     cell::{RefCell, RefMut},
     collections::HashSet,
+    hash::{DefaultHasher, Hash, Hasher},
     num::NonZeroU32,
     path::PathBuf,
     rc::Rc,
 };
 
 use femtovg::{
-    Canvas, FontId, ImageFlags, ImageSource, Paint, Path, PixelFormat, Transform2D,
+    Canvas, FontId, ImageFlags, ImageSource, Paint, Path, PixelFormat, RenderTarget, Transform2D,
     imgref::{Img, ImgVec},
     renderer,
     rgb::RGBA8,
@@ -29,7 +30,7 @@ use crate::{
     logging::{LogLevel, log},
     math::Vec2D,
     sketch_board::SketchBoardInput,
-    tools::{Drawable, RenderingMode, Tool, Tools},
+    tools::{Drawable, RenderingMode, Tool, Tools, spotlight::render_spotlights},
 };
 
 const TRANSPARENCY_SQUARE_SIZE: usize = 64;
@@ -50,6 +51,8 @@ pub struct FemtoVgAreaMut {
     background_image_id_aliased: Option<femtovg::ImageId>,
     background_image_id_noaliasing: Option<femtovg::ImageId>,
     transparent_background_id: Option<femtovg::ImageId>,
+    // background with blur/pixelate applied, as source for the blur spotlight: (image, content key)
+    spotlight_source: Option<(femtovg::ImageId, u64)>,
     active_tool: Rc<RefCell<dyn Tool>>,
     scale_factor: f32,
     offset: Vec2D,
@@ -216,6 +219,7 @@ impl FemtoVGArea {
             background_image_id_noaliasing: None,
             background_image_id_aliased: None,
             transparent_background_id: None,
+            spotlight_source: None,
             active_tool,
             scale_factor: 1.0,
             offset: Vec2D::zero(),
@@ -720,6 +724,7 @@ impl FemtoVgAreaMut {
             font,
             femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
             false,
+            RenderTarget::Image(image_id),
         )?;
 
         // return screenshot
@@ -752,9 +757,122 @@ impl FemtoVgAreaMut {
             font,
             femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
             true,
+            RenderTarget::Screen,
         )?;
 
         Ok(())
+    }
+
+    // Returns the image the blur spotlight should blur: the plain background, or
+    // a composite of background and blur/pixelate drawables if both are present.
+    fn update_spotlight_source(
+        &mut self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        source_image: &ImgVec<RGBA8>,
+        font: FontId,
+        bounds: (Vec2D, Vec2D),
+        background_image_id: femtovg::ImageId,
+        output_target: RenderTarget,
+    ) -> Result<femtovg::ImageId> {
+        let active_tool = self.active_tool.clone();
+        let active_tool = active_tool.borrow();
+        let preview = active_tool.get_drawable();
+        let is_baselayer =
+            |d: &dyn Drawable| d.get_rendering_mode() == RenderingMode::BlurOrPixelate;
+        let is_blur_spotlight =
+            |d: &dyn Drawable| d.get_rendering_mode() == RenderingMode::SpotlightBlur;
+
+        let has_blur_spotlight = preview.is_some_and(is_blur_spotlight)
+            || self.drawables.iter().enumerate().any(|(i, d)| {
+                self.hidden_drawable_index != Some(i) && is_blur_spotlight(d.as_ref())
+            });
+
+        let mut hasher = DefaultHasher::new();
+        let mut layers = 0;
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index != Some(i) && is_baselayer(d.as_ref()) {
+                layers += 1;
+                Self::hash_baselayer(&mut hasher, d.as_ref());
+            }
+        }
+        if let Some(p) = preview
+            && is_baselayer(p)
+        {
+            layers += 1;
+            Self::hash_baselayer(&mut hasher, p);
+        }
+
+        if !has_blur_spotlight || layers == 0 {
+            if let Some((id, _)) = self.spotlight_source.take() {
+                canvas.delete_image(id);
+            }
+            return Ok(background_image_id);
+        }
+
+        let key = hasher.finish();
+        if let Some((id, cached_key)) = self.spotlight_source
+            && cached_key == key
+        {
+            return Ok(id);
+        }
+        if let Some((id, _)) = self.spotlight_source.take() {
+            canvas.delete_image(id);
+        }
+
+        let size = bounds.1 - bounds.0;
+        let id = canvas.create_image_empty(
+            (size.x as usize).max(1),
+            (size.y as usize).max(1),
+            PixelFormat::Rgba8,
+            ImageFlags::FLIP_Y,
+        )?;
+
+        canvas.save();
+        canvas.set_render_target(RenderTarget::Image(id));
+        canvas.reset_transform();
+        canvas.clear_rect(
+            0,
+            0,
+            size.x as u32,
+            size.y as u32,
+            femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
+        );
+        let mut path = Path::new();
+        path.rect(bounds.0.x, bounds.0.y, size.x, size.y);
+        canvas.fill_path(
+            &path,
+            &Paint::image(
+                background_image_id,
+                bounds.0.x,
+                bounds.0.y,
+                size.x,
+                size.y,
+                0f32,
+                1f32,
+            ),
+        );
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index != Some(i) && is_baselayer(d.as_ref()) {
+                d.draw_baselayer(canvas, source_image, background_image_id, font, bounds)?;
+            }
+        }
+        if let Some(p) = preview
+            && is_baselayer(p)
+        {
+            p.draw_baselayer(canvas, source_image, background_image_id, font, bounds)?;
+        }
+        canvas.set_render_target(output_target);
+        canvas.restore();
+
+        self.spotlight_source = Some((id, key));
+        Ok(id)
+    }
+
+    fn hash_baselayer(hasher: &mut DefaultHasher, d: &dyn Drawable) {
+        if let Some((tl, br)) = d.anchors() {
+            [tl.x, tl.y, br.x, br.y].map(f32::to_bits).hash(hasher);
+        }
+        format!("{:?}", d.get_style()).hash(hasher);
     }
 
     fn render(
@@ -763,6 +881,7 @@ impl FemtoVgAreaMut {
         font: FontId,
         outside_bg_color: femtovg::Color,
         onscreen: bool,
+        output_target: RenderTarget,
     ) -> Result<()> {
         let source_image = self.ensure_source_image();
 
@@ -771,6 +890,9 @@ impl FemtoVgAreaMut {
 
         // render background image (screenshot)
         self.render_background_image(canvas, onscreen)?;
+        let background_image_id = self
+            .background_image_id_aliased
+            .expect("background image is uploaded before drawing layers");
 
         let bounds = (
             Vec2D::zero(),
@@ -780,50 +902,68 @@ impl FemtoVgAreaMut {
             ),
         );
 
-        // offscreen export should not include pointer selection overlay
-        let mut draw_active_tool =
-            onscreen || self.active_tool.borrow().get_tool_type() != Tools::Pointer;
-
         // draw blur first, so it is below everything else
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index != Some(i)
-                && d.get_rendering_mode() == RenderingMode::Blur
+                && d.get_rendering_mode() == RenderingMode::BlurOrPixelate
             {
-                d.draw_baselayer(canvas, &source_image, font, bounds)?;
+                d.draw_baselayer(canvas, &source_image, background_image_id, font, bounds)?;
             }
         }
 
         // draw blur preview
-        if draw_active_tool
-            && let Some(preview) = self.active_tool.borrow().get_drawable()
-            && preview.get_rendering_mode() == RenderingMode::Blur
+        if let Some(preview) = self.active_tool.borrow().get_drawable()
+            && preview.get_rendering_mode() == RenderingMode::BlurOrPixelate
         {
-            preview.draw_baselayer(canvas, &source_image, font, bounds)?;
-            draw_active_tool = false;
+            preview.draw_baselayer(canvas, &source_image, background_image_id, font, bounds)?;
         }
 
-        // draw the whole stack of normal drawables
+        // let blur spotlights blur the blurred/pixelated content too
+        let spotlight_source_id = self.update_spotlight_source(
+            canvas,
+            &source_image,
+            font,
+            bounds,
+            background_image_id,
+            output_target,
+        )?;
+
+        // render spotlights
+        render_spotlights(
+            canvas,
+            &self.active_tool,
+            &self.drawables,
+            self.hidden_drawable_index,
+            bounds,
+            spotlight_source_id,
+            output_target,
+        );
+
+        // render the whole stack of normal drawables
+        let mut draw_active_tool = true;
         for (i, d) in self.drawables.iter().enumerate() {
-            if self.hidden_drawable_index == Some(i) {
-                // draw the active tool preview in the original z position
-                if draw_active_tool
-                    && let Some(preview) = self.active_tool.borrow().get_drawable()
-                    && preview.get_rendering_mode() == RenderingMode::Default
-                {
-                    preview.draw(canvas, font, bounds)?;
-                    draw_active_tool = false;
-                }
+            if d.get_rendering_mode() != RenderingMode::Default {
                 continue;
             }
-            if d.get_rendering_mode() == RenderingMode::Default {
+
+            if self.hidden_drawable_index == Some(i)
+                && let Some(preview) = self.active_tool.borrow().get_drawable()
+            {
+                // draw the active tool preview in the original z position
+                preview.draw(canvas, font, bounds)?;
+                draw_active_tool = false;
+            } else {
                 d.draw(canvas, font, bounds)?;
             }
         }
 
-        // draw active tool when not already drawn in stack order
+        // draw normal active tool when not already drawn in stack order
         if draw_active_tool
-            && self.active_tool.borrow().get_tool_type() != Tools::Crop
             && let Some(preview) = self.active_tool.borrow().get_drawable()
+            && matches!(
+                preview.get_rendering_mode(),
+                RenderingMode::Default | RenderingMode::Crop
+            )
         {
             preview.draw(canvas, font, bounds)?;
         }
@@ -850,8 +990,7 @@ impl FemtoVgAreaMut {
         }
 
         // draw pointer tool selection overlay
-        if draw_active_tool
-            && let Some(d) = self.active_tool.borrow().get_drawable()
+        if let Some(d) = self.active_tool.borrow().get_drawable()
             && d.get_rendering_mode() == RenderingMode::SelectionOverlay
         {
             d.draw(canvas, font, bounds)?;
