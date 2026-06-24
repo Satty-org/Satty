@@ -214,7 +214,7 @@ impl Drawable for Crop {
         RenderingMode::Crop
     }
 
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some(math::ensure_bounding_box(
             self.top_left.round(),
             (self.top_left + self.size).round(),
@@ -230,7 +230,7 @@ impl Drawable for Crop {
         self.snap_to_image_bounds(false, 0.0, delta);
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, keep_aspect: bool) {
         // Figure out which corner didn't move (the handle's opposite corner) -
         // that's the anchor that must stay fixed while snapping/aspect-locking.
         let orig_tl = self.top_left;

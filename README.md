@@ -114,8 +114,8 @@ Mouse:
 Touchpad: <sup>0.22.0</sup>
 
 - <kbd>Pinch</kbd>: Zoom (two finger)
-- <kbd>Ctrl+Scroll</kbd>: Zoom in/out  (two finger scroll)
-- <kbd>Scroll</kbd>: Pan  (two finger scroll)
+- <kbd>Ctrl+Scroll</kbd>: Zoom in/out (two finger scroll)
+- <kbd>Scroll</kbd>: Pan (two finger scroll)
 
 #### Color Selection Shortcuts <sup>0.20.1</sup>
 
@@ -158,13 +158,14 @@ Default single-key shortcuts:
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
-Shortcuts can be overwritten in the config by 
+Shortcuts can be overwritten in the config by
+
 ```toml
 [keybinds]
 "BINDING" = "TOOL-OR-COMMAND"
 ```
 
-Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
+Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`).
 
 Pressing any unbound key will print its name to the console.
 
@@ -189,12 +190,14 @@ Newly created annotations can be autoselected if enabled in the config.
 
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
 - <kbd>Delete</kbd> deletes the selected annotation.
-- Drag the resize handles - mouse cursor will change - to change the size. 
-  - Hold <kbd>Alt</kbd> for centered resize
-  - Hold <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
-  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize. <sup>NEXTRELEASE</sup>
+- Drag the resize handles - mouse cursor will change - to change the size.
+  - Hold <kbd>Alt</kbd> for centered resize.
+  - Hold <kbd>Shift</kbd> to snap.
+  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize.
   - Hold mutiple to combine them.
 - Grab an annotation - mouse cursor will change to a hand - to move.
+  - Hold <kbd>Alt</kbd> for horizontal move.
+  - Hold <kbd>Shift</kbd> to vertical move.
 - Scroll up/down with the mouse wheel to change the annotation's layer.
 - Nudge (small move) with the cursor keys.
 - Double-click on a text annotation to edit it.
@@ -415,5 +418,3 @@ The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
 <!-- --8<-- [end:license] -->
-
-

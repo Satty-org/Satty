@@ -25,10 +25,23 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some(math::ensure_bounding_box(
             self.top_left,
             self.top_left + self.size,
+        ))
+    }
+
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        // the border is always stroked, half of it outside
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(super::bounding_box_with_margin(
+            self.top_left,
+            self.top_left + self.size,
+            line_width / 2.0,
         ))
     }
 
@@ -41,7 +54,7 @@ impl Drawable for Rectangle {
         self.origin += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         self.top_left = tl;
         self.size = br - tl;
