@@ -266,12 +266,12 @@ impl FemtoVGArea {
             .hit_test(pos)
     }
 
-    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+    pub fn get_drawable_anchors(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
         self.imp()
             .inner()
             .as_ref()
             .expect("Did you call init before using FemtoVgArea?")
-            .get_drawable_bounds(index)
+            .get_drawable_anchors(index)
     }
 
     pub fn last_drawable_index(&self) -> Option<usize> {

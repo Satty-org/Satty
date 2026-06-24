@@ -6,6 +6,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_ellipse,
 };
 
 use super::{
@@ -16,6 +17,7 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub struct Ellipse {
     origin: Vec2D,
+    // bounding box of the ellipse
     top_left: Vec2D,
     size: Vec2D,
     style: Style,
@@ -24,27 +26,29 @@ pub struct Ellipse {
 }
 
 impl Drawable for Ellipse {
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some((self.top_left, self.top_left + self.size))
     }
 
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        // the border is always stroked, half of it outside
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(super::bounding_box_with_margin(
+            self.top_left,
+            self.top_left + self.size,
+            line_width / 2.0,
+        ))
+    }
+
+    fn get_selection_type(&self) -> super::SelectionType {
+        super::SelectionType::Ellipse
+    }
+
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let radii = self.size.abs() * 0.5;
-        let center = self.top_left + radii;
-        let d = (pos - center) / (radii + tolerance);
-        if d.norm2() > 1.0 {
-            // outside the outer tolerance
-            return false;
-        }
-
-        // if filled, only check the outer tolerance
-        if self.style.fill {
-            return true;
-        }
-
-        // outside the inner tolerance
-        let inner_d = (pos - center) / (radii - tolerance);
-        inner_d.norm2() > 1.0
+        hit_test_ellipse(pos, self.top_left, self.size, tolerance, self.style.fill)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -52,7 +56,7 @@ impl Drawable for Ellipse {
         self.origin += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         self.top_left = tl;
         self.size = br - tl;
@@ -75,8 +79,8 @@ impl Drawable for Ellipse {
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let mut path = Path::new();
-        let radii = self.size.abs() * 0.5;
-        let center = self.top_left + radii;
+        let (top_left, size) = math::rect_ensure_positive_size(self.top_left, self.size);
+        let (center, radii) = (top_left + size / 2.0, size / 2.0);
         path.ellipse(center.x, center.y, radii.x, radii.y);
 
         if self.style.fill {
@@ -100,11 +104,27 @@ impl Drawable for Ellipse {
 }
 
 impl Ellipse {
+    // While drawing, the dragged box is the rectangle whose corners lie on the
+    // ellipse, so the ellipse goes through the start point and the cursor.
+    fn dragged_box(&self) -> (Vec2D, Vec2D) {
+        let (tl, br) = math::rectangle_in_ellipse(self.top_left, self.top_left + self.size);
+        (tl, br - tl)
+    }
+
+    fn set_dragged_box(&mut self, top_left: Vec2D, size: Vec2D) {
+        let (tl, br) = math::ellipse_around_rectangle(top_left, top_left + size);
+        self.top_left = tl;
+        self.size = br - tl;
+    }
+
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
+        let (_, dragged_size) = self.dragged_box();
+        let drag_box = DragBox::from_delta(self.origin, dragged_size, event.pos, event.modifier);
         self.centered = drag_box.centered;
-        self.top_left = drag_box.top_left;
-        self.size = drag_box.size;
+        self.set_dragged_box(drag_box.top_left, drag_box.size);
+        sender
+            .send(SketchBoardInput::ShapeDimensionsUpdate(self.size))
+            .ok();
     }
 }
 
@@ -138,8 +158,8 @@ impl Tool for EllipseTool {
             && let Some(ellipse) = &mut self.ellipse
         {
             ellipse.centered = true;
-            ellipse.top_left = ellipse.origin - ellipse.size;
-            ellipse.size *= 2.0;
+            let (_, size) = ellipse.dragged_box();
+            ellipse.set_dragged_box(ellipse.origin - size, size * 2.0);
 
             return ToolUpdateResult::Redraw;
         }
@@ -155,8 +175,8 @@ impl Tool for EllipseTool {
             && let Some(ellipse) = &mut self.ellipse
         {
             ellipse.centered = false;
-            ellipse.top_left = ellipse.origin;
-            ellipse.size /= 2.0;
+            let (_, size) = ellipse.dragged_box();
+            ellipse.set_dragged_box(ellipse.origin, size / 2.0);
 
             return ToolUpdateResult::Redraw;
         }

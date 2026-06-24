@@ -13,7 +13,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::DrawableClone,
+    tools::{DrawableClone, SelectionType},
 };
 
 use super::{
@@ -137,7 +137,7 @@ pub struct HighlightTool {
 }
 
 impl Drawable for HighlightKind {
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         match self {
             HighlightKind::Block(h) => Some(math::ensure_bounding_box(
                 h.data.top_left,
@@ -150,11 +150,34 @@ impl Drawable for HighlightKind {
         }
     }
 
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        match self {
+            HighlightKind::Block(_) => self.anchors(),
+            HighlightKind::Freehand(h) => {
+                let (tl, br) = super::calculate_line_bounds(h.data.start_point, &h.data.points);
+                let width = h
+                    .style
+                    .size
+                    .to_highlight_width(h.style.annotation_size_factor);
+                // the square caps reach out half the width diagonally
+                let margin = width / 2.0 * std::f32::consts::SQRT_2;
+                Some(super::bounding_box_with_margin(tl, br, margin))
+            }
+        }
+    }
+
+    fn get_selection_type(&self) -> SelectionType {
+        match self {
+            HighlightKind::Block(_) => SelectionType::Rectangle,
+            HighlightKind::Freehand(_) => SelectionType::BoundingBoxAllHandles,
+        }
+    }
+
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
         match self {
             HighlightKind::Block(_) => {
-                let (tl, br) = match self.bounds() {
-                    Some(bounds) => bounds,
+                let (tl, br) = match self.anchors() {
+                    Some(anchors) => anchors,
                     None => return false,
                 };
                 super::hit_test_rectangle(pos, tl, br - tl, tolerance, true)
@@ -181,7 +204,7 @@ impl Drawable for HighlightKind {
         }
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         match self {
             HighlightKind::Block(h) => {
                 let (tl, br) = math::ensure_bounding_box(tl, br);
@@ -342,11 +365,6 @@ impl Tool for HighlightTool {
                                 *points.last().unwrap()
                             };
                             let snapped_pos = event.pos.sub(last).snapped_vector_15deg().add(last);
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "{:?} {:?} {:?} ",
-                                highlighter.data.start_point, points, event.pos
-                            );
                             points.push(snapped_pos);
                         } else {
                             points.push(event.pos);

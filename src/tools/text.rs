@@ -10,7 +10,7 @@ use std::{borrow::Cow, ops::Range};
 
 use relm4::gtk::prelude::*;
 
-use crate::tools::hit_test_rectangle;
+use crate::tools::{SelectionType, hit_test_rectangle};
 use crate::{
     configuration::APP_CONFIG,
     femtovg_area,
@@ -226,11 +226,11 @@ impl Text {
 }
 
 impl Drawable for Text {
-    fn bounds_only_valid_after_redraw(&self) -> bool {
+    fn anchors_only_valid_after_redraw(&self) -> bool {
         true
     }
 
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         let rect = self.rect.borrow();
         if rect.width() == 0 && rect.height() == 0 {
             // Not yet drawn; use pos as a small point region
@@ -245,9 +245,13 @@ impl Drawable for Text {
         ))
     }
 
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::BoundingBox
+    }
+
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let (tl, br) = match self.bounds() {
-            Some(bounds) => bounds,
+        let (tl, br) = match self.anchors() {
+            Some(anchors) => anchors,
             None => return false,
         };
         hit_test_rectangle(pos, tl, br - tl, tolerance, true)
