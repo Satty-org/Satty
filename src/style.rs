@@ -266,14 +266,6 @@ impl Size {
         }
     }
 
-    pub fn to_blur_factor(self, size_factor: f32) -> f32 {
-        match self {
-            Size::Small => 10.0 * size_factor,
-            Size::Medium => 20.0 * size_factor,
-            Size::Large => 30.0 * size_factor,
-        }
-    }
-
     pub fn to_highlight_width(self, size_factor: f32) -> f32 {
         match self {
             Size::Small => 15.0 * size_factor,
@@ -297,6 +289,30 @@ impl Style {
             APP_CONFIG.read().corner_roundness()
         } else {
             0.0
+        }
+    }
+
+    pub fn blur_factor(&self) -> f32 {
+        match self.size {
+            Size::Small => 4.0,
+            Size::Medium => 8.0,
+            Size::Large => 16.0,
+        }
+    }
+
+    pub fn highlight_alpha(self) -> f32 {
+        match self.size {
+            Size::Small => 0.4,
+            Size::Medium => 0.6,
+            Size::Large => 0.8,
+        }
+    }
+
+    pub fn spotlight_alpha(self) -> f32 {
+        match self.size {
+            Size::Small => 0.4,
+            Size::Medium => 0.6,
+            Size::Large => 0.8,
         }
     }
 }

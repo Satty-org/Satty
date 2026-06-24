@@ -414,7 +414,9 @@ impl ShortcutRegistry {
         registry.add_key_binding("m", SC::SelectTool(Tools::Marker));
         registry.add_key_binding("x", SC::SelectTool(Tools::FringePixelate));
         registry.add_key_binding("u", SC::SelectTool(Tools::Blur));
+        registry.add_key_binding("<Shift>u", SC::SelectTool(Tools::Lensblur));
         registry.add_key_binding("g", SC::SelectTool(Tools::BlockHighlighter));
+        registry.add_key_binding("s", SC::SelectTool(Tools::HighlightSpotlight));
         registry.add_key_binding("o", SC::SelectTool(Tools::Image));
         registry.add_key_binding("<Control>c", SC::RunAction(A::SaveToClipboard));
         registry.add_key_binding("<Control><Alt>c", SC::RunAction(A::CopyFilepathToClipboard));
@@ -429,7 +431,7 @@ impl ShortcutRegistry {
         }
 
         registry.add_key_binding("minus", SC::CycleSize);
-        registry.add_key_binding("s", SC::FocusAnnotationSizeFactor);
+        registry.add_key_binding("w", SC::FocusAnnotationSizeFactor);
         registry.add_key_binding("f", SC::ToggleFill);
         registry.add_key_binding("k", SC::ToggleRoundCaps);
 

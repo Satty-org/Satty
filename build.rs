@@ -85,6 +85,8 @@ fn main() -> Result<(), io::Error> {
             "image-regular",
             "rectangle-landscape-filled",
             "format-ink-highlighter",
+            "flashlight-regular",
+            "lens-blur",
         ],
     );
 
