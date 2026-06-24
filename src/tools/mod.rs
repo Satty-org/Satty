@@ -356,6 +356,26 @@ fn resize_line_bounds(tl: Vec2D, br: Vec2D, start_point: &mut Vec2D, points: &mu
     *start_point = origin + (*start_point - current_tl) * scale;
 }
 
+pub fn hit_test_ellipse(
+    pos: Vec2D,
+    center: Vec2D,
+    radii: Vec2D,
+    tolerance: f32,
+    filled: bool,
+) -> bool {
+    let d = (pos - center) / (radii + tolerance);
+    if d.norm2() > 1.0 {
+        return false;
+    }
+
+    if filled {
+        return true;
+    }
+
+    let inner_d = (pos - center) / (radii - tolerance);
+    inner_d.norm2() > 1.0
+}
+
 #[derive(Debug)]
 pub enum ToolUpdateResult {
     Commit(Box<dyn Drawable>),

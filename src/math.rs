@@ -551,6 +551,11 @@ pub fn rect_round(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
     (pos.round(), size.round())
 }
 
+pub fn rect_to_ellipsis(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
+    let (pos, size) = rect_ensure_positive_size(rect.0, rect.1);
+    (pos + size / 2.0, size / 2.0 * 2.0_f32.sqrt())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Vec2D, crop_rect_in_bounds, get_closest_aspect_ratio, rect_ensure_in_bounds};

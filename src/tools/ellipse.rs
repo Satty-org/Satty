@@ -6,6 +6,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_ellipse,
 };
 
 use super::{
@@ -29,22 +30,8 @@ impl Drawable for Ellipse {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let radii = self.size.abs() * 0.5;
-        let center = self.top_left + radii;
-        let d = (pos - center) / (radii + tolerance);
-        if d.norm2() > 1.0 {
-            // outside the outer tolerance
-            return false;
-        }
-
-        // if filled, only check the outer tolerance
-        if self.style.fill {
-            return true;
-        }
-
-        // outside the inner tolerance
-        let inner_d = (pos - center) / (radii - tolerance);
-        inner_d.norm2() > 1.0
+        let (center, radii) = math::rect_to_ellipsis((self.top_left, self.size));
+        hit_test_ellipse(pos, center, radii, tolerance, self.style.fill)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -75,8 +62,7 @@ impl Drawable for Ellipse {
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let mut path = Path::new();
-        let radii = self.size.abs() * 0.5;
-        let center = self.top_left + radii;
+        let (center, radii) = math::rect_to_ellipsis((self.top_left, self.size));
         path.ellipse(center.x, center.y, radii.x, radii.y);
 
         if self.style.fill {
