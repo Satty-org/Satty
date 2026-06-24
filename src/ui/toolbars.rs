@@ -527,6 +527,7 @@ impl Component for StyleToolbar {
                     0.1, 99.99, // min, max
                     0.1, 1.0, // step sizes
                     0.0),
+                set_climb_rate: 0.1,
                 set_numeric: true,
                 set_digits: 2,
                 set_width_chars: 4,
@@ -547,13 +548,15 @@ impl Component for StyleToolbar {
 
                         if matches!(keyval, Key::Shift_L | Key::Shift_R) {
                             size_spin_button.adjustment().set_step_increment(0.01);
+                        } else if matches!(keyval, Key::Control_L | Key::Control_R) {
+                            size_spin_button.adjustment().set_step_increment(1.0);
                         }
 
                         relm4::gtk::glib::Propagation::Proceed
                     },
 
                     connect_key_released[size_spin_button] => move |_, keyval, _, _| {
-                        if matches!(keyval, Key::Shift_L | Key::Shift_R) {
+                        if matches!(keyval, Key::Shift_L | Key::Shift_R| Key::Control_L | Key::Control_R) {
                             size_spin_button.adjustment().set_step_increment(0.1);
                         }
                     },
