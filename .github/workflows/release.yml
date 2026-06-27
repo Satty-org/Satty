@@ -16,18 +16,30 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
+            container: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+            container: ""
 
     runs-on: ${{ matrix.os }}
-    container:
-      image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
+    # x86_64 builds in the gtk4-rs Fedora container (yum); aarch64 runs natively
+    # on GitHub's free arm64 runner with GTK installed via apt (empty container).
+    container: ${{ matrix.container }}
 
     permissions:
       contents: write
 
     steps:
-      - name: Install dependencies
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dependencies (Fedora container, x86_64)
+        if: matrix.container != ''
         run: yum install -y gtk4-devel libadwaita-devel
+
+      - name: Install dependencies (Ubuntu host, aarch64)
+        if: matrix.container == ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
 
       - uses: actions/checkout@v3
 
@@ -42,7 +54,6 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }} --features ci-release
 
       - name: Pack Artifacts
-        if: matrix.os == 'ubuntu-latest'
         env:
           RELEASE_NAME: satty-${{ matrix.target }}
           ARTIFACTS_DIR: target/${{ matrix.target }}/release
