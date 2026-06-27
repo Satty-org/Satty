@@ -65,87 +65,13 @@ pub struct Configuration {
     profile_startup: bool,
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
-    keybinds: Keybinds,
+    keybinds: HashMap<String, String>, // key_binding -> tool_or_command
     zoom_factor: f32,
     pan_step_size: f32,
     text_move_length: f32,
     input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
-}
-
-pub struct Keybinds {
-    shortcuts: HashMap<char, Tools>,
-}
-
-impl Keybinds {
-    pub fn get_tool(&self, key: char) -> Option<Tools> {
-        self.shortcuts.get(&key).copied()
-    }
-
-    pub fn shortcuts(&self) -> &HashMap<char, Tools> {
-        &self.shortcuts
-    }
-
-    /// Update a single keybind, only if it is valid
-    fn update_keybind(&mut self, key: Option<String>, tool: Tools) {
-        if let Some(key_str) = key
-            && let Some(validated_key) = Self::validate_keybind(&key_str, tool)
-        {
-            self.shortcuts.retain(|_, v| *v != tool);
-            self.shortcuts.insert(validated_key, tool);
-        }
-    }
-
-    /// A shortcut keybinding is only valid if it is one char
-    fn validate_keybind(key: &str, tool: Tools) -> Option<char> {
-        let mut chars = key.chars();
-        match (chars.next(), chars.next()) {
-            (Some(c), None) => Some(c),
-            _ => {
-                eprintln!(
-                    "Warning: Invalid keybind: '{} = {}'. Keybinds must be single characters. Using default keybind instead.",
-                    tool, key
-                );
-                None
-            }
-        }
-    }
-
-    /// Merge keybindings with default
-    /// Only replaces defaults if they are set
-    fn merge(&mut self, file_keybinds: KeybindsFile) {
-        self.update_keybind(file_keybinds.pointer, Tools::Pointer);
-        self.update_keybind(file_keybinds.crop, Tools::Crop);
-        self.update_keybind(file_keybinds.brush, Tools::Brush);
-        self.update_keybind(file_keybinds.line, Tools::Line);
-        self.update_keybind(file_keybinds.arrow, Tools::Arrow);
-        self.update_keybind(file_keybinds.rectangle, Tools::Rectangle);
-        self.update_keybind(file_keybinds.ellipse, Tools::Ellipse);
-        self.update_keybind(file_keybinds.text, Tools::Text);
-        self.update_keybind(file_keybinds.marker, Tools::Marker);
-        self.update_keybind(file_keybinds.blur, Tools::Blur);
-        self.update_keybind(file_keybinds.highlight, Tools::Highlight);
-    }
-}
-
-impl Default for Keybinds {
-    fn default() -> Self {
-        let mut shortcuts = HashMap::new();
-        shortcuts.insert('p', Tools::Pointer);
-        shortcuts.insert('c', Tools::Crop);
-        shortcuts.insert('b', Tools::Brush);
-        shortcuts.insert('i', Tools::Line);
-        shortcuts.insert('z', Tools::Arrow);
-        shortcuts.insert('r', Tools::Rectangle);
-        shortcuts.insert('e', Tools::Ellipse);
-        shortcuts.insert('t', Tools::Text);
-        shortcuts.insert('m', Tools::Marker);
-        shortcuts.insert('u', Tools::Blur);
-        shortcuts.insert('g', Tools::Highlight);
-
-        Self { shortcuts }
-    }
 }
 
 #[derive(Default)]
@@ -290,7 +216,7 @@ impl From<Vec<EarlyExitTriggers>> for EarlyExit {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
     SaveToClipboard,
@@ -341,6 +267,7 @@ impl Configuration {
 
         APP_CONFIG.write().merge(file, command_line);
     }
+
     fn merge_general(&mut self, general: ConfigurationFileGeneral) {
         if let Some(v) = general.fullscreen {
             self.fullscreen = Some(v);
@@ -439,6 +366,7 @@ impl Configuration {
         }
         // ---
     }
+
     fn merge(&mut self, file: Option<ConfigurationFile>, command_line: CommandLine) {
         // input_filename is required and needs to be overwritten
         self.input_filename = command_line.filename;
@@ -454,9 +382,7 @@ impl Configuration {
             if let Some(v) = file.font {
                 self.font.merge(v);
             }
-            if let Some(v) = file.keybinds {
-                self.keybinds.merge(v);
-            }
+            self.keybinds = file.keybinds.unwrap_or_default();
         }
 
         // overwrite with all specified values from command line
@@ -691,7 +617,7 @@ impl Configuration {
         self.brush_smooth_history_size
     }
 
-    pub fn keybinds(&self) -> &Keybinds {
+    pub fn keybinds(&self) -> &HashMap<String, String> {
         &self.keybinds
     }
 
@@ -750,7 +676,7 @@ impl Default for Configuration {
             profile_startup: false,
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
-            keybinds: Keybinds::default(),
+            keybinds: HashMap::new(),
             zoom_factor: 1.1,
             pan_step_size: 50.,
             text_move_length: 50.0,
@@ -782,23 +708,7 @@ struct ConfigurationFile {
     general: Option<ConfigurationFileGeneral>,
     color_palette: Option<ColorPaletteFile>,
     font: Option<FontFile>,
-    keybinds: Option<KeybindsFile>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-struct KeybindsFile {
-    pointer: Option<String>,
-    crop: Option<String>,
-    brush: Option<String>,
-    line: Option<String>,
-    arrow: Option<String>,
-    rectangle: Option<String>,
-    ellipse: Option<String>,
-    text: Option<String>,
-    marker: Option<String>,
-    blur: Option<String>,
-    highlight: Option<String>,
+    keybinds: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize)]

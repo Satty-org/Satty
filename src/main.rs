@@ -28,6 +28,7 @@ mod configuration;
 mod femtovg_area;
 mod icons;
 mod ime;
+mod keybindings;
 mod math;
 mod notification;
 mod sketch_board;
@@ -36,6 +37,7 @@ mod tools;
 mod ui;
 
 use crate::sketch_board::{SketchBoard, SketchBoardInput};
+use crate::style::{Color, Size};
 use crate::tools::Tools;
 
 pub static START_TIME: LazyLock<chrono::DateTime<chrono::Local>> =
@@ -69,6 +71,10 @@ enum AppInput {
     ToggleToolbarsDisplay,
     ToolSwitchShortcut(Tools),
     ColorSwitchShortcut(u64),
+    SetColor(Color),
+    SetFill(bool),
+    SetSize(Size),
+    FocusAnnotationSizeFactorShortcut,
     ScaleFactorChanged,
     FullscreenChanged(bool),
     DimensionsUpdate(Option<(i32, i32)>),
@@ -277,6 +283,26 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::ColorButtonSelected(color_button));
             }
+            AppInput::SetColor(color) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetColor(color));
+            }
+            AppInput::SetFill(fill_enabled) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetFill(fill_enabled));
+            }
+            AppInput::SetSize(size) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetSize(size));
+            }
+            AppInput::FocusAnnotationSizeFactorShortcut => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::FocusAnnotationSizeFactor);
+            }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
                     .sender()
@@ -341,6 +367,12 @@ impl Component for App {
                     }
                     SketchBoardOutput::ColorSwitchShortcut(index) => {
                         AppInput::ColorSwitchShortcut(index)
+                    }
+                    SketchBoardOutput::SetColor(color) => AppInput::SetColor(color),
+                    SketchBoardOutput::SetFill(fill_enabled) => AppInput::SetFill(fill_enabled),
+                    SketchBoardOutput::SetSize(size) => AppInput::SetSize(size),
+                    SketchBoardOutput::FocusAnnotationSizeFactorShortcut => {
+                        AppInput::FocusAnnotationSizeFactorShortcut
                     }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
