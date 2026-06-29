@@ -757,7 +757,7 @@ impl SketchBoard {
         }
     }
 
-    fn handle_reset(&mut self) -> ToolUpdateResult {
+    fn handle_clear_all(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
         if self.deactivate_active_tool() | self.renderer.clear_all() {
             ToolUpdateResult::Redraw
@@ -864,7 +864,7 @@ impl SketchBoard {
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
             ToolbarEvent::Undo => self.handle_undo(),
             ToolbarEvent::Redo => self.handle_redo(),
-            ToolbarEvent::Reset => self.handle_reset(),
+            ToolbarEvent::ClearAll => self.handle_clear_all(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
                 self.active_tool
@@ -1213,7 +1213,7 @@ impl Component for SketchBoard {
                                 self.renderer.request_render(&[]);
                                 ToolUpdateResult::Unmodified
                             } else if ke.modifier.is_empty() && ke.key == Key::Delete {
-                                self.handle_reset()
+                                self.handle_clear_all()
                             } else if ke.modifier.is_empty()
                                 && (ke.key == Key::Escape
                                     || ke.key == Key::Return
