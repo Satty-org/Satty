@@ -50,7 +50,8 @@ pub struct FemtoVgAreaMut {
     scale_factor: f32,
     offset: Vec2D,
     drawables: Vec<Box<dyn Drawable>>,
-    redo_stack: Vec<Box<dyn Drawable>>,
+    undo_stack: Vec<HistoryEntry>,
+    redo_stack: Vec<HistoryEntry>,
     zoom_scale: f32,
     last_scale: f32,
     pointer_offset: Vec2D,
@@ -58,6 +59,11 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+}
+
+enum HistoryEntry {
+    Drawable(Box<dyn Drawable>),
+    ClearAll(Vec<Box<dyn Drawable>>),
 }
 
 #[glib::object_subclass]
@@ -172,6 +178,7 @@ impl FemtoVGArea {
             scale_factor: 1.0,
             offset: Vec2D::zero(),
             drawables: Vec::new(),
+            undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             zoom_scale: initial_scale,
             pointer_offset: Vec2D::zero(),
@@ -304,49 +311,82 @@ impl FemtoVGArea {
 
 impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
+        self.undo_stack
+            .push(HistoryEntry::Drawable(drawable.clone_box()));
         self.drawables.push(drawable);
         self.redo_stack.clear();
     }
 
     pub fn undo(&mut self) -> bool {
-        match self.drawables.pop() {
-            Some(mut d) => {
-                // notify of the undo action
-                d.handle_undo();
-
-                // push to redo stack
-                self.redo_stack.push(d);
+        match self.undo_stack.pop() {
+            Some(HistoryEntry::Drawable(history_drawable)) => {
+                let mut drawable = self.drawables.pop().unwrap_or(history_drawable);
+                drawable.handle_undo();
+                self.redo_stack.push(HistoryEntry::Drawable(drawable));
+                true
+            }
+            Some(HistoryEntry::ClearAll(drawables)) => {
+                self.restore_clear_all(drawables);
                 true
             }
             None => false,
         }
     }
+
     pub fn redo(&mut self) -> bool {
         match self.redo_stack.pop() {
-            Some(mut d) => {
-                // notify of the redo action
-                d.handle_redo();
-
-                // push to drawable stack
-                self.drawables.push(d);
-
+            Some(HistoryEntry::Drawable(mut drawable)) => {
+                drawable.handle_redo();
+                self.undo_stack
+                    .push(HistoryEntry::Drawable(drawable.clone_box()));
+                self.drawables.push(drawable);
+                true
+            }
+            Some(HistoryEntry::ClearAll(_)) => {
+                self.apply_clear_all();
                 true
             }
             None => false,
         }
     }
-    pub fn reset(&mut self) -> bool {
-        let mut any_undone = false;
-        while let Some(mut d) = self.drawables.pop() {
-            // notify of the undo action
-            d.handle_undo();
 
-            // push to redo stack
-            self.redo_stack.push(d);
-
-            any_undone = true;
+    pub fn clear_all(&mut self) -> bool {
+        if self.drawables.is_empty() {
+            return false;
         }
-        any_undone
+
+        self.apply_clear_all();
+        self.redo_stack.clear();
+        true
+    }
+
+    fn apply_clear_all(&mut self) {
+        let mut drawables = std::mem::take(&mut self.drawables);
+        Self::handle_drawables_undo(&mut drawables);
+        self.undo_stack.push(HistoryEntry::ClearAll(drawables));
+    }
+
+    fn restore_clear_all(&mut self, mut drawables: Vec<Box<dyn Drawable>>) {
+        Self::handle_drawables_redo(&mut drawables);
+        self.redo_stack
+            .push(HistoryEntry::ClearAll(Self::clone_drawables(&drawables)));
+        self.drawables = drawables;
+    }
+
+    fn handle_drawables_undo(drawables: &mut [Box<dyn Drawable>]) {
+        for d in drawables.iter_mut().rev() {
+            d.handle_undo();
+        }
+    }
+
+    fn handle_drawables_redo(drawables: &mut [Box<dyn Drawable>]) {
+        for d in drawables.iter_mut() {
+            d.handle_redo();
+        }
+    }
+
+    fn clone_drawables(drawables: &[Box<dyn Drawable>]) -> Vec<Box<dyn Drawable>> {
+        drawables.iter().map(|d| d.clone_box()).collect()
     }
 
     pub fn set_active_tool(&mut self, active_tool: Rc<RefCell<dyn Tool>>) {

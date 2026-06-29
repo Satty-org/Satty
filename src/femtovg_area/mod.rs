@@ -72,12 +72,12 @@ impl FemtoVGArea {
     pub fn request_render(&self, actions: &[Action]) {
         self.imp().request_render(actions);
     }
-    pub fn reset(&mut self) -> bool {
+    pub fn clear_all(&mut self) -> bool {
         self.imp()
             .inner()
             .as_mut()
             .expect("Did you call init before using FemtoVgArea?")
-            .reset()
+            .clear_all()
     }
 
     pub fn abs_canvas_to_image_coordinates(&self, input: Vec2D) -> Vec2D {

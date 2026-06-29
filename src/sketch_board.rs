@@ -759,7 +759,7 @@ impl SketchBoard {
 
     fn handle_reset(&mut self) -> ToolUpdateResult {
         // can't use lazy || here
-        if self.deactivate_active_tool() | self.renderer.reset() {
+        if self.deactivate_active_tool() | self.renderer.clear_all() {
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
