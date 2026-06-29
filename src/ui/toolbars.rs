@@ -48,7 +48,7 @@ pub enum ToolbarEvent {
     CopyClipboard,
     ToggleFill,
     AnnotationSizeFactorChanged(f32),
-    Reset,
+    ClearAll,
     SaveFileAs,
     Resize,
     OriginalScale,
@@ -120,8 +120,8 @@ impl SimpleComponent for ToolsToolbar {
                 set_hexpand: false,
 
                 set_icon_name: "recycling-bin",
-                set_tooltip: "Reset",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Reset);},
+                set_tooltip: "Clear all",
+                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::ClearAll);},
             },
             gtk::Separator {},
             gtk::Button {
