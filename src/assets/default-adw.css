@@ -1,0 +1,12 @@
+.outer_box {
+    background-color: @headerbar_bg_color;
+}
+
+.toolbar {
+    color: @headerbar_fg_color;
+    background-color: @headerbar_bg_color;
+}
+
+button.editing {
+    color: @accent_color;
+}

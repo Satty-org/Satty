@@ -72,6 +72,7 @@ pub struct Configuration {
     input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
+    skip_adwaita_vars: bool,
 }
 
 pub struct Keybinds {
@@ -423,6 +424,9 @@ impl Configuration {
         if let Some(v) = general.app_id {
             self.app_id = Some(v);
         }
+        if let Some(v) = general.skip_adwaita_vars {
+            self.skip_adwaita_vars = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy
@@ -555,6 +559,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.app_id {
             self.app_id = Some(v);
+        }
+        if command_line.skip_adwaita_vars {
+            self.skip_adwaita_vars = true
         }
 
         // --- deprecated options ---
@@ -718,6 +725,10 @@ impl Configuration {
     pub fn app_id(&self) -> Option<&String> {
         self.app_id.as_ref()
     }
+
+    pub fn skip_adwaita_vars(&self) -> bool {
+        self.skip_adwaita_vars
+    }
 }
 
 impl Default for Configuration {
@@ -757,6 +768,7 @@ impl Default for Configuration {
             input_scale: None,
             title: None,
             app_id: None,
+            skip_adwaita_vars: false,
         }
     }
 }
@@ -841,6 +853,7 @@ struct ConfigurationFileGeneral {
     input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
+    skip_adwaita_vars: Option<bool>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,
