@@ -435,6 +435,9 @@ impl Tool for CropTool {
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         let ctrl_pressed = event.modifier.intersects(ModifierType::CONTROL_MASK);
         match event.type_ {
+            MouseEventType::Click if event.button == MouseButton::Primary && ctrl_pressed => {
+                self.handle_deactivated()
+            }
             MouseEventType::Click
                 if event.button == MouseButton::Secondary
                     && ctrl_pressed
@@ -443,13 +446,13 @@ impl Tool for CropTool {
             {
                 self.handle_dismissed()
             }
-            MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
+            MouseEventType::BeginDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.begin_drag(event.pos)
             }
-            MouseEventType::EndDrag if event.button == MouseButton::Primary => {
+            MouseEventType::EndDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.end_drag(event.pos)
             }
-            MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
+            MouseEventType::UpdateDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.update_drag(event.pos)
             }
             _ => ToolUpdateResult::Unmodified,
