@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+use super::{Drawable, Tool, ToolUpdateResult, Tools};
 use crate::{
     math::{self, Vec2D},
     sketch_board::{
@@ -9,9 +10,8 @@ use crate::{
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
+use relm4::adw::gdk::ModifierType;
 use relm4::{Sender, gtk::gdk::Key};
-
-use super::{Drawable, Tool, ToolUpdateResult, Tools};
 
 #[derive(Debug, Clone)]
 pub struct Crop {
@@ -433,15 +433,15 @@ impl Tool for CropTool {
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
+        let ctrl_pressed = event.modifier.intersects(ModifierType::CONTROL_MASK);
         match event.type_ {
-            MouseEventType::Click if event.button == MouseButton::Secondary => {
-                if let Some(crop) = &self.crop
-                    && crop.active
-                {
-                    self.handle_dismissed()
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
+            MouseEventType::Click
+                if event.button == MouseButton::Secondary
+                    && ctrl_pressed
+                    && let Some(crop) = &self.crop
+                    && crop.active =>
+            {
+                self.handle_dismissed()
             }
             MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
                 self.begin_drag(event.pos)
