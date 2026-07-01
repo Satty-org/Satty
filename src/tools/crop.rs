@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+use super::{Drawable, Tool, ToolUpdateResult, Tools};
 use crate::{
     math::{self, Vec2D},
     sketch_board::{
@@ -9,9 +10,8 @@ use crate::{
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
+use relm4::adw::gdk::ModifierType;
 use relm4::{Sender, gtk::gdk::Key};
-
-use super::{Drawable, Tool, ToolUpdateResult, Tools};
 
 #[derive(Debug, Clone)]
 pub struct Crop {
@@ -387,20 +387,6 @@ impl CropTool {
             }
         }
     }
-
-    fn handle_deactivate_and_reset(&mut self) -> ToolUpdateResult {
-        self.crop = None;
-        self.action = None;
-
-        if let Some(sender) = &self.sender {
-            sender
-                .send(SketchBoardInput::Output(
-                    SketchBoardOutput::DimensionsUpdate(None),
-                ))
-                .ok();
-        }
-        ToolUpdateResult::RedrawAndStopPropagation
-    }
 }
 
 impl Tool for CropTool {
@@ -429,7 +415,7 @@ impl Tool for CropTool {
             //FIXME: use if let guards as soon as they're stabilized (1.95)
             Key::Escape if self.crop.is_some() => {
                 if self.crop.as_mut().unwrap().active {
-                    self.handle_deactivate_and_reset()
+                    self.handle_dismissed()
                 } else {
                     ToolUpdateResult::Unmodified
                 }
@@ -447,23 +433,26 @@ impl Tool for CropTool {
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
+        let ctrl_pressed = event.modifier.intersects(ModifierType::CONTROL_MASK);
         match event.type_ {
-            MouseEventType::Click if event.button == MouseButton::Secondary => {
-                if let Some(crop) = &self.crop
-                    && crop.active
-                {
-                    self.handle_deactivate_and_reset()
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
+            MouseEventType::Click if event.button == MouseButton::Primary && ctrl_pressed => {
+                self.handle_deactivated()
             }
-            MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
+            MouseEventType::Click
+                if event.button == MouseButton::Secondary
+                    && ctrl_pressed
+                    && let Some(crop) = &self.crop
+                    && crop.active =>
+            {
+                self.handle_dismissed()
+            }
+            MouseEventType::BeginDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.begin_drag(event.pos)
             }
-            MouseEventType::EndDrag if event.button == MouseButton::Primary => {
+            MouseEventType::EndDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.end_drag(event.pos)
             }
-            MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
+            MouseEventType::UpdateDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
                 self.update_drag(event.pos)
             }
             _ => ToolUpdateResult::Unmodified,
@@ -484,6 +473,20 @@ impl Tool for CropTool {
         }
         self.action = None;
         ToolUpdateResult::Redraw
+    }
+
+    fn handle_dismissed(&mut self) -> ToolUpdateResult {
+        self.crop = None;
+        self.action = None;
+
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::DimensionsUpdate(None),
+                ))
+                .ok();
+        }
+        ToolUpdateResult::RedrawAndStopPropagation
     }
 
     fn get_drawable(&self) -> Option<&dyn Drawable> {
