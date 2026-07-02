@@ -47,13 +47,18 @@ pub fn draw_handle(
     canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
     center: Vec2D,
     scale: f32,
+    highlighted: bool,
 ) {
     let mut path = Path::new();
     path.circle(center.x, center.y, HANDLE_RADIUS / scale);
 
     let border_paint =
         Paint::color(Color::rgbf(0.9, 0.9, 0.9)).with_line_width(HANDLE_BORDER / scale);
-    let fill_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.4));
+    let fill_paint = if highlighted {
+        Paint::color(Color::rgbaf(1.0, 1.0, 1.0, 0.7))
+    } else {
+        Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.4))
+    };
 
     canvas.fill_path(&path, &fill_paint);
     canvas.stroke_path(&path, &border_paint);

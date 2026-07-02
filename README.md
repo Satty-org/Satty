@@ -94,6 +94,7 @@ Default single-key shortcuts:
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
 - <kbd>g</kbd>: Highlight tool
+- <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 ### Tool Modifiers and Keys
 
@@ -131,6 +132,13 @@ Highlight:
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
+Image <sup>NEXTRELEASE</sup>:
+- Selecting the tool opens a file chooser and places the chosen image in the center of the screenshot, scaled down to at most half of the screenshot size.
+- Drag the image to move it, drag a corner handle to resize it keeping the aspect ratio, an edge handle to stretch it along one axis and the topmost handle to rotate it.
+- Drag a resize handle across the opposite side to mirror the image.
+- Hold <kbd>Shift</kbd> while rotating to snap to 15° steps.
+- Press <kbd>Enter</kbd> or switch to another tool to render the image into the screenshot, press <kbd>Escape</kbd> to discard it.
+
 ### Configuration File
 
 ```toml
@@ -157,7 +165,7 @@ early-exit = ["all"]
 # early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush]
+# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush, image]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -227,6 +235,7 @@ text = "t"
 marker = "m"
 blur = "u"
 highlight = "g"
+image = "o"
 
 # Font to use for text annotations
 [font]
@@ -302,7 +311,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
+          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush, image]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>

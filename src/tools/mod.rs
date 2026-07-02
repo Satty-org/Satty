@@ -9,6 +9,7 @@ use std::{
 use anyhow::Result;
 use femtovg::{Canvas, FontId, renderer::OpenGl};
 use relm4::gtk::gdk_pixbuf::{
+    Pixbuf,
     glib::{Variant, VariantTy},
     prelude::{StaticVariantType, ToVariant},
 };
@@ -35,6 +36,7 @@ mod crop;
 mod drag_box;
 mod ellipse;
 mod highlight;
+mod image;
 mod line;
 mod marker;
 mod pointer;
@@ -46,6 +48,7 @@ pub enum ToolEvent {
     Deactivated,
     Input(InputEvent),
     StyleChanged(Style),
+    ImageSelected(Pixbuf, Vec2D),
 }
 
 pub trait Tool {
@@ -55,6 +58,7 @@ pub trait Tool {
             ToolEvent::Deactivated => self.handle_deactivated(),
             ToolEvent::Input(e) => self.handle_input_event(e),
             ToolEvent::StyleChanged(s) => self.handle_style_event(s),
+            ToolEvent::ImageSelected(i, b) => self.handle_image_selected(i, b),
         }
     }
 
@@ -97,6 +101,15 @@ pub trait Tool {
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
         let _ = style;
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_image_selected(
+        &mut self,
+        pixbuf: Pixbuf,
+        background_size: Vec2D,
+    ) -> ToolUpdateResult {
+        let _ = (pixbuf, background_size);
         ToolUpdateResult::Unmodified
     }
 
@@ -167,6 +180,7 @@ pub use blur::BlurTool;
 pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
+pub use image::ImageTool;
 pub use line::LineTool;
 pub use rectangle::RectangleTool;
 pub use text::TextTool;
@@ -187,6 +201,7 @@ pub enum Tools {
     Blur = 8,
     Highlight = 9,
     Brush = 10,
+    Image = 11,
 }
 
 impl Tools {
@@ -203,6 +218,7 @@ impl Tools {
             Tools::Marker => "Numbered Marker",
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
+            Tools::Image => "Image",
         }
     }
 }
@@ -222,6 +238,7 @@ impl Display for Tools {
             Self::Blur => write!(f, "blur"),
             Self::Highlight => write!(f, "highlight"),
             Self::Brush => write!(f, "brush"),
+            Self::Image => write!(f, "image"),
         }
     }
 }
@@ -257,6 +274,7 @@ impl ToolsManager {
         );
         tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
+        tools.insert(Tools::Image, Rc::new(RefCell::new(ImageTool::default())));
 
         let crop_tool = Rc::new(RefCell::new(CropTool::default()));
         Self { tools, crop_tool }
@@ -306,6 +324,7 @@ impl FromVariant for Tools {
             8 => Some(Tools::Blur),
             9 => Some(Tools::Highlight),
             10 => Some(Tools::Brush),
+            11 => Some(Tools::Image),
             _ => None,
         })
     }
@@ -325,6 +344,7 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Blur => Self::Blur,
             command_line::Tools::Highlight => Self::Highlight,
             command_line::Tools::Brush => Self::Brush,
+            command_line::Tools::Image => Self::Image,
         }
     }
 }

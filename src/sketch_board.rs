@@ -39,6 +39,7 @@ pub enum SketchBoardInput {
     PinchScale(f32),
     PinchEnd,
     ToolbarEvent(ToolbarEvent),
+    ImageSelected(Pixbuf),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
     CommitEvent(TextEventMsg),
@@ -201,6 +202,11 @@ impl InputEvent {
                     me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
                     None
                 }
+                MouseEventType::PointerPos => {
+                    // the raw position stays available in screen_pos
+                    me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
+                    None
+                }
                 _ => None,
             }
         } else {
@@ -257,7 +263,7 @@ impl InputEvent {
                     None
                 }
                 MouseEventType::PointerPos => {
-                    renderer.set_pointer_offset(me.pos);
+                    renderer.set_pointer_offset(me.screen_pos);
                     None
                 }
                 _ => None,
@@ -277,6 +283,7 @@ pub struct SketchBoard {
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    image_dimensions: Vec2D,
 }
 
 impl SketchBoard {
@@ -1286,6 +1293,10 @@ impl Component for SketchBoard {
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
+            SketchBoardInput::ImageSelected(pixbuf) => self
+                .active_tool
+                .borrow_mut()
+                .handle_event(ToolEvent::ImageSelected(pixbuf, self.image_dimensions)),
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
@@ -1358,6 +1369,7 @@ impl Component for SketchBoard {
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            image_dimensions: Vec2D::new(image.width() as f32, image.height() as f32),
         };
 
         let area = &mut model.renderer;

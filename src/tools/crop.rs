@@ -109,7 +109,12 @@ impl Drawable for Crop {
 
         if self.active {
             for handle in CropHandle::all() {
-                draw_handle(canvas, Self::get_handle_pos(self.pos, size, handle), scale);
+                draw_handle(
+                    canvas,
+                    Self::get_handle_pos(self.pos, size, handle),
+                    scale,
+                    false,
+                );
             }
         }
 
