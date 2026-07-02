@@ -15,7 +15,7 @@ use std::{fs, io};
 
 use gtk::prelude::*;
 
-use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
+use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::configuration::{APP_CONFIG, Action};
@@ -744,6 +744,47 @@ impl SketchBoard {
         }
     }
 
+    fn handle_paste_image(&self, sender: ComponentSender<Self>) -> ToolUpdateResult {
+        let Some(display) = DisplayManager::get().default_display() else {
+            eprintln!("Cannot open default display for clipboard.");
+            return ToolUpdateResult::Unmodified;
+        };
+        let clipboard = display.clipboard();
+
+        relm4::spawn_local(async move {
+            // an error simply means the clipboard does not contain an image
+            if let Ok(Some(texture)) = clipboard.read_texture_future().await
+                && let Some(pixbuf) = gdk::pixbuf_get_from_texture(&texture)
+            {
+                sender.input(SketchBoardInput::ImageSelected(pixbuf));
+            }
+        });
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_image_selected(
+        &mut self,
+        pixbuf: Pixbuf,
+        sender: ComponentSender<Self>,
+    ) -> ToolUpdateResult {
+        let event = ToolEvent::ImageSelected(pixbuf, self.image_dimensions);
+        if self.active_tool_type() == Tools::Image {
+            self.active_tool.borrow_mut().handle_event(event)
+        } else {
+            // on paste, hand the image to the tool before switching so that
+            // its activation does not open the file chooser
+            self.tools
+                .get(&Tools::Image)
+                .borrow_mut()
+                .handle_event(event);
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Image));
+            self.handle_toolbar_event(ToolbarEvent::ToolSelected(Tools::Image), sender);
+            ToolUpdateResult::Redraw
+        }
+    }
+
     fn handle_undo(&mut self) -> ToolUpdateResult {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_undo()
@@ -1178,6 +1219,10 @@ impl Component for SketchBoard {
                                 self.renderer
                                     .request_render(&[Action::CopyFilepathToClipboard]);
                                 ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::v, KeyMappingId::UsV)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_paste_image(sender)
                             } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
                                 || ke.is_one_of(Key::i, KeyMappingId::UsI))
                                 && ke.modifier
@@ -1293,10 +1338,7 @@ impl Component for SketchBoard {
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
-            SketchBoardInput::ImageSelected(pixbuf) => self
-                .active_tool
-                .borrow_mut()
-                .handle_event(ToolEvent::ImageSelected(pixbuf, self.image_dimensions)),
+            SketchBoardInput::ImageSelected(pixbuf) => self.handle_image_selected(pixbuf, sender),
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
