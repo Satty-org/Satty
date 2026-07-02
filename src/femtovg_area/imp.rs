@@ -9,10 +9,10 @@ use std::{
 };
 
 use femtovg::{
-    Canvas, FontId, ImageFlags, ImageId, ImageSource, Paint, Path, PixelFormat, Transform2D,
+    Canvas, FontId, ImageFlags, ImageSource, Paint, Path, PixelFormat, Transform2D,
     imgref::{Img, ImgVec},
     renderer,
-    rgb::{RGB, RGBA, RGBA8},
+    rgb::RGBA8,
 };
 use fontconfig::Fontconfig;
 use gtk::{glib, prelude::*, subclass::prelude::*};
@@ -524,7 +524,7 @@ impl FemtoVgAreaMut {
         let background_image_id = match self.background_image_id {
             Some(id) => id,
             None => {
-                let id = Self::upload_background_image(canvas, &self.background_image)?;
+                let id = super::create_image_from_pixbuf(canvas, &self.background_image)?;
                 self.background_image_id.replace(id);
                 id
             }
@@ -572,76 +572,6 @@ impl FemtoVgAreaMut {
         );
 
         Ok(())
-    }
-
-    fn upload_background_image(
-        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
-        image: &Pixbuf,
-    ) -> Result<ImageId> {
-        let format = if image.has_alpha() {
-            PixelFormat::Rgba8
-        } else {
-            PixelFormat::Rgb8
-        };
-
-        let background_image_id = canvas.create_image_empty(
-            image.width() as usize,
-            image.height() as usize,
-            format,
-            ImageFlags::empty(),
-        )?;
-
-        // extract values
-        let width = image.width() as usize;
-        let stride = image.rowstride() as usize; // stride is in bytes per row
-        let height = image.height() as usize;
-        let bytes_per_pixel = if image.has_alpha() { 4 } else { 3 }; // pixbuf supports rgb or rgba
-
-        unsafe {
-            let src_buffer = image.pixels();
-
-            let row_length = width * bytes_per_pixel;
-            let mut dst_buffer = if row_length == stride {
-                // stride == row_length, there are no additional bytes after the end of each row
-                src_buffer.to_vec()
-            } else {
-                // stride != row_length, there are additional bytes after the end of each row that
-                // need to be truncated. We copy row by row..
-                let mut dst_buffer = Vec::<u8>::with_capacity(width * height * bytes_per_pixel);
-
-                for row in 0..height {
-                    let src_offset = row * stride;
-                    dst_buffer.extend_from_slice(&src_buffer[src_offset..src_offset + row_length]);
-                }
-                dst_buffer
-            };
-
-            // in almost all cases, that should be a no-op. Buf we might have additional elements after the
-            // end of the buffer, e.g. after width * height * bytes_per_pixel
-            dst_buffer.truncate(width * height * bytes_per_pixel);
-
-            if image.has_alpha() {
-                let img = Img::new_stride(
-                    dst_buffer.align_to::<RGBA<u8>>().1.to_vec(),
-                    width,
-                    height,
-                    width,
-                );
-
-                canvas.update_image(background_image_id, ImageSource::Rgba(img.as_ref()), 0, 0)?;
-            } else {
-                let img = Img::new_stride(
-                    dst_buffer.align_to::<RGB<u8>>().1.to_owned(),
-                    width,
-                    height,
-                    width,
-                );
-
-                canvas.update_image(background_image_id, ImageSource::Rgb(img.as_ref()), 0, 0)?;
-            }
-        }
-
-        Ok(background_image_id)
     }
 
     fn create_transparency_bg(

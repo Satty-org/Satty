@@ -40,6 +40,25 @@ impl DragBox {
     }
 }
 
+pub const HANDLE_RADIUS: f32 = 5.0;
+pub const HANDLE_BORDER: f32 = 2.0;
+
+pub fn draw_handle(
+    canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+    center: Vec2D,
+    scale: f32,
+) {
+    let mut path = Path::new();
+    path.circle(center.x, center.y, HANDLE_RADIUS / scale);
+
+    let border_paint =
+        Paint::color(Color::rgbf(0.9, 0.9, 0.9)).with_line_width(HANDLE_BORDER / scale);
+    let fill_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.4));
+
+    canvas.fill_path(&path, &fill_paint);
+    canvas.stroke_path(&path, &border_paint);
+}
+
 pub fn draw_center_marker(canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>, center: Vec2D) {
     let mut helpers = Path::new();
     helpers.circle(center.x, center.y, 2.0);

@@ -1,5 +1,3 @@
-use std::f32::consts::PI;
-
 use crate::{
     math::{self, Vec2D},
     sketch_board::{
@@ -11,7 +9,10 @@ use anyhow::Result;
 use femtovg::{Color, Paint, Path};
 use relm4::{Sender, gtk::gdk::Key};
 
-use super::{Drawable, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, Tool, ToolUpdateResult, Tools,
+    drag_box::{HANDLE_BORDER, HANDLE_RADIUS, draw_handle},
+};
 
 #[derive(Debug, Clone)]
 pub struct Crop {
@@ -29,38 +30,12 @@ pub struct CropTool {
 }
 
 impl Crop {
-    const HANDLE_RADIUS: f32 = 5.0;
-    const HANDLE_BORDER: f32 = 2.0;
-
     fn new(pos: Vec2D) -> Self {
         Self {
             pos,
             size: Vec2D::zero(),
             active: true,
         }
-    }
-
-    fn draw_single_handle(
-        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
-        center: Vec2D,
-        scale: f32,
-    ) {
-        let mut path = Path::new();
-        path.arc(
-            center.x,
-            center.y,
-            Crop::HANDLE_RADIUS / scale,
-            0.0,
-            2.0 * PI,
-            femtovg::Solidity::Solid,
-        );
-
-        let border_paint =
-            Paint::color(Color::rgbf(0.9, 0.9, 0.9)).with_line_width(Crop::HANDLE_BORDER / scale);
-        let fill_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.4));
-
-        canvas.fill_path(&path, &fill_paint);
-        canvas.stroke_path(&path, &border_paint);
     }
 
     pub fn get_rectangle(&self) -> (Vec2D, Vec2D) {
@@ -93,7 +68,7 @@ impl Crop {
         (closest_handle, min_distance_squared)
     }
     fn test_handle_hit(&self, mouse_pos: Vec2D, margin2: f32) -> Option<CropHandle> {
-        const HANDLE_SIZE: f32 = Crop::HANDLE_RADIUS + Crop::HANDLE_BORDER;
+        const HANDLE_SIZE: f32 = HANDLE_RADIUS + HANDLE_BORDER;
         const HANDLE_SIZE2: f32 = HANDLE_SIZE * HANDLE_SIZE;
         let allowed_distance2 = HANDLE_SIZE2 + margin2;
 
@@ -133,14 +108,9 @@ impl Drawable for Crop {
         canvas.stroke_path(&border_path, &border_paint);
 
         if self.active {
-            Self::draw_single_handle(canvas, self.pos, scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x / 2.0, 0.0), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x, 0.0), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(0.0, size.y / 2.0), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(0.0, size.y), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x / 2.0, size.y), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x, size.y), scale);
-            Self::draw_single_handle(canvas, self.pos + Vec2D::new(size.x, size.y / 2.0), scale);
+            for handle in CropHandle::all() {
+                draw_handle(canvas, Self::get_handle_pos(self.pos, size, handle), scale);
+            }
         }
 
         canvas.restore();
