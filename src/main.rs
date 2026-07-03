@@ -430,6 +430,9 @@ impl Component for App {
             let window = root.clone();
             let sketch_area = model.sketch_board.widget().clone();
             let sender = model.sketch_board.sender().clone();
+            // Some sources advertise formats that GTK can only convert after
+            // accepting the drag; unsupported payloads are rejected on drop.
+            drop_target.connect_accept(|_, _| true);
             // the default handlers report no action before the data is
             // available, which makes the compositor cancel the drag
             drop_target.connect_enter(|_, _, _| gdk::DragAction::COPY);
