@@ -40,7 +40,7 @@ pub enum SketchBoardInput {
     PinchScale(f32),
     PinchEnd,
     ToolbarEvent(ToolbarEvent),
-    // the optional position is the drop point in canvas coordinates
+    // the optional position is the insertion point in canvas coordinates
     ImageSelected(Pixbuf, Option<Vec2D>),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -271,6 +271,34 @@ impl InputEvent {
                 _ => None,
             }
         } else {
+            None
+        }
+    }
+}
+
+/// Converts dropped content into a pixbuf: either the first file of a
+/// dropped uri list or raw image data dragged from another application.
+pub fn pixbuf_from_drop_value(value: &gtk::glib::Value) -> Option<Pixbuf> {
+    if let Ok(file_list) = value.get::<gdk::FileList>() {
+        pixbuf_from_file_list(&file_list)
+    } else {
+        value
+            .get::<Texture>()
+            .ok()
+            .and_then(|texture| gdk::pixbuf_get_from_texture(&texture))
+    }
+}
+
+/// Loads the first file of a pasted or dropped uri list, notifying on failure.
+fn pixbuf_from_file_list(file_list: &gdk::FileList) -> Option<Pixbuf> {
+    let path = file_list.files().first().and_then(|file| file.path())?;
+    match image_loading::pixbuf_from_file(&path) {
+        Ok(pixbuf) => Some(pixbuf),
+        Err(e) => {
+            log_result(
+                &format!("Error loading image: {e}"),
+                !APP_CONFIG.read().disable_notifications(),
+            );
             None
         }
     }
@@ -770,7 +798,15 @@ impl SketchBoard {
         canvas_pos: Option<Vec2D>,
         sender: ComponentSender<Self>,
     ) -> ToolUpdateResult {
-        let position = canvas_pos.map(|pos| self.renderer.abs_canvas_to_image_coordinates(pos));
+        let position = canvas_pos.map(|pos| {
+            let pos = self.renderer.abs_canvas_to_image_coordinates(pos);
+            // a drop released over the toolbars would otherwise center the
+            // image off-canvas
+            Vec2D::new(
+                pos.x.clamp(0.0, self.image_dimensions.x),
+                pos.y.clamp(0.0, self.image_dimensions.y),
+            )
+        });
         let event = ToolEvent::ImageSelected(pixbuf, self.image_dimensions, position);
         if self.active_tool_type() == Tools::Image {
             self.active_tool.borrow_mut().handle_event(event)
@@ -1487,48 +1523,6 @@ impl Component for SketchBoard {
             });
         }
         model.renderer.add_controller(focus_controller);
-
-        let drop_target = gtk::DropTarget::new(gtk::glib::Type::INVALID, gdk::DragAction::COPY);
-        drop_target.set_types(&[gdk::FileList::static_type(), gdk::Texture::static_type()]);
-        {
-            let sender = sender.input_sender().clone();
-            drop_target.connect_drop(move |_, value, x, y| {
-                let pixbuf = if let Ok(file_list) = value.get::<gdk::FileList>() {
-                    // insert the first dropped file
-                    let Some(path) = file_list.files().first().and_then(|file| file.path()) else {
-                        return false;
-                    };
-                    match image_loading::pixbuf_from_file(&path) {
-                        Ok(pixbuf) => Some(pixbuf),
-                        Err(e) => {
-                            log_result(
-                                &format!("Error loading image: {e}"),
-                                !APP_CONFIG.read().disable_notifications(),
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    // image data dragged from another application
-                    value
-                        .get::<Texture>()
-                        .ok()
-                        .and_then(|texture| gdk::pixbuf_get_from_texture(&texture))
-                };
-
-                match pixbuf {
-                    Some(pixbuf) => {
-                        sender.emit(SketchBoardInput::ImageSelected(
-                            pixbuf,
-                            Some(Vec2D::new(x as f32, y as f32)),
-                        ));
-                        true
-                    }
-                    None => false,
-                }
-            });
-        }
-        model.renderer.add_controller(drop_target);
 
         let widget_ref: gtk::Widget = model.renderer.clone().upcast();
         model
