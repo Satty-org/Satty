@@ -214,10 +214,13 @@ impl FemtoVGArea {
         let fontconfig = Fontconfig::new();
 
         let mut load_font = |family: &str, style: Option<&str>| -> Result<FontId> {
-            let font = fontconfig
+            let fc = fontconfig
                 .as_ref()
-                .and_then(|fc| fc.find(family, style))
-                .ok_or_else(|| anyhow::anyhow!("Font family '{}' not found", family))?;
+                .ok_or(anyhow::anyhow!("Could not initialize Fontconfig"))?;
+
+            let font = fc
+                .find(family, style)
+                .map_err(|e| anyhow::anyhow!("Font family '{}' not found: {}", family, e))?;
 
             let face_index = font.index.unwrap_or(0).max(0) as u32;
 
