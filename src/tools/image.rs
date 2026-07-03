@@ -48,7 +48,7 @@ impl Image {
     // maximum fraction of the background image an inserted image covers initially
     const INITIAL_SIZE_FRACTION: f32 = 0.5;
 
-    fn new(pixbuf: Pixbuf, background_size: Vec2D) -> Self {
+    fn new(pixbuf: Pixbuf, background_size: Vec2D, position: Option<Vec2D>) -> Self {
         let natural_size = Vec2D::new(pixbuf.width() as f32, pixbuf.height() as f32);
         let scale = (background_size.x * Self::INITIAL_SIZE_FRACTION / natural_size.x)
             .min(background_size.y * Self::INITIAL_SIZE_FRACTION / natural_size.y)
@@ -56,7 +56,7 @@ impl Image {
 
         Self {
             pixbuf,
-            center: background_size * 0.5,
+            center: position.unwrap_or(background_size * 0.5),
             size: natural_size * scale,
             rotation: Angle::default(),
             editing: true,
@@ -273,7 +273,7 @@ impl ImageTool {
                 && let Some(path) = dialog.file().and_then(|file| file.path())
             {
                 match image_loading::pixbuf_from_file(&path) {
-                    Ok(pixbuf) => sender.emit(SketchBoardInput::ImageSelected(pixbuf)),
+                    Ok(pixbuf) => sender.emit(SketchBoardInput::ImageSelected(pixbuf, None)),
                     Err(e) => log_result(
                         &format!("Error loading image: {e}"),
                         !APP_CONFIG.read().disable_notifications(),
@@ -451,8 +451,12 @@ impl Tool for ImageTool {
         &mut self,
         pixbuf: Pixbuf,
         background_size: Vec2D,
+        position: Option<Vec2D>,
     ) -> ToolUpdateResult {
-        match self.image.replace(Image::new(pixbuf, background_size)) {
+        match self
+            .image
+            .replace(Image::new(pixbuf, background_size, position))
+        {
             Some(mut previous) => {
                 previous.editing = false;
                 ToolUpdateResult::Commit(Box::new(previous))

@@ -134,7 +134,7 @@ Highlight:
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
 Image <sup>NEXTRELEASE</sup>:
-- Selecting the tool opens a file chooser and places the chosen image in the center of the screenshot, scaled down to at most half of the screenshot size. Alternatively, press <kbd>Ctrl+V</kbd> at any time to paste an image from the clipboard.
+- Selecting the tool opens a file chooser and places the chosen image in the center of the screenshot, scaled down to at most half of the screenshot size. Alternatively, press <kbd>Ctrl+V</kbd> at any time to paste an image from the clipboard, or drag & drop an image onto the window to insert it at the drop position.
 - All image formats known to gdk-pixbuf on the system are supported, plus webp.
 - Drag the image to move it, drag a corner handle to resize it keeping the aspect ratio, an edge handle to stretch it along one axis and the topmost handle to rotate it.
 - Drag a resize handle across the opposite side to mirror the image.

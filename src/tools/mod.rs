@@ -48,7 +48,7 @@ pub enum ToolEvent {
     Deactivated,
     Input(InputEvent),
     StyleChanged(Style),
-    ImageSelected(Pixbuf, Vec2D),
+    ImageSelected(Pixbuf, Vec2D, Option<Vec2D>),
 }
 
 pub trait Tool {
@@ -58,7 +58,7 @@ pub trait Tool {
             ToolEvent::Deactivated => self.handle_deactivated(),
             ToolEvent::Input(e) => self.handle_input_event(e),
             ToolEvent::StyleChanged(s) => self.handle_style_event(s),
-            ToolEvent::ImageSelected(i, b) => self.handle_image_selected(i, b),
+            ToolEvent::ImageSelected(i, b, p) => self.handle_image_selected(i, b, p),
         }
     }
 
@@ -108,8 +108,9 @@ pub trait Tool {
         &mut self,
         pixbuf: Pixbuf,
         background_size: Vec2D,
+        position: Option<Vec2D>,
     ) -> ToolUpdateResult {
-        let _ = (pixbuf, background_size);
+        let _ = (pixbuf, background_size, position);
         ToolUpdateResult::Unmodified
     }
 
