@@ -135,6 +135,7 @@ Highlight:
 
 Image <sup>NEXTRELEASE</sup>:
 - Selecting the tool opens a file chooser and places the chosen image in the center of the screenshot, scaled down to at most half of the screenshot size. Alternatively, press <kbd>Ctrl+V</kbd> at any time to paste an image from the clipboard.
+- All image formats known to gdk-pixbuf on the system are supported, plus webp.
 - Drag the image to move it, drag a corner handle to resize it keeping the aspect ratio, an edge handle to stretch it along one axis and the topmost handle to rotate it.
 - Drag a resize handle across the opposite side to mirror the image.
 - Hold <kbd>Shift</kbd> while rotating to snap to 15° steps.

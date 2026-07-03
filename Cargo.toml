@@ -40,6 +40,10 @@ serde_derive = "1.0"
 hex_color = {version = "3", features = ["serde"]}
 chrono = "0.4.44"
 
+# decoding fallback for image formats without a gdk-pixbuf loader;
+# already part of the dependency tree via femtovg
+image = { version = "0.25", default-features = false, features = ["webp"] }
+
 # opengl rendering backend
 femtovg = "0.25.0"
 libloading = "0.9"

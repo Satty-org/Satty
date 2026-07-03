@@ -11,6 +11,7 @@ use relm4::{RelmWidgetExt, Sender, gtk};
 use crate::{
     configuration::APP_CONFIG,
     femtovg_area::create_image_from_pixbuf,
+    image_loading,
     math::{Angle, Vec2D},
     notification::log_result,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
@@ -249,6 +250,9 @@ impl ImageTool {
         let filter = gtk::FileFilter::new();
         filter.set_name(Some("Images"));
         filter.add_pixbuf_formats();
+        for mime_type in image_loading::FALLBACK_MIME_TYPES {
+            filter.add_mime_type(mime_type);
+        }
 
         let builder = gtk::FileChooserNative::builder()
             .modal(true)
@@ -268,7 +272,7 @@ impl ImageTool {
             if response == gtk::ResponseType::Accept
                 && let Some(path) = dialog.file().and_then(|file| file.path())
             {
-                match Pixbuf::from_file(&path) {
+                match image_loading::pixbuf_from_file(&path) {
                     Ok(pixbuf) => sender.emit(SketchBoardInput::ImageSelected(pixbuf)),
                     Err(e) => log_result(
                         &format!("Error loading image: {e}"),
