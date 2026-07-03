@@ -25,7 +25,7 @@ Commits and PRs
 - We may squash commits in a PR for easier reverting and to avoid commits that are scattered along the change log.
 - If github indicates conflicts, please rebase your branch instead of merging upstream changes. We know that having to rebase sucks, so we're doing our best to point out where conflicts may arise even in advance, but sometimes conflicts are inevitable. We're happy to assist with rebasing, just say the word.
 - Please make sure that all commits in a non-draft PR compile.
-- The PR should use a conventional commit message. 
+- The PR should use a conventional commit message.
 - PRs should not break existing config or disrupt existing user workflows. But if there are potential surprises, please add a "!" for attention, e.g. "fix!", "feat!", and provide a small section that may be included in the release notes.
 
 Milestones
@@ -62,7 +62,7 @@ Missing formatting/hints that precede your PR should be addressed via a separate
 README changes
 --
 
-If a PR changes Satty's behaviour and where appropriate, please adjust `README.md` as well. `make update-readme` adds the command line help (output of `satty --help`) automatically which is relevant whenever command line arguments change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
+If a PR changes Satty's behaviour and where appropriate, please adjust `README.md` as well. `make update-readme` adds the command line help (output of `satty --help`) as well as the example config.toml automatically which is relevant whenever command line arguments or config change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
 
 Command line parameters changes
 --

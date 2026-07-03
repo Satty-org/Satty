@@ -1,26 +1,20 @@
-<!--
+<!-- Thank you for your contribution. -->
 
-    Thanks for your contribution! Please consider CONTRIBUTING.md.
+## Description
 
-    tl;dr:
+<!-- Sorry for removing your commit body by template usage, please add it back here or provide a new one. -->
 
-    - please make sure all commits compile
-    - please use conventional commit messages for PR
-    - please avoid breaking configuration or disrupting existing user workflows
-    - in case of potential surprises,
-      - please add a "!" for attention, e.g. "fix!", "feat!"
-      - provide a small section that may be included in the release notes.
-    - if there are conflicts, please rebase your branch onto main rather than merge main into your branch
-      - git rebase <upstream repository>/main
-    - if you used LLM/Generative AI help
-      - please say that you did
-      - you vouch for the code
-    - if in doubt, ask us, we're happy to help
+## Checklist
 
--->
+- [x] I've read CONTRIBUTING.md
+- [ ] all commits compile
+- [ ] PR title use (conventional commit message)[https://www.conventionalcommits.org/]
+- [ ] includes breaking changes - please try to avoid if possible
+  - [ ] I added "!" for attention in the PR title
+  - [ ] I added a small section in the description for the release notes
+- [ ] any merge conflicts were resolved via rebase rather than merge
+- [ ] includes LLM/Generative AI generated code
+  - [ ] I understand the code on a technical level
+  - [ ] I vouch for the code
 
-<!--
-
-    Sorry for removing your commit body by template usage, feel free to add it back.
-
--->
+<!-- In case of any questions, ask. We're happy to help. -->
