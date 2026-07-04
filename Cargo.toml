@@ -42,6 +42,7 @@ chrono = "0.4.44"
 
 # opengl rendering backend
 femtovg = "0.25.0"
+image = { version = "0.25.0", default-features = false, features = ["png"] }  # png decoder for color emoji in femtovg
 libloading = "0.9"
 epoxy = "0.1.0"
 glow = "0.17.0"
