@@ -114,6 +114,17 @@ impl Color {
         Self::new(255 - self.r, 255 - self.g, 255 - self.b, self.a)
     }
 
+    /// Returns black or white, whichever contrasts better with this color,
+    /// based on its perceived luminance (YIQ), preserving alpha.
+    pub fn contrast(self) -> Self {
+        let luminance = (self.r as u32 * 299 + self.g as u32 * 587 + self.b as u32 * 114) / 1000;
+        if luminance >= 128 {
+            Self::new(0, 0, 0, self.a)
+        } else {
+            Self::new(255, 255, 255, self.a)
+        }
+    }
+
     pub fn to_rgba_f64(self) -> (f64, f64, f64, f64) {
         (
             (self.r as f64) / 255.0,

@@ -26,6 +26,35 @@ use relm4::gtk::gdk::DisplayManager;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// How the text outline is rendered, cycled through with the Alt key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum OutlineMode {
+    #[default]
+    None,
+    Inverted,
+    Contrast,
+}
+
+impl OutlineMode {
+    /// Cycles None -> Inverted -> Contrast -> None.
+    fn next(self) -> Self {
+        match self {
+            Self::None => Self::Inverted,
+            Self::Inverted => Self::Contrast,
+            Self::Contrast => Self::None,
+        }
+    }
+
+    /// The outline color for the given text color, or None when disabled.
+    fn outline_color(self, text_color: crate::style::Color) -> Option<crate::style::Color> {
+        match self {
+            Self::None => None,
+            Self::Inverted => Some(text_color.inverted()),
+            Self::Contrast => Some(text_color.contrast()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Text {
     pos: Vec2D,
@@ -39,7 +68,7 @@ pub struct Text {
     line_ranges: RefCell<Vec<Range<usize>>>,
     cursor_visible: RefCell<bool>,
     draw_rect: RefCell<bool>,
-    outline: bool,
+    outline: OutlineMode,
     font_ids: Vec<FontId>,
 }
 
@@ -84,7 +113,7 @@ impl Text {
             line_ranges: RefCell::new(Vec::new()),
             cursor_visible: RefCell::new(true),
             draw_rect: RefCell::new(true),
-            outline: false,
+            outline: OutlineMode::default(),
             font_ids: femtovg_area::font_stack().to_vec(),
         }
     }
@@ -354,12 +383,12 @@ impl Drawable for Text {
             canvas.stroke_path(&rect_paint, &paint);
         }
 
-        // When outlining, stroke each line with the inverted text color first, then
-        // fill on top so the visible border wraps the glyphs. The stroke is widened
-        // because it is centered on the glyph outline and half of it is hidden by the fill.
-        let outline_paint = self.outline.then(|| {
+        // When outlining, stroke each line with the outline color first, then fill on
+        // top so the visible border wraps the glyphs. The stroke is widened because it
+        // is centered on the glyph outline and half of it is hidden by the fill.
+        let outline_paint = self.outline.outline_color(self.style.color).map(|color| {
             let mut paint = base_paint.clone();
-            paint.set_color(self.style.color.inverted().into());
+            paint.set_color(color.into());
             paint.set_line_width(base_paint.line_width() * 2.0);
             paint
         });
@@ -847,7 +876,7 @@ impl Tool for TextTool {
                     tool_update_result = self.handle_deactivated();
                 }
                 Key::Alt_L | Key::Alt_R => {
-                    // Start tracking a potential Alt tap; the outline is toggled on
+                    // Start tracking a potential Alt tap; the outline mode is cycled on
                     // release (see handle_key_release_event) if no other key was pressed.
                     self.alt_tap = true;
                 }
@@ -1104,7 +1133,7 @@ impl Tool for TextTool {
         if (event.key == Key::Alt_L || event.key == Key::Alt_R) && self.alt_tap {
             self.alt_tap = false;
             if let Some(t) = &mut self.text {
-                t.outline = !t.outline;
+                t.outline = t.outline.next();
                 return ToolUpdateResult::RedrawAndStopPropagation;
             }
         }
