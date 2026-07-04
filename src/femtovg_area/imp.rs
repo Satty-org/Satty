@@ -266,6 +266,7 @@ impl FemtoVGArea {
         // (femtovg's default image-loading feature draws their bitmap/COLR glyphs).
         // fontconfig resolves the generic "emoji" family to the installed color emoji
         // font, e.g. Noto Color Emoji. It is skipped if already loaded or unavailable.
+        // reconsider with #309
         match load_font("emoji", None) {
             Ok(id) => {
                 loaded_fonts.push(id);
