@@ -98,6 +98,8 @@ style = "Regular"
 # specify fallback fonts (0.20.1)
 # Please note, there is no default setting for these and the fonts listed below
 # are not shipped with Satty but need to be available on the system.
+# An installed color emoji font (e.g. Noto Color Emoji) is picked up automatically
+# as the last fallback, so emoji render without extra configuration. (NEXTRELEASE)
 fallback = [
     "Noto Sans CJK SC",
     # "Noto Sans CJK JP",
