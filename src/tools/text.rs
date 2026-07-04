@@ -39,6 +39,7 @@ pub struct Text {
     line_ranges: RefCell<Vec<Range<usize>>>,
     cursor_visible: RefCell<bool>,
     draw_rect: RefCell<bool>,
+    outline: bool,
     font_ids: Vec<FontId>,
 }
 
@@ -83,6 +84,7 @@ impl Text {
             line_ranges: RefCell::new(Vec::new()),
             cursor_visible: RefCell::new(true),
             draw_rect: RefCell::new(true),
+            outline: false,
             font_ids: femtovg_area::font_stack().to_vec(),
         }
     }
@@ -352,13 +354,22 @@ impl Drawable for Text {
             canvas.stroke_path(&rect_paint, &paint);
         }
 
+        // When outlining, stroke each line with the inverted text color first, then
+        // fill on top so the visible border wraps the glyphs. The stroke is widened
+        // because it is centered on the glyph outline and half of it is hidden by the fill.
+        let outline_paint = self.outline.then(|| {
+            let mut paint = base_paint.clone();
+            paint.set_color(self.style.color.inverted().into());
+            paint.set_line_width(base_paint.line_width() * 2.0);
+            paint
+        });
+
         for line_range in &lines {
-            canvas.fill_text(
-                self.pos.x,
-                draw_baseline,
-                &text[line_range.clone()],
-                &base_paint,
-            )?;
+            let line = &text[line_range.clone()];
+            if let Some(outline_paint) = &outline_paint {
+                canvas.stroke_text(self.pos.x, draw_baseline, line, outline_paint)?;
+            }
+            canvas.fill_text(self.pos.x, draw_baseline, line, &base_paint)?;
             draw_baseline += line_height;
         }
 
@@ -710,6 +721,7 @@ pub struct TextTool {
     sender: Option<Sender<SketchBoardInput>>,
     drag_start_pos: Vec2D,
     dragged: Rc<RefCell<bool>>,
+    alt_tap: bool,
 }
 
 impl Tool for TextTool {
@@ -794,6 +806,11 @@ impl Tool for TextTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        // Any key other than Alt cancels a pending Alt tap: Alt is being used as a
+        // modifier (e.g. Ctrl+Alt+Arrow), not tapped on its own to toggle the outline.
+        if !matches!(event.key, Key::Alt_L | Key::Alt_R) {
+            self.alt_tap = false;
+        }
         let mut tool_update_result = ToolUpdateResult::StopPropagation;
         if let Some(t) = &mut self.text {
             match event.key {
@@ -828,6 +845,11 @@ impl Tool for TextTool {
                 },
                 Key::Escape => {
                     tool_update_result = self.handle_deactivated();
+                }
+                Key::Alt_L | Key::Alt_R => {
+                    // Start tracking a potential Alt tap; the outline is toggled on
+                    // release (see handle_key_release_event) if no other key was pressed.
+                    self.alt_tap = true;
                 }
                 Key::BackSpace | Key::Delete => {
                     let ctrl_mask = match event.key {
@@ -1076,6 +1098,17 @@ impl Tool for TextTool {
             tool_update_result = ToolUpdateResult::Unmodified;
         }
         tool_update_result
+    }
+
+    fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        if (event.key == Key::Alt_L || event.key == Key::Alt_R) && self.alt_tap {
+            self.alt_tap = false;
+            if let Some(t) = &mut self.text {
+                t.outline = !t.outline;
+                return ToolUpdateResult::RedrawAndStopPropagation;
+            }
+        }
+        ToolUpdateResult::Unmodified
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {

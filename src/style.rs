@@ -109,6 +109,11 @@ impl Color {
         Self::new(200, 37, 184, 255)
     }
 
+    /// Returns the color with its RGB channels inverted, preserving alpha.
+    pub fn inverted(self) -> Self {
+        Self::new(255 - self.r, 255 - self.g, 255 - self.b, self.a)
+    }
+
     pub fn to_rgba_f64(self) -> (f64, f64, f64, f64) {
         (
             (self.r as f64) / 255.0,
