@@ -26,31 +26,64 @@ use relm4::gtk::gdk::DisplayManager;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// How the text outline is rendered, cycled through with the Alt key.
+/// A decoration pass drawn behind the text fill.
+#[derive(Clone, Copy)]
+struct Decoration {
+    color: crate::style::Color,
+    kind: DecorationKind,
+}
+
+#[derive(Clone, Copy)]
+enum DecorationKind {
+    /// Stroke around the glyphs with the given line width.
+    Outline { width: f32 },
+    /// Offset duplicate of the text (drop shadow).
+    Shadow { offset: Vec2D },
+}
+
+/// Decorative text effect, cycled through with the Alt key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum OutlineMode {
+enum TextEffect {
     #[default]
     None,
     Inverted,
     Contrast,
+    Shadow,
 }
 
-impl OutlineMode {
-    /// Cycles None -> Inverted -> Contrast -> None.
+impl TextEffect {
     fn next(self) -> Self {
         match self {
             Self::None => Self::Inverted,
             Self::Inverted => Self::Contrast,
-            Self::Contrast => Self::None,
+            Self::Contrast => Self::Shadow,
+            Self::Shadow => Self::None,
         }
     }
 
-    /// The outline color for the given text color, or None when disabled.
-    fn outline_color(self, text_color: crate::style::Color) -> Option<crate::style::Color> {
+    /// The decoration for the given text color and base stroke width (which scales
+    /// with the font size), or None when disabled.
+    fn decoration(self, text_color: crate::style::Color, line_width: f32) -> Option<Decoration> {
         match self {
             Self::None => None,
-            Self::Inverted => Some(text_color.inverted()),
-            Self::Contrast => Some(text_color.contrast()),
+            Self::Inverted => Some(Decoration {
+                color: text_color.inverted(),
+                kind: DecorationKind::Outline {
+                    width: line_width * 2.0,
+                },
+            }),
+            Self::Contrast => Some(Decoration {
+                color: text_color.contrast(),
+                kind: DecorationKind::Outline {
+                    width: line_width * 2.0,
+                },
+            }),
+            Self::Shadow => Some(Decoration {
+                color: text_color.contrast().with_alpha(160),
+                kind: DecorationKind::Shadow {
+                    offset: Vec2D::new(line_width * 1.5, line_width * 1.5),
+                },
+            }),
         }
     }
 }
@@ -68,7 +101,7 @@ pub struct Text {
     line_ranges: RefCell<Vec<Range<usize>>>,
     cursor_visible: RefCell<bool>,
     draw_rect: RefCell<bool>,
-    outline: OutlineMode,
+    effect: TextEffect,
     font_ids: Vec<FontId>,
 }
 
@@ -113,7 +146,7 @@ impl Text {
             line_ranges: RefCell::new(Vec::new()),
             cursor_visible: RefCell::new(true),
             draw_rect: RefCell::new(true),
-            outline: OutlineMode::default(),
+            effect: TextEffect::default(),
             font_ids: femtovg_area::font_stack().to_vec(),
         }
     }
@@ -383,20 +416,37 @@ impl Drawable for Text {
             canvas.stroke_path(&rect_paint, &paint);
         }
 
-        // When outlining, stroke each line with the outline color first, then fill on
-        // top so the visible border wraps the glyphs. The stroke is widened because it
-        // is centered on the glyph outline and half of it is hidden by the fill.
-        let outline_paint = self.outline.outline_color(self.style.color).map(|color| {
-            let mut paint = base_paint.clone();
-            paint.set_color(color.into());
-            paint.set_line_width(base_paint.line_width() * 2.0);
-            paint
-        });
+        // Decoration drawn behind the fill: an outline strokes each line (widened
+        // because the stroke is centered and half-hidden by the fill), a shadow fills
+        // an offset duplicate.
+        let decoration_paint = self
+            .effect
+            .decoration(self.style.color, base_paint.line_width())
+            .map(|dec| {
+                let mut paint = base_paint.clone();
+                paint.set_color(dec.color.into());
+                if let DecorationKind::Outline { width } = dec.kind {
+                    paint.set_line_width(width);
+                }
+                (dec.kind, paint)
+            });
 
         for line_range in &lines {
             let line = &text[line_range.clone()];
-            if let Some(outline_paint) = &outline_paint {
-                canvas.stroke_text(self.pos.x, draw_baseline, line, outline_paint)?;
+            if let Some((kind, paint)) = &decoration_paint {
+                match kind {
+                    DecorationKind::Shadow { offset } => {
+                        canvas.fill_text(
+                            self.pos.x + offset.x,
+                            draw_baseline + offset.y,
+                            line,
+                            paint,
+                        )?;
+                    }
+                    DecorationKind::Outline { .. } => {
+                        canvas.stroke_text(self.pos.x, draw_baseline, line, paint)?;
+                    }
+                }
             }
             canvas.fill_text(self.pos.x, draw_baseline, line, &base_paint)?;
             draw_baseline += line_height;
@@ -876,7 +926,7 @@ impl Tool for TextTool {
                     tool_update_result = self.handle_deactivated();
                 }
                 Key::Alt_L | Key::Alt_R => {
-                    // Start tracking a potential Alt tap; the outline mode is cycled on
+                    // Start tracking a potential Alt tap; the text effect is cycled on
                     // release (see handle_key_release_event) if no other key was pressed.
                     self.alt_tap = true;
                 }
@@ -1133,7 +1183,7 @@ impl Tool for TextTool {
         if (event.key == Key::Alt_L || event.key == Key::Alt_R) && self.alt_tap {
             self.alt_tap = false;
             if let Some(t) = &mut self.text {
-                t.outline = t.outline.next();
+                t.effect = t.effect.next();
                 return ToolUpdateResult::RedrawAndStopPropagation;
             }
         }
