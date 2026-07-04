@@ -114,11 +114,27 @@ impl Color {
         Self::new(255 - self.r, 255 - self.g, 255 - self.b, self.a)
     }
 
+    /// Returns the color with its alpha channel replaced.
+    pub fn with_alpha(self, a: u8) -> Self {
+        Self::new(self.r, self.g, self.b, a)
+    }
+
     /// Returns black or white, whichever contrasts better with this color,
-    /// based on its perceived luminance (YIQ), preserving alpha.
+    /// preserving alpha. Uses WCAG relative luminance (channels gamma-decoded to
+    /// linear light, then weighted); black and white are equal at L = 0.179.
     pub fn contrast(self) -> Self {
-        let luminance = (self.r as u32 * 299 + self.g as u32 * 587 + self.b as u32 * 114) / 1000;
-        if luminance >= 128 {
+        fn linearize(channel: u8) -> f32 {
+            let c = channel as f32 / 255.0;
+            if c <= 0.03928 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
+        let luminance =
+            0.2126 * linearize(self.r) + 0.7152 * linearize(self.g) + 0.0722 * linearize(self.b);
+        if luminance > 0.179 {
             Self::new(0, 0, 0, self.a)
         } else {
             Self::new(255, 255, 255, self.a)
