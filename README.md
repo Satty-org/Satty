@@ -123,6 +123,7 @@ Text:
 - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
 - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
 - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
+- Press <kbd>Alt</kbd> to cycle the text outline: none → inverted text color → contrast (black or white, by luminance). <sup>experimental</sup> <sup>NEXTRELEASE</sup>
 
 Marker:
 - Hold <kbd>Alt</kbd> to get extra ring. <sup>NEXTRELEASE</sup>
