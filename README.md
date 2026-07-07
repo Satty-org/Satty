@@ -29,6 +29,8 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 
 You can install satty via `cargo install satty` and `cargo binstall satty`, the latter requires [cargo-binstall](https://crates.io/crates/cargo-binstall). In that case, no manpage, LICENSE file, .Desktop file are available. But you can use the `--man` and `--license` arguments to display either.
 
+`cargo install` and `cargo binstall` methods install satty to `$HOME/.cargo/bin`. Using rustup and/or installing distribution packages for the Rust toolchain should normally add this to the user's path. How environment variables such as path are set depends on shell, distribution, compositor/desktop environment etc. It's not really possible to anticipate every possible combination from an application perspective.
+
 ### Prebuilt Sources
 
 You can download a prebuilt binary for x86-64 on the [Satty Releases](https://github.com/gabm/satty/releases) page.
