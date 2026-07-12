@@ -307,6 +307,9 @@ impl Component for App {
                 self.tools_toolbar
                     .sender()
                     .emit(ToolsToolbarInput::SetToolEditing(editing));
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetToolEditing(editing));
             }
         }
     }
