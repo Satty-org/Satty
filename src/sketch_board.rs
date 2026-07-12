@@ -22,7 +22,7 @@ use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
-use crate::notification::log_result;
+use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::Style;
 use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
@@ -529,7 +529,10 @@ impl SketchBoard {
             Ok(_) => {
                 // Store the filepath for copy-filepath action
                 *self.last_saved_filepath.borrow_mut() = Some(output_filename.clone());
-                log_result(&format!("File saved to '{}'.", output_filename), true)
+                log_result_with_pixbuf(
+                    &format!("File saved to '{}'.", output_filename),
+                    image.clone(),
+                )
             }
         };
     }
@@ -603,7 +606,10 @@ impl SketchBoard {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
                             Self::remember_save_as_dir(Path::new(&output_filename));
-                            log_result(&format!("File saved to '{}'.", output_filename), true)
+                            log_result_with_pixbuf(
+                                &format!("File saved to '{}'.", output_filename),
+                                pixbuf.clone(),
+                            )
                         }
                     };
                 }
@@ -672,7 +678,7 @@ impl SketchBoard {
         match result {
             Err(e) => eprintln!("Error saving {e}"),
             Ok(()) => {
-                log_result("Copied to clipboard.", true);
+                log_result_with_pixbuf("Copied to clipboard.", image.clone());
 
                 // TODO: rethink order and messaging patterns
                 if APP_CONFIG.read().save_after_copy() {

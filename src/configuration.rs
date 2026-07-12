@@ -727,8 +727,8 @@ impl Configuration {
         self.app_id.as_ref()
     }
 
-    pub fn notification_thumbnail(&self) -> &NotificationThumbnail {
-        &self.notification_thumbnail
+    pub fn notification_thumbnail(&self) -> NotificationThumbnail {
+        self.notification_thumbnail
     }
 }
 

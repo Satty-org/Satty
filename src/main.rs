@@ -1,14 +1,13 @@
 use configuration::{APP_CONFIG, Configuration};
+use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
+use relm4::gtk::gio::{Application, ApplicationFlags};
+use relm4::gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
 use std::process::exit;
 use std::sync::LazyLock;
 use std::{fs, ptr};
 use std::{io, time::Duration};
-
-use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
-use relm4::gtk::gio::{Application, ApplicationFlags};
-use relm4::gtk::prelude::*;
 
 use relm4::gtk::gdk::Rectangle;
 
@@ -20,6 +19,7 @@ use relm4::{
 use anyhow::{Context, Result, anyhow};
 use satty_cli::command_line::{Fullscreen, Resize};
 
+use crate::notification::NOTIFICATION_THUMBNAIL_PATH;
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -515,6 +515,13 @@ fn run_satty() -> Result<()> {
         icons::icon_names::GRESOURCE_BYTES,
         icons::icon_names::RESOURCE_PREFIX,
     );
+
+    relm4::main_application().connect_shutdown(move |_| {
+        if let Err(e) = std::fs::remove_file(&*NOTIFICATION_THUMBNAIL_PATH) {
+            eprintln!("Failed to remove thumbnail temp path: {e}");
+        }
+    });
+
     app.run::<App>(image);
     Ok(())
 }
