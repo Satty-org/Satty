@@ -1,11 +1,12 @@
 use relm4::gtk::gio::FileIcon;
 use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
 
+use crate::configuration::APP_CONFIG;
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection};
 
 pub fn log_result(msg: &str, notify: bool) {
     eprintln!("{msg}");
-    if notify {
+    if notify && !APP_CONFIG.read().disable_notifications() {
         show_notification(msg);
     }
 }
