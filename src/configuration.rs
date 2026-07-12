@@ -20,7 +20,8 @@ use crate::{
 };
 
 use satty_cli::command_line::{
-    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, Resize,
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, NotificationThumbnail,
+    Resize,
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
@@ -72,6 +73,7 @@ pub struct Configuration {
     input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
+    notification_thumbnail: NotificationThumbnail,
 }
 
 pub struct Keybinds {
@@ -423,6 +425,9 @@ impl Configuration {
         if let Some(v) = general.app_id {
             self.app_id = Some(v);
         }
+        if let Some(v) = general.notification_thumbnail {
+            self.notification_thumbnail = v;
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy
@@ -555,6 +560,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.app_id {
             self.app_id = Some(v);
+        }
+        if let Some(v) = command_line.notification_thumbnail {
+            self.notification_thumbnail = v;
         }
 
         // --- deprecated options ---
@@ -718,6 +726,10 @@ impl Configuration {
     pub fn app_id(&self) -> Option<&String> {
         self.app_id.as_ref()
     }
+
+    pub fn notification_thumbnail(&self) -> NotificationThumbnail {
+        self.notification_thumbnail
+    }
 }
 
 impl Default for Configuration {
@@ -757,6 +769,7 @@ impl Default for Configuration {
             input_scale: None,
             title: None,
             app_id: None,
+            notification_thumbnail: NotificationThumbnail::default(),
         }
     }
 }
@@ -841,6 +854,7 @@ struct ConfigurationFileGeneral {
     input_scale: Option<f32>,
     title: Option<String>,
     app_id: Option<String>,
+    notification_thumbnail: Option<NotificationThumbnail>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,

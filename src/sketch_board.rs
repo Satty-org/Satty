@@ -22,7 +22,7 @@ use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
-use crate::notification::log_result;
+use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::Style;
 use crate::tools::{Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
 use crate::ui::toolbars::ToolbarEvent;
@@ -417,10 +417,7 @@ impl SketchBoard {
                 home_dir.push(tilde_stripped);
                 output_filename = home_dir.to_string_lossy().into_owned();
             } else {
-                log_result(
-                    "~ found but could not determine homedir",
-                    !APP_CONFIG.read().disable_notifications(),
-                );
+                log_result("~ found but could not determine homedir", true);
                 return None;
             }
         }
@@ -505,7 +502,7 @@ impl SketchBoard {
         if output_filename != "-" && !output_filename.ends_with(".png") {
             log_result(
                 "The only supported format is png, but the filename does not end in png",
-                !APP_CONFIG.read().disable_notifications(),
+                true,
             );
             return;
         }
@@ -528,16 +525,13 @@ impl SketchBoard {
             return;
         }
         match fs::write(&output_filename, data) {
-            Err(e) => log_result(
-                &format!("Error while saving file: {e}"),
-                !APP_CONFIG.read().disable_notifications(),
-            ),
+            Err(e) => log_result(&format!("Error while saving file: {e}"), true),
             Ok(_) => {
                 // Store the filepath for copy-filepath action
                 *self.last_saved_filepath.borrow_mut() = Some(output_filename.clone());
-                log_result(
+                log_result_with_pixbuf(
                     &format!("File saved to '{}'.", output_filename),
-                    !APP_CONFIG.read().disable_notifications(),
+                    image.clone(),
                 )
             }
         };
@@ -607,17 +601,14 @@ impl SketchBoard {
                     };
 
                     match fs::write(&output_filename, &data) {
-                        Err(e) => log_result(
-                            &format!("Error while saving file: {e}"),
-                            !APP_CONFIG.read().disable_notifications(),
-                        ),
+                        Err(e) => log_result(&format!("Error while saving file: {e}"), true),
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
                             Self::remember_save_as_dir(Path::new(&output_filename));
-                            log_result(
+                            log_result_with_pixbuf(
                                 &format!("File saved to '{}'.", output_filename),
-                                !APP_CONFIG.read().disable_notifications(),
+                                pixbuf.clone(),
                             )
                         }
                     };
@@ -687,10 +678,7 @@ impl SketchBoard {
         match result {
             Err(e) => eprintln!("Error saving {e}"),
             Ok(()) => {
-                log_result(
-                    "Copied to clipboard.",
-                    !APP_CONFIG.read().disable_notifications(),
-                );
+                log_result_with_pixbuf("Copied to clipboard.", image.clone());
 
                 // TODO: rethink order and messaging patterns
                 if APP_CONFIG.read().save_after_copy() {
@@ -726,14 +714,8 @@ impl SketchBoard {
         };
 
         match result {
-            Err(e) => log_result(
-                &format!("Error copying filepath: {e}"),
-                !APP_CONFIG.read().disable_notifications(),
-            ),
-            Ok(()) => log_result(
-                &format!("Filepath copied to clipboard: {}", filepath),
-                !APP_CONFIG.read().disable_notifications(),
-            ),
+            Err(e) => log_result(&format!("Error copying filepath: {e}"), true),
+            Ok(()) => log_result(&format!("Filepath copied to clipboard: {}", filepath), true),
         }
     }
 
