@@ -434,7 +434,7 @@ fn read_css_overrides() -> Option<String> {
     if !path.exists() {
         eprintln!(
             "CSS overrides file {} does not exist, using builtin CSS only.",
-            &path.display()
+            path.display()
         );
         return None;
     }
@@ -444,7 +444,7 @@ fn read_css_overrides() -> Option<String> {
         Err(e) => {
             eprintln!(
                 "failed to read CSS overrides from {} with error: {}",
-                &path.display(),
+                path.display(),
                 e
             );
             None

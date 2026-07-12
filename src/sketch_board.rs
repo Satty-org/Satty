@@ -536,7 +536,7 @@ impl SketchBoard {
                 // Store the filepath for copy-filepath action
                 *self.last_saved_filepath.borrow_mut() = Some(output_filename.clone());
                 log_result(
-                    &format!("File saved to '{}'.", &output_filename),
+                    &format!("File saved to '{}'.", output_filename),
                     !APP_CONFIG.read().disable_notifications(),
                 )
             }
@@ -616,7 +616,7 @@ impl SketchBoard {
                             filename = Some(output_filename.clone());
                             Self::remember_save_as_dir(Path::new(&output_filename));
                             log_result(
-                                &format!("File saved to '{}'.", &output_filename),
+                                &format!("File saved to '{}'.", output_filename),
                                 !APP_CONFIG.read().disable_notifications(),
                             )
                         }
