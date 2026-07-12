@@ -159,6 +159,10 @@ pub struct CommandLine {
     #[arg(long)]
     pub app_id: Option<String>,
 
+    /// Experimental feature (NEXTRELEASE): use preview thumbnail in notifications where available
+    #[arg(long)]
+    pub notification_thumbnail: Option<NotificationThumbnail>,
+
     // --- deprecated options ---
     /// Right click to copy.
     /// Preferably use the `action_on_right_click` option instead.
@@ -213,6 +217,22 @@ pub enum EarlyExitTriggers {
     Copy,
     Save,
     SaveAs,
+}
+
+// notifications can use image-path or image-data, see https://specifications.freedesktop.org/notification/latest-single/#icons-and-images
+// But gtk does not support it https://gitlab.gnome.org/GNOME/glib/-/work_items/1457 at this point.
+// an image lib dependency in glib is not wanted so options for an implementation there are
+// very limited.
+// options are: use different notification library or implement manually. For now, we
+// just offer image-path (which uses a temporary file).
+#[derive(Debug, Clone, Copy, Default, ValueEnum, Deserialize, PartialEq, Eq)]
+#[value(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum NotificationThumbnail {
+    #[default]
+    AppIcon,
+    ThumbnailFileIcon,
+    //ThumbnailIcon
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
