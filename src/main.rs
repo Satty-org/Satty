@@ -175,8 +175,16 @@ impl App {
     }
 
     fn apply_style() {
+        let default_css = include_str!("assets/default.css");
+        let default_css_adw = include_str!("assets/default-adw.css");
+        let default_css_with_adw = format!("{default_css}{default_css_adw}");
+
         let css_provider = CssProvider::new();
-        css_provider.load_from_data(include_str!("assets/default.css"));
+        css_provider.load_from_data(if APP_CONFIG.read().skip_adwaita_vars() {
+            default_css
+        } else {
+            &default_css_with_adw
+        });
 
         let css_provider_override = if let Some(overrides) = read_css_overrides() {
             let css_provider2 = CssProvider::new();
