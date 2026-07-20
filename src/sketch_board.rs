@@ -15,11 +15,12 @@ use std::{fs, io};
 
 use gtk::prelude::*;
 
-use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
+use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
+use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::math::Vec2D;
 use crate::notification::log_result;
@@ -39,6 +40,9 @@ pub enum SketchBoardInput {
     PinchScale(f32),
     PinchEnd,
     ToolbarEvent(ToolbarEvent),
+    PointerLeft,
+    // the optional position is the insertion point in canvas coordinates
+    ImageSelected(Pixbuf, Option<Vec2D>),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
     CommitEvent(TextEventMsg),
@@ -201,6 +205,11 @@ impl InputEvent {
                     me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
                     None
                 }
+                MouseEventType::PointerPos => {
+                    // the raw position stays available in screen_pos
+                    me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
+                    None
+                }
                 _ => None,
             }
         } else {
@@ -257,12 +266,40 @@ impl InputEvent {
                     None
                 }
                 MouseEventType::PointerPos => {
-                    renderer.set_pointer_offset(me.pos);
+                    renderer.set_pointer_offset(me.screen_pos);
                     None
                 }
                 _ => None,
             }
         } else {
+            None
+        }
+    }
+}
+
+/// Converts dropped content into a pixbuf: either the first file of a
+/// dropped uri list or raw image data dragged from another application.
+pub fn pixbuf_from_drop_value(value: &gtk::glib::Value) -> Option<Pixbuf> {
+    if let Ok(file_list) = value.get::<gdk::FileList>() {
+        pixbuf_from_file_list(&file_list)
+    } else {
+        value
+            .get::<Texture>()
+            .ok()
+            .and_then(|texture| gdk::pixbuf_get_from_texture(&texture))
+    }
+}
+
+/// Loads the first file of a pasted or dropped uri list, notifying on failure.
+fn pixbuf_from_file_list(file_list: &gdk::FileList) -> Option<Pixbuf> {
+    let path = file_list.files().first().and_then(|file| file.path())?;
+    match image_loading::pixbuf_from_file(&path) {
+        Ok(pixbuf) => Some(pixbuf),
+        Err(e) => {
+            log_result(
+                &format!("Error loading image: {e}"),
+                !APP_CONFIG.read().disable_notifications(),
+            );
             None
         }
     }
@@ -277,6 +314,9 @@ pub struct SketchBoard {
     style: Style,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    image_dimensions: Vec2D,
+    // last pointer position in canvas coordinates, used to paste at the cursor
+    last_pointer_pos: Option<Vec2D>,
 }
 
 impl SketchBoard {
@@ -737,6 +777,72 @@ impl SketchBoard {
         }
     }
 
+    fn handle_paste_image(&self, sender: ComponentSender<Self>) -> ToolUpdateResult {
+        let Some(display) = DisplayManager::get().default_display() else {
+            eprintln!("Cannot open default display for clipboard.");
+            return ToolUpdateResult::Unmodified;
+        };
+        let clipboard = display.clipboard();
+        let position = self.last_pointer_pos;
+
+        relm4::spawn_local(async move {
+            // read errors simply mean the clipboard holds no such content
+            let pixbuf = if let Ok(Some(texture)) = clipboard.read_texture_future().await {
+                gdk::pixbuf_get_from_texture(&texture)
+            } else if let Ok(value) = clipboard
+                .read_value_future(gdk::FileList::static_type(), gtk::glib::Priority::DEFAULT)
+                .await
+            {
+                // files copied in a file manager arrive as a uri list
+                value
+                    .get::<gdk::FileList>()
+                    .ok()
+                    .as_ref()
+                    .and_then(pixbuf_from_file_list)
+            } else {
+                None
+            };
+
+            if let Some(pixbuf) = pixbuf {
+                sender.input(SketchBoardInput::ImageSelected(pixbuf, position));
+            }
+        });
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_image_selected(
+        &mut self,
+        pixbuf: Pixbuf,
+        canvas_pos: Option<Vec2D>,
+        sender: ComponentSender<Self>,
+    ) -> ToolUpdateResult {
+        let position = canvas_pos.map(|pos| {
+            let pos = self.renderer.abs_canvas_to_image_coordinates(pos);
+            // a drop released over the toolbars would otherwise center the
+            // image off-canvas
+            Vec2D::new(
+                pos.x.clamp(0.0, self.image_dimensions.x),
+                pos.y.clamp(0.0, self.image_dimensions.y),
+            )
+        });
+        let event = ToolEvent::ImageSelected(pixbuf, self.image_dimensions, position);
+        if self.active_tool_type() == Tools::Image {
+            self.active_tool.borrow_mut().handle_event(event)
+        } else {
+            // on paste, hand the image to the tool before switching so that
+            // its activation does not open the file chooser
+            self.tools
+                .get(&Tools::Image)
+                .borrow_mut()
+                .handle_event(event);
+            sender
+                .output_sender()
+                .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Image));
+            self.handle_toolbar_event(ToolbarEvent::ToolSelected(Tools::Image), sender);
+            ToolUpdateResult::Redraw
+        }
+    }
+
     fn handle_undo(&mut self) -> ToolUpdateResult {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_undo()
@@ -1111,6 +1217,9 @@ impl Component for SketchBoard {
                             Vec2D::new(x as f32, y as f32),
                             false
                         ));
+                    },
+                    connect_leave[sender] => move |_| {
+                        sender.input(SketchBoardInput::PointerLeft);
                     }
                 }
             }
@@ -1122,6 +1231,11 @@ impl Component for SketchBoard {
         let sender_clone = sender.clone();
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
+                if let InputEvent::Mouse(me) = &ie
+                    && me.type_ == MouseEventType::PointerPos
+                {
+                    self.last_pointer_pos = Some(me.screen_pos);
+                }
                 if let InputEvent::Key(ke) = ie {
                     let active_tool_result = self
                         .active_tool
@@ -1171,6 +1285,10 @@ impl Component for SketchBoard {
                                 self.renderer
                                     .request_render(&[Action::CopyFilepathToClipboard]);
                                 ToolUpdateResult::Unmodified
+                            } else if ke.is_one_of(Key::v, KeyMappingId::UsV)
+                                && ke.modifier == ModifierType::CONTROL_MASK
+                            {
+                                self.handle_paste_image(sender)
                             } else if (ke.is_one_of(Key::d, KeyMappingId::UsD)
                                 || ke.is_one_of(Key::i, KeyMappingId::UsI))
                                 && ke.modifier
@@ -1286,6 +1404,9 @@ impl Component for SketchBoard {
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
+            SketchBoardInput::ImageSelected(pixbuf, pos) => {
+                self.handle_image_selected(pixbuf, pos, sender)
+            }
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
@@ -1299,6 +1420,10 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::CommitEvent(txt) => {
                 self.handle_text_commit(txt, sender);
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::PointerLeft => {
+                self.last_pointer_pos = None;
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::Refresh => ToolUpdateResult::Redraw,
@@ -1358,6 +1483,8 @@ impl Component for SketchBoard {
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            image_dimensions: Vec2D::new(image.width() as f32, image.height() as f32),
+            last_pointer_pos: None,
         };
 
         let area = &mut model.renderer;
