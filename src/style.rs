@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use femtovg::Paint;
+use femtovg::{LineCap, LineJoin, Paint};
 use hex_color::HexColor;
 use relm4::gtk::gdk::RGBA;
 use relm4::gtk::gdk_pixbuf::{
@@ -199,6 +199,8 @@ impl From<Style> for Paint {
             .with_anti_alias(true)
             .with_font_size(value.size.to_text_size(value.annotation_size_factor) as f32)
             .with_color(value.color.into())
+            .with_line_join(LineJoin::Round)
+            .with_line_cap(LineCap::Round)
             .with_line_width(value.size.to_line_width(value.annotation_size_factor))
     }
 }
