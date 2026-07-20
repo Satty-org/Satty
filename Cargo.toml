@@ -23,7 +23,7 @@ ci-release = []
 [dependencies]
 satty_cli.workspace = true
 relm4 = { version = "0.10.1", features = ["macros", "libadwaita", "gnome_42"] }
-tokio = { version = "1.52.3", features = ["time"] }
+tokio = { version = "1.53.0", features = ["time"] }
 
 # error handling
 anyhow = "1.0"
@@ -34,18 +34,18 @@ clap.workspace = true
 
 # configuration file
 xdg = "^3.0"
-toml = "1.1.0"
+toml = "1.1.3"
 serde.workspace = true
 serde_derive = "1.0"
 hex_color = {version = "3", features = ["serde"]}
 chrono = "0.4.44"
 
 # opengl rendering backend
-femtovg = "0.25.0"
+femtovg = "0.26.0"
 image = { version = "0.25.0", default-features = false, features = ["png"] }  # png decoder for color emoji in femtovg
 libloading = "0.9"
 epoxy = "0.1.0"
-glow = "0.17.0"
+glow = "0.18.0"
 resource = "0.6.1"  # font emedding
 fontconfig = "0.10.2"  # font loading
 keycode = "1.0.0"
@@ -76,6 +76,6 @@ repository = "https://github.com/Satty-org/Satty"
 license = "MPL-2.0"
 
 [workspace.dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.2", features = ["derive"] }
 satty_cli = { path = "cli", version = "0.21.1" }
 serde = { version = "1.0", features = ["derive"] }
