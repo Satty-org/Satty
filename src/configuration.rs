@@ -332,8 +332,8 @@ impl Configuration {
                 eprintln!("Error reading config file: {e}");
 
                 // swallow broken pipes
-                let _ = io::stdout().lock().flush();
-                let _ = io::stderr().lock().flush();
+                let _ = std::io::stdout().lock().flush();
+                let _ = std::io::stderr().lock().flush();
 
                 // exit
                 std::process::exit(3);

@@ -2,7 +2,6 @@ use anyhow::anyhow;
 
 use femtovg::imgref::Img;
 use femtovg::rgb::{ComponentBytes, RGBA};
-use gtk::prelude::*;
 use keycode::{KeyMap, KeyMappingId};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
@@ -13,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::{fs, io};
+
+use gtk::prelude::*;
 
 use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};

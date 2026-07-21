@@ -1,12 +1,13 @@
 use std::time::Instant;
 
+use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
+
 use crate::{
     configuration::APP_CONFIG,
     math::Vec2D,
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
-use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;

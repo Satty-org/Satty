@@ -158,7 +158,12 @@ impl Color {
 
 impl From<RGBA> for Color {
     fn from(value: RGBA) -> Self {
-        Self::from_gdk(value)
+        Self::new(
+            (value.red() * 255.0) as u8,
+            (value.green() * 255.0) as u8,
+            (value.blue() * 255.0) as u8,
+            (value.alpha() * 255.0) as u8,
+        )
     }
 }
 
