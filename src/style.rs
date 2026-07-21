@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use femtovg::{LineCap, LineJoin, Paint};
+use femtovg::{LineCap, Paint};
 use hex_color::HexColor;
 use relm4::gtk::gdk::RGBA;
 use relm4::gtk::gdk_pixbuf::{
@@ -16,6 +16,7 @@ pub struct Style {
     pub color: Color,
     pub size: Size,
     pub fill: bool,
+    pub round_caps: bool,
     pub annotation_size_factor: f32,
 }
 
@@ -41,6 +42,7 @@ impl Default for Style {
             color: Color::default(),
             size: Size::default(),
             fill: APP_CONFIG.read().default_fill_shapes(),
+            round_caps: APP_CONFIG.read().default_round_caps(),
             annotation_size_factor: APP_CONFIG.read().annotation_size_factor(),
         }
     }
@@ -156,12 +158,7 @@ impl Color {
 
 impl From<RGBA> for Color {
     fn from(value: RGBA) -> Self {
-        Self::new(
-            (value.red() * 255.0) as u8,
-            (value.green() * 255.0) as u8,
-            (value.blue() * 255.0) as u8,
-            (value.alpha() * 255.0) as u8,
-        )
+        Self::from_gdk(value)
     }
 }
 
@@ -199,8 +196,11 @@ impl From<Style> for Paint {
             .with_anti_alias(true)
             .with_font_size(value.size.to_text_size(value.annotation_size_factor) as f32)
             .with_color(value.color.into())
-            .with_line_join(LineJoin::Round)
-            .with_line_cap(LineCap::Round)
+            .with_line_cap(if value.round_caps {
+                LineCap::Round
+            } else {
+                LineCap::Butt
+            })
             .with_line_width(value.size.to_line_width(value.annotation_size_factor))
     }
 }

@@ -47,6 +47,7 @@ pub enum ToolbarEvent {
     SaveFile,
     CopyClipboard,
     ToggleFill,
+    ToggleRoundCaps,
     AnnotationSizeFactorChanged(f32),
     ClearAll,
     SaveFileAs,
@@ -594,6 +595,26 @@ impl Component for StyleToolbar {
                     button.set_icon_name(new_icon);
                 },
             },
+            gtk::Separator {},
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+                set_tooltip: "Toggle Round Caps",
+                set_icon_name: if APP_CONFIG.read().default_round_caps() {
+                    "circle-regular"
+                } else {
+                    "square-regular"
+                },
+                connect_clicked[sender] => move |button| {
+                    sender.output_sender().emit(ToolbarEvent::ToggleRoundCaps);
+                    let new_icon = if button.icon_name() == Some("circle-regular".into()) {
+                        "square-regular"
+                    } else {
+                        "circle-regular"
+                    };
+                    button.set_icon_name(new_icon);
+                },
+            }
         },
     }
 

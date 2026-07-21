@@ -2,6 +2,7 @@ use anyhow::anyhow;
 
 use femtovg::imgref::Img;
 use femtovg::rgb::{ComponentBytes, RGBA};
+use gtk::prelude::*;
 use keycode::{KeyMap, KeyMappingId};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
@@ -12,8 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::{fs, io};
-
-use gtk::prelude::*;
 
 use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
@@ -867,6 +866,12 @@ impl SketchBoard {
             ToolbarEvent::ClearAll => self.handle_clear_all(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::StyleChanged(self.style))
+            }
+            ToolbarEvent::ToggleRoundCaps => {
+                self.style.round_caps = !self.style.round_caps;
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))

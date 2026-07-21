@@ -59,6 +59,7 @@ pub struct Configuration {
     default_hide_toolbars: bool,
     focus_toggles_toolbars: bool,
     default_fill_shapes: bool,
+    default_round_caps: bool,
     font: FontConfiguration,
     primary_highlighter: Highlighters,
     disable_notifications: bool,
@@ -331,8 +332,8 @@ impl Configuration {
                 eprintln!("Error reading config file: {e}");
 
                 // swallow broken pipes
-                let _ = std::io::stdout().lock().flush();
-                let _ = std::io::stderr().lock().flush();
+                let _ = io::stdout().lock().flush();
+                let _ = io::stderr().lock().flush();
 
                 // exit
                 std::process::exit(3);
@@ -392,6 +393,9 @@ impl Configuration {
         }
         if let Some(v) = general.default_fill_shapes {
             self.default_fill_shapes = v;
+        }
+        if let Some(v) = general.default_round_caps {
+            self.default_round_caps = v;
         }
         if let Some(v) = general.primary_highlighter {
             self.primary_highlighter = v;
@@ -667,6 +671,10 @@ impl Configuration {
         self.default_fill_shapes
     }
 
+    pub fn default_round_caps(&self) -> bool {
+        self.default_round_caps
+    }
+
     pub fn primary_highlighter(&self) -> Highlighters {
         self.primary_highlighter
     }
@@ -744,6 +752,7 @@ impl Default for Configuration {
             default_hide_toolbars: false,
             focus_toggles_toolbars: false,
             default_fill_shapes: false,
+            default_round_caps: true,
             font: FontConfiguration::default(),
             primary_highlighter: Highlighters::Block,
             disable_notifications: false,
@@ -831,6 +840,7 @@ struct ConfigurationFileGeneral {
     default_hide_toolbars: Option<bool>,
     focus_toggles_toolbars: Option<bool>,
     default_fill_shapes: Option<bool>,
+    default_round_caps: Option<bool>,
     primary_highlighter: Option<Highlighters>,
     disable_notifications: Option<bool>,
     no_window_decoration: Option<bool>,
