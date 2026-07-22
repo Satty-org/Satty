@@ -66,6 +66,7 @@ fn main() -> Result<(), io::Error> {
             "minus-large",
             "checkbox-unchecked-regular",
             "circle-regular",
+            "square-regular",
             "crop-filled",
             "arrow-up-right-filled",
             "rectangle-landscape-regular",
