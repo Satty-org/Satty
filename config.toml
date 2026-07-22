@@ -38,6 +38,8 @@ default-hide-toolbars = false
 focus-toggles-toolbars = false
 # Fill shapes by default (since 0.20.0)
 default-fill-shapes = false
+# Round caps for arrow and line tools
+default-round-caps = true
 # The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
 primary-highlighter = "block"
 # Disable notifications
