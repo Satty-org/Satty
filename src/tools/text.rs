@@ -307,7 +307,8 @@ impl Drawable for Text {
         }
 
         let mut cursor_visible = self.cursor_visible.borrow_mut();
-        //draw selection
+
+        // draw selection
         if let Some((sel_start_iter, sel_end_iter)) = self.text_buffer.selection_bounds() {
             let sel_start = sel_start_iter.offset() as usize;
             let sel_end = sel_end_iter.offset() as usize;
@@ -349,68 +350,59 @@ impl Drawable for Text {
             *cursor_visible = true;
         }
 
-        //calculate rect and glyphs
+        // calculate bounding rectangle and glyphs
         let mut draw_baseline = self.pos.y;
         let mut rect = self.rect.borrow_mut();
         let mut glyphs = self.glyphs.borrow_mut();
+        let mut tl = Vec2D::zero();
+        let mut wh = Vec2D::zero();
 
         glyphs.clear();
         {
-            let mut top = 0;
-            let mut left = 0;
-            let mut width = 0;
-            let mut height = 0;
-
+            let mut first_segment = true;
             for line in &line_layouts {
                 let mut line_glyphs = Vec::new();
 
                 let start = text[..line.range.start].chars().count();
                 let end = text[..line.range.end].chars().count();
-
                 for i in start..end {
                     let segments =
                         self.segments_for_line_span(canvas, &layout_context, line, i..i + 1);
 
                     for (start_x, end_x) in segments {
-                        let offset_y = cursor_metrics.height * 0.1;
-                        let y = (line.baseline + cursor_metrics.top_offset + offset_y) as i32;
-                        let h = cursor_metrics.height as i32;
-                        let x = start_x as i32;
-                        let w = (end_x - start_x) as i32;
-                        line_glyphs.push(Rectangle::new(x, y, w, h));
+                        let offset_y = cursor_metrics.line_height * 0.1;
+                        let y = line.baseline + cursor_metrics.top_offset + offset_y;
+                        let h = cursor_metrics.line_height;
+                        let x = start_x;
+                        let w = end_x - start_x;
+                        line_glyphs.push(Rectangle::new(x as i32, y as i32, w as i32, h as i32));
 
-                        if top == 0 {
-                            top = y;
+                        if first_segment {
+                            tl.y = y - 1.0;
+                            tl.x = x - 1.0;
+                            first_segment = false;
                         }
 
-                        if left == 0 {
-                            left = x;
-                        }
-
-                        width = (end_x as i32 - left).max(width);
-                        height = y + h - top;
+                        wh.x = (end_x - tl.x).max(wh.x);
+                        wh.y = y + h - tl.y + 1.0;
                     }
                 }
 
                 glyphs.push(line_glyphs);
-
-                rect.set_height(height);
-                rect.set_width(width);
-                rect.set_x(left);
-                rect.set_y(top);
             }
+
+            wh.x += 1.0; // extend here, above it would add up
+            rect.set_height(wh.y as i32);
+            rect.set_width(wh.x as i32);
+            rect.set_x(tl.x as i32);
+            rect.set_y(tl.y as i32);
         }
 
-        //draw rect
+        // draw bounding rectangle
         if *self.draw_rect.borrow() {
             let mut rect_paint = Path::new();
             rect_paint.move_to(self.pos.x, self.pos.y);
-            let y = rect.y() as f32;
-            let h = rect.height() as f32;
-            let x = rect.x() as f32;
-            let w = rect.width() as f32;
-
-            rect_paint.rect(x, y, w, h);
+            rect_paint.rect(tl.x, tl.y, wh.x, wh.y);
             let mut paint = Paint::color(Color::rgbaf(1.0, 0.5, 0.3, 0.3)); // transparent orange
             paint.set_anti_alias(true);
             paint.set_line_width(2.0);
