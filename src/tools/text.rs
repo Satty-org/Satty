@@ -270,6 +270,7 @@ impl Drawable for Text {
         } else {
             (font_metrics.height() / canva_scale).abs()
         };
+        line_height *= 1.2; // increase line height a bit
 
         let mut line_layouts: Vec<LineLayout> = Vec::with_capacity(lines.len());
         let mut baseline = self.pos.y;
@@ -330,9 +331,9 @@ impl Drawable for Text {
                 for (start_x, end_x) in segments {
                     let mut path = Path::new();
 
-                    let offset_y = cursor_metrics.height * 0.1;
+                    let offset_y = cursor_metrics.line_height * 0.1;
                     let y = line.baseline + cursor_metrics.top_offset + offset_y;
-                    let h = cursor_metrics.height;
+                    let h = cursor_metrics.line_height;
                     let x = start_x;
                     let w = end_x - start_x;
 
@@ -510,7 +511,8 @@ impl Text {
                         continue;
                     }
                     let mut path = Path::new();
-                    let top = line.baseline + cursor.top_offset;
+                    let offset_y = cursor.line_height * 0.1;
+                    let top = line.baseline + cursor.top_offset + offset_y;
                     path.rect(start_x, top, width, cursor.height);
                     let mut fill_paint = Paint::color(background_color.into());
                     fill_paint.set_anti_alias(true);
@@ -580,7 +582,7 @@ impl Text {
                         canvas,
                         &segments,
                         line.baseline + cursor.top_offset,
-                        cursor.height,
+                        cursor.line_height,
                         span.underline,
                         color,
                     );
@@ -747,16 +749,16 @@ impl Text {
         cursor_visible: bool,
     ) {
         let (cursor_x, cursor_top) = self.caret_top_left(canvas, context, cursor_byte_pos, cursor);
-        let caret_height = cursor.height;
+        let caret_height = cursor.line_height;
 
         let mut caret_paint: Paint = self.style.into();
         caret_paint.set_font(&[font]);
 
+        let extra_height = caret_height * 0.1;
         if cursor_visible {
-            let extra_height = caret_height * 0.05;
             let mut path = Path::new();
-            path.move_to(cursor_x, cursor_top - extra_height);
-            path.line_to(cursor_x, cursor_top + caret_height + extra_height * 2.0);
+            path.move_to(cursor_x, cursor_top + extra_height);
+            path.line_to(cursor_x, cursor_top + caret_height + extra_height);
             canvas.fill_path(&path, &caret_paint);
         }
 
@@ -765,8 +767,9 @@ impl Text {
         {
             let transform = canvas.transform();
             let widget_scale = handle.widget.scale_factor().max(1) as f32;
-            let (x1, y1) = transform.transform_point(cursor_x, cursor_top);
-            let (x2, y2) = transform.transform_point(cursor_x + 1.0, cursor_top + caret_height);
+            let (x1, y1) = transform.transform_point(cursor_x, cursor_top + extra_height);
+            let (x2, y2) =
+                transform.transform_point(cursor_x + 1.0, cursor_top + caret_height + extra_height);
             let logical_x = (x1 / widget_scale).floor() as i32;
             let logical_y = (y1 / widget_scale).floor() as i32;
             let logical_width = ((x2 - x1).abs() / widget_scale).ceil().max(1.0) as i32;
