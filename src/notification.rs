@@ -52,11 +52,6 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
     };
 
     let icon = match pixbuf {
-        // glib doesn't support image-data at this point
-        /*
-        Some(p) if notification_icon_kind == NotificationThumbnail::ThumbnailIcon => {
-            Some(p.upcast::<Icon>())
-        }*/
         Some(p) if notification_icon_kind == NotificationThumbnail::ThumbnailFileIcon => {
             if p.savev(&*NOTIFICATION_THUMBNAIL_PATH, "png", &[]).is_err() {
                 None
