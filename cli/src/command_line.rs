@@ -229,6 +229,8 @@ pub enum Tools {
     Blur,
     Highlight,
     Brush,
+    // NEXTRELEASE
+    Image,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -262,6 +264,7 @@ impl std::fmt::Display for Tools {
             Blur => "blur",
             Highlight => "highlight",
             Brush => "brush",
+            Image => "image",
         };
         f.write_str(s)
     }

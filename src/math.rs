@@ -105,6 +105,11 @@ impl Vec2D {
         }
     }
 
+    pub fn rotate(&self, angle: Angle) -> Vec2D {
+        let (sin, cos) = (angle.sin(), angle.cos());
+        Vec2D::new(self.x * cos - self.y * sin, self.x * sin + self.y * cos)
+    }
+
     pub fn is_zero(&self) -> bool {
         self.x.abs() < f32::EPSILON && self.y.abs() < f32::EPSILON
     }

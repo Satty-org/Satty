@@ -240,6 +240,15 @@ impl SimpleComponent for ToolsToolbar {
                 // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Highlight,
             },
+            #[name(image_button)]
+            gtk::ToggleButton {
+                set_focusable: false,
+                set_hexpand: false,
+
+                set_icon_name: "image-regular",
+                // tooltip set programmatically
+                ActionablePlus::set_action::<ToolsAction>: Tools::Image,
+            },
             gtk::Separator {},
             gtk::Button {
                 set_focusable: false,
@@ -340,6 +349,7 @@ impl SimpleComponent for ToolsToolbar {
             (Tools::Marker, widgets.marker_button.clone()),
             (Tools::Blur, widgets.blur_button.clone()),
             (Tools::Highlight, widgets.highlight_button.clone()),
+            (Tools::Image, widgets.image_button.clone()),
         ]);
 
         // reverse shortcuts mapping

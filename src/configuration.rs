@@ -126,6 +126,7 @@ impl Keybinds {
         self.update_keybind(file_keybinds.marker, Tools::Marker);
         self.update_keybind(file_keybinds.blur, Tools::Blur);
         self.update_keybind(file_keybinds.highlight, Tools::Highlight);
+        self.update_keybind(file_keybinds.image, Tools::Image);
     }
 }
 
@@ -143,6 +144,7 @@ impl Default for Keybinds {
         shortcuts.insert('m', Tools::Marker);
         shortcuts.insert('u', Tools::Blur);
         shortcuts.insert('g', Tools::Highlight);
+        shortcuts.insert('o', Tools::Image);
 
         Self { shortcuts }
     }
@@ -799,6 +801,7 @@ struct KeybindsFile {
     marker: Option<String>,
     blur: Option<String>,
     highlight: Option<String>,
+    image: Option<String>,
 }
 
 #[derive(Deserialize)]

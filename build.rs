@@ -74,6 +74,7 @@ fn main() -> Result<(), io::Error> {
             "page-fit-regular",
             "resize-large-regular",
             "arrow-counterclockwise-regular",
+            "image-regular",
         ],
     );
 
