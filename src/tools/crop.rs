@@ -387,20 +387,6 @@ impl CropTool {
             }
         }
     }
-
-    fn handle_deactivate_and_reset(&mut self) -> ToolUpdateResult {
-        self.crop = None;
-        self.action = None;
-
-        if let Some(sender) = &self.sender {
-            sender
-                .send(SketchBoardInput::Output(
-                    SketchBoardOutput::DimensionsUpdate(None),
-                ))
-                .ok();
-        }
-        ToolUpdateResult::RedrawAndStopPropagation
-    }
 }
 
 impl Tool for CropTool {
@@ -429,7 +415,7 @@ impl Tool for CropTool {
             //FIXME: use if let guards as soon as they're stabilized (1.95)
             Key::Escape if self.crop.is_some() => {
                 if self.crop.as_mut().unwrap().active {
-                    self.handle_deactivate_and_reset()
+                    self.handle_dismissed()
                 } else {
                     ToolUpdateResult::Unmodified
                 }
@@ -452,7 +438,7 @@ impl Tool for CropTool {
                 if let Some(crop) = &self.crop
                     && crop.active
                 {
-                    self.handle_deactivate_and_reset()
+                    self.handle_dismissed()
                 } else {
                     ToolUpdateResult::Unmodified
                 }
@@ -484,6 +470,20 @@ impl Tool for CropTool {
         }
         self.action = None;
         ToolUpdateResult::Redraw
+    }
+
+    fn handle_dismissed(&mut self) -> ToolUpdateResult {
+        self.crop = None;
+        self.action = None;
+
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::Output(
+                    SketchBoardOutput::DimensionsUpdate(None),
+                ))
+                .ok();
+        }
+        ToolUpdateResult::RedrawAndStopPropagation
     }
 
     fn get_drawable(&self) -> Option<&dyn Drawable> {

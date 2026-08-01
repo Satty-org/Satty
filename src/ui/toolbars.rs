@@ -34,6 +34,7 @@ pub struct StyleToolbar {
     color_action: SimpleAction,
     visible: bool,
     output_dimensions: String,
+    editing: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -53,6 +54,8 @@ pub enum ToolbarEvent {
     SaveFileAs,
     Resize,
     OriginalScale,
+    ToolCommit,
+    ToolDismiss,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -71,6 +74,7 @@ pub enum StyleToolbarInput {
     SetVisibility(bool),
     ToggleVisibility,
     DimensionsChanged((i32, i32)),
+    SetToolEditing(bool),
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -601,20 +605,43 @@ impl Component for StyleToolbar {
                 set_hexpand: false,
                 set_tooltip: "Toggle Round Caps",
                 set_icon_name: if APP_CONFIG.read().default_round_caps() {
-                    "circle-regular"
+                    "circle-line-filled"
                 } else {
-                    "square-regular"
+                    "square-filled"
                 },
                 connect_clicked[sender] => move |button| {
                     sender.output_sender().emit(ToolbarEvent::ToggleRoundCaps);
-                    let new_icon = if button.icon_name() == Some("circle-regular".into()) {
-                        "square-regular"
+                    let new_icon = if button.icon_name() == Some("circle-line-filled".into()) {
+                        "square-filled"
                     } else {
-                        "circle-regular"
+                        "circle-line-filled"
                     };
                     button.set_icon_name(new_icon);
                 },
-            }
+            },
+            gtk::Separator {},
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+                set_icon_name: "dismiss-regular",
+                set_tooltip: "tool dismiss",
+                #[watch]
+                set_sensitive: model.editing,
+                connect_clicked[sender] => move |_| {
+                    sender.output_sender().emit(ToolbarEvent::ToolDismiss);
+                },
+            },
+            gtk::Button {
+                set_focusable: false,
+                set_hexpand: false,
+                set_icon_name: "checkmark-regular",
+                set_tooltip: "tool commit",
+                #[watch]
+                set_sensitive: model.editing,
+                connect_clicked[sender] => move |_| {
+                    sender.output_sender().emit(ToolbarEvent::ToolCommit);
+                },
+            },
         },
     }
 
@@ -652,6 +679,9 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::DimensionsChanged((width, height)) => {
                 self.output_dimensions = format!("{}x{}", width, height);
+            }
+            StyleToolbarInput::SetToolEditing(editing) => {
+                self.editing = editing;
             }
         }
     }
@@ -715,6 +745,7 @@ impl Component for StyleToolbar {
             color_action: SimpleAction::from(color_action.clone()),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             output_dimensions: String::new(),
+            editing: false,
         };
 
         // create widgets

@@ -67,6 +67,8 @@ fn main() -> Result<(), io::Error> {
             "checkbox-unchecked-regular",
             "circle-regular",
             "square-regular",
+            "square-filled",
+            "circle-line-filled",
             "crop-filled",
             "arrow-up-right-filled",
             "rectangle-landscape-regular",
@@ -75,6 +77,8 @@ fn main() -> Result<(), io::Error> {
             "page-fit-regular",
             "resize-large-regular",
             "arrow-counterclockwise-regular",
+            "dismiss-regular",
+            "checkmark-regular",
         ],
     );
 

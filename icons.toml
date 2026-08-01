@@ -18,6 +18,8 @@ icons = [
   "checkbox-unchecked-regular",
   "circle-regular",
   "square-regular",
+  "square-filled",
+  "circle-line-filled",
   "crop-filled",
   "arrow-up-right-filled",
   "rectangle-landscape-regular",
