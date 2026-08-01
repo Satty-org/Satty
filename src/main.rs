@@ -532,8 +532,12 @@ fn run_satty() -> Result<()> {
 
     match TEMP_DIR.write() {
         Ok(mut temp_dir) => {
+            // take is sufficient to have the dir deleted when it's dropped.
+            // But that would hide any errors, so use explicit close instead.
             if let Some(dir) = temp_dir.take() {
-                dir.close()?;
+                if let Err(e) = dir.close() {
+                    eprintln!("Failed to close temporary directory: {}", e);
+                }
             }
         }
         Err(e) => {
