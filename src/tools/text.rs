@@ -125,7 +125,6 @@ struct TextDrawingContext<'a> {
 #[derive(Clone, Copy)]
 struct CursorMetrics {
     top_offset: f32,
-    height: f32,
     line_height: f32,
 }
 
@@ -156,6 +155,14 @@ impl Text {
             .nth(char_index)
             .map(|(idx, _)| idx)
             .unwrap_or_else(|| text.len())
+    }
+
+    fn char_index_from_byte_index(text: &str, byte_index: usize) -> usize {
+        let mut idx = byte_index.min(text.len());
+        while idx > 0 && !text.is_char_boundary(idx) {
+            idx -= 1;
+        }
+        text[..idx].chars().count()
     }
 
     fn display_text<'a>(&self, base_text: &'a str) -> DisplayContent<'a> {
@@ -265,11 +272,7 @@ impl Drawable for Text {
         }
 
         let cursor_top_offset = -line_height;
-        let cursor_height = if line_height.abs() > f32::EPSILON {
-            line_height.abs()
-        } else {
-            (font_metrics.height() / canva_scale).abs()
-        };
+        line_height *= 1.2; // increase line height a bit
 
         let mut line_layouts: Vec<LineLayout> = Vec::with_capacity(lines.len());
         let mut baseline = self.pos.y;
@@ -283,7 +286,6 @@ impl Drawable for Text {
 
         let cursor_metrics = CursorMetrics {
             top_offset: cursor_top_offset,
-            height: cursor_height,
             line_height,
         };
 
@@ -293,20 +295,9 @@ impl Drawable for Text {
             lines: &line_layouts,
         };
 
-        if self.editing
-            && let (Some(preedit), Some(preedit_range)) = (&self.preedit, &display.preedit_range)
-        {
-            self.draw_preedit_background(
-                canvas,
-                &layout_context,
-                preedit,
-                preedit_range,
-                cursor_metrics,
-            );
-        }
-
         let mut cursor_visible = self.cursor_visible.borrow_mut();
-        //draw selection
+
+        // draw selection
         if let Some((sel_start_iter, sel_end_iter)) = self.text_buffer.selection_bounds() {
             let sel_start = sel_start_iter.offset() as usize;
             let sel_end = sel_end_iter.offset() as usize;
@@ -330,9 +321,9 @@ impl Drawable for Text {
                 for (start_x, end_x) in segments {
                     let mut path = Path::new();
 
-                    let offset_y = cursor_metrics.height * 0.1;
+                    let offset_y = cursor_metrics.line_height * 0.1;
                     let y = line.baseline + cursor_metrics.top_offset + offset_y;
-                    let h = cursor_metrics.height;
+                    let h = cursor_metrics.line_height;
                     let x = start_x;
                     let w = end_x - start_x;
 
@@ -348,68 +339,59 @@ impl Drawable for Text {
             *cursor_visible = true;
         }
 
-        //calculate rect and glyphs
+        // calculate bounding rectangle and glyphs
         let mut draw_baseline = self.pos.y;
         let mut rect = self.rect.borrow_mut();
         let mut glyphs = self.glyphs.borrow_mut();
+        let mut tl = Vec2D::zero();
+        let mut wh = Vec2D::zero();
 
         glyphs.clear();
         {
-            let mut top = 0;
-            let mut left = 0;
-            let mut width = 0;
-            let mut height = 0;
-
+            let mut first_segment = true;
             for line in &line_layouts {
                 let mut line_glyphs = Vec::new();
 
                 let start = text[..line.range.start].chars().count();
                 let end = text[..line.range.end].chars().count();
-
                 for i in start..end {
                     let segments =
                         self.segments_for_line_span(canvas, &layout_context, line, i..i + 1);
 
                     for (start_x, end_x) in segments {
-                        let offset_y = cursor_metrics.height * 0.1;
-                        let y = (line.baseline + cursor_metrics.top_offset + offset_y) as i32;
-                        let h = cursor_metrics.height as i32;
-                        let x = start_x as i32;
-                        let w = (end_x - start_x) as i32;
-                        line_glyphs.push(Rectangle::new(x, y, w, h));
+                        let offset_y = cursor_metrics.line_height * 0.1;
+                        let y = line.baseline + cursor_metrics.top_offset + offset_y;
+                        let h = cursor_metrics.line_height;
+                        let x = start_x;
+                        let w = end_x - start_x;
+                        line_glyphs.push(Rectangle::new(x as i32, y as i32, w as i32, h as i32));
 
-                        if top == 0 {
-                            top = y;
+                        if first_segment {
+                            tl.y = y - 1.0;
+                            tl.x = x - 1.0;
+                            first_segment = false;
                         }
 
-                        if left == 0 {
-                            left = x;
-                        }
-
-                        width = (end_x as i32 - left).max(width);
-                        height = y + h - top;
+                        wh.x = (end_x - tl.x).max(wh.x);
+                        wh.y = y + h - tl.y + 1.0;
                     }
                 }
 
                 glyphs.push(line_glyphs);
-
-                rect.set_height(height);
-                rect.set_width(width);
-                rect.set_x(left);
-                rect.set_y(top);
             }
+
+            wh.x += 1.0; // extend here, above it would add up
+            rect.set_height(wh.y as i32);
+            rect.set_width(wh.x as i32);
+            rect.set_x(tl.x as i32);
+            rect.set_y(tl.y as i32);
         }
 
-        //draw rect
+        // draw bounding rectangle
         if *self.draw_rect.borrow() {
             let mut rect_paint = Path::new();
             rect_paint.move_to(self.pos.x, self.pos.y);
-            let y = rect.y() as f32;
-            let h = rect.height() as f32;
-            let x = rect.x() as f32;
-            let w = rect.width() as f32;
-
-            rect_paint.rect(x, y, w, h);
+            rect_paint.rect(tl.x, tl.y, wh.x, wh.y);
             let mut paint = Paint::color(Color::rgbaf(1.0, 0.5, 0.3, 0.3)); // transparent orange
             paint.set_anti_alias(true);
             paint.set_line_width(2.0);
@@ -502,16 +484,24 @@ impl Text {
                 if overlap_start >= overlap_end {
                     continue;
                 }
-                let segments =
-                    self.segments_for_line_span(canvas, context, line, overlap_start..overlap_end);
+                let overlap_start_char =
+                    Self::char_index_from_byte_index(context.text, overlap_start);
+                let overlap_end_char = Self::char_index_from_byte_index(context.text, overlap_end);
+                let segments = self.segments_for_line_span(
+                    canvas,
+                    context,
+                    line,
+                    overlap_start_char..overlap_end_char,
+                );
                 for (start_x, end_x) in segments {
                     let width = (end_x - start_x).max(0.0);
                     if width <= f32::EPSILON {
                         continue;
                     }
                     let mut path = Path::new();
-                    let top = line.baseline + cursor.top_offset;
-                    path.rect(start_x, top, width, cursor.height);
+                    let offset_y = cursor.line_height * 0.1;
+                    let top = line.baseline + cursor.top_offset + offset_y;
+                    path.rect(start_x, top, width, cursor.line_height);
                     let mut fill_paint = Paint::color(background_color.into());
                     fill_paint.set_anti_alias(true);
                     canvas.fill_path(&path, &fill_paint);
@@ -529,6 +519,8 @@ impl Text {
         preedit_range: &Range<usize>,
         cursor: CursorMetrics,
     ) -> Result<()> {
+        self.draw_preedit_background(canvas, context, preedit, preedit_range, cursor);
+
         for span in &preedit.spans {
             let global_start = preedit_range.start + span.range.start;
             let global_end = preedit_range.start + span.range.end;
@@ -539,8 +531,15 @@ impl Text {
                 if overlap_start >= overlap_end {
                     continue;
                 }
-                let segments =
-                    self.segments_for_line_span(canvas, context, line, overlap_start..overlap_end);
+                let overlap_start_char =
+                    Self::char_index_from_byte_index(context.text, overlap_start);
+                let overlap_end_char = Self::char_index_from_byte_index(context.text, overlap_end);
+                let segments = self.segments_for_line_span(
+                    canvas,
+                    context,
+                    line,
+                    overlap_start_char..overlap_end_char,
+                );
                 if segments.is_empty() {
                     continue;
                 }
@@ -556,10 +555,10 @@ impl Text {
                         }
                         canvas.save();
                         canvas.scissor(
-                            (*start_x - 1.0).floor(),
-                            (line.baseline + cursor.top_offset - 1.0).floor(),
-                            (width + 2.0).ceil(),
-                            (cursor.height + 2.0).ceil(),
+                            *start_x - 1.0,
+                            line.baseline + cursor.top_offset - 1.0,
+                            width + 2.0,
+                            cursor.line_height + 4.0,
                         );
                         canvas.fill_text(
                             self.pos.x,
@@ -580,7 +579,7 @@ impl Text {
                         canvas,
                         &segments,
                         line.baseline + cursor.top_offset,
-                        cursor.height,
+                        cursor.line_height,
                         span.underline,
                         color,
                     );
@@ -604,11 +603,11 @@ impl Text {
             return;
         }
         let mut paint = Paint::color(color.into());
-        let thickness = (cursor_height * 0.08).clamp(1.0, cursor_height / 2.0);
+        let thickness = (cursor_height * 0.02).clamp(1.0, cursor_height / 2.0);
         paint.set_line_width(thickness);
         paint.set_anti_alias(true);
 
-        let base_y = line_top + cursor_height - thickness * 0.5;
+        let base_y = line_top + cursor_height + 2.0;
 
         for &(start_x, end_x) in segments {
             if end_x - start_x <= f32::EPSILON {
@@ -747,16 +746,16 @@ impl Text {
         cursor_visible: bool,
     ) {
         let (cursor_x, cursor_top) = self.caret_top_left(canvas, context, cursor_byte_pos, cursor);
-        let caret_height = cursor.height;
+        let caret_height = cursor.line_height;
 
         let mut caret_paint: Paint = self.style.into();
         caret_paint.set_font(&[font]);
 
+        let extra_height = caret_height * 0.1;
         if cursor_visible {
-            let extra_height = caret_height * 0.05;
             let mut path = Path::new();
-            path.move_to(cursor_x, cursor_top - extra_height);
-            path.line_to(cursor_x, cursor_top + caret_height + extra_height * 2.0);
+            path.move_to(cursor_x, cursor_top + extra_height);
+            path.line_to(cursor_x, cursor_top + caret_height + extra_height);
             canvas.fill_path(&path, &caret_paint);
         }
 
@@ -765,8 +764,11 @@ impl Text {
         {
             let transform = canvas.transform();
             let widget_scale = handle.widget.scale_factor().max(1) as f32;
-            let (x1, y1) = transform.transform_point(cursor_x, cursor_top);
-            let (x2, y2) = transform.transform_point(cursor_x + 1.0, cursor_top + caret_height);
+            let (x1, y1) = transform.transform_point(cursor_x, cursor_top + extra_height);
+            let (x2, y2) = transform.transform_point(
+                cursor_x + 1.0,
+                cursor_top + caret_height + extra_height + 1.0,
+            );
             let logical_x = (x1 / widget_scale).floor() as i32;
             let logical_y = (y1 / widget_scale).floor() as i32;
             let logical_width = ((x2 - x1).abs() / widget_scale).ceil().max(1.0) as i32;
