@@ -880,12 +880,8 @@ impl SketchBoard {
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::Resize => self.handle_resize(),
             ToolbarEvent::OriginalScale => self.handle_original_scale(),
-            /*            ToolbarEvent::CropDimensionsUpdated(dimensions) => {
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::DimensionsUpdate(Some(dimensions)));
-                ToolUpdateResult::Unmodified
-            }*/
+            ToolbarEvent::ToolCommit => self.active_tool.borrow_mut().handle_deactivated(),
+            ToolbarEvent::ToolDismiss => self.active_tool.borrow_mut().handle_dismissed(),
         }
     }
 

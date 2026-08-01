@@ -74,6 +74,8 @@ fn main() -> Result<(), io::Error> {
             "page-fit-regular",
             "resize-large-regular",
             "arrow-counterclockwise-regular",
+            "dismiss-regular",
+            "checkmark-regular",
         ],
     );
 
