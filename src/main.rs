@@ -5,7 +5,7 @@ use relm4::gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
 use std::process::exit;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, RwLock};
 use std::{fs, ptr};
 use std::{io, time::Duration};
 
@@ -18,8 +18,8 @@ use relm4::{
 
 use anyhow::{Context, Result, anyhow};
 use satty_cli::command_line::{Fullscreen, Resize};
+use tempfile::TempDir;
 
-use crate::notification::NOTIFICATION_THUMBNAIL_PATH;
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -40,6 +40,15 @@ use crate::tools::Tools;
 
 pub static START_TIME: LazyLock<chrono::DateTime<chrono::Local>> =
     LazyLock::new(chrono::Local::now);
+
+pub static TEMP_DIR: LazyLock<RwLock<Option<TempDir>>> =
+    LazyLock::new(|| match tempfile::TempDir::new() {
+        Ok(dir) => RwLock::new(Some(dir)),
+        Err(e) => {
+            eprintln!("Failed to create temporary directory: {}", e);
+            RwLock::new(None)
+        }
+    });
 
 macro_rules! generate_profile_output {
     ($e: expr) => {
@@ -519,13 +528,19 @@ fn run_satty() -> Result<()> {
         icons::icon_names::RESOURCE_PREFIX,
     );
 
-    relm4::main_application().connect_shutdown(move |_| {
-        if let Err(e) = std::fs::remove_file(&*NOTIFICATION_THUMBNAIL_PATH) {
-            eprintln!("Failed to remove thumbnail temp path: {e}");
-        }
-    });
-
     app.run::<App>(image);
+
+    match TEMP_DIR.write() {
+        Ok(mut temp_dir) => {
+            if let Some(dir) = temp_dir.take() {
+                dir.close()?;
+            }
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+        }
+    }
+
     Ok(())
 }
 

@@ -1,20 +1,13 @@
 use relm4::gtk::gio::{FileIcon, Icon};
 use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
-use std::path::PathBuf;
-use std::sync::LazyLock;
 
+use crate::TEMP_DIR;
 use crate::configuration::APP_CONFIG;
 use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
 use relm4::gtk::prelude::Cast;
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection, gio};
 use satty_cli::command_line::NotificationThumbnail;
-
-pub static NOTIFICATION_THUMBNAIL_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    std::env::temp_dir().join(format!(
-        "satty-notification-thumbnail-{}.png",
-        std::process::id()
-    ))
-});
+use tempfile::NamedTempFile;
 
 pub fn log_result(msg: &str, notify: bool) {
     eprintln!("{msg}");
@@ -51,13 +44,39 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
         }
     };
 
-    let icon = match pixbuf {
-        Some(p) if notification_icon_kind == NotificationThumbnail::ThumbnailFileIcon => {
-            if p.savev(&*NOTIFICATION_THUMBNAIL_PATH, "png", &[]).is_err() {
-                None
-            } else {
-                let file = gio::File::for_path(&*NOTIFICATION_THUMBNAIL_PATH);
+    // we can't just use a tempfile here because we need the path for the FileIcon.
+    // Also, we can't just use NamedTempFile with cleanup, because it gets dropped
+    // at the end of this function, which can be too early for the notification daemon.
+    let tempfile: Option<NamedTempFile> = match TEMP_DIR.read() {
+        Ok(guard) => match &*guard {
+            Some(d) if pixbuf.is_some() => {
+                if let Ok(tf) = tempfile::Builder::new()
+                    .disable_cleanup(true)
+                    .suffix(".png")
+                    .tempfile_in(d.path())
+                {
+                    Some(tf)
+                } else {
+                    eprintln!("Could not create temporary file");
+                    None
+                }
+            }
+            _ => None,
+        },
+        Err(e) => {
+            eprintln!("Error acquiring read guard for temp directory: {}", e);
+            None
+        }
+    };
+
+    let icon = match tempfile.as_ref() {
+        Some(f) => {
+            // this unwrap is safe because tempfile would not be Some otherwise, see above
+            if pixbuf.unwrap().savev(f, "png", &[]).is_ok() {
+                let file = gio::File::for_path(f);
                 Some(FileIcon::new(&file).upcast::<Icon>())
+            } else {
+                None
             }
         }
         _ => None,
