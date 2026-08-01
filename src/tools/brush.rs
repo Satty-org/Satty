@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use femtovg::{FontId, Path};
+use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 
 use crate::{
     configuration::APP_CONFIG,
@@ -59,7 +59,12 @@ impl Drawable for BrushDrawable {
             path.line_to(start_point.x + p.x, start_point.y + p.y);
         }
 
-        canvas.stroke_path(&path, &self.style.into());
+        canvas.stroke_path(
+            &path,
+            &Paint::from(self.style)
+                .with_line_cap(LineCap::Round)
+                .with_line_join(LineJoin::Round),
+        );
         canvas.restore();
         Ok(())
     }

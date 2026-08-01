@@ -178,6 +178,8 @@ default-hide-toolbars = false
 focus-toggles-toolbars = false
 # Fill shapes by default (since 0.20.0)
 default-fill-shapes = false
+# Round caps for `arrow` and `line` tools (always true for `brush` tool)
+default-round-caps = true
 # The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
 primary-highlighter = "block"
 # Disable notifications
@@ -307,7 +309,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [aliases: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
+          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>

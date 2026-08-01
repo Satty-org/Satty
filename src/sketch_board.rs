@@ -871,6 +871,12 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
             }
+            ToolbarEvent::ToggleRoundCaps => {
+                self.style.round_caps = !self.style.round_caps;
+                self.active_tool
+                    .borrow_mut()
+                    .handle_event(ToolEvent::StyleChanged(self.style))
+            }
             ToolbarEvent::AnnotationSizeFactorChanged(value) => {
                 self.style.annotation_size_factor = value;
                 self.active_tool
