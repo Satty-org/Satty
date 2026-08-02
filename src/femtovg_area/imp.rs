@@ -569,14 +569,17 @@ impl FemtoVgAreaMut {
         path.rect(0.0, 0.0, w, h);
 
         if let Some(id) = transparency_bg_id {
+            // fix the transparency grid in place
+            let pos = self.abs_canvas_to_image_coordinates(Vec2D::zero(), 1.0);
+
             canvas.fill_path(
                 &path,
                 &Paint::image(
                     id,
-                    0f32,
-                    0f32,
-                    TRANSPARENCY_SQUARE_SIZE as f32,
-                    TRANSPARENCY_SQUARE_SIZE as f32,
+                    pos.x,
+                    pos.y,
+                    TRANSPARENCY_SQUARE_SIZE as f32 / self.scale_factor,
+                    TRANSPARENCY_SQUARE_SIZE as f32 / self.scale_factor,
                     0f32,
                     1f32,
                 ),
