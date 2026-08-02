@@ -24,6 +24,7 @@ ci-release = []
 satty_cli.workspace = true
 relm4 = { version = "0.10.1", features = ["macros", "libadwaita", "gnome_42"] }
 tokio = { version = "1.53.1", features = ["time"] }
+tempfile = "3.27"
 
 # error handling
 anyhow = "1.0"

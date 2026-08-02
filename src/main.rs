@@ -1,14 +1,13 @@
 use configuration::{APP_CONFIG, Configuration};
-use std::io::Read;
-use std::ops::Deref;
-use std::process::exit;
-use std::sync::LazyLock;
-use std::{fs, ptr};
-use std::{io, time::Duration};
-
 use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
 use relm4::gtk::gio::{Application, ApplicationFlags};
 use relm4::gtk::prelude::*;
+use std::io::Read;
+use std::ops::Deref;
+use std::process::exit;
+use std::sync::{LazyLock, RwLock};
+use std::{fs, ptr};
+use std::{io, time::Duration};
 
 use relm4::gtk::gdk::Rectangle;
 
@@ -19,6 +18,7 @@ use relm4::{
 
 use anyhow::{Context, Result, anyhow};
 use satty_cli::command_line::{Fullscreen, Resize};
+use tempfile::TempDir;
 
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
@@ -40,6 +40,15 @@ use crate::tools::Tools;
 
 pub static START_TIME: LazyLock<chrono::DateTime<chrono::Local>> =
     LazyLock::new(chrono::Local::now);
+
+pub static TEMP_DIR: LazyLock<RwLock<Option<TempDir>>> =
+    LazyLock::new(|| match tempfile::TempDir::new() {
+        Ok(dir) => RwLock::new(Some(dir)),
+        Err(e) => {
+            eprintln!("Failed to create temporary directory: {}", e);
+            RwLock::new(None)
+        }
+    });
 
 macro_rules! generate_profile_output {
     ($e: expr) => {
@@ -518,7 +527,24 @@ fn run_satty() -> Result<()> {
         icons::icon_names::GRESOURCE_BYTES,
         icons::icon_names::RESOURCE_PREFIX,
     );
+
     app.run::<App>(image);
+
+    match TEMP_DIR.write() {
+        Ok(mut temp_dir) => {
+            // take is sufficient to have the dir deleted when it's dropped.
+            // But that would hide any errors, so use explicit close instead.
+            if let Some(dir) = temp_dir.take()
+                && let Err(e) = dir.close()
+            {
+                eprintln!("Failed to close temporary directory: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+        }
+    }
+
     Ok(())
 }
 
