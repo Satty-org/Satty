@@ -128,6 +128,13 @@ pub trait Tool {
 }
 
 #[derive(Clone, Debug)]
+pub struct GroupableTool {
+    pub tool: Tools,
+    pub icon_name: String,
+    pub tooltip: String, // should be fine as long as there is no runtime shortcut editing
+}
+
+#[derive(Clone, Debug)]
 pub struct InputContext {
     pub im_context: IMMulticontext,
     pub widget: gtk::Widget,
