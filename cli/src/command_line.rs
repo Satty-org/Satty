@@ -230,9 +230,9 @@ pub enum EarlyExitTriggers {
 #[serde(rename_all = "kebab-case")]
 pub enum NotificationThumbnail {
     #[default]
+    Screenshot,
     AppIcon,
-    ThumbnailFileIcon,
-    //ThumbnailIcon
+    //ScreenshotData
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]

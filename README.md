@@ -178,7 +178,7 @@ default-hide-toolbars = false
 focus-toggles-toolbars = false
 # Fill shapes by default (since 0.20.0)
 default-fill-shapes = false
-# Round caps for `arrow` and `line` tools (always true for `brush` tool)
+# Round caps for arrow and line tools
 default-round-caps = true
 # The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
 primary-highlighter = "block"
@@ -219,8 +219,8 @@ title = "Satty"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
 # experimental feature (NEXTRELEASE): show thumbnail as notifcation icon
-# notification-thumbnail = "thumbnail-file--icon"
-notification-thumbnail = "app-icon"
+# notification-thumbnail = "app-icon"
+notification-thumbnail = "screenshot"
 
 # Tool selection keyboard shortcuts (since 0.20.0)
 [keybinds]
@@ -360,7 +360,7 @@ Options:
       --app-id <APP_ID>
           Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --notification-thumbnail <NOTIFICATION_THUMBNAIL>
-          Experimental feature (NEXTRELEASE): use preview thumbnail in notifications where available [possible values: app-icon, thumbnail-file-icon]
+          Experimental feature (NEXTRELEASE): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
