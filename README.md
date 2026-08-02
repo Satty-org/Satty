@@ -100,8 +100,8 @@ Default single-key shortcuts:
 ### Tool Modifiers and Keys
 
 Crop:
-- Press <kbd>Esc</kbd> or right mouse button while editing to reset crop altogether <sup>0.21.0</sup>.
-- Press <kbd>Enter</kbd> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
+- Press <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+right mouse<sup>NEXTRELEASE</sup> <sup>experimental</sup> button while editing to reset crop altogether <sup>0.21.0</sup>.
+- Press <kbd>Enter</kbd> or <kbd>Ctrl</kbd>+left mouse<sup>NEXTRELEASE</sup> <sup>experimental</sup> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
 - Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>.
 
 Arrow and line:
