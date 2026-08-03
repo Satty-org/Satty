@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{FontId, Path};
+use femtovg::{FontId, LineJoin, Paint, Path};
 use relm4::{
     Sender,
     gtk::gdk::{Key, ModifierType},
@@ -178,8 +178,18 @@ impl Drawable for Arrow {
         // Head angle: the angle of the head point at end (2).
         // Tail width: the distance from tail side to tail side (5 - 6).
 
+        let round_caps = self.style.round_caps;
+
+        let line_width = if round_caps || !self.style.fill {
+            self.style
+                .size
+                .to_line_width(self.style.annotation_size_factor)
+        } else {
+            0.0
+        };
+
         let arrow_offset = end - self.start;
-        let arrow_length = arrow_offset.norm();
+        let arrow_length = arrow_offset.norm() - line_width / 2.0;
         let arrow_direction = arrow_offset * (1.0 / arrow_length);
 
         // We rotate the canvas so that we can draw the arrow on the x-axis.
@@ -193,12 +203,16 @@ impl Drawable for Arrow {
         let tail_width = self
             .style
             .size
-            .to_arrow_tail_width(self.style.annotation_size_factor);
+            .to_arrow_tail_width(self.style.annotation_size_factor)
+            - line_width;
+
         // The length of the (sloped) side of the arrow head (distance from end to head side).
         let head_side_length = self
             .style
             .size
-            .to_arrow_head_length(self.style.annotation_size_factor);
+            .to_arrow_head_length(self.style.annotation_size_factor)
+            - line_width;
+
         // The offset of the midpoint is the distance the midpoint moves toward the end of the arrow.
         // A offset of 0 will place the midpoint right below the head side.
         // A negative value will result in a diamond head.
@@ -207,7 +221,12 @@ impl Drawable for Arrow {
 
         let head_angle = Angle::from_degrees(60.0); // The angle of the point of the arrow head.
 
-        let tail_half_width = tail_width / 2.0;
+        let tail_half_width_head = tail_width / 2.0;
+        let tail_half_width_end = if round_caps {
+            line_width / 10.0
+        } else {
+            tail_width / 2.0
+        };
         let head_half_angle = head_angle * 0.5;
         let head_left =
             Vec2D::new(arrow_length, 0.0) - Vec2D::from_angle(head_half_angle) * head_side_length;
@@ -216,28 +235,38 @@ impl Drawable for Arrow {
         if self.style.fill {
             // Draw a 'fat' arrow.
             let mut path = Path::new();
-            path.move_to(midpoint_x, tail_half_width); // G
+            path.move_to(midpoint_x, tail_half_width_head); // G
             path.line_to(head_left.x, -head_left.y); // C
             path.line_to(arrow_length, 0.0); // B
             path.line_to(head_left.x, head_left.y); // C (mirrored)
-            path.line_to(midpoint_x, -tail_half_width); // G (mirrored)
-            if midpoint_x > 0.0 {
+            path.line_to(midpoint_x, -tail_half_width_head); // G (mirrored)
+            if midpoint_x > line_width / 2.0 {
                 // If the midpoint is placed _before_ the start, there is only a head and no tail.
                 // We can skip the beginning of the tail.
-                path.line_to(0.0, -tail_half_width); // F
-                path.line_to(0.0, tail_half_width); // E
+                path.line_to(line_width / 2.0, -tail_half_width_end); // F
+                path.line_to(line_width / 2.0, tail_half_width_end); // E
             }
-            path.close();
+            path.line_to(midpoint_x, tail_half_width_head); // G
 
-            canvas.fill_path(&path, &self.style.into());
+            if round_caps {
+                let mut paint: Paint = self.style.into();
+                paint.set_line_join(LineJoin::Round);
+                // paint.set_color(femtovg::Color::white()); // to debug
+                canvas.stroke_path(&path, &paint);
+                canvas.fill_path(&path, &self.style.into());
+            } else {
+                canvas.fill_path(&path, &self.style.into());
+            }
         } else {
             // Draw a 'thin' arrow head.
+            let arrow_length = arrow_length - line_width / 2.0;
+            let arrow_start = if round_caps { line_width / 2.0 } else { 0.0 };
             let mut path = Path::new();
             path.move_to(head_left.x, -head_left.y); // C
             path.line_to(arrow_length, 0.0); // B
             path.line_to(head_left.x, head_left.y); // C (mirrored)
 
-            path.move_to(0.0, 0.0); // A
+            path.move_to(arrow_start, 0.0); // A
             path.line_to(arrow_length, 0.0); // B
 
             canvas.stroke_path(&path, &self.style.into());
