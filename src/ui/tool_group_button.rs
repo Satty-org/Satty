@@ -2,7 +2,7 @@ use crate::tools::{GroupableTool, Tools};
 use crate::ui::toolbars::ToolsAction;
 use relm4::actions::ActionablePlus;
 use relm4::factory::{DynamicIndex, FactoryComponent};
-use relm4::gtk::prelude::{ButtonExt, WidgetExt};
+use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, GestureSingleExt, PopoverExt, WidgetExt};
 use relm4::gtk::{Align, Popover, ToggleButton};
 use relm4::{FactorySender, RelmWidgetExt, gtk, view};
 
@@ -37,7 +37,12 @@ impl ToolGroupButton {
             && let g = &self.group[self.current]
         {
             widgets.button.set_icon_name(&g.icon_name);
-            widgets.button.set_tooltip(&g.tooltip);
+            let tooltip = if self.has_extra() {
+                format!("{}\n\n{}", g.tooltip, "right-click for more tools")
+            } else {
+                g.tooltip.clone()
+            };
+            widgets.button.set_tooltip(&tooltip);
             ActionablePlus::set_action::<ToolsAction>(&widgets.button, g.tool);
         }
     }
@@ -78,7 +83,7 @@ impl FactoryComponent for ToolGroupButton {
             group: init.group,
             current: pos,
             editing: false,
-            is_active: is_active,
+            is_active,
             popover: relm4::gtk::Popover::new(),
         }
     }
@@ -92,7 +97,7 @@ impl FactoryComponent for ToolGroupButton {
         _index: &DynamicIndex,
         root: Self::Root,
         _returned_widget: &relm4::gtk::Widget,
-        _sender: FactorySender<Self>,
+        sender: FactorySender<Self>,
     ) -> Self::Widgets {
         view! {
             #[local_ref]
@@ -102,9 +107,41 @@ impl FactoryComponent for ToolGroupButton {
                     set_focusable: false,
                     set_valign: Align::End,
                     set_halign: Align::Center,
+                    add_controller = gtk::GestureClick {
+                        set_button: 3,
+                        connect_pressed[sender] => move |gesture, _, _, _| {
+                            gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
+                            sender.input(ToolGroupButtonInput::OpenPopover);
+                        }
+                    }
+                },
+                add_overlay = &relm4::gtk::Image {
+                    set_icon_name: Some("caret-down-right-filled"),
+                    set_pixel_size: 8,
+                    set_halign: Align::End,
+                    set_valign: Align::End,
+                    set_can_target: false,
+                    set_visible: self.has_extra(),
                 }
             },
         }
+
+        let rows = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        for tool in &self.group {
+            let button = ToggleButton::builder()
+                .focusable(false)
+                .icon_name(&tool.icon_name)
+                .label(&tool.tooltip)
+                .tooltip_text(&tool.tooltip)
+                .build();
+            let popover = self.popover.clone();
+            button.connect_clicked(move |_| popover.popdown());
+            ActionablePlus::set_action::<ToolsAction>(&button, tool.tool);
+            rows.append(&button);
+        }
+        self.popover.set_child(Some(&rows));
+        self.popover.set_position(relm4::gtk::PositionType::Bottom);
+        self.popover.set_parent(&root);
 
         let widgets = ToolGroupWidgets { button };
         self.update_active_tool(&widgets);
@@ -114,7 +151,11 @@ impl FactoryComponent for ToolGroupButton {
 
     fn update(&mut self, message: Self::Input, _sender: FactorySender<Self>) {
         match message {
-            ToolGroupButtonInput::OpenPopover => {}
+            ToolGroupButtonInput::OpenPopover => {
+                if self.has_extra() {
+                    self.popover.popup();
+                }
+            }
             ToolGroupButtonInput::SelectedToolChanged(tools) => {
                 if let Some(i) = self.group.iter().position(|gt| gt.tool == tools) {
                     self.is_active = true;
@@ -133,7 +174,7 @@ impl FactoryComponent for ToolGroupButton {
     }
 
     fn update_view(&self, widgets: &mut Self::Widgets, _sender: FactorySender<Self>) {
-        self.update_active_tool(&widgets);
-        self.update_editing(&widgets);
+        self.update_active_tool(widgets);
+        self.update_editing(widgets);
     }
 }

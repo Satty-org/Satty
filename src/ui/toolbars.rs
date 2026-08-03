@@ -324,7 +324,7 @@ impl SimpleComponent for ToolsToolbar {
         for tg in tools {
             let init = ToolGroupInit {
                 group: tg,
-                initial_tool: initial_tool,
+                initial_tool,
             };
             guard.push_back(init);
         }
