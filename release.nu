@@ -21,7 +21,7 @@ export def main [version: string] {
     patch_cargo_toml $requested_version
 
     # update cargo lock
-    let update_all_deps = if not ('Cargo.lock' | path exists) { true } else { (((input "Update dependencies in Cargo.lock? (y/N) " --numchar 1 --default "N") | str downcase) == "y") }
+    let update_all_deps = if not ('Cargo.lock' | path exists) { true } else { (((input "Update dependencies in Cargo.lock? (y/N) " --numchar 1 --default "N") | str lowercase) == "y") }
 
     if $update_all_deps {
       update_cargo_lock_all
@@ -38,7 +38,7 @@ export def main [version: string] {
     # show diff so we can review the replacements
     git_diff
 
-    if ((input "Proceed with commit? (Y/n) " --numchar 1 --default "Y") | str downcase) == "n" {
+    if ((input "Proceed with commit? (Y/n) " --numchar 1 --default "Y") | str lowercase) == "n" {
         exit 1
     }
 
@@ -146,6 +146,6 @@ def is_newer [
 def test_versions [] {
     assert (is_newer [1 0 0] [2 0 0]) "major version"
     assert (is_newer [1 0 0] [1 1]) "minor version, shorter"
-    assert not (is_newer [1 1 0] [1 1]) "minor version, shorter"
-    assert not (is_newer [1 1 0] [0 1]) "minor version, shorter"
+    assert (not (is_newer [1 1 0] [1 1])) "minor version, shorter"
+    assert (not (is_newer [1 1 0] [0 1])) "minor version, shorter"
 }
