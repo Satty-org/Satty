@@ -303,7 +303,7 @@ impl SimpleComponent for ToolsToolbar {
                     tool: Tools::Blur,
                     icon_name: "drop-regular".into(),
                     tooltip: None,
-                }
+                },
             ],
             vec![GroupableTool {
                 tool: Tools::Highlight,
