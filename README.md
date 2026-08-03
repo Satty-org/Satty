@@ -57,10 +57,10 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
 Mouse:
-- <kbd>Ctrl+Wheel</kbd>: Zoom in/out <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+Wheel</kbd>: Zoom in/out <sup>0.22.0</sup>
 - <kbd>Middle</kbd>: Pan
 
-Touchpad: <sup>NEXTRELEASE</sup>
+Touchpad: <sup>0.22.0</sup>
 - <kbd>Pinch</kbd>: Zoom (two finger)
 - <kbd>Ctrl+Scroll</kbd>: Zoom in/out  (two finger scroll)
 - <kbd>Scroll</kbd>: Pan  (two finger scroll)
@@ -71,7 +71,7 @@ Touchpad: <sup>NEXTRELEASE</sup>
 
 If out of range select custom color <sup>0.21.0</sup>
 
-#### Size Selection <sup>NEXTRELEASE</sup>
+#### Size Selection <sup>0.22.0</sup>
 
 In the bottom toolbar the size can be edited directly or by + and - buttons.
 Minimum is 0.1 and maximum to 99.99.
@@ -100,14 +100,14 @@ Default single-key shortcuts:
 ### Tool Modifiers and Keys
 
 Crop:
-- Press <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+right mouse<sup>NEXTRELEASE</sup> <sup>experimental</sup> button while editing to reset crop altogether <sup>0.21.0</sup>.
-- Press <kbd>Enter</kbd> or <kbd>Ctrl</kbd>+left mouse<sup>NEXTRELEASE</sup> <sup>experimental</sup> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
+- Press <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+right mouse<sup>0.22.0</sup> <sup>experimental</sup> button while editing to reset crop altogether <sup>0.21.0</sup>.
+- Press <kbd>Enter</kbd> or <kbd>Ctrl</kbd>+left mouse<sup>0.22.0</sup> <sup>experimental</sup> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
 - Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>.
 
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Rectangle, ellipse, blur <sup>NEXTRELEASE</sup> and highlight block mode<sup>NEXTRELEASE</sup>: 
+Rectangle, ellipse, blur <sup>0.22.0</sup> and highlight block mode<sup>0.22.0</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
 - Hold both to combine them.
@@ -125,10 +125,10 @@ Text:
 - <kbd>Ctrl+X</kbd> to cut selected text to clipboard. <sup>0.20.1</sup>
 - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
 - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
-- Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>NEXTRELEASE</sup>
+- Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>0.22.0</sup>
 
 Marker:
-- Hold <kbd>Alt</kbd> to get extra ring. <sup>NEXTRELEASE</sup>
+- Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
 
 Highlight: 
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
@@ -218,7 +218,7 @@ input-scale = 1.0
 title = "Satty"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
-# experimental feature (NEXTRELEASE): show thumbnail as notifcation icon
+# experimental feature (0.22.0): show thumbnail as notifcation icon
 # notification-thumbnail = "app-icon"
 notification-thumbnail = "screenshot"
 
@@ -244,7 +244,7 @@ style = "Regular"
 # Please note, there is no default setting for these and the fonts listed below
 # are not shipped with Satty but need to be available on the system.
 # An installed color emoji font (e.g. Noto Color Emoji) is picked up automatically
-# as the last fallback, so emoji render without extra configuration. (NEXTRELEASE)
+# as the last fallback, so emoji render without extra configuration. (0.22.0)
 fallback = [
     "Noto Sans CJK SC",
     # "Noto Sans CJK JP",
@@ -360,7 +360,7 @@ Options:
       --app-id <APP_ID>
           Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --notification-thumbnail <NOTIFICATION_THUMBNAIL>
-          Experimental feature (NEXTRELEASE): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
+          Experimental feature (0.22.0): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>

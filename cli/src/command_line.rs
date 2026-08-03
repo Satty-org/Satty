@@ -159,7 +159,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub app_id: Option<String>,
 
-    /// Experimental feature (NEXTRELEASE): use preview thumbnail in notifications where available
+    /// Experimental feature (0.22.0): use preview thumbnail in notifications where available
     #[arg(long)]
     pub notification_thumbnail: Option<NotificationThumbnail>,
 

@@ -78,7 +78,7 @@ input-scale = 1.0
 title = "Satty"
 # experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
 app-id = "org.satty.satty"
-# experimental feature (NEXTRELEASE): show thumbnail as notifcation icon
+# experimental feature (0.22.0): show thumbnail as notifcation icon
 # notification-thumbnail = "app-icon"
 notification-thumbnail = "screenshot"
 
@@ -104,7 +104,7 @@ style = "Regular"
 # Please note, there is no default setting for these and the fonts listed below
 # are not shipped with Satty but need to be available on the system.
 # An installed color emoji font (e.g. Noto Color Emoji) is picked up automatically
-# as the last fallback, so emoji render without extra configuration. (NEXTRELEASE)
+# as the last fallback, so emoji render without extra configuration. (0.22.0)
 fallback = [
     "Noto Sans CJK SC",
     # "Noto Sans CJK JP",
