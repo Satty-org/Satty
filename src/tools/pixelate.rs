@@ -385,4 +385,8 @@ impl Tool for PixelateTool {
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
         self.sender = Some(sender);
     }
+
+    fn active(&self) -> bool {
+        self.pixelate.is_some()
+    }
 }
