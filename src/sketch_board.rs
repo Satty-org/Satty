@@ -57,6 +57,7 @@ pub enum SketchBoardOutput {
     SetSize(Size),
     FocusAnnotationSizeFactorShortcut,
     SetFill(bool),
+    SetRoundCaps(bool),
     DimensionsUpdate(Option<(i32, i32)>),
     ToolEditingChanged(bool),
 }
@@ -867,6 +868,9 @@ impl SketchBoard {
             }
             ToolbarEvent::ToggleRoundCaps => {
                 self.style.round_caps = !self.style.round_caps;
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style))
@@ -992,6 +996,12 @@ impl SketchBoard {
             }
             ShortcutCommand::ToggleFill => {
                 sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
+                ToolUpdateResult::Unmodified
+            }
+            ShortcutCommand::ToggleRoundCaps => {
+                sender.input(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::ToggleRoundCaps,
+                ));
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::Undo => self.handle_undo(),

@@ -36,6 +36,7 @@ pub struct StyleToolbar {
     size_action: SimpleAction,
     size_spin_button: gtk::SpinButton,
     fill_enabled: bool,
+    round_caps_enabled: bool,
     visible: bool,
     output_dimensions: String,
     editing: bool,
@@ -76,6 +77,7 @@ pub enum StyleToolbarInput {
     ColorButtonSelected(ColorButtons),
     SetColor(Color),
     SetFill(bool),
+    SetRoundCaps(bool),
     SetSize(Size),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
@@ -599,23 +601,19 @@ impl Component for StyleToolbar {
                 },
             },
             gtk::Separator {},
+            #[name(round_caps_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
                 set_tooltip: "Toggle Round Caps",
-                set_icon_name: if APP_CONFIG.read().default_round_caps() {
+                #[watch]
+                set_icon_name: if model.round_caps_enabled {
                     "circle-line-filled"
                 } else {
                     "square-filled"
                 },
-                connect_clicked[sender] => move |button| {
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleRoundCaps);
-                    let new_icon = if button.icon_name() == Some("circle-line-filled".into()) {
-                        "square-filled"
-                    } else {
-                        "circle-line-filled"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
             gtk::Separator {},
@@ -691,6 +689,9 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::SetFill(fill_enabled) => {
                 self.fill_enabled = fill_enabled;
+            }
+            StyleToolbarInput::SetRoundCaps(round_caps_enabled) => {
+                self.round_caps_enabled = round_caps_enabled;
             }
             StyleToolbarInput::SetSize(size) => {
                 self.size_action.change_state(&size.to_variant());
@@ -781,6 +782,7 @@ impl Component for StyleToolbar {
             size_action: SimpleAction::from(size_action.clone()),
             size_spin_button: gtk::SpinButton::new(None::<&gtk::Adjustment>, 0.1, 2),
             fill_enabled: APP_CONFIG.read().default_fill_shapes(),
+            round_caps_enabled: APP_CONFIG.read().default_round_caps(),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             output_dimensions: String::new(),
             editing: false,
@@ -814,6 +816,11 @@ impl Component for StyleToolbar {
             &shortcut_registry,
             &widgets.fill_button,
             ShortcutCommand::ToggleFill,
+        );
+        update_hint(
+            &shortcut_registry,
+            &widgets.round_caps_button,
+            ShortcutCommand::ToggleRoundCaps,
         );
 
         let mut group = RelmActionGroup::<StyleToolbarActionGroup>::new();

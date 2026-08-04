@@ -82,6 +82,7 @@ enum AppInput {
     ColorSwitchShortcut(u64),
     SetColor(Color),
     SetFill(bool),
+    SetRoundCaps(bool),
     SetSize(Size),
     FocusAnnotationSizeFactorShortcut,
     ScaleFactorChanged,
@@ -302,6 +303,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetFill(fill_enabled));
             }
+            AppInput::SetRoundCaps(round_caps_enabled) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::SetRoundCaps(round_caps_enabled));
+            }
             AppInput::SetSize(size) => {
                 self.style_toolbar
                     .sender()
@@ -382,6 +388,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::SetColor(color) => AppInput::SetColor(color),
                     SketchBoardOutput::SetFill(fill_enabled) => AppInput::SetFill(fill_enabled),
+                    SketchBoardOutput::SetRoundCaps(round_caps_enabled) => {
+                        AppInput::SetRoundCaps(round_caps_enabled)
+                    }
                     SketchBoardOutput::SetSize(size) => AppInput::SetSize(size),
                     SketchBoardOutput::FocusAnnotationSizeFactorShortcut => {
                         AppInput::FocusAnnotationSizeFactorShortcut

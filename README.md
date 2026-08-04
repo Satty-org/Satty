@@ -294,6 +294,7 @@ notification-thumbnail = "screenshot"
 #"..." = "select-size:(small|medium|large)"
 "s" = "focus-annotation-size-factor"
 "f" = "toggle-fill"
+"k" = "toggle-round-caps"
 
 # Font to use for text annotations
 [font]

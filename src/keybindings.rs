@@ -45,6 +45,7 @@ pub enum ShortcutCommand {
     SelectSize(Size),
     FocusAnnotationSizeFactor,
     ToggleFill,
+    ToggleRoundCaps,
 }
 
 impl fmt::Display for ShortcutCommand {
@@ -96,6 +97,7 @@ impl fmt::Display for ShortcutCommand {
             },
             ShortcutCommand::FocusAnnotationSizeFactor => "focus-annotation-size-factor",
             ShortcutCommand::ToggleFill => "toggle-fill",
+            ShortcutCommand::ToggleRoundCaps => "toggle-round-caps",
         };
         write!(f, "{}", name)
     }
@@ -161,7 +163,7 @@ impl FromStr for ShortcutCommand {
             "select-size:large" => Ok(ShortcutCommand::SelectSize(Size::Large)),
             "focus-annotation-size-factor" => Ok(ShortcutCommand::FocusAnnotationSizeFactor),
             "toggle-fill" => Ok(ShortcutCommand::ToggleFill),
-
+            "toggle-round-caps" => Ok(ShortcutCommand::ToggleRoundCaps),
             _ => Err(ParseCommandError),
         }
     }
