@@ -10,19 +10,17 @@ use anyhow::Result;
 use femtovg::imgref::Img;
 use femtovg::rgb::RGBA8;
 use femtovg::{Color, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
-use relm4::gtk::gdk::ModifierType;
 use relm4::{Sender, gtk::gdk::Key};
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
-
-static BLOCKSIZE: usize = 32;
 
 #[derive(Clone, Debug)]
 pub struct Pixelate {
     top_left: Vec2D,
     size: Option<Vec2D>,
+    style: Style,
     editing: bool,
-    independent_mode: bool,
+    pseudo_mode: bool,
     cached_image: RefCell<Option<ImageId>>,
 }
 
@@ -36,17 +34,22 @@ impl Pixelate {
         let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
         let transformed_size = size * canvas.transform().average_scale();
 
+        let blocksize = self
+            .style
+            .size
+            .to_blocksize(self.style.annotation_size_factor);
+
         let pos_x = transformed_pos.0 as usize;
         let pos_y = transformed_pos.1 as usize;
-        let width = (transformed_size.x as usize / BLOCKSIZE) * BLOCKSIZE;
-        let height = (transformed_size.y as usize / BLOCKSIZE) * BLOCKSIZE;
+        let width = (transformed_size.x as usize / blocksize) * blocksize;
+        let height = (transformed_size.y as usize / blocksize) * blocksize;
 
         if width == 0 || height == 0 {
             return Ok(None);
         }
 
         let img = canvas.screenshot()?;
-        let buf = if self.independent_mode {
+        let buf = if self.pseudo_mode {
             Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
         } else {
             let (buf, _, _) = img
@@ -56,7 +59,7 @@ impl Pixelate {
         };
 
         if let Some(b) = buf
-            && let Some(dest_img) = Self::pixelate_regular(b, width, height)?
+            && let Some(dest_img) = Self::pixelate_regular(b, width, height, blocksize)?
         {
             let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
             Ok(Some(dst_image_id))
@@ -140,18 +143,19 @@ impl Pixelate {
         input_buf: Cow<[RGBA8]>,
         width: usize,
         height: usize,
+        blocksize: usize,
     ) -> Result<Option<Img<Vec<Rgba<u8>>>>> {
         let mut buf_new = vec![Rgba::new(0, 0, 0, 0); width * height];
 
-        let blocks_x = width / BLOCKSIZE;
-        let blocks_y = height / BLOCKSIZE;
+        let blocks_x = width / blocksize;
+        let blocks_y = height / blocksize;
 
         for block_y in 0..blocks_y {
             for block_x in 0..blocks_x {
-                let x0 = block_x * BLOCKSIZE;
-                let y0 = block_y * BLOCKSIZE;
-                let x1 = x0 + BLOCKSIZE;
-                let y1 = y0 + BLOCKSIZE;
+                let x0 = block_x * blocksize;
+                let y0 = block_y * blocksize;
+                let x1 = x0 + blocksize;
+                let y1 = y0 + blocksize;
 
                 let mut r: u64 = 0;
                 let mut g: u64 = 0;
@@ -199,17 +203,17 @@ impl Drawable for Pixelate {
             Some(s) => s,
             None => return Ok(()), // early exit if none
         };
+        let blocksize = self
+            .style
+            .size
+            .to_blocksize(self.style.annotation_size_factor);
         let (pos, size) = math::rect_ensure_in_bounds(
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
         if self.editing {
             // set style
-            let mut color = if self.independent_mode {
-                Color::white()
-            } else {
-                Color::black()
-            };
+            let mut color = Color::white();
             color.set_alphaf(0.6);
             let paint = Paint::color(color);
 
@@ -220,7 +224,7 @@ impl Drawable for Pixelate {
             // draw
             canvas.fill_path(&path, &paint);
         } else {
-            if size.x < BLOCKSIZE as f32 || size.y < BLOCKSIZE as f32 {
+            if size.x < blocksize as f32 || size.y < blocksize as f32 {
                 return Ok(());
             }
 
@@ -260,8 +264,22 @@ impl Drawable for Pixelate {
 #[derive(Default)]
 pub struct PixelateTool {
     pixelate: Option<Pixelate>,
+    style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
+    pseudo_mode: bool,
+}
+
+impl PixelateTool {
+    pub fn new_pseudo() -> Self {
+        PixelateTool {
+            pixelate: None,
+            style: Style::default(),
+            input_enabled: false,
+            sender: None,
+            pseudo_mode: true,
+        }
+    }
 }
 
 impl Tool for PixelateTool {
@@ -274,7 +292,11 @@ impl Tool for PixelateTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        Tools::Pixelate
+        if self.pseudo_mode {
+            Tools::PseudoPixelate
+        } else {
+            Tools::Pixelate
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
@@ -289,8 +311,9 @@ impl Tool for PixelateTool {
                     top_left: event.pos,
                     size: None,
                     editing: true,
-                    independent_mode: event.modifier.intersects(ModifierType::ALT_MASK),
+                    style: self.style,
                     cached_image: RefCell::new(None),
+                    pseudo_mode: self.pseudo_mode,
                 });
 
                 ToolUpdateResult::Redraw
@@ -307,7 +330,6 @@ impl Tool for PixelateTool {
                         ToolUpdateResult::Redraw
                     } else {
                         a.size = Some(event.pos);
-                        a.independent_mode = event.modifier.intersects(ModifierType::ALT_MASK);
                         a.editing = false;
 
                         let result = a.clone_box();
@@ -328,7 +350,6 @@ impl Tool for PixelateTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    a.independent_mode = event.modifier.intersects(ModifierType::ALT_MASK);
                     a.size = Some(event.pos);
 
                     ToolUpdateResult::Redraw
@@ -349,7 +370,8 @@ impl Tool for PixelateTool {
         }
     }
 
-    fn handle_style_event(&mut self, _style: Style) -> ToolUpdateResult {
+    fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
+        self.style = style;
         ToolUpdateResult::Unmodified
     }
 

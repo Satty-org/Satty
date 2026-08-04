@@ -300,6 +300,7 @@ pub enum Tools {
     Highlight = 9,
     Brush = 10,
     Pixelate = 11,
+    PseudoPixelate = 12,
 }
 
 impl fmt::Display for Tools {
@@ -317,6 +318,7 @@ impl fmt::Display for Tools {
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
             Tools::Pixelate => "Pixelate",
+            Tools::PseudoPixelate => "Pseudo-Pixelate",
         };
         write!(f, "{}", name)
     }
@@ -343,6 +345,7 @@ impl FromStr for Tools {
             "highlight" => Ok(Self::Highlight),
             "brush" => Ok(Self::Brush),
             "pixelate" => Ok(Self::Pixelate),
+            "pseudo-pixelate" => Ok(Self::PseudoPixelate),
             _ => Err(ParseCommandError),
         }
     }
@@ -375,6 +378,10 @@ impl ToolsManager {
         tools.insert(
             Tools::Pixelate,
             Rc::new(RefCell::new(PixelateTool::default())),
+        );
+        tools.insert(
+            Tools::PseudoPixelate,
+            Rc::new(RefCell::new(PixelateTool::new_pseudo())),
         );
         tools.insert(
             Tools::Highlight,
@@ -445,6 +452,7 @@ impl FromVariant for Tools {
             9 => Some(Tools::Highlight),
             10 => Some(Tools::Brush),
             11 => Some(Tools::Pixelate),
+            12 => Some(Tools::PseudoPixelate),
             _ => None,
         })
     }
@@ -463,6 +471,7 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Marker => Self::Marker,
             command_line::Tools::Blur => Self::Blur,
             command_line::Tools::Pixelate => Self::Pixelate,
+            command_line::Tools::PseudoPixelate => Self::PseudoPixelate,
             command_line::Tools::Highlight => Self::Highlight,
             command_line::Tools::Brush => Self::Brush,
         }
