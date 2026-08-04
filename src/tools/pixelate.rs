@@ -90,13 +90,13 @@ impl Pixelate {
             .sub_image(pos_x, pos_y - 1, width, 1)
             .to_contiguous_buf();
         let (buf_south, _, _) = img
-            .sub_image(pos_x, pos_y + height + 1, width, 1)
+            .sub_image(pos_x, pos_y + height, width, 1)
             .to_contiguous_buf();
         let (buf_west, _, _) = img
             .sub_image(pos_x - 1, pos_y, 1, height)
             .to_contiguous_buf();
         let (buf_east, _, _) = img
-            .sub_image(pos_x + width + 1, pos_y, 1, height)
+            .sub_image(pos_x + width, pos_y, 1, height)
             .to_contiguous_buf();
 
         let mut buf_new = vec![Rgba::new(0, 0, 0, 0); width * height];
