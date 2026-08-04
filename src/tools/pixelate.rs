@@ -32,7 +32,8 @@ impl Pixelate {
         size: Vec2D,
     ) -> Result<Option<ImageId>> {
         let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
-        let transformed_size = size * canvas.transform().average_scale();
+        let average_scale = canvas.transform().average_scale();
+        let transformed_size = size * average_scale;
 
         let blocksize = self
             .style
@@ -211,11 +212,22 @@ impl Drawable for Pixelate {
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
+        let can_perform = size.x >= blocksize as f32 && size.y >= blocksize as f32;
         if self.editing {
             // set style
-            let mut color = Color::white();
+            let mut color = if can_perform {
+                Color::white()
+            } else {
+                Color::rgb(255, 0, 0)
+            };
+            let border_color = if can_perform {
+                Color::black()
+            } else {
+                Color::rgb(0, 255, 255)
+            };
             color.set_alphaf(0.6);
             let paint = Paint::color(color);
+            let paint_border = Paint::color(border_color);
 
             // make rect
             let mut path = Path::new();
@@ -223,8 +235,9 @@ impl Drawable for Pixelate {
 
             // draw
             canvas.fill_path(&path, &paint);
+            canvas.stroke_path(&path, &paint_border);
         } else {
-            if size.x < blocksize as f32 || size.y < blocksize as f32 {
+            if !can_perform {
                 return Ok(());
             }
 
