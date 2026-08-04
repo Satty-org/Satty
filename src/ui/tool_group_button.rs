@@ -2,9 +2,9 @@ use crate::tools::{GroupableTool, Tools};
 use crate::ui::toolbars::ToolsAction;
 use relm4::actions::ActionablePlus;
 use relm4::factory::{DynamicIndex, FactoryComponent};
-use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, GestureSingleExt, PopoverExt, WidgetExt};
+use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, PopoverExt, WidgetExt};
 use relm4::gtk::{Align, Popover, ToggleButton};
-use relm4::{FactorySender, RelmWidgetExt, gtk, view};
+use relm4::{FactorySender, RelmWidgetExt, view};
 
 pub struct ToolGroupInit {
     pub group: Vec<GroupableTool>,
@@ -37,12 +37,14 @@ impl ToolGroupButton {
             && let g = &self.group[self.current]
         {
             widgets.button.set_icon_name(&g.icon_name);
-            let tooltip = if self.has_extra() {
-                format!("{}\n\n{}", g.tooltip, "right-click for more tools")
-            } else {
-                g.tooltip.clone()
-            };
-            widgets.button.set_tooltip(&tooltip);
+            if let Some(tt) = &g.tooltip {
+                let tooltip = if self.has_extra() {
+                    format!("{}\n\n{}", tt, "right-click for more tools")
+                } else {
+                    tt.clone()
+                };
+                widgets.button.set_tooltip(&tooltip);
+            }
             ActionablePlus::set_action::<ToolsAction>(&widgets.button, g.tool);
         }
     }
@@ -89,7 +91,7 @@ impl FactoryComponent for ToolGroupButton {
     }
 
     fn init_root(&self) -> Self::Root {
-        gtk::Overlay::new()
+        relm4::gtk::Overlay::new()
     }
 
     fn init_widgets(
@@ -107,41 +109,49 @@ impl FactoryComponent for ToolGroupButton {
                     set_focusable: false,
                     set_valign: Align::End,
                     set_halign: Align::Center,
-                    add_controller = gtk::GestureClick {
-                        set_button: 3,
-                        connect_pressed[sender] => move |gesture, _, _, _| {
-                            gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
-                            sender.input(ToolGroupButtonInput::OpenPopover);
-                        }
-                    }
                 },
-                add_overlay = &relm4::gtk::Image {
-                    set_icon_name: Some("caret-down-right-filled"),
-                    set_pixel_size: 8,
-                    set_halign: Align::End,
-                    set_valign: Align::End,
-                    set_can_target: false,
-                    set_visible: self.has_extra(),
-                }
             },
         }
 
-        let rows = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        for tool in &self.group {
-            let button = ToggleButton::builder()
-                .focusable(false)
-                .icon_name(&tool.icon_name)
-                .label(&tool.tooltip)
-                .tooltip_text(&tool.tooltip)
-                .build();
-            let popover = self.popover.clone();
-            button.connect_clicked(move |_| popover.popdown());
-            ActionablePlus::set_action::<ToolsAction>(&button, tool.tool);
-            rows.append(&button);
+        if self.has_extra() {
+            root.add_overlay(
+                &relm4::gtk::Image::builder()
+                    .icon_name("caret-down-right-filled")
+                    .pixel_size(8)
+                    .halign(Align::End)
+                    .valign(Align::End)
+                    .can_target(false)
+                    .build(),
+            );
+
+            let right_click_controller = relm4::gtk::GestureClick::builder().button(3).build();
+            right_click_controller.connect_pressed(move |gesture, _, _, _| {
+                gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
+                sender.input(ToolGroupButtonInput::OpenPopover);
+            });
+            button.add_controller(right_click_controller);
+
+            let rows = relm4::gtk::Box::new(relm4::gtk::Orientation::Vertical, 2);
+            for tool in &self.group {
+                let button = ToggleButton::builder().focusable(false).build();
+                let inner_box = relm4::gtk::Box::new(relm4::gtk::Orientation::Horizontal, 2);
+                let icon = relm4::gtk::Image::from_icon_name(&tool.icon_name);
+                let label = relm4::gtk::Label::new(Some(&format!("{}", tool.tool)));
+                inner_box.append(&icon);
+                inner_box.append(&label);
+                button.set_child(Some(&inner_box));
+                if let Some(tooltip) = &tool.tooltip {
+                    button.set_tooltip(tooltip);
+                }
+                let popover = self.popover.clone();
+                button.connect_clicked(move |_| popover.popdown());
+                ActionablePlus::set_action::<ToolsAction>(&button, tool.tool);
+                rows.append(&button);
+            }
+            self.popover.set_child(Some(&rows));
+            self.popover.set_position(relm4::gtk::PositionType::Bottom);
+            self.popover.set_parent(&root);
         }
-        self.popover.set_child(Some(&rows));
-        self.popover.set_position(relm4::gtk::PositionType::Bottom);
-        self.popover.set_parent(&root);
 
         let widgets = ToolGroupWidgets { button };
         self.update_active_tool(&widgets);
@@ -174,7 +184,9 @@ impl FactoryComponent for ToolGroupButton {
     }
 
     fn update_view(&self, widgets: &mut Self::Widgets, _sender: FactorySender<Self>) {
-        self.update_active_tool(widgets);
+        if self.has_extra() {
+            self.update_active_tool(widgets);
+        }
         self.update_editing(widgets);
     }
 }

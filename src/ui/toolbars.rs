@@ -248,69 +248,51 @@ impl SimpleComponent for ToolsToolbar {
             vec![GroupableTool {
                 tool: Tools::Pointer,
                 icon_name: "cursor-regular".into(),
-                tooltip: get_hint(
-                    &shortcut_registry,
-                    ShortcutCommand::SelectTool(Tools::Pointer),
-                ),
+                tooltip: None,
             }],
             vec![
                 GroupableTool {
                     tool: Tools::Line,
                     icon_name: "minus-large".into(),
-                    tooltip: get_hint(&shortcut_registry, ShortcutCommand::SelectTool(Tools::Line)),
+                    tooltip: None,
                 },
                 GroupableTool {
                     tool: Tools::Arrow,
                     icon_name: "arrow-up-right-filled".into(),
-                    tooltip: get_hint(
-                        &shortcut_registry,
-                        ShortcutCommand::SelectTool(Tools::Arrow),
-                    ),
+                    tooltip: None,
                 },
             ],
             vec![
                 GroupableTool {
                     tool: Tools::Rectangle,
                     icon_name: "checkbox-unchecked-regular".into(),
-                    tooltip: get_hint(
-                        &shortcut_registry,
-                        ShortcutCommand::SelectTool(Tools::Rectangle),
-                    ),
+                    tooltip: None,
                 },
                 GroupableTool {
                     tool: Tools::Ellipse,
                     icon_name: "circle-regular".into(),
-                    tooltip: get_hint(
-                        &shortcut_registry,
-                        ShortcutCommand::SelectTool(Tools::Ellipse),
-                    ),
+                    tooltip: None,
                 },
             ],
             vec![GroupableTool {
                 tool: Tools::Text,
                 icon_name: "text-case-title-regular".into(),
-                tooltip: get_hint(&shortcut_registry, ShortcutCommand::SelectTool(Tools::Text)),
+                tooltip: None,
             }],
             vec![GroupableTool {
                 tool: Tools::Marker,
                 icon_name: "number-circle-1-regular".into(),
-                tooltip: get_hint(
-                    &shortcut_registry,
-                    ShortcutCommand::SelectTool(Tools::Marker),
-                ),
+                tooltip: None,
             }],
             vec![GroupableTool {
                 tool: Tools::Blur,
                 icon_name: "drop-regular".into(),
-                tooltip: get_hint(&shortcut_registry, ShortcutCommand::SelectTool(Tools::Blur)),
+                tooltip: None,
             }],
             vec![GroupableTool {
                 tool: Tools::Highlight,
                 icon_name: "highlight-regular".into(),
-                tooltip: get_hint(
-                    &shortcut_registry,
-                    ShortcutCommand::SelectTool(Tools::Highlight),
-                ),
+                tooltip: None,
             }],
         ];
 
@@ -321,7 +303,13 @@ impl SimpleComponent for ToolsToolbar {
             .detach();
 
         let mut guard = tool_buttons.guard();
-        for tg in tools {
+        for mut tg in tools {
+            for g in &mut tg {
+                g.tooltip = Some(get_hint(
+                    &shortcut_registry,
+                    ShortcutCommand::SelectTool(g.tool),
+                ));
+            }
             let init = ToolGroupInit {
                 group: tg,
                 initial_tool,

@@ -131,7 +131,7 @@ pub trait Tool {
 pub struct GroupableTool {
     pub tool: Tools,
     pub icon_name: String,
-    pub tooltip: String, // should be fine as long as there is no runtime shortcut editing
+    pub tooltip: Option<String>, // should be fine as long as there is no runtime shortcut editing
 }
 
 #[derive(Clone, Debug)]
