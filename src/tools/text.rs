@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{Color, FontId, Paint, Path};
+use femtovg::{Color, FontId, LineJoin, Paint, Path};
 use relm4::gtk::glib::GString;
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
@@ -408,7 +408,16 @@ impl Drawable for Text {
                 let mut paint = base_paint.clone();
                 paint.set_color(dec.color.into());
                 if let DecorationKind::Outline { width } = dec.kind {
-                    paint.set_line_width(width);
+                    // FIXME: Value determined via manual testing (PR \#603, Issue \#596).
+                    if canva_scale < 0.596 {
+                        paint.set_line_width(width * canva_scale);
+                    } else {
+                        paint.set_line_width(width / canva_scale);
+                    }
+                    // if canva_scale != 1.0 {
+                    //     println!("canvas_scale: {canva_scale} {}", paint.line_width());
+                    // }
+                    paint.set_line_join(LineJoin::Round);
                 }
                 (dec.kind, paint)
             });
