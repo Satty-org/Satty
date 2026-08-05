@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{Color, FontId, Paint, Path};
+use femtovg::{Color, FontId, LineJoin, Paint, Path};
 use relm4::gtk::glib::GString;
 use relm4::gtk::prelude::IMContextExt;
 use relm4::gtk::{
@@ -386,10 +386,18 @@ impl Drawable for Text {
         // When outlining, stroke each line with the outline color first, then fill on
         // top so the visible border wraps the glyphs. The stroke is widened because it
         // is centered on the glyph outline and half of it is hidden by the fill.
+        // Round the joins: when the canvas is scaled (zoom), femtovg strokes the real
+        // glyph contour, and the default miter join spikes ("explodes") at the sharp
+        // corners of glyphs. It also scales the stroke width by its internal font_scale
+        // (a quantized canvas average scale) on top of the transform, so a plain width
+        // would grow with zoom relative to the glyphs and mismatch the export; divide it
+        // back out. Mirrors femtovg's font_scale = quantize(avg_scale, 0.1).min(7.0).
+        let font_scale = ((canva_scale / 0.1 + 0.5).trunc() * 0.1).clamp(0.1, 7.0);
         let outline_paint = self.outline.outline_color(self.style.color).map(|color| {
             let mut paint = base_paint.clone();
             paint.set_color(color.into());
-            paint.set_line_width(base_paint.line_width() * 2.0);
+            paint.set_line_width(base_paint.line_width() * 2.0 / font_scale);
+            paint.set_line_join(LineJoin::Round);
             paint
         });
 
