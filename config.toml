@@ -100,9 +100,13 @@ notification-thumbnail = "screenshot"
 "Return" = "run-actions-on-enter"
 "<Control>t" = "toggle-toolbars"
 
+"<Control>f" = "scale:0" # fit to window
+
 # top toolbar
-"<Control>1" = "original-scale"
-"<Control>2" = "fit-to-window" # experimental binding - may change in the future, see #338
+"<Control>1" = "scale:1"
+"<Control>2" = "scale:2"
+"<Control>3" = "scale:3"
+"<Control>4" = "scale:4"
 "<Shift>Delete" = "clear-all"
 "<Control>z" = "undo"
 "<Control>y" = "redo"

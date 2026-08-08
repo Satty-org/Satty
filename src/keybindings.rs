@@ -31,8 +31,7 @@ pub enum ShortcutCommand {
     RunConfiguredActions(ActionTrigger),
 
     // top toolbar
-    OriginalScale,
-    FitToWindow,
+    Scale(u64),
     ClearAll,
     SelectTool(Tools),
     Undo,
@@ -67,8 +66,10 @@ impl fmt::Display for ShortcutCommand {
             ShortcutCommand::ToggleToolbars => "toggle-toolbars",
 
             // top toolbar
-            ShortcutCommand::OriginalScale => "original-scale",
-            ShortcutCommand::FitToWindow => "fit-to-window",
+            ShortcutCommand::Scale(factor) => {
+                write!(f, "scale:{}", factor)?;
+                return Ok(());
+            }
             ShortcutCommand::ClearAll => "clear-all",
             ShortcutCommand::Undo => "undo",
             ShortcutCommand::Redo => "redo",
@@ -134,8 +135,13 @@ impl FromStr for ShortcutCommand {
             }
 
             // top toolbar
-            "original-scale" => Ok(ShortcutCommand::OriginalScale),
-            "fit-to-window" => Ok(ShortcutCommand::FitToWindow),
+            text if text.starts_with("scale:") => {
+                let num_str = text.strip_prefix("scale:").unwrap();
+                if let Ok(num) = num_str.parse::<u64>() {
+                    return Ok(ShortcutCommand::Scale(num));
+                }
+                Err(ParseCommandError)
+            }
             "clear-all" => Ok(ShortcutCommand::ClearAll),
             "undo" => Ok(ShortcutCommand::Undo),
             "redo" => Ok(ShortcutCommand::Redo),
@@ -229,36 +235,32 @@ impl ShortcutRegistry {
     fn build_from_config() -> Self {
         let mut registry = Self::default();
 
-        // generic
-        registry.add_key_binding("<Shift><Control>d", ShortcutCommand::OpenGtkInspector);
-        registry.add_key_binding("<Shift><Control>i", ShortcutCommand::OpenGtkInspector);
-        registry.add_key_binding("<Control>t", ShortcutCommand::ToggleToolbars);
-        registry.add_key_binding("<Alt>Left", ShortcutCommand::PanLeft);
-        registry.add_key_binding("<Alt>Right", ShortcutCommand::PanRight);
-        registry.add_key_binding("<Alt>Up", ShortcutCommand::PanUp);
-        registry.add_key_binding("<Alt>Down", ShortcutCommand::PanDown);
-        registry.add_key_binding("<Control>plus", ShortcutCommand::Zoom(1));
-        registry.add_key_binding("<Control>minus", ShortcutCommand::Zoom(-1));
-        registry.add_key_binding("Delete", ShortcutCommand::DeleteSelection);
-        registry.add_key_binding("<Shift>Delete", ShortcutCommand::ClearAll);
-        registry.add_key_binding(
-            "Escape",
-            ShortcutCommand::RunConfiguredActions(ActionTrigger::Escape),
-        );
-        registry.add_key_binding(
-            "Return",
-            ShortcutCommand::RunConfiguredActions(ActionTrigger::Enter),
-        );
-        registry.add_key_binding(
-            "KP_Enter",
-            ShortcutCommand::RunConfiguredActions(ActionTrigger::Enter),
-        );
-
-        // top toolbar
         type SC = ShortcutCommand;
         type A = Action;
-        registry.add_key_binding("<Control>1", SC::OriginalScale);
-        registry.add_key_binding("<Control>2", SC::FitToWindow);
+
+        // generic
+        registry.add_key_binding("<Shift><Control>d", SC::OpenGtkInspector);
+        registry.add_key_binding("<Shift><Control>i", SC::OpenGtkInspector);
+        registry.add_key_binding("<Control>t", SC::ToggleToolbars);
+        registry.add_key_binding("<Alt>Left", SC::PanLeft);
+        registry.add_key_binding("<Alt>Right", SC::PanRight);
+        registry.add_key_binding("<Alt>Up", SC::PanUp);
+        registry.add_key_binding("<Alt>Down", SC::PanDown);
+        registry.add_key_binding("<Control>plus", SC::Zoom(1));
+        registry.add_key_binding("<Control>minus", SC::Zoom(-1));
+        registry.add_key_binding("Delete", SC::DeleteSelection);
+        registry.add_key_binding("<Shift>Delete", SC::ClearAll);
+        registry.add_key_binding("Escape", SC::RunConfiguredActions(ActionTrigger::Escape));
+        registry.add_key_binding("Return", SC::RunConfiguredActions(ActionTrigger::Enter));
+        registry.add_key_binding("KP_Enter", SC::RunConfiguredActions(ActionTrigger::Enter));
+
+        registry.add_key_binding("<Control>2", SC::Scale(2));
+        registry.add_key_binding("<Control>3", SC::Scale(3));
+        registry.add_key_binding("<Control>4", SC::Scale(4));
+
+        // top toolbar
+        registry.add_key_binding("<Control>1", SC::Scale(1));
+        registry.add_key_binding("<Control>f", SC::Scale(0)); // fit to window
         registry.add_key_binding("<Control>z", SC::Undo);
         registry.add_key_binding("<Control>y", SC::Redo);
         registry.add_key_binding("p", SC::SelectTool(Tools::Pointer));

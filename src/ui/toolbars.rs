@@ -355,8 +355,8 @@ impl SimpleComponent for ToolsToolbar {
 
         type SC = ShortcutCommand;
         let other_commands = vec![
-            (SC::OriginalScale, &widgets.original_scale_button),
-            (SC::FitToWindow, &widgets.fit_to_window_button),
+            (SC::Scale(1), &widgets.original_scale_button),
+            (SC::Scale(0), &widgets.fit_to_window_button),
             (SC::ClearAll, &widgets.reset_button),
             (SC::Undo, &widgets.undo_button),
             (SC::Redo, &widgets.redo_button),
