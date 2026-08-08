@@ -1,7 +1,8 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
-    configuration::APP_CONFIG,
+    configuration::{APP_CONFIG, Action},
+    keybindings::{ShortcutCommand, ShortcutRegistry},
     style::{Color, Size},
     tools::Tools,
 };
@@ -32,6 +33,10 @@ pub struct StyleToolbar {
     custom_color: Color,
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
+    size_action: SimpleAction,
+    size_spin_button: gtk::SpinButton,
+    fill_enabled: bool,
+    round_caps_enabled: bool,
     visible: bool,
     output_dimensions: String,
     editing: bool,
@@ -42,6 +47,7 @@ pub enum ToolbarEvent {
     FocusCanvas,
     ToolSelected(Tools),
     ColorSelected(Color),
+    SetFill(bool),
     SizeSelected(Size),
     Redo,
     Undo,
@@ -69,12 +75,17 @@ pub enum ToolsToolbarInput {
 #[derive(Debug, Copy, Clone)]
 pub enum StyleToolbarInput {
     ColorButtonSelected(ColorButtons),
+    SetColor(Color),
+    SetFill(bool),
+    SetRoundCaps(bool),
+    SetSize(Size),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
     DimensionsChanged((i32, i32)),
     SetToolEditing(bool),
+    FocusAnnotationSizeFactor,
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -82,8 +93,23 @@ fn create_icon_pixbuf(color: Color) -> Pixbuf {
     pixbuf.fill(color.to_rgba_u32());
     pixbuf
 }
+
 fn create_icon(color: Color) -> gtk::Image {
     gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
+}
+
+fn update_hint(
+    shortcut_registry: &ShortcutRegistry,
+    widget: &impl IsA<gtk::Widget>,
+    command: ShortcutCommand,
+) {
+    let command_name = command.to_string();
+    let shortcut_hint = shortcut_registry.get_binding_for_command(command);
+    let new_hint = match shortcut_hint {
+        Some(hint) => format!("{command_name} ({hint})"),
+        None => command_name,
+    };
+    widget.set_tooltip_text(Some(&new_hint));
 }
 
 #[relm4::component(pub)]
@@ -104,45 +130,40 @@ impl SimpleComponent for ToolsToolbar {
             #[watch]
             set_visible: model.visible,
 
+            #[name(original_scale_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "resize-large-regular",
-                set_tooltip: "1:1",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
             },
+            #[name(fit_to_window_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "page-fit-regular",
-                set_tooltip: "Resize",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
             },
+            #[name(reset_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "recycling-bin",
-                set_tooltip: "Clear all",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::ClearAll);},
             },
             gtk::Separator {},
+            #[name(undo_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "arrow-undo-filled",
-                set_tooltip: "Undo (Ctrl-Z)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Undo);},
             },
+            #[name(redo_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "arrow-redo-filled",
-                set_tooltip: "Redo (Ctrl-Y)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
             },
             gtk::Separator {},
@@ -150,126 +171,100 @@ impl SimpleComponent for ToolsToolbar {
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "cursor-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Pointer,
             },
             #[name(crop_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "crop-filled",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Crop,
             },
             #[name(brush_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "pen-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Brush,
             },
             #[name(line_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "minus-large",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Line,
             },
             #[name(arrow_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "arrow-up-right-filled",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Arrow,
             },
             #[name(rectangle_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "checkbox-unchecked-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Rectangle,
             },
             #[name(ellipse_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "circle-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Ellipse,
             },
             #[name(text_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "text-case-title-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Text,
             },
             #[name(marker_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "number-circle-1-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Marker,
             },
             #[name(blur_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "drop-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Blur,
             },
             #[name(highlight_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "highlight-regular",
-                // tooltip set programmatically
                 ActionablePlus::set_action::<ToolsAction>: Tools::Highlight,
             },
             gtk::Separator {},
+            #[name(copy_to_clipboard_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "copy-regular",
-                set_tooltip: "Copy to clipboard (Ctrl+C)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::CopyClipboard);},
             },
+            #[name(save_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "save-regular",
-                set_tooltip: "Save (Ctrl+S)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFile);},
-
                 set_visible: APP_CONFIG.read().output_filename().is_some()
             },
+            #[name(save_as_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-
                 set_icon_name: "save-multiple-regular",
-                set_tooltip: "Save as (Ctrl+Shift+S)",
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::SaveFileAs);},
             },
         },
@@ -347,28 +342,35 @@ impl SimpleComponent for ToolsToolbar {
             (Tools::Highlight, widgets.highlight_button.clone()),
         ]);
 
-        // reverse shortcuts mapping
-        let config = APP_CONFIG.read();
-        let tool_to_key_map: HashMap<&Tools, &char> = config
-            .keybinds()
-            .shortcuts()
-            .iter()
-            .inspect(|(hotkey, tool)| if hotkey.is_ascii_digit() {
-                eprintln!("Warning: hotkey `{}` for tool `{}` overrides built-in hotkey to select a color from the palette", hotkey, tool);
-            })
-            .map(|(k, v)| (v, k))
-            .collect();
+        let shortcut_registry = ShortcutRegistry::from_config();
 
         // Update tooltips based on configured keybinds
         for (tool, button) in &model.tool_buttons {
-            let display_name = tool.display_name();
+            update_hint(
+                &shortcut_registry,
+                button,
+                ShortcutCommand::SelectTool(*tool),
+            );
+        }
 
-            let tooltip = if let Some(key) = tool_to_key_map.get(tool) {
-                &format!("{} ({})", display_name, key.to_uppercase())
-            } else {
-                display_name
-            };
-            button.set_tooltip_text(Some(tooltip));
+        type SC = ShortcutCommand;
+        let other_commands = vec![
+            (SC::OriginalScale, &widgets.original_scale_button),
+            (SC::FitToWindow, &widgets.fit_to_window_button),
+            (SC::ClearAll, &widgets.reset_button),
+            (SC::Undo, &widgets.undo_button),
+            (SC::Redo, &widgets.redo_button),
+            // in between are the tools
+            (
+                SC::RunAction(Action::SaveToClipboard),
+                &widgets.copy_to_clipboard_button,
+            ),
+            (SC::RunAction(Action::SaveToFile), &widgets.save_button),
+            (SC::RunAction(Action::SaveToFileAs), &widgets.save_as_button),
+        ];
+
+        for (command, button) in other_commands {
+            update_hint(&shortcut_registry, button, command);
         }
 
         // Set initial active button correctly
@@ -471,6 +473,7 @@ impl Component for StyleToolbar {
             set_visible: model.visible,
 
             gtk::Separator {},
+            #[name(custom_color_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
@@ -492,6 +495,7 @@ impl Component for StyleToolbar {
                 connect_clicked => StyleToolbarInput::ShowColorDialog,
             },
             gtk::Separator {},
+            #[name(size_small_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
@@ -500,6 +504,7 @@ impl Component for StyleToolbar {
                 set_tooltip: "Small size",
                 ActionablePlus::set_action::<SizeAction>: Size::Small,
             },
+            #[name(size_medium_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
@@ -508,6 +513,7 @@ impl Component for StyleToolbar {
                 set_tooltip: "Medium size",
                 ActionablePlus::set_action::<SizeAction>: Size::Medium,
             },
+            #[name(size_large_button)]
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
@@ -579,44 +585,35 @@ impl Component for StyleToolbar {
                 set_tooltip: "Output dimensions (width x height)",
             },
             gtk::Separator {},
+            #[name(fill_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
 
-                set_icon_name: if APP_CONFIG.read().default_fill_shapes() {
+                #[watch]
+                set_icon_name: if model.fill_enabled {
                     "paint-bucket-filled"
                 } else {
                     "paint-bucket-regular"
                 },
-                set_tooltip: "Fill shape",
-                connect_clicked[sender] => move |button| {
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleFill);
-                    let new_icon = if button.icon_name() == Some("paint-bucket-regular".into()) {
-                        "paint-bucket-filled"
-                    } else {
-                        "paint-bucket-regular"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
             gtk::Separator {},
+            #[name(round_caps_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
                 set_tooltip: "Toggle Round Caps",
-                set_icon_name: if APP_CONFIG.read().default_round_caps() {
+                #[watch]
+                set_icon_name: if model.round_caps_enabled {
                     "circle-line-filled"
                 } else {
                     "square-filled"
                 },
-                connect_clicked[sender] => move |button| {
+                connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleRoundCaps);
-                    let new_icon = if button.icon_name() == Some("circle-line-filled".into()) {
-                        "square-filled"
-                    } else {
-                        "circle-line-filled"
-                    };
-                    button.set_icon_name(new_icon);
                 },
             },
             gtk::Separator {},
@@ -672,7 +669,33 @@ impl Component for StyleToolbar {
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
             }
+            StyleToolbarInput::SetColor(color) => {
+                let palette_match = APP_CONFIG
+                    .read()
+                    .color_palette()
+                    .palette()
+                    .iter()
+                    .position(|&p| p == color)
+                    .map(|index| ColorButtons::Palette(index as u64))
+                    .unwrap_or(ColorButtons::Custom);
 
+                // Only update custom_color if this is not a palette color
+                if matches!(palette_match, ColorButtons::Custom) {
+                    self.custom_color = color;
+                    self.custom_color_pixbuf = create_icon_pixbuf(color);
+                }
+
+                self.color_action.change_state(&palette_match.to_variant());
+            }
+            StyleToolbarInput::SetFill(fill_enabled) => {
+                self.fill_enabled = fill_enabled;
+            }
+            StyleToolbarInput::SetRoundCaps(round_caps_enabled) => {
+                self.round_caps_enabled = round_caps_enabled;
+            }
+            StyleToolbarInput::SetSize(size) => {
+                self.size_action.change_state(&size.to_variant());
+            }
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
@@ -683,6 +706,9 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetToolEditing(editing) => {
                 self.editing = editing;
             }
+            StyleToolbarInput::FocusAnnotationSizeFactor => {
+                self.size_spin_button.grab_focus();
+            }
         }
     }
 
@@ -691,6 +717,8 @@ impl Component for StyleToolbar {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let shortcut_registry = ShortcutRegistry::from_config();
+
         for (i, &color) in APP_CONFIG
             .read()
             .color_palette()
@@ -705,6 +733,15 @@ impl Component for StyleToolbar {
                 .child(&create_icon(color))
                 .build();
             btn.set_action::<ColorAction>(ColorButtons::Palette(i as u64));
+
+            let color_tooltip = match shortcut_registry
+                .get_binding_for_command(ShortcutCommand::SelectColorIndex(i as u64))
+            {
+                Some(hint) => format!("color {} ({hint})", i + 1),
+                None => format!("color {}", i + 1),
+            };
+            btn.set_tooltip_text(Some(&color_tooltip));
+
             root.prepend(&btn);
         }
 
@@ -714,7 +751,6 @@ impl Component for StyleToolbar {
             &ColorButtons::Palette(0),
             move |_, state, value| {
                 *state = value;
-
                 sender_tmp.input(StyleToolbarInput::ColorButtonSelected(value));
             },
         );
@@ -739,10 +775,14 @@ impl Component for StyleToolbar {
         let custom_color_pixbuf = create_icon_pixbuf(custom_color);
 
         // create model
-        let model = StyleToolbar {
+        let mut model = StyleToolbar {
             custom_color,
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
+            size_action: SimpleAction::from(size_action.clone()),
+            size_spin_button: gtk::SpinButton::new(None::<&gtk::Adjustment>, 0.1, 2),
+            fill_enabled: APP_CONFIG.read().default_fill_shapes(),
+            round_caps_enabled: APP_CONFIG.read().default_round_caps(),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             output_dimensions: String::new(),
             editing: false,
@@ -750,6 +790,38 @@ impl Component for StyleToolbar {
 
         // create widgets
         let widgets = view_output!();
+        model.size_spin_button = widgets.size_spin_button.clone();
+
+        update_hint(
+            &shortcut_registry,
+            &widgets.size_small_button,
+            ShortcutCommand::SelectSize(Size::Small),
+        );
+        update_hint(
+            &shortcut_registry,
+            &widgets.size_medium_button,
+            ShortcutCommand::SelectSize(Size::Medium),
+        );
+        update_hint(
+            &shortcut_registry,
+            &widgets.size_large_button,
+            ShortcutCommand::SelectSize(Size::Large),
+        );
+        update_hint(
+            &shortcut_registry,
+            &widgets.size_spin_button,
+            ShortcutCommand::FocusAnnotationSizeFactor,
+        );
+        update_hint(
+            &shortcut_registry,
+            &widgets.fill_button,
+            ShortcutCommand::ToggleFill,
+        );
+        update_hint(
+            &shortcut_registry,
+            &widgets.round_caps_button,
+            ShortcutCommand::ToggleRoundCaps,
+        );
 
         let mut group = RelmActionGroup::<StyleToolbarActionGroup>::new();
         group.add_action(color_action);
