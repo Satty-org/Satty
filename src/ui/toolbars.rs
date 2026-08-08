@@ -60,8 +60,6 @@ pub enum ToolbarEvent {
     SaveFileAs,
     ScaleFitToWindow,
     ScaleOriginal,
-    ToolCommit,
-    ToolDismiss,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -593,29 +591,6 @@ impl Component for StyleToolbar {
                 },
                 connect_clicked[sender] => move |_| {
                     sender.output_sender().emit(ToolbarEvent::ToggleRoundCaps);
-                },
-            },
-            gtk::Separator {},
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "dismiss-regular",
-                set_tooltip: "tool dismiss",
-                #[watch]
-                set_sensitive: model.editing,
-                connect_clicked[sender] => move |_| {
-                    sender.output_sender().emit(ToolbarEvent::ToolDismiss);
-                },
-            },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "checkmark-regular",
-                set_tooltip: "tool commit",
-                #[watch]
-                set_sensitive: model.editing,
-                connect_clicked[sender] => move |_| {
-                    sender.output_sender().emit(ToolbarEvent::ToolCommit);
                 },
             },
         },

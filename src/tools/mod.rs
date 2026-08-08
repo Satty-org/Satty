@@ -46,9 +46,6 @@ mod text;
 pub const HIT_BORDER_TOLERANCE: f32 = 7.0;
 
 pub enum ToolEvent {
-    Activated,
-    Deactivated,
-    Dismissed,
     Input(InputEvent),
     StyleChanged(Style),
 }
@@ -66,9 +63,6 @@ pub enum RenderingMode {
 pub trait Tool {
     fn handle_event(&mut self, event: ToolEvent) -> ToolUpdateResult {
         match event {
-            ToolEvent::Activated => self.handle_activated(),
-            ToolEvent::Deactivated => self.handle_deactivated(),
-            ToolEvent::Dismissed => self.handle_dismissed(),
             ToolEvent::Input(e) => self.handle_input_event(e),
             ToolEvent::StyleChanged(s) => self.handle_style_event(s),
         }
@@ -79,10 +73,6 @@ pub trait Tool {
     }
 
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
-        ToolUpdateResult::Unmodified
-    }
-
-    fn handle_dismissed(&mut self) -> ToolUpdateResult {
         ToolUpdateResult::Unmodified
     }
 

@@ -982,7 +982,7 @@ impl Tool for TextTool {
                     }
                 },
                 Key::Escape => {
-                    tool_update_result = self.handle_dismissed();
+                    tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                 }
                 Key::Alt_L | Key::Alt_R => {
                     // Start tracking a potential Alt tap; the text effect is cycled on
@@ -1494,12 +1494,6 @@ impl Tool for TextTool {
         } else {
             ToolUpdateResult::Unmodified
         }
-    }
-
-    fn handle_dismissed(&mut self) -> ToolUpdateResult {
-        self.input_enabled = false;
-        self.text = None;
-        ToolUpdateResult::Redraw
     }
 
     fn active(&self) -> bool {
