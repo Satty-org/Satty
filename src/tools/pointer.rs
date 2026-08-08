@@ -6,7 +6,10 @@ use std::cell::Cell;
 use crate::{
     configuration::APP_CONFIG,
     math::{Vec2D, ensure_bounding_box},
-    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
+    sketch_board::{
+        KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
+        SketchBoardOutput,
+    },
 };
 
 use super::{Drawable, Tool, ToolUpdateResult, Tools};
@@ -449,6 +452,20 @@ impl Tool for PointerTool {
                     let (new_tl, new_br) = handle.apply_delta(orig_bounds.0, orig_bounds.1, delta);
                     let mut preview = original.clone_box();
                     preview.resize_bounds(new_tl, new_br);
+                    if preview.is_crop()
+                        && let Some(sender) = &self.sender
+                    {
+                        let size = new_br - new_tl;
+                        sender
+                            .send(SketchBoardInput::Output(
+                                SketchBoardOutput::DimensionsUpdate(Some((
+                                    size.x.round() as i32,
+                                    size.y.round() as i32,
+                                ))),
+                            ))
+                            .ok();
+                    }
+
                     self.update_selection_bounds(new_tl, new_br);
                     self.preview = Some(preview);
                     ToolUpdateResult::Redraw

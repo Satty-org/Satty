@@ -14,7 +14,7 @@ use crate::{
     configuration::Action,
     math::Vec2D,
     sketch_board::SketchBoardInput,
-    tools::{CropTool, Drawable, Tool},
+    tools::{Drawable, Tool},
 };
 
 static FONT_STACK: OnceLock<Vec<FontId>> = OnceLock::new();
@@ -99,12 +99,10 @@ impl FemtoVGArea {
     pub fn init(
         &mut self,
         sender: Sender<SketchBoardInput>,
-        crop_tool: Rc<RefCell<CropTool>>,
         active_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
-        self.imp()
-            .init(sender, crop_tool, active_tool, background_image);
+        self.imp().init(sender, active_tool, background_image);
     }
 
     pub fn set_zoom_scale(&self, factor: f32) {
@@ -192,6 +190,22 @@ impl FemtoVGArea {
             .as_ref()
             .expect("Did you call init before using FemtoVgArea?")
             .get_drawable_bounds(index)
+    }
+
+    pub fn last_drawable_index(&self) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .last_drawable_index()
+    }
+
+    pub fn crop_drawable_index(&self) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .crop_drawable_index()
     }
 
     pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {

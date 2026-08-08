@@ -1581,7 +1581,35 @@ impl Component for SketchBoard {
 
         match result {
             ToolUpdateResult::Commit(drawable) => {
+                let committed_is_crop = drawable.is_crop();
                 self.renderer.commit(drawable);
+
+                let committed_index = if committed_is_crop {
+                    self.renderer.crop_drawable_index()
+                } else {
+                    self.renderer.last_drawable_index()
+                };
+
+                if let Some(index) = committed_index
+                    && let Some(new_bounds) = self.renderer.get_drawable_bounds(index)
+                {
+                    self.pointer_tool
+                        .borrow_mut()
+                        .set_selection(index, new_bounds);
+                }
+
+                if self.active_tool_type() != Tools::Pointer {
+                    let previous_tool = self.active_tool_type();
+                    let _ = self.handle_toolbar_event(
+                        ToolbarEvent::ToolSelected(Tools::Pointer),
+                        sender_for_post_commit.clone(),
+                    );
+                    sender_for_post_commit
+                        .output_sender()
+                        .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
+                    self.temporary_pointer_previous_tool = Some(previous_tool);
+                }
+
                 if APP_CONFIG.read().auto_copy() {
                     self.renderer.request_render(&[Action::SaveToClipboard]);
                 }
@@ -1654,7 +1682,6 @@ impl Component for SketchBoard {
         let area = &mut model.renderer;
         area.init(
             sender.input_sender().clone(),
-            model.tools.get_crop_tool(),
             model.active_tool.clone(),
             image,
         );

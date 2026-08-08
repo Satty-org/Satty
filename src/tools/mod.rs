@@ -1,6 +1,12 @@
 use std::fmt;
 use std::str::FromStr;
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
+use std::{
+    borrow::Cow,
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
+    fmt::Debug,
+    rc::Rc,
+};
 
 use anyhow::Result;
 use femtovg::{Canvas, FontId, renderer::OpenGl};
@@ -160,6 +166,9 @@ pub trait Drawable: DrawableClone + Debug {
     -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
+    fn is_crop(&self) -> bool {
+        false
+    }
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         None
     }
@@ -235,6 +244,17 @@ pub use rectangle::RectangleTool;
 pub use text::TextTool;
 
 use self::{brush::BrushTool, marker::MarkerTool};
+
+thread_local! {
+    static CROP_TOOL_SINGLETON: OnceCell<Rc<RefCell<CropTool>>> = const { OnceCell::new() };
+}
+
+fn shared_crop_tool() -> Rc<RefCell<CropTool>> {
+    CROP_TOOL_SINGLETON.with(|cell| {
+        cell.get_or_init(|| Rc::new(RefCell::new(CropTool::default())))
+            .clone()
+    })
+}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -327,7 +347,7 @@ impl ToolsManager {
         tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
 
-        let crop_tool = Rc::new(RefCell::new(CropTool::default()));
+        let crop_tool = shared_crop_tool();
         let text_tool = Rc::new(RefCell::new(TextTool::default()));
         let pointer_tool = Rc::new(RefCell::new(PointerTool::default()));
         Self {
@@ -351,10 +371,6 @@ impl ToolsManager {
                 })
                 .clone(),
         }
-    }
-
-    pub fn get_crop_tool(&self) -> Rc<RefCell<CropTool>> {
-        self.crop_tool.clone()
     }
 
     pub fn get_pointer_tool(&self) -> Rc<RefCell<PointerTool>> {
