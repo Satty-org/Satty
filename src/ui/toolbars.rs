@@ -250,6 +250,16 @@ impl SimpleComponent for ToolsToolbar {
                 icon_name: "cursor-regular".into(),
                 tooltip: None,
             }],
+            vec![GroupableTool {
+                tool: Tools::Crop,
+                icon_name: "crop-filled".into(),
+                tooltip: None,
+            }],
+            vec![GroupableTool {
+                tool: Tools::Brush,
+                icon_name: "pen-regular".into(),
+                tooltip: None,
+            }],
             vec![
                 GroupableTool {
                     tool: Tools::Line,
