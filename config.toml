@@ -102,7 +102,7 @@ notification-thumbnail = "screenshot"
 
 # top toolbar
 "<Control>1" = "original-scale"
-"<Control>2" = "fit-to-window"
+"<Control>2" = "fit-to-window" # experimental binding - may change in the future, see #338
 "<Shift>Delete" = "clear-all"
 "<Control>z" = "undo"
 "<Control>y" = "redo"

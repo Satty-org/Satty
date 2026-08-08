@@ -136,7 +136,7 @@ Highlight:
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
-#### Overwriting Keybindings (since NEXTRELEASE)
+#### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
 Shortcuts can be overwritten in the config by 
 ```toml
@@ -260,7 +260,7 @@ notification-thumbnail = "screenshot"
 
 # top toolbar
 "<Control>1" = "original-scale"
-"<Control>2" = "fit-to-window"
+"<Control>2" = "fit-to-window" # experimental binding - may change in the future, see #338
 "<Shift>Delete" = "clear-all"
 "<Control>z" = "undo"
 "<Control>y" = "redo"
