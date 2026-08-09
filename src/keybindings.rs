@@ -31,7 +31,7 @@ pub enum ShortcutCommand {
     RunConfiguredActions(ActionTrigger),
 
     // top toolbar
-    Scale(u64),
+    Scale(u16), // in %, 0 means fit to window
     ClearAll,
     SelectTool(Tools),
     Undo,
@@ -137,7 +137,7 @@ impl FromStr for ShortcutCommand {
             // top toolbar
             text if text.starts_with("scale:") => {
                 let num_str = text.strip_prefix("scale:").unwrap();
-                if let Ok(num) = num_str.parse::<u64>() {
+                if let Ok(num) = num_str.parse::<u16>() {
                     return Ok(ShortcutCommand::Scale(num));
                 }
                 Err(ParseCommandError)
@@ -254,13 +254,16 @@ impl ShortcutRegistry {
         registry.add_key_binding("Return", SC::RunConfiguredActions(ActionTrigger::Enter));
         registry.add_key_binding("KP_Enter", SC::RunConfiguredActions(ActionTrigger::Enter));
 
-        registry.add_key_binding("<Control>2", SC::Scale(2));
-        registry.add_key_binding("<Control>3", SC::Scale(3));
-        registry.add_key_binding("<Control>4", SC::Scale(4));
+        registry.add_key_binding("<Alt>2", SC::Scale(50));
+        registry.add_key_binding("<Alt>3", SC::Scale(33));
+        registry.add_key_binding("<Alt>4", SC::Scale(25));
+        registry.add_key_binding("<Control>2", SC::Scale(200));
+        registry.add_key_binding("<Control>3", SC::Scale(300));
+        registry.add_key_binding("<Control>4", SC::Scale(400));
 
         // top toolbar
-        registry.add_key_binding("<Control>1", SC::Scale(1));
-        registry.add_key_binding("<Control>f", SC::Scale(0)); // fit to window
+        registry.add_key_binding("<Alt>1", SC::Scale(100));
+        registry.add_key_binding("<Control>1", SC::Scale(0)); // fit to window
         registry.add_key_binding("<Control>z", SC::Undo);
         registry.add_key_binding("<Control>y", SC::Redo);
         registry.add_key_binding("p", SC::SelectTool(Tools::Pointer));

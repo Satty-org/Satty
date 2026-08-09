@@ -58,8 +58,8 @@ pub enum ToolbarEvent {
     AnnotationSizeFactorChanged(f32),
     ClearAll,
     SaveFileAs,
-    Resize,
-    OriginalScale,
+    ScaleFitToWindow,
+    ScaleOriginal,
     ToolCommit,
     ToolDismiss,
 }
@@ -135,14 +135,14 @@ impl SimpleComponent for ToolsToolbar {
                 set_focusable: false,
                 set_hexpand: false,
                 set_icon_name: "resize-large-regular",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::OriginalScale);},
+                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::ScaleOriginal);},
             },
             #[name(fit_to_window_button)]
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
                 set_icon_name: "page-fit-regular",
-                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Resize);},
+                connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::ScaleFitToWindow);},
             },
             #[name(reset_button)]
             gtk::Button {
@@ -355,7 +355,7 @@ impl SimpleComponent for ToolsToolbar {
 
         type SC = ShortcutCommand;
         let other_commands = vec![
-            (SC::Scale(1), &widgets.original_scale_button),
+            (SC::Scale(100), &widgets.original_scale_button),
             (SC::Scale(0), &widgets.fit_to_window_button),
             (SC::ClearAll, &widgets.reset_button),
             (SC::Undo, &widgets.undo_button),

@@ -755,8 +755,8 @@ impl SketchBoard {
         }
     }
 
-    fn handle_scale(&mut self, scale: u64) -> ToolUpdateResult {
-        let scale = scale as f32;
+    fn handle_scale(&mut self, scale: u16) -> ToolUpdateResult {
+        let scale = ((scale as f32 / 100.0) * 100.0).round() / 100.0;
         self.renderer.reset_size(scale);
         self.renderer.request_render(&[]);
         ToolUpdateResult::Unmodified
@@ -884,8 +884,8 @@ impl SketchBoard {
                 ToolUpdateResult::Redraw
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
-            ToolbarEvent::Resize => self.handle_scale(0),
-            ToolbarEvent::OriginalScale => self.handle_scale(1),
+            ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
+            ToolbarEvent::ScaleOriginal => self.handle_scale(1),
             ToolbarEvent::ToolCommit => self.active_tool.borrow_mut().handle_deactivated(),
             ToolbarEvent::ToolDismiss => self.active_tool.borrow_mut().handle_dismissed(),
         }
