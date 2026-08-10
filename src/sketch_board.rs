@@ -755,14 +755,9 @@ impl SketchBoard {
         }
     }
 
-    fn handle_resize(&mut self) -> ToolUpdateResult {
-        self.renderer.reset_size(0.);
-        self.renderer.request_render(&[]);
-        ToolUpdateResult::Unmodified
-    }
-
-    fn handle_original_scale(&mut self) -> ToolUpdateResult {
-        self.renderer.reset_size(1.);
+    fn handle_scale(&mut self, scale: u16) -> ToolUpdateResult {
+        let scale = ((scale as f32 / 100.0) * 100.0).round() / 100.0;
+        self.renderer.reset_size(scale);
         self.renderer.request_render(&[]);
         ToolUpdateResult::Unmodified
     }
@@ -889,8 +884,8 @@ impl SketchBoard {
                 ToolUpdateResult::Redraw
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
-            ToolbarEvent::Resize => self.handle_resize(),
-            ToolbarEvent::OriginalScale => self.handle_original_scale(),
+            ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
+            ToolbarEvent::ScaleOriginal => self.handle_scale(1),
             ToolbarEvent::ToolCommit => self.active_tool.borrow_mut().handle_deactivated(),
             ToolbarEvent::ToolDismiss => self.active_tool.borrow_mut().handle_dismissed(),
         }
@@ -1046,8 +1041,7 @@ impl SketchBoard {
                 }
                 ToolUpdateResult::Unmodified
             }
-            ShortcutCommand::OriginalScale => self.handle_original_scale(),
-            ShortcutCommand::FitToWindow => self.handle_resize(),
+            ShortcutCommand::Scale(scale) => self.handle_scale(scale),
             ShortcutCommand::DeleteSelection => {
                 // Placeholder for future delete selection implementation
                 ToolUpdateResult::Unmodified

@@ -258,9 +258,17 @@ notification-thumbnail = "screenshot"
 "Return" = "run-actions-on-enter"
 "<Control>t" = "toggle-toolbars"
 
+# scale is in %, 0 is fit to window
+"<Alt>2" = "scale:50"
+"<Alt>3" = "scale:33"
+"<Alt>4" = "scale:25"
+"<Control>2" = "scale:200"
+"<Control>3" = "scale:300"
+"<Control>4" = "scale:400"
+
 # top toolbar
-"<Control>1" = "original-scale"
-"<Control>2" = "fit-to-window" # experimental binding - may change in the future, see #338
+"<Alt>1" = "scale:100"
+"<Control>1" = "scale:0"
 "<Shift>Delete" = "clear-all"
 "<Control>z" = "undo"
 "<Control>y" = "redo"
