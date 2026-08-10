@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 
 use relm4::gtk;
+use relm4::gtk::gdk::prelude::DisplayExtManual;
 use relm4::gtk::gdk::{Key, ModifierType};
 
 use crate::configuration::{APP_CONFIG, Action};
@@ -336,10 +337,17 @@ impl ShortcutRegistry {
                 | Key::Super_L
                 | Key::Super_R
         );
+
+        // determine unshifted key
+        let key = gtk::gdk::Display::default()
+            .and_then(|d| d.translate_key(event.code, gtk::gdk::ModifierType::empty(), 0))
+            .map_or(event.key, |t| t.0);
+
         let key_binding = KeyBinding {
-            key: event.key,
+            key,
             modifiers: event.modifier,
         };
+
         if let Some(command) = self.key_bindings.get(&key_binding) {
             Some(*command)
         } else if !modifier_only {
