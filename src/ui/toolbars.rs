@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
 use crate::{
     configuration::{APP_CONFIG, Action},
@@ -7,7 +7,8 @@ use crate::{
     tools::Tools,
 };
 
-use gtk::ToggleButton;
+use crate::tools::GroupableTool;
+use crate::ui::tool_group_button::{ToolGroupButton, ToolGroupButtonInput, ToolGroupInit};
 use relm4::gtk::{
     gdk::Key,
     gdk_pixbuf::{
@@ -24,8 +25,7 @@ use relm4::{
 
 pub struct ToolsToolbar {
     visible: bool,
-    active_button: Option<ToggleButton>,
-    tool_buttons: HashMap<Tools, ToggleButton>,
+    tool_buttons: FactoryVecDeque<ToolGroupButton>,
     tool_action: SimpleAction,
 }
 
@@ -98,17 +98,21 @@ fn create_icon(color: Color) -> gtk::Image {
     gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
 }
 
+fn get_hint(shortcut_registry: &ShortcutRegistry, command: ShortcutCommand) -> String {
+    let command_name = command.to_string();
+    let shortcut_hint = shortcut_registry.get_binding_for_command(command);
+    match shortcut_hint {
+        Some(hint) => format!("{command_name} ({hint})"),
+        None => command_name,
+    }
+}
+
 fn update_hint(
     shortcut_registry: &ShortcutRegistry,
     widget: &impl IsA<gtk::Widget>,
     command: ShortcutCommand,
 ) {
-    let command_name = command.to_string();
-    let shortcut_hint = shortcut_registry.get_binding_for_command(command);
-    let new_hint = match shortcut_hint {
-        Some(hint) => format!("{command_name} ({hint})"),
-        None => command_name,
-    };
+    let new_hint = get_hint(shortcut_registry, command);
     widget.set_tooltip_text(Some(&new_hint));
 }
 
@@ -167,82 +171,10 @@ impl SimpleComponent for ToolsToolbar {
                 connect_clicked[sender] => move |_| {sender.output_sender().emit(ToolbarEvent::Redo);},
             },
             gtk::Separator {},
-            #[name(pointer_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "cursor-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Pointer,
-            },
-            #[name(crop_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "crop-filled",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Crop,
-            },
-            #[name(brush_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "pen-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Brush,
-            },
-            #[name(line_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "minus-large",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Line,
-            },
-            #[name(arrow_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "arrow-up-right-filled",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Arrow,
-            },
-            #[name(rectangle_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "checkbox-unchecked-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Rectangle,
-            },
-            #[name(ellipse_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "circle-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Ellipse,
-            },
-            #[name(text_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "text-case-title-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Text,
-            },
-            #[name(marker_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "number-circle-1-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Marker,
-            },
-            #[name(blur_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "drop-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Blur,
-            },
-            #[name(highlight_button)]
-            gtk::ToggleButton {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "highlight-regular",
-                ActionablePlus::set_action::<ToolsAction>: Tools::Highlight,
+            #[local_ref]
+            tools_box -> gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 2,
             },
             gtk::Separator {},
             #[name(copy_to_clipboard_button)]
@@ -279,22 +211,12 @@ impl SimpleComponent for ToolsToolbar {
             ToolsToolbarInput::SwitchSelectedTool(tool) => {
                 // Change state of action, let GTK update the UI
                 self.tool_action.change_state(&tool.to_variant());
-
-                if let Some(button) = self.active_button.as_ref() {
-                    button.remove_css_class("editing");
-                }
-                if let Some(selected_tool_button) = self.tool_buttons.get(&tool) {
-                    self.active_button = Some(selected_tool_button.clone());
-                }
+                self.tool_buttons
+                    .broadcast(ToolGroupButtonInput::SelectedToolChanged(tool));
             }
             ToolsToolbarInput::SetToolEditing(editing) => {
-                if let Some(button) = self.active_button.as_ref() {
-                    if editing {
-                        button.add_css_class("editing");
-                    } else {
-                        button.remove_css_class("editing");
-                    }
-                }
+                self.tool_buttons
+                    .broadcast(ToolGroupButtonInput::SetEditing(editing));
             }
         }
     }
@@ -320,38 +242,100 @@ impl SimpleComponent for ToolsToolbar {
             },
         );
 
-        let mut model = ToolsToolbar {
-            visible: !APP_CONFIG.read().default_hide_toolbars(),
-            active_button: None,
-            tool_buttons: HashMap::new(),
-            tool_action: tool_action.clone().into(),
-        };
-        let widgets = view_output!();
-
-        model.tool_buttons = HashMap::from([
-            (Tools::Pointer, widgets.pointer_button.clone()),
-            (Tools::Crop, widgets.crop_button.clone()),
-            (Tools::Brush, widgets.brush_button.clone()),
-            (Tools::Line, widgets.line_button.clone()),
-            (Tools::Arrow, widgets.arrow_button.clone()),
-            (Tools::Rectangle, widgets.rectangle_button.clone()),
-            (Tools::Ellipse, widgets.ellipse_button.clone()),
-            (Tools::Text, widgets.text_button.clone()),
-            (Tools::Marker, widgets.marker_button.clone()),
-            (Tools::Blur, widgets.blur_button.clone()),
-            (Tools::Highlight, widgets.highlight_button.clone()),
-        ]);
-
         let shortcut_registry = ShortcutRegistry::from_config();
 
-        // Update tooltips based on configured keybinds
-        for (tool, button) in &model.tool_buttons {
-            update_hint(
-                &shortcut_registry,
-                button,
-                ShortcutCommand::SelectTool(*tool),
-            );
+        let tools = [
+            vec![GroupableTool {
+                tool: Tools::Pointer,
+                icon_name: "cursor-regular".into(),
+                tooltip: None,
+            }],
+            vec![GroupableTool {
+                tool: Tools::Crop,
+                icon_name: "crop-filled".into(),
+                tooltip: None,
+            }],
+            vec![GroupableTool {
+                tool: Tools::Brush,
+                icon_name: "pen-regular".into(),
+                tooltip: None,
+            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::Line,
+                    icon_name: "minus-large".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Arrow,
+                    icon_name: "arrow-up-right-filled".into(),
+                    tooltip: None,
+                },
+            ],
+            vec![
+                GroupableTool {
+                    tool: Tools::Rectangle,
+                    icon_name: "checkbox-unchecked-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Ellipse,
+                    icon_name: "circle-regular".into(),
+                    tooltip: None,
+                },
+            ],
+            vec![GroupableTool {
+                tool: Tools::Text,
+                icon_name: "text-case-title-regular".into(),
+                tooltip: None,
+            }],
+            vec![GroupableTool {
+                tool: Tools::Marker,
+                icon_name: "number-circle-1-regular".into(),
+                tooltip: None,
+            }],
+            vec![GroupableTool {
+                tool: Tools::Blur,
+                icon_name: "drop-regular".into(),
+                tooltip: None,
+            }],
+            vec![GroupableTool {
+                tool: Tools::Highlight,
+                icon_name: "highlight-regular".into(),
+                tooltip: None,
+            }],
+        ];
+
+        // Set initial active button correctly
+        let initial_tool = APP_CONFIG.read().initial_tool();
+        let mut tool_buttons = FactoryVecDeque::<ToolGroupButton>::builder()
+            .launch(relm4::gtk::Box::default())
+            .detach();
+
+        let mut guard = tool_buttons.guard();
+        for mut tg in tools {
+            for g in &mut tg {
+                g.tooltip = Some(get_hint(
+                    &shortcut_registry,
+                    ShortcutCommand::SelectTool(g.tool),
+                ));
+            }
+            let init = ToolGroupInit {
+                group: tg,
+                initial_tool,
+            };
+            guard.push_back(init);
         }
+        drop(guard);
+
+        let model = ToolsToolbar {
+            visible: !APP_CONFIG.read().default_hide_toolbars(),
+            tool_buttons,
+            tool_action: tool_action.clone().into(),
+        };
+
+        let tools_box = model.tool_buttons.widget();
+        let widgets = view_output!();
 
         type SC = ShortcutCommand;
         let other_commands = vec![
@@ -371,12 +355,6 @@ impl SimpleComponent for ToolsToolbar {
 
         for (command, button) in other_commands {
             update_hint(&shortcut_registry, button, command);
-        }
-
-        // Set initial active button correctly
-        let initial_tool = APP_CONFIG.read().initial_tool();
-        if let Some(button) = model.tool_buttons.get(&initial_tool) {
-            model.active_button = Some(button.clone());
         }
 
         let mut group = RelmActionGroup::<ToolsToolbarActionGroup>::new();
@@ -832,8 +810,8 @@ impl Component for StyleToolbar {
         ComponentParts { model, widgets }
     }
 }
-relm4::new_action_group!(ToolsToolbarActionGroup, "tools-toolbars");
-relm4::new_stateful_action!(ToolsAction, ToolsToolbarActionGroup, "tools", Tools, Tools);
+relm4::new_action_group!(pub ToolsToolbarActionGroup, "tools-toolbars");
+relm4::new_stateful_action!(pub ToolsAction, ToolsToolbarActionGroup, "tools", Tools, Tools);
 
 relm4::new_action_group!(StyleToolbarActionGroup, "style-toolbars");
 relm4::new_stateful_action!(
