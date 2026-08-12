@@ -369,10 +369,8 @@ impl FemtoVgAreaMut {
     // Hit-test all drawables and return all indices whose bounds contain `pos`, in order from topmost to bottommost.
     pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
         let mut results = Vec::new();
-        // A small tolerance is applied to make thin shapes (lines, arrows) easier to click.
-        const HIT_TOLERANCE: f32 = 5.0;
         for (i, d) in self.drawables.iter().enumerate().rev() {
-            if d.hit_test(pos, HIT_TOLERANCE) {
+            if d.hit_test(pos, crate::tools::HIT_BORDER_TOLERANCE) {
                 results.push(i);
             }
         }

@@ -43,6 +43,8 @@ mod pointer;
 mod rectangle;
 mod text;
 
+pub const HIT_BORDER_TOLERANCE: f32 = 7.0;
+
 pub enum ToolEvent {
     Activated,
     Deactivated,

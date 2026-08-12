@@ -40,6 +40,7 @@ pub enum SketchBoardInput {
     PinchEnd,
     NudgeSelection(Vec2D),
     RefreshSelectionBounds(usize),
+    RefreshMouseCursor(Vec2D),
     ToolbarEvent(ToolbarEvent),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -205,6 +206,10 @@ impl InputEvent {
                     me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
                     None
                 }
+                MouseEventType::PointerPos => {
+                    me.pos = renderer.abs_canvas_to_image_coordinates(me.pos);
+                    None
+                }
                 MouseEventType::EndDrag | MouseEventType::UpdateDrag => {
                     me.pos = renderer.rel_canvas_to_image_coordinates(me.pos);
                     None
@@ -265,7 +270,7 @@ impl InputEvent {
                     None
                 }
                 MouseEventType::PointerPos => {
-                    renderer.set_pointer_offset(me.pos);
+                    renderer.set_pointer_offset(me.screen_pos);
                     None
                 }
                 _ => None,
@@ -955,7 +960,7 @@ impl SketchBoard {
                 self.renderer.set_hidden_drawable_index(Some(idx));
                 self.pointer_tool
                     .borrow_mut()
-                    .begin_resize(idx, drawable, handle, bounds);
+                    .begin_resize(idx, drawable, handle, bounds, me.pos);
                 return Some(ToolUpdateResult::Redraw);
             }
         }
@@ -966,13 +971,13 @@ impl SketchBoard {
         if !is_alt_click
             && let Some(selected_idx) = selected_idx
             && let Some(drawable) = self.renderer.get_drawable_clone(selected_idx)
-            && drawable.hit_test(me.pos, 5.0)
+            && drawable.hit_test(me.pos, crate::tools::HIT_BORDER_TOLERANCE)
             && let Some((tl, br)) = self.renderer.get_drawable_bounds(selected_idx)
         {
             self.renderer.set_hidden_drawable_index(Some(selected_idx));
             self.pointer_tool
                 .borrow_mut()
-                .begin_move(selected_idx, drawable, (tl, br));
+                .begin_move(selected_idx, drawable, (tl, br), me.pos);
             return Some(ToolUpdateResult::Redraw);
         }
 
@@ -1010,7 +1015,7 @@ impl SketchBoard {
                 self.renderer.set_hidden_drawable_index(Some(sel_idx));
                 self.pointer_tool
                     .borrow_mut()
-                    .begin_move(sel_idx, drawable, bounds);
+                    .begin_move(sel_idx, drawable, bounds, me.pos);
                 return Some(ToolUpdateResult::Redraw);
             }
         }
@@ -1118,7 +1123,9 @@ impl SketchBoard {
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
-                sender.output_sender().emit(SketchBoardOutput::SetSize(size));
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetSize(size));
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
@@ -1361,6 +1368,15 @@ impl SketchBoard {
         self.pointer_tool.borrow_mut().set_selection(index, bounds);
         ToolUpdateResult::Redraw
     }
+
+    fn update_mouse_cursor(&self, pos: Vec2D) {
+        if !self.renderer.hit_test(pos).is_empty() {
+            let cursor = self.pointer_tool.borrow().get_cursor("grab");
+            self.renderer.set_cursor(cursor.as_ref());
+        } else {
+            self.renderer.set_cursor(None);
+        }
+    }
 }
 
 #[relm4::component(pub)]
@@ -1540,6 +1556,13 @@ impl Component for SketchBoard {
                     ie.handle_event_mouse_input(&self.renderer);
                     // handle right click and other things
                     ie.handle_mouse_event(&self.renderer);
+                    // change cursor if we are hovering over a drawable
+                    if let InputEvent::Mouse(me) = ie
+                        && let MouseEventType::PointerPos = me.type_
+                        && me.modifier == ModifierType::empty()
+                    {
+                        self.update_mouse_cursor(me.pos);
+                    }
                 }
 
                 if let InputEvent::Key(ke) = ie {
@@ -1620,6 +1643,10 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::RefreshSelectionBounds(index) => {
                 self.update_pointer_tool_selection(index, false)
+            }
+            SketchBoardInput::RefreshMouseCursor(pos) => {
+                self.update_mouse_cursor(pos);
+                ToolUpdateResult::Unmodified
             }
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)

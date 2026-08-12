@@ -1,6 +1,9 @@
 use anyhow::Result;
 use femtovg::{Color, FontId, Paint, Path};
-use relm4::{Sender, gtk::gdk::ModifierType};
+use relm4::{
+    Sender,
+    gtk::{self, gdk::ModifierType, prelude::WidgetExt},
+};
 use std::cell::Cell;
 
 use crate::{
@@ -12,7 +15,7 @@ use crate::{
     },
 };
 
-use super::{Drawable, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, InputContext, Tool, ToolUpdateResult, Tools};
 
 // Desired on-screen size (in device pixels) for each resize handle.
 const HANDLE_SIZE: f32 = 11.0;
@@ -233,6 +236,7 @@ impl Drawable for SelectionOverlay {
     }
 }
 
+#[derive(Debug)]
 enum DragState {
     None,
     Moving {
@@ -251,9 +255,11 @@ enum DragState {
 pub struct PointerTool {
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
+    cursor_widget: Option<gtk::Widget>,
     selected_index: Option<usize>,
     selected_bounds: Option<(Vec2D, Vec2D)>,
     drag_state: DragState,
+    last_drag_state: bool,
     // Shown as the active-tool drawable: either a moved/resized preview, or a selection overlay.
     preview: Option<Box<dyn Drawable>>,
     selection_overlay: Option<SelectionOverlay>,
@@ -263,6 +269,8 @@ pub struct PointerTool {
     hit_objects_at_pos: Vec<usize>,
     // For cycling through overlapping objects: current index in hit_objects list
     current_cycle_index: usize,
+    // Absolute pointer position (image coordinates) at drag start.
+    drag_start_pos: Option<Vec2D>,
 }
 
 impl Default for PointerTool {
@@ -270,19 +278,76 @@ impl Default for PointerTool {
         Self {
             input_enabled: false,
             sender: None,
+            cursor_widget: None,
             selected_index: None,
             selected_bounds: None,
             drag_state: DragState::None,
+            last_drag_state: false,
             preview: None,
             selection_overlay: None,
             last_click_pos: None,
             hit_objects_at_pos: Vec::new(),
             current_cycle_index: 0,
+            drag_start_pos: None,
         }
     }
 }
 
 impl PointerTool {
+    pub fn get_cursor(&self, name: &str) -> Option<gtk::gdk::Cursor> {
+        let cursor_candidates = match name {
+            "grabbing" => Some(&["grabbing", "all-resize"]),
+            "grab" => Some(&["grab", "all-scroll"]),
+            "nwse-resize" => Some(&["nwse-resize", "top-left-corner"]),
+            "nesw-resize" => Some(&["nesw-resize", "top-right-corner"]),
+            "ns-resize" => Some(&["ns-resize", "top-center"]),
+            "ew-resize" => Some(&["ew-resize", "middle-left"]),
+            _ => None,
+        };
+        cursor_candidates.and_then(|candidates| {
+            candidates
+                .iter()
+                .find_map(|candidate| gtk::gdk::Cursor::from_name(candidate, None))
+        })
+    }
+
+    fn set_hover_cursor(&mut self, pos: Vec2D) {
+        let Some(widget) = &self.cursor_widget else {
+            return;
+        };
+
+        let cursor = if let DragState::Moving { .. } = self.drag_state {
+            self.last_drag_state = true;
+            self.get_cursor("grabbing")
+        } else if matches!(self.drag_state, DragState::None) && self.last_drag_state {
+            if let Some(sender) = &self.sender {
+                sender.emit(SketchBoardInput::RefreshMouseCursor(pos));
+            }
+            self.last_drag_state = false;
+            None
+        } else if let Some(handle) = self.hit_test_handles(pos) {
+            type RH = ResizeHandle;
+            match handle {
+                RH::TopLeft | RH::BottomRight => self.get_cursor("nwse-resize"),
+                RH::TopRight | RH::BottomLeft => self.get_cursor("nesw-resize"),
+                RH::TopCenter | RH::BottomCenter => self.get_cursor("ns-resize"),
+                RH::MiddleLeft | RH::MiddleRight => self.get_cursor("ew-resize"),
+            }
+        } else {
+            None
+        };
+
+        if cursor.is_some() {
+            widget.set_cursor(cursor.as_ref());
+        }
+    }
+
+    fn clear_hover_cursor(&self) {
+        if let Some(widget) = &self.cursor_widget {
+            widget.set_cursor(None);
+        }
+    }
+
     pub fn selected_index(&self) -> Option<usize> {
         self.selected_index
     }
@@ -304,6 +369,7 @@ impl PointerTool {
         index: usize,
         drawable: Box<dyn Drawable>,
         orig_bounds: (Vec2D, Vec2D),
+        start_pos: Vec2D,
     ) {
         self.selected_index = Some(index);
         self.selected_bounds = Some(orig_bounds);
@@ -314,6 +380,8 @@ impl PointerTool {
             original: drawable,
             orig_bounds,
         };
+        self.drag_start_pos = Some(start_pos);
+        self.set_hover_cursor(orig_bounds.0);
     }
 
     // Called by SketchBoard before delivering a BeginDrag event: sets up a resize drag.
@@ -323,6 +391,7 @@ impl PointerTool {
         drawable: Box<dyn Drawable>,
         handle: ResizeHandle,
         orig_bounds: (Vec2D, Vec2D),
+        start_pos: Vec2D,
     ) {
         self.selected_index = Some(index);
         self.selected_bounds = Some(orig_bounds);
@@ -334,6 +403,11 @@ impl PointerTool {
             handle,
             orig_bounds,
         };
+        self.drag_start_pos = Some(start_pos);
+    }
+
+    fn current_drag_pos(&self, delta: Vec2D) -> Vec2D {
+        self.drag_start_pos.map_or(delta, |start| start + delta)
     }
 
     fn update_selection_bounds(&mut self, tl: Vec2D, br: Vec2D) {
@@ -386,6 +460,7 @@ impl PointerTool {
         self.last_click_pos = None;
         self.hit_objects_at_pos.clear();
         self.current_cycle_index = 0;
+        self.drag_start_pos = None;
     }
 
     // Cycle through overlapping objects at the same position.
@@ -446,6 +521,7 @@ impl Tool for PointerTool {
     }
 
     fn handle_deactivated(&mut self) -> ToolUpdateResult {
+        self.clear_hover_cursor();
         self.deselect();
         ToolUpdateResult::Redraw
     }
@@ -488,6 +564,11 @@ impl Tool for PointerTool {
 
         // For EndDrag/UpdateDrag, event.pos is the cumulative delta since BeginDrag.
         match event.type_ {
+            MouseEventType::PointerPos | MouseEventType::Release => {
+                self.set_hover_cursor(event.pos);
+                ToolUpdateResult::Unmodified
+            }
+
             MouseEventType::UpdateDrag => match &self.drag_state {
                 DragState::Moving {
                     original,
@@ -533,6 +614,7 @@ impl Tool for PointerTool {
             },
 
             MouseEventType::EndDrag => {
+                let current_pos = self.current_drag_pos(event.pos);
                 match std::mem::replace(&mut self.drag_state, DragState::None) {
                     DragState::Moving {
                         index,
@@ -540,7 +622,7 @@ impl Tool for PointerTool {
                         orig_bounds,
                     } => {
                         let delta = event.pos;
-                        if delta.is_zero() {
+                        let result = if delta.is_zero() {
                             // Click with no movement: just show selection overlay
                             self.update_selection_bounds(orig_bounds.0, orig_bounds.1);
                             self.preview = None;
@@ -553,7 +635,10 @@ impl Tool for PointerTool {
                             self.update_selection_bounds(new_bounds.0, new_bounds.1);
                             self.preview = None;
                             ToolUpdateResult::ReplaceDrawable(index, final_drawable)
-                        }
+                        };
+                        self.drag_start_pos = None;
+                        self.set_hover_cursor(current_pos);
+                        result
                     }
                     DragState::Resizing {
                         index,
@@ -562,7 +647,7 @@ impl Tool for PointerTool {
                         orig_bounds,
                     } => {
                         let delta = event.pos;
-                        if delta.is_zero() {
+                        let result = if delta.is_zero() {
                             self.update_selection_bounds(orig_bounds.0, orig_bounds.1);
                             self.preview = None;
                             ToolUpdateResult::Redraw
@@ -574,9 +659,15 @@ impl Tool for PointerTool {
                             self.update_selection_bounds(new_tl, new_br);
                             self.preview = None;
                             ToolUpdateResult::ReplaceDrawable(index, final_drawable)
-                        }
+                        };
+                        self.drag_start_pos = None;
+                        self.set_hover_cursor(current_pos);
+                        result
                     }
-                    DragState::None => ToolUpdateResult::Unmodified,
+                    DragState::None => {
+                        self.drag_start_pos = None;
+                        ToolUpdateResult::Unmodified
+                    }
                 }
             }
 
@@ -586,5 +677,10 @@ impl Tool for PointerTool {
 
     fn set_sender(&mut self, sender: Sender<SketchBoardInput>) {
         self.sender = Some(sender);
+    }
+
+    fn set_im_context(&mut self, context: Option<InputContext>) {
+        self.cursor_widget = context.map(|ctx| ctx.widget);
+        self.clear_hover_cursor();
     }
 }
