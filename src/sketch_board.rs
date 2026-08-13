@@ -1118,6 +1118,7 @@ impl SketchBoard {
             }
             ToolbarEvent::SizeSelected(size) => {
                 self.style.size = size;
+                sender.output_sender().emit(SketchBoardOutput::SetSize(size));
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
@@ -1127,10 +1128,16 @@ impl SketchBoard {
             ToolbarEvent::ClearAll => self.handle_clear_all(),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetFill(self.style.fill));
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::ToggleRoundCaps => {
                 self.style.round_caps = !self.style.round_caps;
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::AnnotationSizeFactorChanged(value) => {
