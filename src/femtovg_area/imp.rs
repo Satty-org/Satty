@@ -344,13 +344,9 @@ impl FemtoVGArea {
 
 impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
-        // Keep at most one crop drawable and pin it to index 0.
+        // Keep at most one crop drawable
         if drawable.is_crop() {
             self.drawables.retain(|d| !d.is_crop());
-            self.drawables.insert(0, drawable.clone_box());
-            self.undo_stack.push(HistoryEntry::Drawable(drawable));
-            self.redo_stack.clear();
-            return;
         }
         self.undo_stack
             .push(HistoryEntry::Drawable(drawable.clone_box()));
@@ -396,10 +392,6 @@ impl FemtoVgAreaMut {
             return None;
         }
 
-        if self.drawables[index].is_crop() {
-            return Some(0);
-        }
-
         if index + 1 == self.drawables.len() {
             return Some(index);
         }
@@ -423,15 +415,7 @@ impl FemtoVgAreaMut {
     pub fn undo(&mut self) -> bool {
         match self.undo_stack.pop() {
             Some(HistoryEntry::Drawable(history_drawable)) => {
-                let mut drawable = if history_drawable.is_crop() {
-                    if let Some(index) = self.crop_drawable_index() {
-                        self.drawables.remove(index)
-                    } else {
-                        history_drawable
-                    }
-                } else {
-                    self.drawables.pop().unwrap_or(history_drawable)
-                };
+                let mut drawable = self.drawables.pop().unwrap_or(history_drawable);
                 drawable.handle_undo();
                 self.redo_stack.push(HistoryEntry::Drawable(drawable));
                 true
@@ -449,13 +433,9 @@ impl FemtoVgAreaMut {
             Some(HistoryEntry::Drawable(mut drawable)) => {
                 drawable.handle_redo();
 
-                // Keep at most one crop drawable and pin it to index 0.
+                // Keep at most one crop drawable
                 if drawable.is_crop() {
                     self.drawables.retain(|d| !d.is_crop());
-                    self.undo_stack
-                        .push(HistoryEntry::Drawable(drawable.clone_box()));
-                    self.drawables.insert(0, drawable);
-                    return true;
                 }
 
                 self.undo_stack
@@ -526,6 +506,7 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+
         // get offset and size of the crop if there is one
         let (pos, size) = self
             .drawables
@@ -626,17 +607,28 @@ impl FemtoVgAreaMut {
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index == Some(i) {
                 // Draw the active tool preview in the original z position.
-                if draw_active_tool && let Some(preview) = self.active_tool.borrow().get_drawable()
+                if draw_active_tool
+                    && let Some(preview) = self.active_tool.borrow().get_drawable()
+                    && !preview.is_crop()
                 {
                     preview.draw(canvas, font, bounds)?;
                     active_tool_drawn_in_stack = true;
                 }
                 continue;
             }
-            d.draw(canvas, font, bounds)?;
+            if !d.is_crop() {
+                d.draw(canvas, font, bounds)?;
+            }
         }
 
-        // render active tool (default: on top) when not already drawn in stack order
+        // draw crop bounds on top
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index != Some(i) && d.is_crop() {
+                d.draw(canvas, font, bounds)?;
+            }
+        }
+
+        // render active (pointer) tool (default: on top) when not already drawn in stack order
         if draw_active_tool
             && !active_tool_drawn_in_stack
             && let Some(d) = self.active_tool.borrow().get_drawable()
