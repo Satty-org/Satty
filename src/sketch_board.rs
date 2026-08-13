@@ -294,6 +294,7 @@ pub struct SketchBoard {
     return_to_pointer_after_text_commit: bool,
     temporary_pointer_previous_tool: Option<Tools>,
     style: Style,
+    pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
 }
@@ -856,12 +857,65 @@ impl SketchBoard {
         ToolUpdateResult::Unmodified
     }
 
+    // accumulates deltas for easier touchpad use
+    fn pointer_layer_scroll_offset(&mut self, me: &MouseEventMsg) -> isize {
+        let delta = me.pos.y;
+
+        if !me.is_touchpad {
+            return if delta > 0.0 {
+                -1
+            } else if delta < 0.0 {
+                1
+            } else {
+                0
+            };
+        }
+
+        // reset on direction changes so the response feels "immediate".
+        let mut delta_acumulated = self.pointer_layer_scroll_accumulator;
+        if delta_acumulated != 0.0 && delta_acumulated.signum() != delta.signum() {
+            delta_acumulated = 0.0;
+        }
+
+        delta_acumulated += delta;
+
+        const MAX_DELTA: f32 = 7.0;
+        if delta_acumulated >= MAX_DELTA {
+            self.pointer_layer_scroll_accumulator = 0.0;
+            1
+        } else if delta_acumulated <= -MAX_DELTA {
+            self.pointer_layer_scroll_accumulator = 0.0;
+            -1
+        } else {
+            self.pointer_layer_scroll_accumulator = delta_acumulated;
+            0
+        }
+    }
+
     fn handle_pointer_tool_click(
         &mut self,
         me: &MouseEventMsg,
         sender: &ComponentSender<Self>,
     ) -> ToolUpdateResult {
         if self.active_tool_type() == Tools::Pointer {
+            if me.type_ == MouseEventType::Scroll
+                && !me.modifier.contains(ModifierType::CONTROL_MASK)
+            {
+                let selected_idx = self.pointer_tool.borrow().selected_index();
+                if let Some(selected_idx) = selected_idx {
+                    let offset = self.pointer_layer_scroll_offset(me);
+
+                    if offset != 0
+                        && let Some(new_idx) =
+                            self.renderer.move_drawable_index(selected_idx, offset)
+                    {
+                        self.update_pointer_tool_selection(new_idx, false);
+                        return ToolUpdateResult::Redraw;
+                    }
+                }
+                return ToolUpdateResult::Unmodified;
+            }
+
             if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
                 self.handle_pointer_tool_double_click(me.pos, sender)
                     .unwrap_or_else(|| ToolUpdateResult::Unmodified)
@@ -998,26 +1052,18 @@ impl SketchBoard {
             self.renderer.hit_test(me.pos).first().copied()
         };
 
-        if let Some(idx) = idx_to_select {
-            let sel_idx = if is_alt_click {
-                // Alt+Click: don't move to end, just use the index as-is
-                idx
-            } else {
-                // Normal click: move to end and use new index
-                self.renderer.move_drawable_to_end(idx).unwrap_or(idx)
-            };
-
-            if let (Some(drawable), Some(bounds)) = (
+        if let Some(sel_idx) = idx_to_select
+            && let (Some(drawable), Some(bounds)) = (
                 self.renderer.get_drawable_clone(sel_idx),
                 self.renderer.get_drawable_bounds(sel_idx),
-            ) {
-                self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
-                self.renderer.set_hidden_drawable_index(Some(sel_idx));
-                self.pointer_tool
-                    .borrow_mut()
-                    .begin_move(sel_idx, drawable, bounds, me.pos);
-                return Some(ToolUpdateResult::Redraw);
-            }
+            )
+        {
+            self.sync_toolbar_style_from_drawable(drawable.as_ref(), sender);
+            self.renderer.set_hidden_drawable_index(Some(sel_idx));
+            self.pointer_tool
+                .borrow_mut()
+                .begin_move(sel_idx, drawable, bounds, me.pos);
+            return Some(ToolUpdateResult::Redraw);
         }
 
         // Clicked on empty space: deselect
@@ -1554,8 +1600,20 @@ impl Component for SketchBoard {
                 if matches!(ie, InputEvent::Mouse(_)) {
                     // changes pos to local coords
                     ie.handle_event_mouse_input(&self.renderer);
+
+                    let skip_default_mouse_handling = if let InputEvent::Mouse(me) = &ie {
+                        me.type_ == MouseEventType::Scroll
+                            && self.active_tool_type() == Tools::Pointer
+                            && self.pointer_tool.borrow().selected_index().is_some()
+                            && !me.modifier.contains(ModifierType::CONTROL_MASK)
+                    } else {
+                        false
+                    };
+
                     // handle right click and other things
-                    ie.handle_mouse_event(&self.renderer);
+                    if !skip_default_mouse_handling {
+                        ie.handle_mouse_event(&self.renderer);
+                    }
                     // change cursor if we are hovering over a drawable
                     if let InputEvent::Mouse(me) = ie
                         && let MouseEventType::PointerPos = me.type_
@@ -1774,6 +1832,7 @@ impl Component for SketchBoard {
             active_tool: tools.get(&config.initial_tool()),
             tool_edit_mode: false,
             style: Style::default(),
+            pointer_layer_scroll_accumulator: 0.0,
             pinch_last_scale: 1.0,
             pointer_tool,
             text_tool,

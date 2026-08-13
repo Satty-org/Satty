@@ -116,6 +116,7 @@ impl GLAreaImpl for FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .update_transformation(canvas);
     }
+
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
         self.ensure_canvas();
 
@@ -169,6 +170,7 @@ impl GLAreaImpl for FemtoVGArea {
         glib::Propagation::Stop
     }
 }
+
 impl FemtoVGArea {
     pub fn init(
         &self,
@@ -198,6 +200,7 @@ impl FemtoVGArea {
         });
         self.sender.borrow_mut().replace(sender);
     }
+
     fn ensure_canvas(&self) {
         if self.canvas.borrow().is_none() {
             let c = self
@@ -387,18 +390,15 @@ impl FemtoVgAreaMut {
         }
     }
 
-    pub fn move_drawable_to_end(&mut self, index: usize) -> Option<usize> {
+    pub fn move_drawable_index(&mut self, index: usize, offset: isize) -> Option<usize> {
         if index >= self.drawables.len() {
             return None;
         }
-
-        if index + 1 == self.drawables.len() {
-            return Some(index);
-        }
-
+        let new_index =
+            (index as isize + offset).clamp(0, self.drawables.len() as isize - 1) as usize;
         let drawable = self.drawables.remove(index);
-        self.drawables.push(drawable);
-        Some(self.drawables.len() - 1)
+        self.drawables.insert(new_index, drawable);
+        Some(new_index)
     }
 
     pub fn remove_drawable(&mut self, index: usize) {
