@@ -99,6 +99,21 @@ Default single-key shortcuts:
 - <kbd>u</kbd>: Blur tool
 - <kbd>g</kbd>: Highlight tool
 
+### Pointer Tool <sup>NEXTRELEASE</sup>
+
+Annotations can be selected by click.
+Newly created annotation will be autoselected.
+It will update the toolbar to the annotation style and allows style changes.
+
+- Hold <kbd>Alt</kbd> to select between overlapping annotations.
+- <kbd>Delete</kbd> deletes the selected annotation.
+- Drag the resize handles to change the size. 
+- Grab at the selection border to move.
+- Scroll up/down to raise or lower the annotation.
+- Nudge by cursor keys.
+- Double-click to edit text annotation.
+- Horizontal resize on marker chages its number and vertical the extra ring.
+
 ### Tool Modifiers and Keys
 
 Arrow and line:
