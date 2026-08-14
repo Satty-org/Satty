@@ -247,6 +247,8 @@ pub enum Tools {
     Text,
     Marker,
     Blur,
+    Pixelate,
+    PseudoPixelate,
     Highlight,
     Brush,
 }
@@ -280,6 +282,8 @@ impl std::fmt::Display for Tools {
             Text => "text",
             Marker => "marker",
             Blur => "blur",
+            Pixelate => "pixelate",
+            PseudoPixelate => "pseudo-pixelate",
             Highlight => "highlight",
             Brush => "brush",
         };

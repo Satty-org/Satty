@@ -80,6 +80,7 @@ fn main() -> Result<(), io::Error> {
             "dismiss-regular",
             "checkmark-regular",
             "caret-down-right-filled",
+            "tetris-app-regular",
         ],
     );
 
