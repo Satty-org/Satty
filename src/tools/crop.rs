@@ -2,17 +2,13 @@ use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use crate::{
     math::{self, Vec2D},
     sketch_board::{
-        KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
-        SketchBoardOutput,
+        MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput, SketchBoardOutput,
     },
     tools::hit_test_rectangle,
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::Sender;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Crop {
@@ -131,46 +127,14 @@ impl Tool for CropTool {
         Tools::Crop
     }
 
-    fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        match event.key {
-            Key::Escape if let Some(crop) = &self.crop => {
-                if crop.active {
-                    self.handle_dismissed()
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
-            }
-            Key::Return if let Some(crop) = &self.crop => {
-                if crop.active {
-                    self.handle_deactivated()
-                } else {
-                    ToolUpdateResult::Unmodified
-                }
-            }
-            _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
-        let ctrl_pressed = event.modifier.intersects(ModifierType::CONTROL_MASK);
         match event.type_ {
-            MouseEventType::Click if event.button == MouseButton::Primary && ctrl_pressed => {
-                self.handle_deactivated()
-            }
-            MouseEventType::Click
-                if event.button == MouseButton::Secondary
-                    && ctrl_pressed
-                    && let Some(crop) = &self.crop
-                    && crop.active =>
-            {
-                self.handle_dismissed()
-            }
-            MouseEventType::BeginDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
+            MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
                 self.dragging = true;
                 self.crop = Some(Crop::new(event.pos));
                 ToolUpdateResult::Redraw
             }
-            MouseEventType::EndDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
+            MouseEventType::EndDrag if event.button == MouseButton::Primary => {
                 self.dragging = false;
                 let Some(crop) = &mut self.crop else {
                     return ToolUpdateResult::Unmodified;
@@ -178,7 +142,7 @@ impl Tool for CropTool {
 
                 ToolUpdateResult::Commit(crop.clone_box())
             }
-            MouseEventType::UpdateDrag if event.button == MouseButton::Primary && !ctrl_pressed => {
+            MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
                 if event.pos == Vec2D::zero() {
                     return ToolUpdateResult::Unmodified;
                 }
