@@ -25,7 +25,7 @@ use crate::{
     configuration::Action,
     math::{Vec2D, rect_ensure_in_bounds, rect_round},
     sketch_board::SketchBoardInput,
-    tools::{CropTool, Drawable, Tool},
+    tools::{Drawable, Tool, Tools},
 };
 
 use super::{font_stack, set_font_stack};
@@ -38,6 +38,7 @@ pub struct FemtoVGArea {
     font: RefCell<Option<FontId>>,
     inner: RefCell<Option<FemtoVgAreaMut>>,
     request_render: RefCell<Option<Vec<Action>>>,
+    post_render_refresh_selection: RefCell<Option<usize>>,
     sender: RefCell<Option<Sender<SketchBoardInput>>>,
 }
 
@@ -46,7 +47,6 @@ pub struct FemtoVgAreaMut {
     background_image_id: Option<femtovg::ImageId>,
     transparent_background_id: Option<femtovg::ImageId>,
     active_tool: Rc<RefCell<dyn Tool>>,
-    crop_tool: Rc<RefCell<CropTool>>,
     scale_factor: f32,
     offset: Vec2D,
     drawables: Vec<Box<dyn Drawable>>,
@@ -59,6 +59,7 @@ pub struct FemtoVgAreaMut {
     drag_offset: Vec2D,
     is_drag: bool,
     is_reset: bool,
+    hidden_drawable_index: Option<usize>,
 }
 
 enum HistoryEntry {
@@ -115,6 +116,7 @@ impl GLAreaImpl for FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .update_transformation(canvas);
     }
+
     fn render(&self, _context: &gtk::gdk::GLContext) -> glib::Propagation {
         self.ensure_canvas();
 
@@ -157,14 +159,22 @@ impl GLAreaImpl for FemtoVGArea {
         {
             eprintln!("Error rendering to framebuffer: {e}");
         }
+
+        if let Some(index) = self.post_render_refresh_selection.borrow_mut().take() {
+            self.sender
+                .borrow()
+                .as_ref()
+                .expect("Did you call init before using FemtoVgArea?")
+                .emit(SketchBoardInput::RefreshSelectionBounds(index));
+        }
         glib::Propagation::Stop
     }
 }
+
 impl FemtoVGArea {
     pub fn init(
         &self,
         sender: Sender<SketchBoardInput>,
-        crop_tool: Rc<RefCell<CropTool>>,
         active_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
@@ -174,7 +184,6 @@ impl FemtoVGArea {
             background_image_id: None,
             transparent_background_id: None,
             active_tool,
-            crop_tool,
             scale_factor: 1.0,
             offset: Vec2D::zero(),
             drawables: Vec::new(),
@@ -187,9 +196,11 @@ impl FemtoVGArea {
             last_scale: initial_scale,
             is_drag: false,
             is_reset: false,
+            hidden_drawable_index: None,
         });
         self.sender.borrow_mut().replace(sender);
     }
+
     fn ensure_canvas(&self) {
         if self.canvas.borrow().is_none() {
             let c = self
@@ -321,6 +332,14 @@ impl FemtoVGArea {
         self.request_render.borrow_mut().replace(actions.into());
         self.obj().queue_render();
     }
+
+    pub fn schedule_refresh_selection_after_render(&self, index: usize) {
+        self.post_render_refresh_selection
+            .borrow_mut()
+            .replace(index);
+        self.obj().queue_render();
+    }
+
     pub fn set_parent_sender(&self, sender: Sender<SketchBoardInput>) {
         self.sender.borrow_mut().replace(sender);
     }
@@ -328,10 +347,69 @@ impl FemtoVGArea {
 
 impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
+        // Keep at most one crop drawable
+        if drawable.is_crop() {
+            self.drawables.retain(|d| !d.is_crop());
+        }
         self.undo_stack
             .push(HistoryEntry::Drawable(drawable.clone_box()));
         self.drawables.push(drawable);
         self.redo_stack.clear();
+    }
+
+    pub fn last_drawable_index(&self) -> Option<usize> {
+        self.drawables.len().checked_sub(1)
+    }
+
+    pub fn crop_drawable_index(&self) -> Option<usize> {
+        self.drawables.iter().position(|d| d.is_crop())
+    }
+
+    // Hit-test all drawables and return all indices whose bounds contain `pos`, in order from topmost to bottommost.
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
+        let mut results = Vec::new();
+        for (i, d) in self.drawables.iter().enumerate().rev() {
+            if d.hit_test(pos, crate::tools::HIT_BORDER_TOLERANCE) {
+                results.push(i);
+            }
+        }
+        results
+    }
+
+    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+        self.drawables.get(index).and_then(|d| d.bounds())
+    }
+
+    pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
+        self.drawables.get(index).map(|d| d.clone_box())
+    }
+
+    pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
+        if index < self.drawables.len() {
+            self.drawables[index] = drawable;
+        }
+    }
+
+    pub fn move_drawable_index(&mut self, index: usize, offset: isize) -> Option<usize> {
+        if index >= self.drawables.len() {
+            return None;
+        }
+        let new_index =
+            (index as isize + offset).clamp(0, self.drawables.len() as isize - 1) as usize;
+        let drawable = self.drawables.remove(index);
+        self.drawables.insert(new_index, drawable);
+        Some(new_index)
+    }
+
+    pub fn remove_drawable(&mut self, index: usize) {
+        if index < self.drawables.len() {
+            self.drawables.remove(index);
+        }
+    }
+
+    // Set (or clear) the drawable index to skip during rendering (used while drag-previewing).
+    pub fn set_hidden_drawable_index(&mut self, index: Option<usize>) {
+        self.hidden_drawable_index = index;
     }
 
     pub fn undo(&mut self) -> bool {
@@ -354,6 +432,12 @@ impl FemtoVgAreaMut {
         match self.redo_stack.pop() {
             Some(HistoryEntry::Drawable(mut drawable)) => {
                 drawable.handle_redo();
+
+                // Keep at most one crop drawable
+                if drawable.is_crop() {
+                    self.drawables.retain(|d| !d.is_crop());
+                }
+
                 self.undo_stack
                     .push(HistoryEntry::Drawable(drawable.clone_box()));
                 self.drawables.push(drawable);
@@ -422,15 +506,18 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
-        // get offset and size of the area in question
+
+        // get offset and size of the crop if there is one
         let (pos, size) = self
-            .crop_tool
-            .borrow()
-            .get_crop()
-            .map(|c| c.get_rectangle())
-            .map(|rect| rect_ensure_in_bounds(rect, bounds))
-            .map(rect_round)
-            .filter(|(_, size)| !size.is_zero())
+            .drawables
+            .iter()
+            .find(|d| d.is_crop())
+            .and_then(|d| {
+                d.bounds().map(|(tl, br)| {
+                    let rect = (tl, br - tl);
+                    rect_ensure_in_bounds(rect_round(rect), bounds)
+                })
+            })
             .unwrap_or(bounds);
 
         // create render-target
@@ -451,7 +538,6 @@ impl FemtoVgAreaMut {
         self.render(
             canvas,
             font,
-            false,
             femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
             false,
         )?;
@@ -484,7 +570,6 @@ impl FemtoVgAreaMut {
         self.render(
             canvas,
             font,
-            true,
             femtovg::Color::rgbaf(0.0, 0.0, 0.0, 0.0),
             true,
         )?;
@@ -496,7 +581,6 @@ impl FemtoVgAreaMut {
         &mut self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         font: FontId,
-        render_crop: bool,
         outside_bg_color: femtovg::Color,
         onscreen: bool,
     ) -> Result<()> {
@@ -514,19 +598,42 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
+        // Offscreen export should not include pointer selection handles.
+        let draw_active_tool =
+            onscreen || self.active_tool.borrow().get_tool_type() != Tools::Pointer;
+        let mut active_tool_drawn_in_stack = false;
+
         // render the whole stack
-        for d in &mut self.drawables {
-            d.draw(canvas, font, bounds)?;
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index == Some(i) {
+                // Draw the active tool preview in the original z position.
+                if draw_active_tool
+                    && let Some(preview) = self.active_tool.borrow().get_drawable()
+                    && !preview.is_crop()
+                {
+                    preview.draw(canvas, font, bounds)?;
+                    active_tool_drawn_in_stack = true;
+                }
+                continue;
+            }
+            if !d.is_crop() {
+                d.draw(canvas, font, bounds)?;
+            }
         }
 
-        // render active tool
-        if let Some(d) = self.active_tool.borrow().get_drawable() {
-            d.draw(canvas, font, bounds)?;
+        // draw crop bounds on top
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index != Some(i) && d.is_crop() {
+                d.draw(canvas, font, bounds)?;
+            }
         }
 
-        // render crop tool
-        if render_crop && let Some(c) = self.crop_tool.borrow().get_crop() {
-            c.draw(canvas, font, bounds)?;
+        // render active (pointer) tool (default: on top) when not already drawn in stack order
+        if draw_active_tool
+            && !active_tool_drawn_in_stack
+            && let Some(d) = self.active_tool.borrow().get_drawable()
+        {
+            d.draw(canvas, font, bounds)?;
         }
 
         canvas.flush();

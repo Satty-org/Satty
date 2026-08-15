@@ -25,12 +25,12 @@ impl DragBox {
         let top_left = if centered {
             origin - size * 0.5
         } else {
-            origin
+            origin.min(origin + size)
         };
 
         Self {
             top_left,
-            size,
+            size: size.abs(),
             centered,
         }
     }

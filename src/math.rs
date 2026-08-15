@@ -1,7 +1,7 @@
 use std::{
     f32::consts::PI,
     fmt::Display,
-    ops::{Add, AddAssign, Mul, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, Mul, Sub, SubAssign},
 };
 
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
@@ -59,6 +59,34 @@ impl Vec2D {
         self.x * self.x + self.y * self.y
     }
 
+    pub fn abs(&self) -> Self {
+        Self {
+            x: self.x.abs(),
+            y: self.y.abs(),
+        }
+    }
+
+    pub fn round(&self) -> Self {
+        Self {
+            x: self.x.round(),
+            y: self.y.round(),
+        }
+    }
+
+    pub fn min(self, other: Self) -> Self {
+        Self {
+            x: self.x.min(other.x),
+            y: self.y.min(other.y),
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        Self {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+        }
+    }
+
     /**
      * Get the angle of the vector.
      * Angle of 0 is the positive x-axis.
@@ -114,6 +142,17 @@ impl Vec2D {
         let dy = self.y - other.y;
         (dx * dx + dy * dy).sqrt()
     }
+
+    pub fn distance_to_segment(&self, a: Vec2D, b: Vec2D) -> f32 {
+        let ab = b - a;
+        if ab.is_zero() {
+            return self.distance_to(&a);
+        }
+        let ap = *self - a;
+        let factor = (ap * ab / ab.norm2()).clamp(0.0, 1.0);
+        let projected_point = a + ab * factor;
+        self.distance_to(&projected_point)
+    }
 }
 
 impl Add for Vec2D {
@@ -123,6 +162,17 @@ impl Add for Vec2D {
         Self::Output {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Add<f32> for Vec2D {
+    type Output = Vec2D;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        Self::Output {
+            x: self.x + rhs,
+            y: self.y + rhs,
         }
     }
 }
@@ -144,6 +194,17 @@ impl Sub for Vec2D {
     }
 }
 
+impl Sub<f32> for Vec2D {
+    type Output = Vec2D;
+
+    fn sub(self, rhs: f32) -> Self::Output {
+        Self::Output {
+            x: self.x - rhs,
+            y: self.y - rhs,
+        }
+    }
+}
+
 impl SubAssign for Vec2D {
     fn sub_assign(&mut self, rhs: Self) {
         *self = *self - rhs;
@@ -155,6 +216,30 @@ impl Mul<f32> for Vec2D {
 
     fn mul(self, rhs: f32) -> Self::Output {
         Vec2D::new(self.x * rhs, self.y * rhs)
+    }
+}
+
+impl Mul<Vec2D> for Vec2D {
+    type Output = f32;
+
+    fn mul(self, rhs: Vec2D) -> Self::Output {
+        self.x * rhs.x + self.y * rhs.y
+    }
+}
+
+impl Div<f32> for Vec2D {
+    type Output = Vec2D;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Vec2D::new(self.x / rhs, self.y / rhs)
+    }
+}
+
+impl Div<Vec2D> for Vec2D {
+    type Output = Vec2D;
+
+    fn div(self, rhs: Vec2D) -> Self::Output {
+        Vec2D::new(self.x / rhs.x, self.y / rhs.y)
     }
 }
 
@@ -204,13 +289,12 @@ pub fn rect_ensure_in_bounds(rect: (Vec2D, Vec2D), bounds: (Vec2D, Vec2D)) -> (V
     (pos, size)
 }
 
+// Return the bounding box tl, br for two points
+pub fn ensure_bounding_box(a: Vec2D, b: Vec2D) -> (Vec2D, Vec2D) {
+    (a.min(b), a.max(b))
+}
+
 pub fn rect_round(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
-    let (mut pos, mut size) = rect;
-
-    pos.x = pos.x.round();
-    pos.y = pos.y.round();
-    size.x = size.x.round();
-    size.y = size.y.round();
-
-    (pos, size)
+    let (pos, size) = rect;
+    (pos.round(), size.round())
 }
