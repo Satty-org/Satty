@@ -3,18 +3,10 @@
     min-height: 10rem;
 }
 
-.outer_box {
-    background-color: @headerbar_bg_color;
-}
-
 .inner_box {
     background-color: #000000;
 }
 
-.toolbar {
-    color: @headerbar_fg_color;
-    background-color: @headerbar_bg_color;
-}
 .toast {
     color: #f9f9f9;
     background-color: #00000099;
@@ -29,7 +21,3 @@
 
 .overlay .toolbar-bottom { border-radius: 6px 6px 0px 0px; }
 .overlay .toolbar-top { border-radius: 0px 0px 6px 6px; }
-
-button.editing {
-    color: @accent_color;
-}
