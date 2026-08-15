@@ -165,6 +165,8 @@ resize = { mode = "smart" }
 floating-hack = true
 # Change to true to automatically copy to clipboard after every annotation change (0.21.0)
 auto-copy = false
+# Change to true to automatically select newly created annotation (NEXTRELEASE)
+auto-select-new = false
 # Exit directly after copy/save action. 0.21.0: change to list of triggers
 # Note that exit-early-save-as was removed with 0.21.0.
 early-exit = ["all"]
