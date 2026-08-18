@@ -205,14 +205,6 @@ impl FemtoVGArea {
             .last_drawable_index()
     }
 
-    pub fn crop_drawable_index(&self) -> Option<usize> {
-        self.imp()
-            .inner()
-            .as_ref()
-            .expect("Did you call init before using FemtoVgArea?")
-            .crop_drawable_index()
-    }
-
     pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
         self.imp()
             .inner()

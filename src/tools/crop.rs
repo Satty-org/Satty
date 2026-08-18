@@ -4,7 +4,7 @@ use crate::{
     sketch_board::{
         MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput, SketchBoardOutput,
     },
-    tools::hit_test_rectangle,
+    tools::{RenderingMode, hit_test_rectangle},
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
@@ -40,8 +40,8 @@ impl Crop {
 }
 
 impl Drawable for Crop {
-    fn is_crop(&self) -> bool {
-        true
+    fn get_rendering_mode(&self) -> RenderingMode {
+        RenderingMode::Crop
     }
 
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {

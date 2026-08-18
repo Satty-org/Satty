@@ -53,6 +53,16 @@ pub enum ToolEvent {
     StyleChanged(Style),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+// The rendering mode of a drawable. This is used to determine drawables
+// which should be taken out of the stack order to draw them earlier or later.
+pub enum RenderingMode {
+    Default,          // Render in stack order
+    Blur,             // Rendered below everything else, but above the background
+    Crop,             // Rendered above everything else, but below the SelectionOverlay
+    SelectionOverlay, // Render above everything else
+}
+
 pub trait Tool {
     fn handle_event(&mut self, event: ToolEvent) -> ToolUpdateResult {
         match event {
@@ -172,8 +182,8 @@ pub trait Drawable: DrawableClone + Debug {
     -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
-    fn is_crop(&self) -> bool {
-        false
+    fn get_rendering_mode(&self) -> RenderingMode {
+        RenderingMode::Default
     }
     fn bounds_only_valid_after_redraw(&self) -> bool {
         false

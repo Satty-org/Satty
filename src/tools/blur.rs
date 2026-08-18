@@ -13,7 +13,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::hit_test_rectangle,
+    tools::{RenderingMode, hit_test_rectangle},
 };
 
 use super::{
@@ -81,6 +81,10 @@ impl Blur {
 }
 
 impl Drawable for Blur {
+    fn get_rendering_mode(&self) -> RenderingMode {
+        RenderingMode::Blur
+    }
+
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         let size = self.size?;
         Some(math::ensure_bounding_box(

@@ -25,7 +25,7 @@ use crate::{
     configuration::Action,
     math::{Vec2D, rect_ensure_in_bounds, rect_round},
     sketch_board::SketchBoardInput,
-    tools::{Drawable, Tool, Tools},
+    tools::{Drawable, RenderingMode, Tool, Tools},
 };
 
 use super::{font_stack, set_font_stack};
@@ -348,8 +348,9 @@ impl FemtoVGArea {
 impl FemtoVgAreaMut {
     pub fn commit(&mut self, drawable: Box<dyn Drawable>) {
         // Keep at most one crop drawable
-        if drawable.is_crop() {
-            self.drawables.retain(|d| !d.is_crop());
+        if drawable.get_rendering_mode() == RenderingMode::Crop {
+            self.drawables
+                .retain(|d| d.get_rendering_mode() != RenderingMode::Crop);
         }
         self.undo_stack
             .push(HistoryEntry::Drawable(drawable.clone_box()));
@@ -359,10 +360,6 @@ impl FemtoVgAreaMut {
 
     pub fn last_drawable_index(&self) -> Option<usize> {
         self.drawables.len().checked_sub(1)
-    }
-
-    pub fn crop_drawable_index(&self) -> Option<usize> {
-        self.drawables.iter().position(|d| d.is_crop())
     }
 
     // Hit-test all drawables and return all indices whose bounds contain `pos`, in order from topmost to bottommost.
@@ -434,8 +431,9 @@ impl FemtoVgAreaMut {
                 drawable.handle_redo();
 
                 // Keep at most one crop drawable
-                if drawable.is_crop() {
-                    self.drawables.retain(|d| !d.is_crop());
+                if drawable.get_rendering_mode() == RenderingMode::Crop {
+                    self.drawables
+                        .retain(|d| d.get_rendering_mode() != RenderingMode::Crop);
                 }
 
                 self.undo_stack
@@ -511,7 +509,7 @@ impl FemtoVgAreaMut {
         let (pos, size) = self
             .drawables
             .iter()
-            .find(|d| d.is_crop())
+            .find(|d| d.get_rendering_mode() == RenderingMode::Crop)
             .and_then(|d| {
                 d.bounds().map(|(tl, br)| {
                     let rect = (tl, br - tl);
@@ -585,10 +583,9 @@ impl FemtoVgAreaMut {
         onscreen: bool,
     ) -> Result<()> {
         // clear canvas
-
         canvas.clear_rect(0, 0, canvas.width(), canvas.height(), outside_bg_color);
 
-        // render background
+        // render background image (screenshot)
         self.render_background_image(canvas, onscreen)?;
 
         let bounds = (
@@ -598,40 +595,65 @@ impl FemtoVgAreaMut {
                 self.background_image.height() as f32,
             ),
         );
-        // Offscreen export should not include pointer selection handles.
-        let draw_active_tool =
-            onscreen || self.active_tool.borrow().get_tool_type() != Tools::Pointer;
-        let mut active_tool_drawn_in_stack = false;
 
-        // render the whole stack
+        // offscreen export should not include pointer selection overlay
+        let mut draw_active_tool =
+            onscreen || self.active_tool.borrow().get_tool_type() != Tools::Pointer;
+
+        // draw blur first, so it is below everything else
+        for (i, d) in self.drawables.iter().enumerate() {
+            if self.hidden_drawable_index != Some(i)
+                && d.get_rendering_mode() == RenderingMode::Blur
+            {
+                d.draw(canvas, font, bounds)?;
+            }
+        }
+
+        // draw blur preview
+        if draw_active_tool
+            && let Some(preview) = self.active_tool.borrow().get_drawable()
+            && preview.get_rendering_mode() == RenderingMode::Blur
+        {
+            preview.draw(canvas, font, bounds)?;
+            draw_active_tool = false;
+        }
+
+        // draw the whole stack of normal drawables
         for (i, d) in self.drawables.iter().enumerate() {
             if self.hidden_drawable_index == Some(i) {
-                // Draw the active tool preview in the original z position.
+                // draw the active tool preview in the original z position
                 if draw_active_tool
                     && let Some(preview) = self.active_tool.borrow().get_drawable()
-                    && !preview.is_crop()
+                    && preview.get_rendering_mode() == RenderingMode::Default
                 {
                     preview.draw(canvas, font, bounds)?;
-                    active_tool_drawn_in_stack = true;
+                    draw_active_tool = false;
                 }
                 continue;
             }
-            if !d.is_crop() {
+            if d.get_rendering_mode() == RenderingMode::Default {
                 d.draw(canvas, font, bounds)?;
             }
         }
 
-        // draw crop bounds on top
+        // draw active tool when not already drawn in stack order
+        if draw_active_tool && let Some(preview) = self.active_tool.borrow().get_drawable() {
+            preview.draw(canvas, font, bounds)?;
+        }
+
+        // draw crop on top of everything but pointer tool selection overlay
         for (i, d) in self.drawables.iter().enumerate() {
-            if self.hidden_drawable_index != Some(i) && d.is_crop() {
+            if self.hidden_drawable_index != Some(i)
+                && d.get_rendering_mode() == RenderingMode::Crop
+            {
                 d.draw(canvas, font, bounds)?;
             }
         }
 
-        // render active (pointer) tool (default: on top) when not already drawn in stack order
+        // draw pointer tool selection overlay
         if draw_active_tool
-            && !active_tool_drawn_in_stack
             && let Some(d) = self.active_tool.borrow().get_drawable()
+            && d.get_rendering_mode() == RenderingMode::SelectionOverlay
         {
             d.draw(canvas, font, bounds)?;
         }

@@ -13,6 +13,7 @@ use crate::{
         KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
         SketchBoardOutput,
     },
+    tools::RenderingMode,
 };
 
 use super::{Drawable, InputContext, Tool, ToolUpdateResult, Tools};
@@ -186,6 +187,10 @@ struct SelectionOverlay {
 }
 
 impl Drawable for SelectionOverlay {
+    fn get_rendering_mode(&self) -> RenderingMode {
+        RenderingMode::SelectionOverlay
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -592,7 +597,7 @@ impl Tool for PointerTool {
                     let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
                     let mut preview = original.clone_box();
                     preview.resize_bounds(new_tl, new_br);
-                    if preview.is_crop()
+                    if preview.get_rendering_mode() == RenderingMode::Crop
                         && let Some(sender) = &self.sender
                     {
                         let size = new_br - new_tl;

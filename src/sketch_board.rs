@@ -1749,15 +1749,10 @@ impl Component for SketchBoard {
 
         match result {
             ToolUpdateResult::Commit(drawable) => {
-                let committed_is_crop = drawable.is_crop();
                 self.renderer.commit(drawable);
                 let auto_select = APP_CONFIG.read().auto_select();
 
-                let committed_index = if committed_is_crop {
-                    self.renderer.crop_drawable_index()
-                } else {
-                    self.renderer.last_drawable_index()
-                };
+                let committed_index = self.renderer.last_drawable_index();
 
                 if auto_select {
                     if let Some(index) = committed_index
