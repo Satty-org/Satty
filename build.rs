@@ -78,7 +78,8 @@ fn main() -> Result<(), io::Error> {
             "resize-large-regular",
             "arrow-counterclockwise-regular",
             "caret-down-right-filled",
-            "tetris-app-regular",
+            "eye-off-regular",
+            "checkerboard"
         ],
     );
 

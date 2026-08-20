@@ -296,12 +296,12 @@ impl SimpleComponent for ToolsToolbar {
             vec![
                 GroupableTool {
                     tool: Tools::PseudoPixelate,
-                    icon_name: "tetris-app-regular".into(),
+                    icon_name: "eye-off-regular".into(),
                     tooltip: None,
                 },
                 GroupableTool {
                     tool: Tools::Pixelate,
-                    icon_name: "tetris-app-regular".into(),
+                    icon_name: "checkerboard".into(),
                     tooltip: None,
                 },
                 GroupableTool {
