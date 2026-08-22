@@ -390,6 +390,14 @@ impl FemtoVgAreaMut {
         self.drawables.get(index).map(|d| d.clone_box())
     }
 
+    pub fn find_drawable_index_by_mode(&self, mode: RenderingMode) -> Option<usize> {
+        self.drawables
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, drawable)| (drawable.get_rendering_mode() == mode).then_some(index))
+    }
+
     pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
         if index < self.drawables.len() {
             self.drawables[index] = drawable;
@@ -649,11 +657,17 @@ impl FemtoVgAreaMut {
         }
 
         // draw crop on top of everything but pointer tool selection overlay
-        for (i, d) in self.drawables.iter().enumerate() {
-            if self.hidden_drawable_index != Some(i)
-                && d.get_rendering_mode() == RenderingMode::Crop
-            {
-                d.draw(canvas, font, bounds)?;
+        if self.active_tool.borrow().get_tool_type() == Tools::Crop
+            && let Some(crop) = self.active_tool.borrow().get_drawable()
+        {
+            crop.draw(canvas, font, bounds)?;
+        } else {
+            for (i, d) in self.drawables.iter().enumerate() {
+                if self.hidden_drawable_index != Some(i)
+                    && d.get_rendering_mode() == RenderingMode::Crop
+                {
+                    d.draw(canvas, font, bounds)?;
+                }
             }
         }
 
