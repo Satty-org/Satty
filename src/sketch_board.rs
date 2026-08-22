@@ -897,6 +897,11 @@ impl SketchBoard {
         me: &MouseEventMsg,
         sender: &ComponentSender<Self>,
     ) -> ToolUpdateResult {
+        if matches!(me.type_, MouseEventType::Click | MouseEventType::BeginDrag) {
+            // text input requires focus, so we grab it on click or drag begin
+            self.renderer.grab_focus();
+        }
+
         if self.active_tool_type() == Tools::Pointer {
             if me.type_ == MouseEventType::Scroll
                 && !me.modifier.contains(ModifierType::CONTROL_MASK)
@@ -1092,6 +1097,11 @@ impl SketchBoard {
             .borrow_mut()
             .load_for_editing(text_pos, &content, style);
         self.return_to_pointer_after_text_commit = true;
+
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Text));
+
         Some(self.handle_toolbar_event(
             crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
             sender.clone(),
