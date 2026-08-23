@@ -268,14 +268,16 @@ pub fn rect_ensure_positive_size(pos: Vec2D, size: Vec2D) -> (Vec2D, Vec2D) {
 pub fn rect_ensure_in_bounds(rect: (Vec2D, Vec2D), bounds: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
     let (mut pos, mut size) = rect;
 
+    // The part sticking out has to be measured before pos is moved onto the
+    // bound, otherwise the difference is always zero and size stays untouched.
     if pos.x < bounds.0.x {
+        size.x = (size.x - (bounds.0.x - pos.x)).max(0.0);
         pos.x = bounds.0.x;
-        size.x -= bounds.0.x - pos.x;
     }
 
     if pos.y < bounds.0.y {
+        size.y = (size.y - (bounds.0.y - pos.y)).max(0.0);
         pos.y = bounds.0.y;
-        size.y -= bounds.0.y - pos.y;
     }
 
     if pos.x + size.x > bounds.1.x {
@@ -297,4 +299,51 @@ pub fn ensure_bounding_box(a: Vec2D, b: Vec2D) -> (Vec2D, Vec2D) {
 pub fn rect_round(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
     let (pos, size) = rect;
     (pos.round(), size.round())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Vec2D, rect_ensure_in_bounds};
+
+    fn bounds() -> (Vec2D, Vec2D) {
+        (Vec2D::zero(), Vec2D::new(200.0, 100.0))
+    }
+
+    #[test]
+    fn rect_ensure_in_bounds_clips_both_axes_when_overlapping_top_left() {
+        let rect = (Vec2D::new(-40.0, -30.0), Vec2D::new(100.0, 80.0));
+        assert_eq!(
+            rect_ensure_in_bounds(rect, bounds()),
+            (Vec2D::zero(), Vec2D::new(60.0, 50.0))
+        );
+    }
+
+    #[test]
+    fn rect_ensure_in_bounds_removes_width_when_rect_is_left_of_bounds() {
+        let rect = (Vec2D::new(-300.0, 10.0), Vec2D::new(100.0, 20.0));
+        let (_, size) = rect_ensure_in_bounds(rect, bounds());
+        assert_eq!(size.x, 0.0);
+    }
+
+    #[test]
+    fn rect_ensure_in_bounds_removes_height_when_rect_is_above_bounds() {
+        let rect = (Vec2D::new(10.0, -300.0), Vec2D::new(20.0, 100.0));
+        let (_, size) = rect_ensure_in_bounds(rect, bounds());
+        assert_eq!(size.y, 0.0);
+    }
+
+    #[test]
+    fn rect_ensure_in_bounds_clips_rect_straddling_all_four_edges() {
+        let rect = (Vec2D::new(-50.0, -50.0), Vec2D::new(400.0, 300.0));
+        assert_eq!(
+            rect_ensure_in_bounds(rect, bounds()),
+            (Vec2D::zero(), Vec2D::new(200.0, 100.0))
+        );
+    }
+
+    #[test]
+    fn rect_ensure_in_bounds_leaves_rect_inside_bounds_unchanged() {
+        let rect = (Vec2D::new(10.0, 20.0), Vec2D::new(30.0, 40.0));
+        assert_eq!(rect_ensure_in_bounds(rect, bounds()), rect);
+    }
 }
