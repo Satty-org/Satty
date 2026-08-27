@@ -1188,8 +1188,11 @@ impl Component for SketchBoard {
                         relm4::gtk::glib::Propagation::Stop
                     },
 
-                    connect_key_released[sender] => move |controller, key, code, modifier | {
-                        if let Some(im_context) = controller.im_context() {
+                    connect_key_released[
+                        sender,
+                        im_context = model.im_context.clone(),
+                        ime_enabled = model.ime_enabled.clone()] => move |controller, key, code, modifier | {
+                        if ime_enabled.get() {
                             im_context.focus_in();
                             if !im_context.filter_keypress(controller.current_event().unwrap()) {
                                 sender.input(SketchBoardInput::new_key_release_event(KeyEventMsg::new(key, code, modifier)));
