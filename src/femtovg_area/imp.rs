@@ -222,7 +222,16 @@ impl FemtoVGArea {
                 .find(family, style)
                 .map_err(|e| anyhow::anyhow!("Font family '{}' not found: {}", family, e))?;
 
-            let face_index = font.index.unwrap_or(0).max(0) as u32;
+            // font.index packs (instance_index << 16) | face_index; keep the face_index.
+            let raw_index = font.index.unwrap_or(0).max(0) as u32;
+            let face_index = raw_index & 0xffff;
+
+            if raw_index >> 16 != 0 {
+                eprintln!(
+                    "Font '{}': variable fonts are not fully supported, only the default variant will be used",
+                    font.name,
+                );
+            }
 
             if !loaded_paths.insert((font.path.clone(), face_index)) {
                 return Err(anyhow::anyhow!("Font '{}' already loaded", family));
