@@ -86,6 +86,7 @@ The bindings are:
 - <kbd>s</kbd> focuses the annotation size factor input field
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
+
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
@@ -102,17 +103,17 @@ Default single-key shortcuts:
 ### Pointer Tool <sup>NEXTRELEASE</sup>
 
 Annotations can be selected by click.
-Newly created annotation will be autoselected.
-It will update the toolbar to the annotation style and allows style changes.
+This will update the toolbar to the annotation's style and allow style changes.
+Newly created annotations can be autoselected if enabled in the config.
 
-- Hold <kbd>Alt</kbd> to select between overlapping annotations.
+- Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
 - <kbd>Delete</kbd> deletes the selected annotation.
-- Drag the resize handles to change the size. 
-- Grab at the selection border to move.
-- Scroll up/down to raise or lower the annotation.
-- Nudge by cursor keys.
-- Double-click to edit text annotation.
-- Horizontal resize on marker chages its number and vertical the extra ring.
+- Drag the resize handles - mouse cursor will change - to change the size. 
+- Grab an annotation - mouse cursor will change to a hand - to move.
+- Scroll up/down with the mouse wheel to change the annotation's layer.
+- Nudge (small move) with the cursor keys.
+- Double-click on a text annotation to edit it.
+- Horizontal resizing on a marker changes its number, and vertical resizing changes the extra ring.
 
 ### Tool Modifiers and Keys
 
