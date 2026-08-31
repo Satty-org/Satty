@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use crate::{
     configuration::{APP_CONFIG, Action},
     keybindings::{ShortcutCommand, ShortcutRegistry},
+    math::{Vec2D, get_closest_aspect_ratio},
     style::{Color, Size},
     tools::Tools,
 };
@@ -39,6 +40,7 @@ pub struct StyleToolbar {
     round_caps_enabled: bool,
     visible: bool,
     output_dimensions: String,
+    aspect_ratio: String,
     editing: bool,
 }
 
@@ -82,7 +84,7 @@ pub enum StyleToolbarInput {
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
     ToggleVisibility,
-    DimensionsChanged((i32, i32)),
+    DimensionsChanged(Vec2D),
     SetToolEditing(bool),
     FocusAnnotationSizeFactor,
 }
@@ -576,12 +578,22 @@ impl Component for StyleToolbar {
             gtk::Label {
                 set_focusable: false,
                 set_hexpand: false,
-                set_margin_start: 10,
-                set_width_chars: 11,
+                set_margin_start: 0,
+                set_width_chars: 9,
 
                 #[watch]
                 set_text: &model.output_dimensions,
                 set_tooltip: "Output dimensions (width x height)",
+            },
+            gtk::Label {
+                set_focusable: false,
+                set_hexpand: false,
+                set_margin_start: 0,
+                set_width_chars: 4,
+
+                #[watch]
+                set_text: &model.aspect_ratio,
+                set_tooltip: "Aspect Ratio",
             },
             gtk::Separator {},
             #[name(fill_button)]
@@ -679,8 +691,26 @@ impl Component for StyleToolbar {
             StyleToolbarInput::ToggleVisibility => {
                 self.visible = !self.visible;
             }
-            StyleToolbarInput::DimensionsChanged((width, height)) => {
-                self.output_dimensions = format!("{}x{}", width, height);
+            StyleToolbarInput::DimensionsChanged(size) => {
+                self.output_dimensions = format!("{}x{}", size.x as u32, size.y as u32);
+                if size.x == 0.0 || size.y == 0.0 {
+                    self.aspect_ratio = "".to_string();
+                    return;
+                }
+                let aspect_ratio = size.x / size.y;
+                let config = APP_CONFIG.read();
+                let closest_ar = get_closest_aspect_ratio(aspect_ratio, config.aspect_ratios());
+                let delta = (aspect_ratio - closest_ar.0 / closest_ar.1).abs();
+                if delta > 0.1 {
+                    self.aspect_ratio = "".to_string();
+                } else {
+                    self.aspect_ratio = format!(
+                        "{}{}:{}",
+                        if delta > 0.01 { "~" } else { "" },
+                        closest_ar.0,
+                        closest_ar.1
+                    );
+                }
             }
             StyleToolbarInput::SetToolEditing(editing) => {
                 self.editing = editing;
@@ -764,6 +794,7 @@ impl Component for StyleToolbar {
             round_caps_enabled: APP_CONFIG.read().default_round_caps(),
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             output_dimensions: String::new(),
+            aspect_ratio: String::new(),
             editing: false,
         };
 

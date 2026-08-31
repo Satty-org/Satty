@@ -14,7 +14,6 @@ use femtovg::imgref::{Img, ImgVec};
 use femtovg::renderer::OpenGl;
 use femtovg::rgb::RGBA8;
 use femtovg::{Canvas, FontId, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
-use relm4::adw::gdk::ModifierType;
 use relm4::gtk::gdk::Cursor;
 use relm4::gtk::prelude::WidgetExt;
 use relm4::{Sender, gtk, gtk::gdk::Key};
@@ -56,8 +55,8 @@ impl Pixelate {
         )
     }
 
-    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
-        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
+    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         self.size = Some(drag_box.size);
@@ -462,7 +461,7 @@ impl Tool for PixelateTool {
 
                 self.clear_cursor();
                 if let Some(a) = &mut self.pixelate {
-                    a.calculate_shape(event.pos, event.modifier);
+                    a.calculate_shape(self.sender.as_ref().unwrap(), &event);
                     if event.pos == Vec2D::zero() || !a.renderable.get() {
                         self.pixelate = None;
                         ToolUpdateResult::Redraw
@@ -487,7 +486,7 @@ impl Tool for PixelateTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    a.calculate_shape(event.pos, event.modifier);
+                    a.calculate_shape(self.sender.as_ref().unwrap(), &event);
                     self.update_drag_cursor();
 
                     ToolUpdateResult::Redraw

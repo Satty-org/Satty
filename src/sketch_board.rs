@@ -57,7 +57,7 @@ pub enum SketchBoardInput {
     Refresh,
     Exit,
     ScaleFactorChanged,
-    CropDimensionsUpdate((Vec2D, Vec2D)),
+    ShapeDimensionsUpdate(Vec2D),
     Output(SketchBoardOutput),
 }
 
@@ -72,7 +72,7 @@ pub enum SketchBoardOutput {
     FocusAnnotationSizeFactorShortcut,
     SetFill(bool),
     SetRoundCaps(bool),
-    DimensionsUpdate(Option<(i32, i32)>),
+    DimensionsUpdate(Vec2D),
     ToolEditingChanged(bool),
 }
 
@@ -323,6 +323,7 @@ pub struct SketchBoard {
     renderer: FemtoVGArea,
     // Mirrors the bounds render_native_resolution derives from the background
     // image, which is set once at init and never replaced.
+    // (pos, size)
     image_bounds: (Vec2D, Vec2D),
     ime_enabled: Rc<Cell<bool>>,
     shortcut_registry: ShortcutRegistry,
@@ -978,6 +979,8 @@ impl SketchBoard {
                     .hit_test_handles(me.pos)
                     .is_none()
             {
+                self.emit_shape_dimensions(sender, self.image_bounds.1);
+
                 // switch back to previous tool
                 self.handle_toolbar_event(
                     ToolbarEvent::ToolSelected(previous_tool),
@@ -1162,6 +1165,8 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::ToolSelected(tool) => {
+                self.emit_shape_dimensions(&sender, self.image_bounds.1);
+
                 self.return_to_pointer_after_text_commit = false;
 
                 let mut target_tool = tool;
@@ -1475,7 +1480,7 @@ impl SketchBoard {
                     if let Some(drawable) = self.renderer.get_drawable_clone(idx)
                         && drawable.get_rendering_mode() == RenderingMode::Crop
                     {
-                        self.emit_crop_dimensions(&sender, self.image_bounds);
+                        self.emit_shape_dimensions(&sender, self.image_bounds.1);
                     }
                     self.pointer_tool.borrow_mut().deselect();
                     self.renderer.set_hidden_drawable_index(None);
@@ -1529,17 +1534,21 @@ impl SketchBoard {
         ToolUpdateResult::Redraw
     }
 
-    // Report what a save would produce, not the rectangle the user dragged:
-    // the same clip render_native_resolution applies before it sizes the
-    // render target, so the label and the file cannot disagree.
-    fn emit_crop_dimensions(&self, sender: &ComponentSender<Self>, rect: (Vec2D, Vec2D)) {
-        let (_, size) = crop_rect_in_bounds(rect, self.image_bounds);
+    fn emit_shape_dimensions(&self, sender: &ComponentSender<Self>, size: Vec2D) {
         sender
             .output_sender()
-            .emit(SketchBoardOutput::DimensionsUpdate(Some((
-                size.x as i32,
-                size.y as i32,
-            ))));
+            .emit(SketchBoardOutput::DimensionsUpdate(size));
+    }
+
+    // Report what a save would produce, not the crop rectangle the same clip
+    // render_native_resolution applies before it sizes the render target, so
+    // the label and the file cannot disagree.
+    fn current_output_dimensions(&self) -> Vec2D {
+        self.renderer
+            .find_drawable_index_by_mode(RenderingMode::Crop)
+            .and_then(|index| self.renderer.get_drawable_bounds(index))
+            .map(|(tl, br)| crop_rect_in_bounds((tl, br - tl), self.image_bounds).1)
+            .unwrap_or(self.image_bounds.1)
     }
 
     fn update_mouse_cursor(&self, pos: Vec2D) {
@@ -1828,12 +1837,12 @@ impl Component for SketchBoard {
                 if let Some(index) = selected_index {
                     if let Some(mut drawable) = self.renderer.get_drawable_clone(index) {
                         drawable.translate(delta);
-                        if drawable.get_rendering_mode() == crate::tools::RenderingMode::Crop
-                            && let Some((tl, br)) = drawable.bounds()
-                        {
-                            self.emit_crop_dimensions(&sender, (tl, br - tl));
-                        }
+                        let is_crop =
+                            drawable.get_rendering_mode() == crate::tools::RenderingMode::Crop;
                         self.renderer.replace_drawable(index, drawable);
+                        if is_crop {
+                            self.emit_shape_dimensions(&sender, self.current_output_dimensions());
+                        }
                         self.update_pointer_tool_selection(index, false);
                         ToolUpdateResult::Redraw
                     } else {
@@ -1890,8 +1899,8 @@ impl Component for SketchBoard {
                 self.renderer.resize(0, 0);
                 ToolUpdateResult::Redraw
             }
-            SketchBoardInput::CropDimensionsUpdate(rect) => {
-                self.emit_crop_dimensions(&sender, rect);
+            SketchBoardInput::ShapeDimensionsUpdate(size) => {
+                self.emit_shape_dimensions(&sender, size);
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::Output(output) => {
@@ -1911,6 +1920,10 @@ impl Component for SketchBoard {
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 self.renderer.commit(drawable);
+                // Queue this after any live drag update so the final display is authoritative.
+                sender_clone.input(SketchBoardInput::ShapeDimensionsUpdate(
+                    self.current_output_dimensions(),
+                ));
                 let auto_select = APP_CONFIG.read().auto_select();
 
                 let committed_index = self.renderer.last_drawable_index();
@@ -1956,7 +1969,13 @@ impl Component for SketchBoard {
                 self.refresh_screen();
             }
             ToolUpdateResult::ReplaceDrawable(index, drawable) => {
+                let is_crop = drawable.get_rendering_mode() == RenderingMode::Crop;
                 self.renderer.replace_drawable(index, drawable);
+                if is_crop {
+                    sender_clone.input(SketchBoardInput::ShapeDimensionsUpdate(
+                        self.current_output_dimensions(),
+                    ));
+                }
                 self.update_pointer_tool_selection(index, true);
                 self.refresh_screen();
             }

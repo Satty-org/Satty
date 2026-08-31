@@ -64,6 +64,7 @@ pub struct Configuration {
     default_round_caps: bool,
     font: FontConfiguration,
     primary_highlighter: Highlighters,
+    aspect_ratios: Vec<(f32, f32)>,
     disable_notifications: bool,
     profile_startup: bool,
     no_window_decoration: bool,
@@ -333,6 +334,9 @@ impl Configuration {
         }
         if let Some(v) = general.primary_highlighter {
             self.primary_highlighter = v;
+        }
+        if let Some(v) = general.aspect_ratios {
+            self.aspect_ratios = v;
         }
         if let Some(v) = general.disable_notifications {
             self.disable_notifications = v;
@@ -625,6 +629,10 @@ impl Configuration {
         self.primary_highlighter
     }
 
+    pub fn aspect_ratios(&self) -> &[(f32, f32)] {
+        &self.aspect_ratios
+    }
+
     pub fn disable_notifications(&self) -> bool {
         self.disable_notifications
     }
@@ -710,6 +718,14 @@ impl Default for Configuration {
             default_round_caps: true,
             font: FontConfiguration::default(),
             primary_highlighter: Highlighters::Block,
+            aspect_ratios: vec![
+                (1.0, 1.0),
+                (5.0, 4.0),
+                (4.0, 3.0),
+                (7.0, 5.0),
+                (3.0, 2.0),
+                (16.0, 9.0),
+            ],
             disable_notifications: false,
             profile_startup: false,
             no_window_decoration: false,
@@ -784,6 +800,7 @@ struct ConfigurationFileGeneral {
     default_fill_shapes: Option<bool>,
     default_round_caps: Option<bool>,
     primary_highlighter: Option<Highlighters>,
+    aspect_ratios: Option<Vec<(f32, f32)>>,
     disable_notifications: Option<bool>,
     no_window_decoration: Option<bool>,
     brush_smooth_history_size: Option<usize>,

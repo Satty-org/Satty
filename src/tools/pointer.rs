@@ -8,7 +8,7 @@ use std::cell::Cell;
 
 use crate::{
     configuration::APP_CONFIG,
-    math::{Vec2D, ensure_bounding_box},
+    math::{Vec2D, ensure_bounding_box, get_closest_aspect_ratio},
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     tools::RenderingMode,
 };
@@ -66,89 +66,124 @@ impl ResizeHandle {
     // This intentionally preserves axis inversion (tl may become > br) so tools like
     // line/arrow can keep endpoint intent when crossing over an axis.
     pub fn resize(&self, event: MouseEventMsg, tl: Vec2D, br: Vec2D) -> (Vec2D, Vec2D) {
-        let mut delta = event.pos;
-
-        if event.modifier & ModifierType::SHIFT_MASK != ModifierType::empty() {
-            (delta.x, delta.y) = match self {
-                ResizeHandle::TopRight => {
-                    let x = delta.x.max(-delta.y);
-                    (x, -x)
-                }
-                ResizeHandle::BottomRight => {
-                    let x = delta.x.max(delta.y);
-                    (x, x)
-                }
-                ResizeHandle::BottomLeft => {
-                    let x = delta.x.min(-delta.y);
-                    (x, -x)
-                }
-                ResizeHandle::TopLeft => {
-                    let x = delta.x.min(delta.y);
-                    (x, x)
-                }
-                _ => (delta.x, delta.y),
-            };
-        }
-
-        let is_centered = event.modifier & ModifierType::ALT_MASK != ModifierType::empty();
-        if is_centered {
-            delta = delta / 2.0;
-        }
-
         let mut new_tl = tl;
         let mut new_br = br;
+        let delta = event.pos;
 
+        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
+        let aspect = event.modifier.intersects(ModifierType::SHIFT_MASK);
+
+        // keep center fixed if Alt is held down
+        type RH = ResizeHandle;
         match self {
-            ResizeHandle::TopRight => {
+            RH::TopRight => {
                 new_tl.y += delta.y;
                 new_br.x += delta.x;
-                if is_centered {
+                if centered {
                     new_tl.x -= delta.x;
                     new_br.y -= delta.y;
                 }
             }
-            ResizeHandle::MiddleRight => {
+            RH::MiddleRight => {
                 new_br.x += delta.x;
-                if is_centered {
+                if centered {
                     new_tl.x -= delta.x;
                 }
             }
-            ResizeHandle::BottomRight => {
+            RH::BottomRight => {
                 new_br += delta;
-                if is_centered {
+                if centered {
                     new_tl -= delta;
                 }
             }
-            ResizeHandle::BottomCenter => {
+            RH::BottomCenter => {
                 new_br.y += delta.y;
-                if is_centered {
+                if centered {
                     new_tl.y -= delta.y;
                 }
             }
-            ResizeHandle::BottomLeft => {
+            RH::BottomLeft => {
                 new_tl.x += delta.x;
                 new_br.y += delta.y;
-                if is_centered {
+                if centered {
                     new_tl.y -= delta.y;
                     new_br.x -= delta.x;
                 }
             }
-            ResizeHandle::MiddleLeft => {
+            RH::MiddleLeft => {
                 new_tl.x += delta.x;
-                if is_centered {
+                if centered {
                     new_br.x -= delta.x;
                 }
             }
-            ResizeHandle::TopCenter => {
+            RH::TopCenter => {
                 new_tl.y += delta.y;
-                if is_centered {
+                if centered {
                     new_br.y -= delta.y;
                 }
             }
-            ResizeHandle::TopLeft => {
+            RH::TopLeft => {
                 new_tl += delta;
-                if is_centered {
+                if centered {
                     new_br -= delta;
+                }
+            }
+        }
+
+        // keep to predefined aspect ratio if Shift is held down
+        if aspect {
+            let w = new_br.x - new_tl.x;
+            let h = new_br.y - new_tl.y;
+            let config = APP_CONFIG.read();
+
+            let closest_aspect_ratio = get_closest_aspect_ratio(w / h, config.aspect_ratios());
+            let aspect_ratio = closest_aspect_ratio.0 / closest_aspect_ratio.1;
+            let size = if h.abs() < f32::EPSILON {
+                Vec2D::new(w, h) // fallback
+            } else {
+                match self {
+                    RH::TopCenter | RH::BottomCenter => Vec2D::new(h * aspect_ratio, h),
+                    RH::MiddleLeft | RH::MiddleRight => Vec2D::new(w, w / aspect_ratio),
+                    _ => {
+                        if h > w * aspect_ratio {
+                            Vec2D::new(h * aspect_ratio, h)
+                        } else {
+                            Vec2D::new(w, w / aspect_ratio)
+                        }
+                    }
+                }
+            };
+
+            let size_half = size / 2.0;
+            let center = (new_tl + new_br) / 2.0;
+
+            if centered {
+                new_tl = center - size_half;
+                new_br = center + size_half;
+            } else {
+                match self {
+                    RH::TopLeft => {
+                        new_tl = new_br - size;
+                    }
+                    RH::TopRight => {
+                        new_br.x = new_tl.x + size.x;
+                        new_tl.y = new_br.y - size.y;
+                    }
+                    RH::BottomRight => {
+                        new_br = new_tl + size;
+                    }
+                    RH::BottomLeft => {
+                        new_tl.x = new_br.x - size.x;
+                        new_br.y = new_tl.y + size.y;
+                    }
+                    RH::TopCenter | RH::BottomCenter => {
+                        new_tl.x = center.x - size_half.x;
+                        new_br.x = center.x + size_half.x;
+                    }
+                    RH::MiddleLeft | RH::MiddleRight => {
+                        new_tl.y = center.y - size_half.y;
+                        new_br.y = center.y + size_half.y;
+                    }
                 }
             }
         }
@@ -429,16 +464,12 @@ impl PointerTool {
         self.drag_start_pos.map_or(delta, |start| start + delta)
     }
 
-    // The crop readout has to track anything that moves or resizes the crop,
-    // since all of it changes what a save would produce. Sourced from the
-    // drawable's own bounds, which is the rect render_native_resolution clips.
-    fn emit_crop_dimensions_update(&self, crop: &dyn Drawable) {
-        if crop.get_rendering_mode() == RenderingMode::Crop
-            && let Some(sender) = &self.sender
-            && let Some((tl, br)) = crop.bounds()
+    fn emit_dimensions_update(&self, drawable: &dyn Drawable) {
+        if let Some(sender) = &self.sender
+            && let Some((tl, br)) = drawable.bounds()
         {
             sender
-                .send(SketchBoardInput::CropDimensionsUpdate((tl, br - tl)))
+                .send(SketchBoardInput::ShapeDimensionsUpdate(br - tl))
                 .ok();
         }
     }
@@ -473,6 +504,12 @@ impl PointerTool {
             // is updated in draw() to maintain constant on-screen size regardless of zoom level
             scaled_handle_size: Cell::new(HANDLE_SIZE),
         });
+
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SketchBoardInput::ShapeDimensionsUpdate(br - tl))
+                .ok();
+        }
     }
 
     // Select a drawable without starting a drag (e.g. after a commit/replace).
@@ -611,7 +648,7 @@ impl Tool for PointerTool {
                     let delta = event.pos;
                     let mut preview = original.clone_box();
                     preview.translate(delta);
-                    self.emit_crop_dimensions_update(preview.as_ref());
+                    self.emit_dimensions_update(preview.as_ref());
                     let (tl, br) = *orig_bounds;
                     self.update_selection_bounds(tl + delta, br + delta);
                     self.preview = Some(preview);
@@ -626,7 +663,7 @@ impl Tool for PointerTool {
                     let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
                     let mut preview = original.clone_box();
                     preview.resize_bounds(new_tl, new_br);
-                    self.emit_crop_dimensions_update(preview.as_ref());
+                    self.emit_dimensions_update(preview.as_ref());
 
                     self.update_selection_bounds(new_tl, new_br);
                     self.preview = Some(preview);

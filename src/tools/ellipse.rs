@@ -103,8 +103,8 @@ impl Drawable for Ellipse {
 }
 
 impl Ellipse {
-    fn calculate_shape(&mut self, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
+    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
         self.centered = drag_box.centered;
         self.middle = drag_box.middle();
         self.radii = Some(drag_box.size.abs() * 0.5);
@@ -167,7 +167,7 @@ impl Tool for EllipseTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        ellipse.calculate_shape(&event);
+                        ellipse.calculate_shape(self.sender.as_ref().unwrap(), &event);
                         let result = ellipse.clone_box();
                         self.ellipse = None;
                         ToolUpdateResult::Commit(result)
@@ -185,7 +185,7 @@ impl Tool for EllipseTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    ellipse.calculate_shape(&event);
+                    ellipse.calculate_shape(self.sender.as_ref().unwrap(), &event);
                     ToolUpdateResult::Redraw
                 } else {
                     ToolUpdateResult::Unmodified

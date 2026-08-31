@@ -92,7 +92,7 @@ enum AppInput {
     SetFill(bool),
     SetRoundCaps(bool),
     FullscreenChanged(bool),
-    DimensionsUpdate(Option<(i32, i32)>),
+    DimensionsUpdate(Vec2D),
     ToolEditingChanged(bool),
 }
 
@@ -349,10 +349,9 @@ impl Component for App {
                 }
             }
             AppInput::DimensionsUpdate(dimensions) => {
-                let d = dimensions.unwrap_or(self.image_dimensions);
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::DimensionsChanged(d));
+                    .emit(StyleToolbarInput::DimensionsChanged(dimensions));
             }
             AppInput::ToolEditingChanged(editing) => {
                 self.tools_toolbar
@@ -444,7 +443,10 @@ impl Component for App {
         model
             .style_toolbar
             .sender()
-            .emit(StyleToolbarInput::DimensionsChanged(image_dimensions));
+            .emit(StyleToolbarInput::DimensionsChanged(Vec2D {
+                x: image_dimensions.0 as f32,
+                y: image_dimensions.1 as f32,
+            }));
 
         let widgets = view_output!();
 

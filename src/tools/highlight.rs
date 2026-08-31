@@ -138,8 +138,8 @@ impl Highlight for Highlighter<BlockHighlight> {
 }
 
 impl BlockHighlight {
-    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
-        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
+    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         self.size = Some(drag_box.size);
@@ -387,7 +387,9 @@ impl Tool for HighlightTool {
                 let mut highlighter_kind = self.highlighter.as_mut().unwrap();
                 let update: ToolUpdateResult = match &mut highlighter_kind {
                     HighlightKind::Block(highlighter) => {
-                        highlighter.data.calculate_shape(event.pos, event.modifier);
+                        highlighter
+                            .data
+                            .calculate_shape(self.sender.as_ref().unwrap(), &event);
                         ToolUpdateResult::Redraw
                     }
                     HighlightKind::Freehand(highlighter) => {

@@ -4,6 +4,31 @@ use std::{
     ops::{Add, AddAssign, Div, Mul, Sub, SubAssign},
 };
 
+pub fn get_closest_aspect_ratio(aspect_ratio: f32, aspect_ratios: &[(f32, f32)]) -> (f32, f32) {
+    if aspect_ratios.is_empty() {
+        return (1.0, 1.0); // default aspect ratio if list is empty
+    }
+    let closest_ar = aspect_ratios
+        .iter()
+        .min_by(|a, b| {
+            let da = (aspect_ratio - a.0 / a.1)
+                .abs()
+                .min((aspect_ratio - a.1 / a.0).abs());
+            let db = (aspect_ratio - b.0 / b.1)
+                .abs()
+                .min((aspect_ratio - b.1 / b.0).abs());
+            da.partial_cmp(&db).unwrap() // safe because there is a min
+        })
+        .unwrap(); // safe because list is not empty 
+    if (aspect_ratio - closest_ar.0 / closest_ar.1).abs()
+        <= (aspect_ratio - closest_ar.1 / closest_ar.0).abs()
+    {
+        *closest_ar
+    } else {
+        (closest_ar.1, closest_ar.0)
+    }
+}
+
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct Vec2D {
     pub x: f32,
@@ -319,7 +344,15 @@ pub fn rect_round(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Vec2D, crop_rect_in_bounds, rect_ensure_in_bounds};
+    use super::{Vec2D, crop_rect_in_bounds, get_closest_aspect_ratio, rect_ensure_in_bounds};
+
+    #[test]
+    fn closest_aspect_ratio_supports_reverse_orientation() {
+        assert_eq!(
+            get_closest_aspect_ratio(9.0 / 16.0, &[(16.0, 9.0)]),
+            (9.0, 16.0)
+        );
+    }
 
     fn bounds() -> (Vec2D, Vec2D) {
         (Vec2D::zero(), Vec2D::new(200.0, 100.0))

@@ -30,8 +30,8 @@ pub struct CropTool {
 }
 
 impl Crop {
-    pub fn calculate_shape(&mut self, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
+    pub fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         self.size = drag_box.size;
@@ -97,18 +97,6 @@ impl Drawable for Crop {
     }
 }
 
-impl CropTool {
-    fn emit_crop_dimensions_update(&self) {
-        if let (Some(crop), Some(sender)) = (&self.crop, &self.sender)
-            && let Some((tl, br)) = crop.bounds()
-        {
-            sender
-                .send(SketchBoardInput::CropDimensionsUpdate((tl, br - tl)))
-                .ok();
-        }
-    }
-}
-
 impl Tool for CropTool {
     fn active(&self) -> bool {
         if let Some(c) = &self.crop {
@@ -151,11 +139,10 @@ impl Tool for CropTool {
                 };
                 if crop.size == Vec2D::zero() {
                     self.crop = None;
-                    self.emit_crop_dimensions_update();
                     return ToolUpdateResult::Redraw;
                 }
                 crop.finishing = true;
-                crop.calculate_shape(&event);
+                crop.calculate_shape(self.sender.as_ref().unwrap(), &event);
                 ToolUpdateResult::Commit(crop.clone_box())
             }
             MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
@@ -165,8 +152,7 @@ impl Tool for CropTool {
                 let Some(crop) = &mut self.crop else {
                     return ToolUpdateResult::Unmodified;
                 };
-                crop.calculate_shape(&event);
-                self.emit_crop_dimensions_update();
+                crop.calculate_shape(self.sender.as_ref().unwrap(), &event);
                 ToolUpdateResult::Redraw
             }
             _ => ToolUpdateResult::Unmodified,

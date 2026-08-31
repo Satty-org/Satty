@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use anyhow::Result;
 use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
 
-use relm4::{Sender, gtk::gdk::ModifierType};
+use relm4::Sender;
 
 use crate::{
     configuration::APP_CONFIG,
@@ -30,8 +30,8 @@ pub struct Blur {
 }
 
 impl Blur {
-    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
-        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
+    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         self.size = Some(drag_box.size);
@@ -255,7 +255,7 @@ impl Tool for BlurTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        a.calculate_shape(event.pos, event.modifier);
+                        a.calculate_shape(self.sender.as_ref().unwrap(), &event);
                         a.editing = false;
 
                         let result = a.clone_box();
@@ -276,7 +276,7 @@ impl Tool for BlurTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    a.calculate_shape(event.pos, event.modifier);
+                    a.calculate_shape(self.sender.as_ref().unwrap(), &event);
 
                     ToolUpdateResult::Redraw
                 } else {

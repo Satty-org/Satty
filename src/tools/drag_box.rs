@@ -1,7 +1,12 @@
 use femtovg::{Color, Paint, Path};
+use relm4::Sender;
 use relm4::gtk::gdk::ModifierType;
 
-use crate::math::Vec2D;
+use crate::{
+    configuration::APP_CONFIG,
+    math::{Vec2D, get_closest_aspect_ratio},
+    sketch_board::{MouseEventMsg, SketchBoardInput},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DragBox {
@@ -11,28 +16,53 @@ pub struct DragBox {
 }
 
 impl DragBox {
-    pub fn from_origin_delta(origin: Vec2D, delta: Vec2D, modifier: ModifierType) -> Self {
-        let centered = modifier.intersects(ModifierType::ALT_MASK);
-        let uniform = modifier.intersects(ModifierType::SHIFT_MASK);
+    pub fn from_origin_delta(
+        origin: Vec2D,
+        event: &MouseEventMsg,
+        sender: &Sender<SketchBoardInput>,
+    ) -> Self {
+        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
+        let aspect = event.modifier.intersects(ModifierType::SHIFT_MASK);
 
-        let size = if uniform {
-            let max_size = delta.x.abs().max(delta.y.abs());
-            Vec2D::new(max_size * delta.x.signum(), max_size * delta.y.signum())
-        } else {
-            delta
-        };
+        let mut size = event.pos;
+
+        if aspect && size.y.abs() > f32::EPSILON {
+            let sign_x = size.x.signum();
+            let sign_y = size.y.signum();
+            let width = size.x.abs();
+            let height = size.y.abs();
+            let aspect_ratio = width / height;
+            let config = APP_CONFIG.read();
+            let closest_aspect_ratio =
+                get_closest_aspect_ratio(aspect_ratio, config.aspect_ratios());
+            let aspect_ratio = closest_aspect_ratio.0 / closest_aspect_ratio.1;
+            let (width, height) = if height > width / aspect_ratio {
+                (height * aspect_ratio, height)
+            } else {
+                (width, width / aspect_ratio)
+            };
+            size.x = width * sign_x;
+            size.y = height * sign_y;
+        }
+
+        let size_factor = if centered { 2.0 } else { 1.0 };
+        size = size * size_factor;
 
         let top_left = if centered {
-            origin - size * 0.5
+            origin.min(origin - size.abs() / size_factor)
         } else {
             origin.min(origin + size)
         };
 
-        Self {
+        let drag_box = Self {
             top_left,
             size: size.abs(),
             centered,
-        }
+        };
+        sender
+            .send(SketchBoardInput::ShapeDimensionsUpdate(drag_box.size))
+            .ok();
+        drag_box
     }
 
     pub fn middle(&self) -> Vec2D {

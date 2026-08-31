@@ -111,6 +111,8 @@ Newly created annotations can be autoselected if enabled in the config.
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
 - <kbd>Delete</kbd> deletes the selected annotation.
 - Drag the resize handles - mouse cursor will change - to change the size. 
+  - Hold <kbd>Alt</kbd> for centered resize
+  - Hold <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
 - Grab an annotation - mouse cursor will change to a hand - to move.
 - Scroll up/down with the mouse wheel to change the annotation's layer.
 - Nudge (small move) with the cursor keys.
@@ -134,7 +136,7 @@ Arrow and line:
 
 Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
-- <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
+- <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
 - Hold both to combine them.
 
 Text:
@@ -203,6 +205,8 @@ auto-select-new = false
 # Exit directly after copy/save action. 0.21.0: change to list of triggers
 # Note that exit-early-save-as was removed with 0.21.0.
 early-exit = ["all"]
+# Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
+aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
 # is equivalent to both
 # early-exit = ["copy", "save", "save-as"]
 # early-exit = true

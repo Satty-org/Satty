@@ -17,6 +17,8 @@ auto-select-new = false
 # Exit directly after copy/save action. 0.21.0: change to list of triggers
 # Note that exit-early-save-as was removed with 0.21.0.
 early-exit = ["all"]
+# Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
+aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
 # is equivalent to both
 # early-exit = ["copy", "save", "save-as"]
 # early-exit = true

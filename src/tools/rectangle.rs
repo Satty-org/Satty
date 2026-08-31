@@ -96,8 +96,8 @@ impl Drawable for Rectangle {
 }
 
 impl Rectangle {
-    fn calculate_shape(&mut self, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
+    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         self.size = Some(drag_box.size);
@@ -154,7 +154,7 @@ impl Tool for RectangleTool {
                         self.rectangle = None;
                         ToolUpdateResult::Redraw
                     } else {
-                        rectangle.calculate_shape(&event);
+                        rectangle.calculate_shape(self.sender.as_ref().unwrap(), &event);
                         let result = rectangle.clone_box();
                         self.rectangle = None;
                         ToolUpdateResult::Commit(result)
@@ -172,7 +172,7 @@ impl Tool for RectangleTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    rectangle.calculate_shape(&event);
+                    rectangle.calculate_shape(self.sender.as_ref().unwrap(), &event);
                     ToolUpdateResult::Redraw
                 } else {
                     ToolUpdateResult::Unmodified
