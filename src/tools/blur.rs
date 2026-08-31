@@ -112,6 +112,7 @@ impl Drawable for Blur {
     }
 
     fn get_style_mut(&mut self) -> Option<&mut Style> {
+        *self.cached_image.borrow_mut() = None;
         Some(&mut self.style)
     }
 
