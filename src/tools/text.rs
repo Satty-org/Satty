@@ -982,7 +982,9 @@ impl Tool for TextTool {
                     }
                 },
                 Key::Escape => {
-                    tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                    self.input_enabled = false;
+                    self.text = None;
+                    tool_update_result = ToolUpdateResult::Redraw;
                 }
                 Key::Alt_L | Key::Alt_R => {
                     // Start tracking a potential Alt tap; the text effect is cycled on

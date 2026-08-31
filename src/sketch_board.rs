@@ -1156,7 +1156,9 @@ impl SketchBoard {
                 // send style event
                 self.active_tool
                     .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style))
+                    .handle_event(ToolEvent::StyleChanged(self.style));
+
+                ToolUpdateResult::Redraw
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
