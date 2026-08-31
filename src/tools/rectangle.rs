@@ -19,7 +19,7 @@ use super::{
 pub struct Rectangle {
     origin: Vec2D,
     top_left: Vec2D,
-    size: Option<Vec2D>,
+    size: Vec2D,
     style: Style,
     centered: bool,
     finishing: bool,
@@ -27,10 +27,9 @@ pub struct Rectangle {
 
 impl Drawable for Rectangle {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let size = self.size?;
         Some(math::ensure_bounding_box(
             self.top_left,
-            self.top_left + size,
+            self.top_left + self.size,
         ))
     }
 
@@ -46,7 +45,7 @@ impl Drawable for Rectangle {
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         self.top_left = tl;
-        self.size = Some(br - tl);
+        self.size = br - tl;
         self.origin = tl;
         self.centered = false;
         self.finishing = true;
@@ -66,18 +65,13 @@ impl Drawable for Rectangle {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let size = match self.size {
-            Some(s) => s,
-            None => return Ok(()), // early exit if none
-        };
-
         canvas.save();
         let mut path = Path::new();
         path.rounded_rect(
             self.top_left.x,
             self.top_left.y,
-            size.x,
-            size.y,
+            self.size.x,
+            self.size.y,
             APP_CONFIG.read().corner_roundness(),
         );
 
@@ -97,10 +91,10 @@ impl Drawable for Rectangle {
 
 impl Rectangle {
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
+        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
-        self.size = Some(drag_box.size);
+        self.size = drag_box.size;
     }
 }
 
@@ -135,7 +129,7 @@ impl Tool for RectangleTool {
                 self.rectangle = Some(Rectangle {
                     origin: event.pos,
                     top_left: event.pos,
-                    size: None,
+                    size: Vec2D::zero(),
                     style: self.style,
                     centered: false,
                     finishing: false,

@@ -68,26 +68,93 @@ impl ResizeHandle {
     pub fn resize(&self, event: MouseEventMsg, tl: Vec2D, br: Vec2D) -> (Vec2D, Vec2D) {
         let mut new_tl = tl;
         let mut new_br = br;
-        let delta = event.pos;
+        let mut delta = event.pos;
 
-        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
         let aspect = event.modifier.intersects(ModifierType::SHIFT_MASK);
+        let keep_aspect = event.modifier.intersects(ModifierType::CONTROL_MASK);
+        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
 
-        // keep center fixed if Alt is held down
         type RH = ResizeHandle;
-        match self {
-            RH::TopRight => {
-                new_tl.y += delta.y;
-                new_br.x += delta.x;
-                if centered {
-                    new_tl.x -= delta.x;
-                    new_br.y -= delta.y;
+
+        // keep aspect ratio if Ctrl is held down on corners
+        if keep_aspect && (br.y - tl.y) > f32::EPSILON {
+            let size = br - tl;
+            let aspect_ratio = size.x.abs() / size.y.abs();
+            let center_scale = if centered { 1.0 } else { 2.0 };
+
+            // Adjusts a (width-delta, height-delta) pair, in the "both attached to
+            // br" sign convention, so it maintains aspect_ratio. Which axis is
+            // dominant is picked by whichever the mouse actually moved further
+            // in order to keep the mouse pointer on the edge.
+            // When centered, wh is applied to *both* opposite corners, so the
+            // real total size change is 2*wh, not wh - the signum heuristic below
+            // needs that same total to pick the correct axis near a size inversion.
+            let total_scale = 2.0 / center_scale;
+            let fix_aspect = |mut wh: Vec2D| -> Vec2D {
+                let size_delta = size + wh * total_scale;
+                let sdxs = size_delta.x.signum();
+                let sdys = size_delta.y.signum();
+                if sdxs * wh.x >= sdys * wh.y * aspect_ratio {
+                    wh.y = wh.x / aspect_ratio;
+                } else {
+                    wh.x = wh.y * aspect_ratio;
+                }
+                wh
+            };
+
+            match self {
+                RH::TopLeft => {
+                    // w and h are both attached to tl (-dx/-dy grow them)
+                    let wh = fix_aspect(delta * -1.0);
+                    delta = wh * -1.0;
+                }
+                RH::BottomRight => {
+                    // w and h are both attached to br (dx/dy grow them)
+                    delta = fix_aspect(delta);
+                }
+                RH::TopRight => {
+                    // w is attached to br (dx grows it), h to tl (-dy grows it).
+                    let wh = fix_aspect(Vec2D::new(delta.x, -delta.y));
+                    delta = Vec2D::new(wh.x, -wh.y);
+                }
+                RH::BottomLeft => {
+                    // w is attached to tl (-dx grows it), h to br (dy grows it).
+                    let wh = fix_aspect(Vec2D::new(-delta.x, delta.y));
+                    delta = Vec2D::new(-wh.x, wh.y);
+                }
+                RH::TopCenter => {
+                    // h is attached to tl (-dy grows it); w follows via aspect ratio.
+                    delta.x = -delta.y * aspect_ratio;
+                    new_tl.x -= delta.x / center_scale;
+                    new_br.x += delta.x / center_scale;
+                }
+                RH::BottomCenter => {
+                    // h is attached to br (dy grows it); w follows via aspect ratio.
+                    delta.x = delta.y * aspect_ratio;
+                    new_tl.x -= delta.x / center_scale;
+                    new_br.x += delta.x / center_scale;
+                }
+                RH::MiddleLeft => {
+                    // w is attached to tl (-dx grows it); h follows via aspect ratio.
+                    delta.y = -delta.x / aspect_ratio;
+                    new_tl.y -= delta.y / center_scale;
+                    new_br.y += delta.y / center_scale;
+                }
+                RH::MiddleRight => {
+                    // w is attached to br (dx grows it); h follows via aspect ratio.
+                    delta.y = delta.x / aspect_ratio;
+                    new_tl.y -= delta.y / center_scale;
+                    new_br.y += delta.y / center_scale;
                 }
             }
-            RH::MiddleRight => {
-                new_br.x += delta.x;
+        }
+
+        // keep center fixed if Alt is held down
+        match self {
+            RH::TopLeft => {
+                new_tl += delta;
                 if centered {
-                    new_tl.x -= delta.x;
+                    new_br -= delta;
                 }
             }
             RH::BottomRight => {
@@ -96,10 +163,12 @@ impl ResizeHandle {
                     new_tl -= delta;
                 }
             }
-            RH::BottomCenter => {
-                new_br.y += delta.y;
+            RH::TopRight => {
+                new_tl.y += delta.y;
+                new_br.x += delta.x;
                 if centered {
-                    new_tl.y -= delta.y;
+                    new_tl.x -= delta.x;
+                    new_br.y -= delta.y;
                 }
             }
             RH::BottomLeft => {
@@ -110,22 +179,28 @@ impl ResizeHandle {
                     new_br.x -= delta.x;
                 }
             }
-            RH::MiddleLeft => {
-                new_tl.x += delta.x;
-                if centered {
-                    new_br.x -= delta.x;
-                }
-            }
             RH::TopCenter => {
                 new_tl.y += delta.y;
                 if centered {
                     new_br.y -= delta.y;
                 }
             }
-            RH::TopLeft => {
-                new_tl += delta;
+            RH::BottomCenter => {
+                new_br.y += delta.y;
                 if centered {
-                    new_br -= delta;
+                    new_tl.y -= delta.y;
+                }
+            }
+            RH::MiddleLeft => {
+                new_tl.x += delta.x;
+                if centered {
+                    new_br.x -= delta.x;
+                }
+            }
+            RH::MiddleRight => {
+                new_br.x += delta.x;
+                if centered {
+                    new_tl.x -= delta.x;
                 }
             }
         }
@@ -138,17 +213,17 @@ impl ResizeHandle {
 
             let closest_aspect_ratio = get_closest_aspect_ratio(w / h, config.aspect_ratios());
             let aspect_ratio = closest_aspect_ratio.0 / closest_aspect_ratio.1;
-            let size = if h.abs() < f32::EPSILON {
+            let size = if h.abs() <= f32::EPSILON {
                 Vec2D::new(w, h) // fallback
             } else {
                 match self {
                     RH::TopCenter | RH::BottomCenter => Vec2D::new(h * aspect_ratio, h),
                     RH::MiddleLeft | RH::MiddleRight => Vec2D::new(w, w / aspect_ratio),
                     _ => {
-                        if h > w * aspect_ratio {
-                            Vec2D::new(h * aspect_ratio, h)
-                        } else {
+                        if w.abs() >= h.abs() * aspect_ratio {
                             Vec2D::new(w, w / aspect_ratio)
+                        } else {
+                            Vec2D::new(h * aspect_ratio, h)
                         }
                     }
                 }

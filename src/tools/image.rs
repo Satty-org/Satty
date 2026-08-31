@@ -38,12 +38,12 @@ impl ImagePlacement {
 
     // the placement a drag from `origin` asks for, given its end event
     fn from_drag(origin: Vec2D, event: &MouseEventMsg, sender: &Sender<SketchBoardInput>) -> Self {
-        let drag_box = DragBox::from_origin_delta(origin, event, sender);
+        let drag_box = DragBox::from_origin_delta(origin, Vec2D::zero(), event, sender);
         // the same box on screen, so that what counts as a click does not
         // change with the zoom
         let screen_box =
         // FIXME was using screen_pos in old version - now we pass event and dragbox used pos
-            DragBox::from_origin_delta(Vec2D::zero(),  event, sender);
+            DragBox::from_origin_delta(Vec2D::zero(), Vec2D::zero(), event, sender);
 
         if screen_box.size.x < Self::MIN_BOX_SIZE || screen_box.size.y < Self::MIN_BOX_SIZE {
             Self::Center(drag_box.middle())
@@ -161,7 +161,7 @@ impl Drawable for Image {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, Some(self.size), tolerance, true)
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -326,6 +326,7 @@ impl Tool for ImageTool {
                     origin: event.pos,
                     drag_box: DragBox::from_origin_delta(
                         event.pos,
+                        Vec2D::zero(),
                         &event,
                         self.sender.as_ref().unwrap(),
                     ),
@@ -336,8 +337,12 @@ impl Tool for ImageTool {
                 let Some(drag) = &mut self.drag else {
                     return ToolUpdateResult::Unmodified;
                 };
-                drag.drag_box =
-                    DragBox::from_origin_delta(drag.origin, &event, self.sender.as_ref().unwrap());
+                drag.drag_box = DragBox::from_origin_delta(
+                    drag.origin,
+                    Vec2D::zero(),
+                    &event,
+                    self.sender.as_ref().unwrap(),
+                );
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {

@@ -55,7 +55,7 @@ impl Drawable for BrushDrawable {
             Some(bounds) => bounds,
             None => return false,
         };
-        hit_test_rectangle(pos, tl, Some(br - tl), tolerance, true)
+        hit_test_rectangle(pos, tl, br - tl, tolerance, true)
     }
 
     fn translate(&mut self, delta: Vec2D) {

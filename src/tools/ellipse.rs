@@ -17,7 +17,7 @@ use super::{
 pub struct Ellipse {
     origin: Vec2D,
     middle: Vec2D,
-    radii: Option<Vec2D>,
+    radii: Vec2D,
     style: Style,
     centered: bool,
     finishing: bool,
@@ -25,16 +25,12 @@ pub struct Ellipse {
 
 impl Drawable for Ellipse {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let radii = self.radii?.abs();
+        let radii = self.radii.abs();
         Some((self.middle - radii, self.middle + radii))
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let Some(radii) = self.radii else {
-            return false;
-        };
-
-        let d = (pos - self.middle) / (radii + tolerance);
+        let d = (pos - self.middle) / (self.radii + tolerance);
         if d * d > 1.0 {
             // outside the outer tolerance
             return false;
@@ -46,7 +42,7 @@ impl Drawable for Ellipse {
         }
 
         // outside the inner tolerance
-        let inner_d = (pos - self.middle) / (radii - tolerance);
+        let inner_d = (pos - self.middle) / (self.radii - tolerance);
         inner_d * inner_d > 1.0
     }
 
@@ -60,7 +56,7 @@ impl Drawable for Ellipse {
         let center = (tl + br) / 2.0;
         self.middle = center;
         self.origin = center;
-        self.radii = Some((br - tl).abs() / 2.0);
+        self.radii = (br - tl).abs() / 2.0;
         self.centered = false;
         self.finishing = true;
     }
@@ -79,14 +75,9 @@ impl Drawable for Ellipse {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let radii = match self.radii {
-            Some(s) => s,
-            None => return Ok(()), // early exit if none
-        };
-
         canvas.save();
         let mut path = Path::new();
-        path.ellipse(self.middle.x, self.middle.y, radii.x, radii.y);
+        path.ellipse(self.middle.x, self.middle.y, self.radii.x, self.radii.y);
 
         if !self.finishing && self.centered {
             draw_center_marker(canvas, self.middle);
@@ -104,10 +95,10 @@ impl Drawable for Ellipse {
 
 impl Ellipse {
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
+        let drag_box = DragBox::from_origin_delta(self.origin, self.radii * 2.0, event, sender);
         self.centered = drag_box.centered;
         self.middle = drag_box.middle();
-        self.radii = Some(drag_box.size.abs() * 0.5);
+        self.radii = drag_box.size.abs() * 0.5;
     }
 }
 
@@ -147,7 +138,7 @@ impl Tool for EllipseTool {
                 self.ellipse = Some(Ellipse {
                     origin: event.pos,
                     middle: event.pos,
-                    radii: None,
+                    radii: Vec2D::zero(),
                     style: self.style,
                     centered: true,
                     finishing: false,

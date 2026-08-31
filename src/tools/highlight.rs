@@ -46,7 +46,7 @@ impl From<command_line::Highlighters> for Highlighters {
 struct BlockHighlight {
     origin: Vec2D,
     top_left: Vec2D,
-    size: Option<Vec2D>,
+    size: Vec2D,
     centered: bool,
     finishing: bool,
 }
@@ -105,12 +105,7 @@ impl Highlight for Highlighter<FreehandHighlight> {
 
 impl Highlight for Highlighter<BlockHighlight> {
     fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
-        let size = match self.data.size {
-            Some(s) => s,
-            None => return Ok(()), // early exit if size is none
-        };
-
-        let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, size);
+        let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, self.data.size);
 
         if !self.data.finishing && self.data.centered {
             draw_center_marker(canvas, self.data.origin);
@@ -139,10 +134,10 @@ impl Highlight for Highlighter<BlockHighlight> {
 
 impl BlockHighlight {
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
+        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
-        self.size = Some(drag_box.size);
+        self.size = drag_box.size;
     }
 }
 
@@ -163,13 +158,10 @@ pub struct HighlightTool {
 impl Drawable for HighlightKind {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
         match self {
-            HighlightKind::Block(h) => {
-                let size = h.data.size?;
-                Some(math::ensure_bounding_box(
-                    h.data.top_left,
-                    h.data.top_left + size,
-                ))
-            }
+            HighlightKind::Block(h) => Some(math::ensure_bounding_box(
+                h.data.top_left,
+                h.data.top_left + h.data.size,
+            )),
             HighlightKind::Freehand(h) => {
                 let mut min_x = f32::MAX;
                 let mut min_y = f32::MAX;
@@ -201,7 +193,7 @@ impl Drawable for HighlightKind {
             Some(bounds) => bounds,
             None => return false,
         };
-        hit_test_rectangle(pos, tl, Some(br - tl), tolerance, true)
+        hit_test_rectangle(pos, tl, br - tl, tolerance, true)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -222,7 +214,7 @@ impl Drawable for HighlightKind {
         match self {
             HighlightKind::Block(h) => {
                 h.data.top_left = tl;
-                h.data.size = Some(br - tl);
+                h.data.size = br - tl;
             }
             HighlightKind::Freehand(h) => {
                 // Resize freehand by scaling all points from current bounds to new bounds.
@@ -352,7 +344,7 @@ impl Tool for HighlightTool {
                                 data: BlockHighlight {
                                     origin: event.pos,
                                     top_left: event.pos,
-                                    size: None,
+                                    size: Vec2D::zero(),
                                     centered: false,
                                     finishing: false,
                                 },

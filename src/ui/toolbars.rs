@@ -693,7 +693,7 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::DimensionsChanged(size) => {
                 self.output_dimensions = format!("{}x{}", size.x as u32, size.y as u32);
-                if size.x == 0.0 || size.y == 0.0 {
+                if size.x.abs() < f32::EPSILON || size.y.abs() < f32::EPSILON {
                     self.aspect_ratio = "".to_string();
                     return;
                 }

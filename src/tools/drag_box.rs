@@ -13,24 +13,40 @@ pub struct DragBox {
     pub top_left: Vec2D,
     pub size: Vec2D,
     pub centered: bool,
+    pub keep_aspect: bool,
 }
 
 impl DragBox {
     pub fn from_origin_delta(
         origin: Vec2D,
+        orig_size: Vec2D,
         event: &MouseEventMsg,
         sender: &Sender<SketchBoardInput>,
     ) -> Self {
-        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
         let aspect = event.modifier.intersects(ModifierType::SHIFT_MASK);
+        let keep_aspect = event.modifier.intersects(ModifierType::CONTROL_MASK);
+        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
 
-        let mut size = event.pos;
+        let mut new_size = event.pos;
+        let sign_x = new_size.x.signum();
+        let sign_y = new_size.y.signum();
+        let width = new_size.x.abs();
+        let height = new_size.y.abs();
 
-        if aspect && size.y.abs() > f32::EPSILON {
-            let sign_x = size.x.signum();
-            let sign_y = size.y.signum();
-            let width = size.x.abs();
-            let height = size.y.abs();
+        if keep_aspect {
+            let aspect_ratio =
+                if orig_size.x.abs() <= f32::EPSILON || orig_size.y.abs() <= f32::EPSILON {
+                    // start with square
+                    1.0
+                } else {
+                    orig_size.x.abs() / orig_size.y.abs()
+                };
+            if width >= height * aspect_ratio {
+                new_size.y = width / aspect_ratio * sign_y;
+            } else {
+                new_size.x = height * aspect_ratio * sign_x;
+            }
+        } else if aspect && new_size.y.abs() > f32::EPSILON {
             let aspect_ratio = width / height;
             let config = APP_CONFIG.read();
             let closest_aspect_ratio =
@@ -41,23 +57,24 @@ impl DragBox {
             } else {
                 (width, width / aspect_ratio)
             };
-            size.x = width * sign_x;
-            size.y = height * sign_y;
+            new_size.x = width * sign_x;
+            new_size.y = height * sign_y;
         }
 
         let size_factor = if centered { 2.0 } else { 1.0 };
-        size = size * size_factor;
+        new_size = new_size * size_factor;
 
         let top_left = if centered {
-            origin.min(origin - size.abs() / size_factor)
+            origin.min(origin - new_size.abs() / size_factor)
         } else {
-            origin.min(origin + size)
+            origin.min(origin + new_size)
         };
 
         let drag_box = Self {
             top_left,
-            size: size.abs(),
+            size: new_size.abs(),
             centered,
+            keep_aspect: aspect || keep_aspect,
         };
         sender
             .send(SketchBoardInput::ShapeDimensionsUpdate(drag_box.size))

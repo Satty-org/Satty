@@ -253,14 +253,10 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
 pub fn hit_test_rectangle(
     pos: Vec2D,
     top_left: Vec2D,
-    size: Option<Vec2D>,
+    size: Vec2D,
     tolerance: f32,
     filled: bool,
 ) -> bool {
-    let Some(size) = size else {
-        return false;
-    };
-
     // ensure a valid bounding box - dragging br to the left/up of tl is possible
     // and then the hit test should still work as expected
     let (tl, br) = ensure_bounding_box(top_left, top_left + size);

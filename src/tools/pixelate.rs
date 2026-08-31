@@ -31,7 +31,7 @@ pub enum PixelateMode {
 pub struct Pixelate {
     origin: Vec2D,
     top_left: Vec2D,
-    size: Option<Vec2D>,
+    size: Vec2D,
     style: Style,
     centered: bool,
     editing: bool,
@@ -56,10 +56,10 @@ impl Pixelate {
     }
 
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
+        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
-        self.size = Some(drag_box.size);
+        self.size = drag_box.size;
     }
 
     fn pixelate(
@@ -273,10 +273,9 @@ impl Drawable for Pixelate {
     }
 
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let size = self.size?;
         Some(math::ensure_bounding_box(
             self.top_left,
-            self.top_left + size,
+            self.top_left + self.size,
         ))
     }
 
@@ -293,7 +292,7 @@ impl Drawable for Pixelate {
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         self.top_left = tl;
-        self.size = Some(br - tl);
+        self.size = br - tl;
         *self.cached_image.borrow_mut() = None;
     }
 
@@ -322,13 +321,8 @@ impl Drawable for Pixelate {
         _font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let size = match self.size {
-            Some(s) => s,
-            None => return Ok(()), // early exit if none
-        };
-
         let (pos, size) = math::rect_ensure_in_bounds(
-            math::rect_ensure_positive_size(self.top_left, size),
+            math::rect_ensure_positive_size(self.top_left, self.size),
             bounds,
         );
 
@@ -443,7 +437,7 @@ impl Tool for PixelateTool {
                 self.pixelate = Some(Pixelate {
                     origin: event.pos,
                     top_left: event.pos,
-                    size: None,
+                    size: Vec2D::zero(),
                     centered: false,
                     editing: true,
                     style: self.style,

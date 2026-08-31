@@ -31,7 +31,7 @@ pub struct CropTool {
 
 impl Crop {
     pub fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, event, sender);
+        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         self.size = drag_box.size;
@@ -51,7 +51,7 @@ impl Drawable for Crop {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, Some(self.size), tolerance, false)
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {

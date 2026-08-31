@@ -113,6 +113,8 @@ Newly created annotations can be autoselected if enabled in the config.
 - Drag the resize handles - mouse cursor will change - to change the size. 
   - Hold <kbd>Alt</kbd> for centered resize
   - Hold <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
+  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize. <sup>NEXTRELEASE</sup>
+  - Hold mutiple to combine them.
 - Grab an annotation - mouse cursor will change to a hand - to move.
 - Scroll up/down with the mouse wheel to change the annotation's layer.
 - Nudge (small move) with the cursor keys.
@@ -137,7 +139,8 @@ Arrow and line:
 Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
-- Hold both to combine them.
+- Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>NEXTRELEASE</sup>
+- Hold mutiple to combine them.
 
 Text:
 - Press <kbd>Shift+Enter</kbd> to insert line break.
