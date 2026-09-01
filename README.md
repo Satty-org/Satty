@@ -252,6 +252,8 @@ app-id = "org.satty.satty"
 # experimental feature (0.22.0): show thumbnail as notifcation icon
 # notification-thumbnail = "app-icon"
 notification-thumbnail = "screenshot"
+# experimental feature (NEXTRELEASE): skip adwaita them variables in the default css.
+skip-adwaita-vars = false
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]
@@ -443,6 +445,8 @@ Options:
           Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --notification-thumbnail <NOTIFICATION_THUMBNAIL>
           Experimental feature (0.22.0): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
+      --skip-adwaita-vars
+          Experimental feature (NEXTRELEASE): do not use Adwaita CSS variables
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
