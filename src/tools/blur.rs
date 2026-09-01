@@ -3,16 +3,14 @@ use std::cell::RefCell;
 use anyhow::Result;
 use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img};
 
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::{Sender, gtk::gdk::ModifierType};
 
 use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::{RenderingMode, hit_test_rectangle},
 };
 
 use super::{
@@ -80,6 +78,44 @@ impl Blur {
 }
 
 impl Drawable for Blur {
+    fn get_rendering_mode(&self) -> RenderingMode {
+        RenderingMode::Blur
+    }
+
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        // invalidate cached blur image since position changed
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        *self.cached_image.borrow_mut() = None;
+        Some(&mut self.style)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -248,15 +284,6 @@ impl Tool for BlurTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.blur.is_some() {
-            self.blur = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 

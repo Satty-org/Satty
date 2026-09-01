@@ -1,12 +1,13 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::Sender;
 
 use crate::{
     configuration::APP_CONFIG,
-    math::Vec2D,
+    math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
+    tools::hit_test_rectangle,
 };
 
 use super::{
@@ -25,6 +26,40 @@ pub struct Rectangle {
 }
 
 impl Drawable for Rectangle {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, self.style.fill)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        self.origin = tl;
+        self.centered = false;
+        self.finishing = true;
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -52,9 +87,8 @@ impl Drawable for Rectangle {
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
-        } else {
-            canvas.stroke_path(&path, &self.style.into());
         }
+        canvas.stroke_path(&path, &self.style.into());
         canvas.restore();
 
         Ok(())
@@ -118,7 +152,6 @@ impl Tool for RectangleTool {
                     rectangle.finishing = true;
                     if event.pos == Vec2D::zero() {
                         self.rectangle = None;
-
                         ToolUpdateResult::Redraw
                     } else {
                         rectangle.calculate_shape(&event);
@@ -146,15 +179,6 @@ impl Tool for RectangleTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.rectangle.is_some() {
-            self.rectangle = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 

@@ -49,19 +49,17 @@ pub enum ToolbarEvent {
     ColorSelected(Color),
     SetFill(bool),
     SizeSelected(Size),
+    AnnotationSizeFactorChanged(f32),
     Redo,
     Undo,
     SaveFile,
     CopyClipboard,
     ToggleFill,
     ToggleRoundCaps,
-    AnnotationSizeFactorChanged(f32),
     ClearAll,
     SaveFileAs,
     ScaleFitToWindow,
     ScaleOriginal,
-    ToolCommit,
-    ToolDismiss,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -79,6 +77,7 @@ pub enum StyleToolbarInput {
     SetFill(bool),
     SetRoundCaps(bool),
     SetSize(Size),
+    SetAnnotationSizeFactor(f32),
     ShowColorDialog,
     ColorDialogFinished(Option<Color>),
     SetVisibility(bool),
@@ -523,8 +522,8 @@ impl Component for StyleToolbar {
                 set_alignment: 1.0,
 
                 connect_value_changed[sender] => move |spin_button| {
-                    let new_value = spin_button.value();
-                    sender.output_sender().emit(ToolbarEvent::AnnotationSizeFactorChanged(new_value as f32));
+                    let new_value = spin_button.value() as f32;
+                    sender.output_sender().emit(ToolbarEvent::AnnotationSizeFactorChanged(new_value));
                 },
 
                 add_controller = gtk::EventControllerKey {
@@ -594,29 +593,6 @@ impl Component for StyleToolbar {
                     sender.output_sender().emit(ToolbarEvent::ToggleRoundCaps);
                 },
             },
-            gtk::Separator {},
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "dismiss-regular",
-                set_tooltip: "tool dismiss",
-                #[watch]
-                set_sensitive: model.editing,
-                connect_clicked[sender] => move |_| {
-                    sender.output_sender().emit(ToolbarEvent::ToolDismiss);
-                },
-            },
-            gtk::Button {
-                set_focusable: false,
-                set_hexpand: false,
-                set_icon_name: "checkmark-regular",
-                set_tooltip: "tool commit",
-                #[watch]
-                set_sensitive: model.editing,
-                connect_clicked[sender] => move |_| {
-                    sender.output_sender().emit(ToolbarEvent::ToolCommit);
-                },
-            },
         },
     }
 
@@ -673,6 +649,9 @@ impl Component for StyleToolbar {
             }
             StyleToolbarInput::SetSize(size) => {
                 self.size_action.change_state(&size.to_variant());
+            }
+            StyleToolbarInput::SetAnnotationSizeFactor(value) => {
+                self.size_spin_button.set_value(value as f64);
             }
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
             StyleToolbarInput::ToggleVisibility => {

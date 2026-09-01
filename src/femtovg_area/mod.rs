@@ -14,7 +14,7 @@ use crate::{
     configuration::Action,
     math::Vec2D,
     sketch_board::SketchBoardInput,
-    tools::{CropTool, Drawable, Tool},
+    tools::{Drawable, Tool},
 };
 
 static FONT_STACK: OnceLock<Vec<FontId>> = OnceLock::new();
@@ -72,6 +72,11 @@ impl FemtoVGArea {
     pub fn request_render(&self, actions: &[Action]) {
         self.imp().request_render(actions);
     }
+
+    pub fn schedule_refresh_selection_after_render(&self, index: usize) {
+        self.imp().schedule_refresh_selection_after_render(index);
+    }
+
     pub fn clear_all(&mut self) -> bool {
         self.imp()
             .inner()
@@ -99,12 +104,10 @@ impl FemtoVGArea {
     pub fn init(
         &mut self,
         sender: Sender<SketchBoardInput>,
-        crop_tool: Rc<RefCell<CropTool>>,
         active_tool: Rc<RefCell<dyn Tool>>,
         background_image: Pixbuf,
     ) {
-        self.imp()
-            .init(sender, crop_tool, active_tool, background_image);
+        self.imp().init(sender, active_tool, background_image);
     }
 
     pub fn set_zoom_scale(&self, factor: f32) {
@@ -176,5 +179,69 @@ impl FemtoVGArea {
 
     pub fn resize(&self, width: i32, height: i32) {
         self.imp().resize(width, height);
+    }
+
+    pub fn hit_test(&self, pos: Vec2D) -> Vec<usize> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .hit_test(pos)
+    }
+
+    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .get_drawable_bounds(index)
+    }
+
+    pub fn last_drawable_index(&self) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .last_drawable_index()
+    }
+
+    pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .get_drawable_clone(index)
+    }
+
+    pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .replace_drawable(index, drawable);
+    }
+
+    pub fn move_drawable_index(&mut self, index: usize, delta: isize) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .move_drawable_index(index, delta)
+    }
+
+    pub fn remove_drawable(&mut self, index: usize) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .remove_drawable(index);
+    }
+
+    pub fn set_hidden_drawable_index(&mut self, index: Option<usize>) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .set_hidden_drawable_index(index);
     }
 }

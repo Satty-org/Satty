@@ -1,9 +1,9 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::Sender;
 
 use crate::{
-    math::Vec2D,
+    math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
@@ -24,6 +24,55 @@ pub struct Ellipse {
 }
 
 impl Drawable for Ellipse {
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let radii = self.radii?.abs();
+        Some((self.middle - radii, self.middle + radii))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let Some(radii) = self.radii else {
+            return false;
+        };
+
+        let d = (pos - self.middle) / (radii + tolerance);
+        if d * d > 1.0 {
+            // outside the outer tolerance
+            return false;
+        }
+
+        // if filled, only check the outer tolerance
+        if self.style.fill {
+            return true;
+        }
+
+        // outside the inner tolerance
+        let inner_d = (pos - self.middle) / (radii - tolerance);
+        inner_d * inner_d > 1.0
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.middle += delta;
+        self.origin += delta;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        let center = (tl + br) / 2.0;
+        self.middle = center;
+        self.origin = center;
+        self.radii = Some((br - tl).abs() / 2.0);
+        self.centered = false;
+        self.finishing = true;
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -45,9 +94,8 @@ impl Drawable for Ellipse {
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
-        } else {
-            canvas.stroke_path(&path, &self.style.into());
         }
+        canvas.stroke_path(&path, &self.style.into());
         canvas.restore();
 
         Ok(())
@@ -59,7 +107,7 @@ impl Ellipse {
         let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
         self.centered = drag_box.centered;
         self.middle = drag_box.middle();
-        self.radii = Some(drag_box.size * 0.5);
+        self.radii = Some(drag_box.size.abs() * 0.5);
     }
 }
 
@@ -144,15 +192,6 @@ impl Tool for EllipseTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.ellipse.is_some() {
-            self.ellipse = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 

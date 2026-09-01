@@ -86,6 +86,7 @@ The bindings are:
 - <kbd>s</kbd> focuses the annotation size factor input field
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
+
 Default single-key shortcuts:
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
@@ -99,12 +100,22 @@ Default single-key shortcuts:
 - <kbd>u</kbd>: Blur tool
 - <kbd>g</kbd>: Highlight tool
 
-### Tool Modifiers and Keys
+### Pointer Tool <sup>NEXTRELEASE</sup>
 
-Crop:
-- Press <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+right mouse<sup>0.22.0</sup> <sup>experimental</sup> button while editing to reset crop altogether <sup>0.21.0</sup>.
-- Press <kbd>Enter</kbd> or <kbd>Ctrl</kbd>+left mouse<sup>0.22.0</sup> <sup>experimental</sup> while editing to finish editing crop and keep the crop area active <sup>0.21.0</sup>.
-- Left click crop area when tool is active but not editing to resume editing<sup>0.21.0</sup>.
+Annotations can be selected by click.
+This will update the toolbar to the annotation's style and allow style changes.
+Newly created annotations can be autoselected if enabled in the config.
+
+- Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
+- <kbd>Delete</kbd> deletes the selected annotation.
+- Drag the resize handles - mouse cursor will change - to change the size. 
+- Grab an annotation - mouse cursor will change to a hand - to move.
+- Scroll up/down with the mouse wheel to change the annotation's layer.
+- Nudge (small move) with the cursor keys.
+- Double-click on a text annotation to edit it.
+- Horizontal resizing on a marker changes its number, and vertical resizing changes the extra ring.
+
+### Tool Modifiers and Keys
 
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
@@ -170,6 +181,8 @@ resize = { mode = "smart" }
 floating-hack = true
 # Change to true to automatically copy to clipboard after every annotation change (0.21.0)
 auto-copy = false
+# Change to true to automatically select newly created annotation (NEXTRELEASE)
+auto-select-new = false
 # Exit directly after copy/save action. 0.21.0: change to list of triggers
 # Note that exit-early-save-as was removed with 0.21.0.
 early-exit = ["all"]
