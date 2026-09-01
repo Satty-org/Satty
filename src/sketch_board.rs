@@ -1200,7 +1200,7 @@ impl SketchBoard {
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
-            ToolbarEvent::ScaleOriginal => self.handle_scale(1),
+            ToolbarEvent::ScaleOriginal => self.handle_scale(100),
         }
     }
 
