@@ -6,7 +6,7 @@ use std::io::Read;
 use std::ops::Deref;
 use std::process::exit;
 use std::sync::{LazyLock, RwLock};
-use std::{fs, ptr};
+use std::{fs, panic};
 use std::{io, time::Duration};
 
 use relm4::gtk::gdk::Rectangle;
@@ -25,6 +25,7 @@ use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarIn
 use xdg::BaseDirectories;
 
 mod configuration;
+mod epoxy;
 mod femtovg_area;
 mod icons;
 mod ime;
@@ -514,28 +515,16 @@ fn read_css_overrides() -> Option<String> {
     }
 }
 
-fn load_gl() -> Result<()> {
-    // Load GL pointers from epoxy (GL context management library used by GTK).
-    #[cfg(target_os = "macos")]
-    let library = unsafe { libloading::os::unix::Library::new("libepoxy.0.dylib") }?;
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let library = unsafe { libloading::os::unix::Library::new("libepoxy.so.0") }?;
-    #[cfg(windows)]
-    let library = libloading::os::windows::Library::open_already_loaded("libepoxy-0.dll")
-        .or_else(|_| libloading::os::windows::Library::open_already_loaded("epoxy-0.dll"))?;
-
-    epoxy::load_with(|name| {
-        unsafe { library.get::<_>(name.as_bytes()) }
-            .map(|symbol| *symbol)
-            .unwrap_or(ptr::null())
-    });
-
-    Ok(())
-}
-
 fn run_satty() -> Result<()> {
     // load OpenGL
-    load_gl()?;
+    if panic::catch_unwind(|| {
+        epoxy::load_epoxy();
+    })
+    .is_err()
+    {
+        return Err(anyhow::anyhow!("failed to load epoxy"));
+    }
+
     generate_profile_output!("loaded gl");
 
     // load app config

@@ -24,6 +24,7 @@ use crate::{
     APP_CONFIG,
     configuration::Action,
     math::{Vec2D, crop_rect_in_bounds},
+    epoxy,
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool, Tools},
 };
