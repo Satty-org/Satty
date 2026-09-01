@@ -79,7 +79,7 @@ fn main() -> Result<(), io::Error> {
             "arrow-counterclockwise-regular",
             "caret-down-right-filled",
             "eye-off-regular",
-            "checkerboard"
+            "checkerboard",
         ],
     );
 

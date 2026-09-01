@@ -267,8 +267,8 @@ pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;
-pub use pointer::PointerTool;
 pub use pixelate::PixelateTool;
+pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
 pub use text::{Text, TextTool};
 
