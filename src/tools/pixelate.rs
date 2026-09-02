@@ -1,7 +1,8 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::{
-    Drawable, DrawableClone, RenderingMode, Tool, ToolUpdateResult, Tools, hit_test_rectangle,
+    Drawable, DrawableClone, InputContext, RenderingMode, Tool, ToolUpdateResult, Tools,
+    hit_test_rectangle,
 };
 use crate::tools::drag_box::{DragBox, draw_center_marker};
 use crate::{
@@ -15,7 +16,9 @@ use femtovg::imgref::Img;
 use femtovg::rgb::RGBA8;
 use femtovg::{Color, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
 use relm4::adw::gdk::ModifierType;
-use relm4::{Sender, gtk::gdk::Key};
+use relm4::gtk::gdk::Cursor;
+use relm4::gtk::prelude::WidgetExt;
+use relm4::{Sender, gtk, gtk::gdk::Key};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PixelateMode {
@@ -35,9 +38,50 @@ pub struct Pixelate {
     editing: bool,
     mode: PixelateMode,
     cached_image: RefCell<Option<ImageId>>,
+    renderable: Cell<bool>,
 }
 
 impl Pixelate {
+    fn is_pixelate(&self) -> bool {
+        matches!(
+            self.mode,
+            PixelateMode::Pixelate | PixelateMode::FringePixelate
+        )
+    }
+
+    fn is_fringe(&self) -> bool {
+        matches!(
+            self.mode,
+            PixelateMode::Fringe | PixelateMode::FringePixelate
+        )
+    }
+
+    fn fringe_area_in_bounds(
+        &self,
+        canvas: &femtovg::Canvas<femtovg::renderer::OpenGl>,
+        pos: Vec2D,
+        size: Vec2D,
+    ) -> bool {
+        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
+        let average_scale = canvas.transform().average_scale();
+        let transformed_size = size * average_scale;
+
+        let blocksize = self
+            .style
+            .size
+            .to_blocksize(self.style.annotation_size_factor);
+
+        let pos_x = transformed_pos.0 as usize;
+        let pos_y = transformed_pos.1 as usize;
+        let width = (transformed_size.x as usize / blocksize) * blocksize;
+        let height = (transformed_size.y as usize / blocksize) * blocksize;
+
+        pos_x >= 1
+            && pos_y >= 1
+            && pos_x + width < canvas.width() as usize
+            && pos_y + height < canvas.height() as usize
+    }
+
     fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
         let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
         self.centered = drag_box.centered;
@@ -70,30 +114,26 @@ impl Pixelate {
         }
 
         let img = canvas.screenshot()?;
-        let buf = match self.mode {
-            PixelateMode::FringePixelate | PixelateMode::Fringe => {
-                Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
-            }
-            PixelateMode::Pixelate => {
-                let (buf, _, _) = img
-                    .sub_image(pos_x, pos_y, width, height)
-                    .to_contiguous_buf();
-                Some(Cow::Owned(buf.into_owned()))
-            }
+        let buf = if self.is_fringe() {
+            Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
+        } else {
+            let (buf, _, _) = img
+                .sub_image(pos_x, pos_y, width, height)
+                .to_contiguous_buf();
+            Some(Cow::Owned(buf.into_owned()))
         };
 
         let Some(b) = buf else {
             return Ok(None);
         };
 
-        let dest_img = match self.mode {
-            PixelateMode::Fringe => Img::new(b.into_owned(), width, height),
-            PixelateMode::Pixelate | PixelateMode::FringePixelate => {
-                match Self::pixelate_regular(b, width, height, blocksize)? {
-                    Some(img) => img,
-                    None => return Ok(None),
-                }
+        let dest_img = if self.is_pixelate() {
+            match Self::pixelate_regular(b, width, height, blocksize)? {
+                Some(img) => img,
+                None => return Ok(None),
             }
+        } else {
+            Img::new(b.into_owned(), width, height)
         };
 
         let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
@@ -107,7 +147,8 @@ impl Pixelate {
         width: usize,
         height: usize,
     ) -> Result<Option<Cow<'_, [RGBA8]>>> {
-        //TODO: missing fringe, no luck!
+        // this shouldn't happen, because we check if draw can be performed before this runs.
+        // since .sub_image panics, leave this in anyway.
         if pos_x < 1
             || pos_y < 1
             || canvas.width() as usize <= pos_x + width
@@ -281,7 +322,15 @@ impl Drawable for Pixelate {
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
-        let can_perform = size.x >= blocksize as f32 && size.y >= blocksize as f32;
+        let big_enough = if self.is_pixelate() {
+            size.x >= blocksize as f32 && size.y >= blocksize as f32
+        } else {
+            size.x.abs() > f32::EPSILON && size.y.abs() > f32::EPSILON
+        };
+        let fringe_ok = !self.is_fringe() || self.fringe_area_in_bounds(canvas, pos, size);
+
+        let can_perform = big_enough && fringe_ok;
+        self.renderable.set(can_perform);
         if self.editing {
             if self.centered {
                 draw_center_marker(canvas, self.origin);
@@ -353,6 +402,7 @@ pub struct PixelateTool {
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
     mode: PixelateMode,
+    cursor_widget: Option<gtk::Widget>,
 }
 
 impl PixelateTool {
@@ -363,6 +413,32 @@ impl PixelateTool {
             input_enabled: false,
             sender: None,
             mode,
+            cursor_widget: None,
+        }
+    }
+
+    fn update_drag_cursor(&self) {
+        let Some(widget) = &self.cursor_widget else {
+            return;
+        };
+
+        let Some(p) = self.pixelate.as_ref() else {
+            return;
+        };
+
+        if p.renderable.get() {
+            widget.set_cursor(None);
+        } else {
+            let cursor = ["not-allowed", "no-drop"]
+                .iter()
+                .find_map(|name| Cursor::from_name(name, None));
+            widget.set_cursor(cursor.as_ref());
+        }
+    }
+
+    fn clear_cursor(&self) {
+        if let Some(widget) = &self.cursor_widget {
+            widget.set_cursor(None);
         }
     }
 }
@@ -401,6 +477,7 @@ impl Tool for PixelateTool {
                     style: self.style,
                     cached_image: RefCell::new(None),
                     mode: self.mode,
+                    renderable: Cell::new(false),
                 });
 
                 ToolUpdateResult::Redraw
@@ -410,6 +487,7 @@ impl Tool for PixelateTool {
                     return ToolUpdateResult::Unmodified;
                 }
 
+                self.clear_cursor();
                 if let Some(a) = &mut self.pixelate {
                     if event.pos == Vec2D::zero() {
                         self.pixelate = None;
@@ -438,6 +516,7 @@ impl Tool for PixelateTool {
                         return ToolUpdateResult::Unmodified;
                     }
                     a.calculate_shape(event.pos, event.modifier);
+                    self.update_drag_cursor();
 
                     ToolUpdateResult::Redraw
                 } else {
@@ -475,5 +554,10 @@ impl Tool for PixelateTool {
 
     fn active(&self) -> bool {
         self.pixelate.is_some()
+    }
+
+    fn set_im_context(&mut self, context: Option<InputContext>) {
+        self.cursor_widget = context.map(|ctx| ctx.widget);
+        self.clear_cursor();
     }
 }
