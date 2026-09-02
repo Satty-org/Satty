@@ -1,9 +1,7 @@
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use crate::{
     math::{self, Vec2D},
-    sketch_board::{
-        MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput, SketchBoardOutput,
-    },
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     tools::{RenderingMode, hit_test_rectangle},
 };
 use anyhow::Result;
@@ -32,10 +30,6 @@ impl Crop {
             size: Vec2D::zero(),
             active: true,
         }
-    }
-
-    pub fn get_rectangle(&self) -> (Vec2D, Vec2D) {
-        math::rect_ensure_positive_size(self.pos, self.size)
     }
 }
 
@@ -93,14 +87,11 @@ impl Drawable for Crop {
 
 impl CropTool {
     fn emit_crop_dimensions_update(&self) {
-        if let (Some(crop), Some(sender)) = (&self.crop, &self.sender) {
-            let (_pos, size) = crop.get_rectangle();
-            let width = size.x.round() as i32;
-            let height = size.y.round() as i32;
+        if let (Some(crop), Some(sender)) = (&self.crop, &self.sender)
+            && let Some((tl, br)) = crop.bounds()
+        {
             sender
-                .send(SketchBoardInput::Output(
-                    SketchBoardOutput::DimensionsUpdate(Some((width, height))),
-                ))
+                .send(SketchBoardInput::CropDimensionsUpdate((tl, br - tl)))
                 .ok();
         }
     }

@@ -21,7 +21,7 @@ use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
-use crate::math::Vec2D;
+use crate::math::{Vec2D, crop_rect_in_bounds};
 use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::{Color, Size, Style};
 use crate::tools::{PointerTool, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
@@ -48,6 +48,7 @@ pub enum SketchBoardInput {
     Refresh,
     Exit,
     ScaleFactorChanged,
+    CropDimensionsUpdate((Vec2D, Vec2D)),
     Output(SketchBoardOutput),
 }
 
@@ -283,6 +284,9 @@ impl InputEvent {
 
 pub struct SketchBoard {
     renderer: FemtoVGArea,
+    // Mirrors the bounds render_native_resolution derives from the background
+    // image, which is set once at init and never replaced.
+    image_bounds: (Vec2D, Vec2D),
     ime_enabled: Rc<Cell<bool>>,
     shortcut_registry: ShortcutRegistry,
     active_tool: Rc<RefCell<dyn Tool>>,
@@ -1410,6 +1414,19 @@ impl SketchBoard {
         ToolUpdateResult::Redraw
     }
 
+    // Report what a save would produce, not the rectangle the user dragged:
+    // the same clip render_native_resolution applies before it sizes the
+    // render target, so the label and the file cannot disagree.
+    fn emit_crop_dimensions(&self, sender: &ComponentSender<Self>, rect: (Vec2D, Vec2D)) {
+        let (_, size) = crop_rect_in_bounds(rect, self.image_bounds);
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::DimensionsUpdate(Some((
+                size.x as i32,
+                size.y as i32,
+            ))));
+    }
+
     fn update_mouse_cursor(&self, pos: Vec2D) {
         if !self.renderer.hit_test(pos).is_empty() {
             let cursor = self.pointer_tool.borrow().get_cursor("grab");
@@ -1687,6 +1704,11 @@ impl Component for SketchBoard {
                 if let Some(index) = selected_index {
                     if let Some(mut drawable) = self.renderer.get_drawable_clone(index) {
                         drawable.translate(delta);
+                        if drawable.get_rendering_mode() == crate::tools::RenderingMode::Crop
+                            && let Some((tl, br)) = drawable.bounds()
+                        {
+                            self.emit_crop_dimensions(&sender, (tl, br - tl));
+                        }
                         self.renderer.replace_drawable(index, drawable);
                         self.update_pointer_tool_selection(index, false);
                         ToolUpdateResult::Redraw
@@ -1730,6 +1752,10 @@ impl Component for SketchBoard {
             SketchBoardInput::ScaleFactorChanged => {
                 self.renderer.resize(0, 0);
                 ToolUpdateResult::Redraw
+            }
+            SketchBoardInput::CropDimensionsUpdate(rect) => {
+                self.emit_crop_dimensions(&sender, rect);
+                ToolUpdateResult::Unmodified
             }
             SketchBoardInput::Output(output) => {
                 sender.output_sender().emit(output);
@@ -1812,6 +1838,11 @@ impl Component for SketchBoard {
         let config = APP_CONFIG.read();
         let tools = ToolsManager::new();
 
+        let image_bounds = (
+            Vec2D::zero(),
+            Vec2D::new(image.width() as f32, image.height() as f32),
+        );
+
         let im_context = gtk::IMMulticontext::new();
 
         let text_tool = tools.get_text_tool();
@@ -1825,6 +1856,7 @@ impl Component for SketchBoard {
 
         let mut model = Self {
             renderer: FemtoVGArea::default(),
+            image_bounds,
             ime_enabled: Rc::new(Cell::new(initial_ime_enabled)),
             shortcut_registry: ShortcutRegistry::from_config(),
             active_tool: tools.get(&config.initial_tool()),

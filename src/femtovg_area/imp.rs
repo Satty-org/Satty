@@ -23,7 +23,7 @@ use resource::resource;
 use crate::{
     APP_CONFIG,
     configuration::Action,
-    math::{Vec2D, rect_ensure_in_bounds, rect_round},
+    math::{Vec2D, crop_rect_in_bounds},
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool, Tools},
 };
@@ -520,10 +520,8 @@ impl FemtoVgAreaMut {
             .iter()
             .find(|d| d.get_rendering_mode() == RenderingMode::Crop)
             .and_then(|d| {
-                d.bounds().map(|(tl, br)| {
-                    let rect = (tl, br - tl);
-                    rect_ensure_in_bounds(rect_round(rect), bounds)
-                })
+                d.bounds()
+                    .map(|(tl, br)| crop_rect_in_bounds((tl, br - tl), bounds))
             })
             .unwrap_or(bounds);
 

@@ -296,6 +296,13 @@ pub fn ensure_bounding_box(a: Vec2D, b: Vec2D) -> (Vec2D, Vec2D) {
     (a.min(b), a.max(b))
 }
 
+// The part of a crop rectangle that is actually inside the image: what a save
+// writes out, and therefore what the dimension readout has to be derived from.
+pub fn crop_rect_in_bounds(rect: (Vec2D, Vec2D), bounds: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
+    let (pos, size) = rect_ensure_in_bounds(rect_round(rect), bounds);
+    (pos, size.max(Vec2D::zero()))
+}
+
 pub fn rect_round(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
     let (pos, size) = rect;
     (pos.round(), size.round())
@@ -303,7 +310,7 @@ pub fn rect_round(rect: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Vec2D, rect_ensure_in_bounds};
+    use super::{Vec2D, crop_rect_in_bounds, rect_ensure_in_bounds};
 
     fn bounds() -> (Vec2D, Vec2D) {
         (Vec2D::zero(), Vec2D::new(200.0, 100.0))
@@ -345,5 +352,39 @@ mod tests {
     fn rect_ensure_in_bounds_leaves_rect_inside_bounds_unchanged() {
         let rect = (Vec2D::new(10.0, 20.0), Vec2D::new(30.0, 40.0));
         assert_eq!(rect_ensure_in_bounds(rect, bounds()), rect);
+    }
+
+    #[test]
+    fn crop_rect_in_bounds_reports_the_part_inside_the_image() {
+        let rect = (Vec2D::new(150.0, 10.0), Vec2D::new(100.0, 20.0));
+        assert_eq!(
+            crop_rect_in_bounds(rect, bounds()),
+            (Vec2D::new(150.0, 10.0), Vec2D::new(50.0, 20.0))
+        );
+    }
+
+    #[test]
+    fn crop_rect_in_bounds_rounds_before_clipping_like_the_render_target_does() {
+        // Clipping first would leave 9.5 and read as 10, but the render target
+        // is built from the rounded rect and comes out 9 wide.
+        let rect = (Vec2D::new(190.5, 10.0), Vec2D::new(9.9, 20.0));
+        assert_eq!(
+            crop_rect_in_bounds(rect, bounds()),
+            (Vec2D::new(191.0, 10.0), Vec2D::new(9.0, 20.0))
+        );
+    }
+
+    #[test]
+    fn crop_rect_in_bounds_reports_zero_for_a_crop_dragged_past_the_right_edge() {
+        let rect = (Vec2D::new(250.0, 10.0), Vec2D::new(100.0, 20.0));
+        let (_, size) = crop_rect_in_bounds(rect, bounds());
+        assert_eq!(size.x, 0.0);
+    }
+
+    #[test]
+    fn crop_rect_in_bounds_reports_zero_for_a_crop_dragged_past_the_bottom_edge() {
+        let rect = (Vec2D::new(10.0, 150.0), Vec2D::new(20.0, 100.0));
+        let (_, size) = crop_rect_in_bounds(rect, bounds());
+        assert_eq!(size.y, 0.0);
     }
 }
