@@ -9,10 +9,7 @@ use std::cell::Cell;
 use crate::{
     configuration::APP_CONFIG,
     math::{Vec2D, ensure_bounding_box},
-    sketch_board::{
-        KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput,
-        SketchBoardOutput,
-    },
+    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     tools::RenderingMode,
 };
 
@@ -415,6 +412,20 @@ impl PointerTool {
         self.drag_start_pos.map_or(delta, |start| start + delta)
     }
 
+    // The crop readout has to track anything that moves or resizes the crop,
+    // since all of it changes what a save would produce. Sourced from the
+    // drawable's own bounds, which is the rect render_native_resolution clips.
+    fn emit_crop_dimensions_update(&self, crop: &dyn Drawable) {
+        if crop.get_rendering_mode() == RenderingMode::Crop
+            && let Some(sender) = &self.sender
+            && let Some((tl, br)) = crop.bounds()
+        {
+            sender
+                .send(SketchBoardInput::CropDimensionsUpdate((tl, br - tl)))
+                .ok();
+        }
+    }
+
     fn update_selection_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let (tl, br) = ensure_bounding_box(tl, br);
         self.selected_bounds = Some((tl, br));
@@ -583,6 +594,7 @@ impl Tool for PointerTool {
                     let delta = event.pos;
                     let mut preview = original.clone_box();
                     preview.translate(delta);
+                    self.emit_crop_dimensions_update(preview.as_ref());
                     let (tl, br) = *orig_bounds;
                     self.update_selection_bounds(tl + delta, br + delta);
                     self.preview = Some(preview);
@@ -597,19 +609,7 @@ impl Tool for PointerTool {
                     let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
                     let mut preview = original.clone_box();
                     preview.resize_bounds(new_tl, new_br);
-                    if preview.get_rendering_mode() == RenderingMode::Crop
-                        && let Some(sender) = &self.sender
-                    {
-                        let size = new_br - new_tl;
-                        sender
-                            .send(SketchBoardInput::Output(
-                                SketchBoardOutput::DimensionsUpdate(Some((
-                                    size.x.round() as i32,
-                                    size.y.round() as i32,
-                                ))),
-                            ))
-                            .ok();
-                    }
+                    self.emit_crop_dimensions_update(preview.as_ref());
 
                     self.update_selection_bounds(new_tl, new_br);
                     self.preview = Some(preview);
