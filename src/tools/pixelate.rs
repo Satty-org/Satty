@@ -266,6 +266,10 @@ impl Pixelate {
 }
 
 impl Drawable for Pixelate {
+    fn is_renderable(&self) -> bool {
+        self.renderable.get()
+    }
+
     fn get_rendering_mode(&self) -> RenderingMode {
         RenderingMode::Blur
     }
@@ -489,12 +493,11 @@ impl Tool for PixelateTool {
 
                 self.clear_cursor();
                 if let Some(a) = &mut self.pixelate {
-                    if event.pos == Vec2D::zero() {
+                    a.calculate_shape(event.pos, event.modifier);
+                    if event.pos == Vec2D::zero() || !a.renderable.get() {
                         self.pixelate = None;
-
                         ToolUpdateResult::Redraw
                     } else {
-                        a.calculate_shape(event.pos, event.modifier);
                         a.editing = false;
 
                         let result = a.clone_box();
