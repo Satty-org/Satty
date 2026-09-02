@@ -1,5 +1,9 @@
 use std::cell::RefCell;
 
+use super::{
+    Drawable, DrawableClone, RenderingMode, Tool, ToolUpdateResult, Tools, hit_test_rectangle,
+};
+use crate::tools::drag_box::{DragBox, draw_center_marker};
 use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
@@ -10,21 +14,29 @@ use anyhow::Result;
 use femtovg::imgref::Img;
 use femtovg::rgb::RGBA8;
 use femtovg::{Color, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
+use relm4::adw::gdk::ModifierType;
 use relm4::{Sender, gtk::gdk::Key};
-
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 
 #[derive(Clone, Debug)]
 pub struct Pixelate {
+    origin: Vec2D,
     top_left: Vec2D,
     size: Option<Vec2D>,
     style: Style,
+    centered: bool,
     editing: bool,
     pseudo_mode: bool,
     cached_image: RefCell<Option<ImageId>>,
 }
 
 impl Pixelate {
+    fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
+        let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
+        self.centered = drag_box.centered;
+        self.top_left = drag_box.top_left;
+        self.size = Some(drag_box.size);
+    }
+
     fn pixelate(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -194,6 +206,44 @@ impl Pixelate {
 }
 
 impl Drawable for Pixelate {
+    fn get_rendering_mode(&self) -> RenderingMode {
+        RenderingMode::Blur
+    }
+
+    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+        let size = self.size?;
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + size,
+        ))
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+        // invalidate cached blur image since position changed
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        self.top_left = tl;
+        self.size = Some(br - tl);
+        *self.cached_image.borrow_mut() = None;
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        *self.cached_image.borrow_mut() = None;
+        Some(&mut self.style)
+    }
+
     fn draw(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
@@ -214,6 +264,9 @@ impl Drawable for Pixelate {
         );
         let can_perform = size.x >= blocksize as f32 && size.y >= blocksize as f32;
         if self.editing {
+            if self.centered {
+                draw_center_marker(canvas, self.origin);
+            }
             // set style
             let mut color = if can_perform {
                 Color::white()
@@ -321,8 +374,10 @@ impl Tool for PixelateTool {
 
                 // start new
                 self.pixelate = Some(Pixelate {
+                    origin: event.pos,
                     top_left: event.pos,
                     size: None,
+                    centered: false,
                     editing: true,
                     style: self.style,
                     cached_image: RefCell::new(None),
@@ -342,7 +397,7 @@ impl Tool for PixelateTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        a.size = Some(event.pos);
+                        a.calculate_shape(event.pos, event.modifier);
                         a.editing = false;
 
                         let result = a.clone_box();
@@ -363,7 +418,7 @@ impl Tool for PixelateTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    a.size = Some(event.pos);
+                    a.calculate_shape(event.pos, event.modifier);
 
                     ToolUpdateResult::Redraw
                 } else {
