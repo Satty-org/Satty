@@ -1090,7 +1090,10 @@ impl SketchBoard {
     ) -> Option<ToolUpdateResult> {
         let idx = self.renderer.hit_test(pos).first().copied()?;
         let drawable = self.renderer.get_drawable_clone(idx)?;
-        let (text_pos, content, style) = drawable.edit_info()?;
+        let text = drawable
+            .as_any()
+            .downcast_ref::<crate::tools::Text>()?
+            .clone();
 
         // Remove the committed drawable and clear selection
         self.pointer_tool.borrow_mut().deselect();
@@ -1098,9 +1101,7 @@ impl SketchBoard {
         self.renderer.remove_drawable(idx);
 
         // Pre-populate the text tool and switch to it
-        self.text_tool
-            .borrow_mut()
-            .load_for_editing(text_pos, &content, style);
+        self.text_tool.borrow_mut().load_for_editing(text);
         self.return_to_pointer_after_text_commit = true;
 
         sender
