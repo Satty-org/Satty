@@ -261,6 +261,8 @@ pub enum ToolUpdateResult {
     RedrawAndStopPropagation,
 }
 
+use self::{brush::BrushTool, marker::MarkerTool};
+use crate::tools::pixelate::PixelateMode;
 pub use arrow::ArrowTool;
 pub use blur::BlurTool;
 pub use crop::CropTool;
@@ -271,8 +273,6 @@ pub use pixelate::PixelateTool;
 pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
 pub use text::{Text, TextTool};
-
-use self::{brush::BrushTool, marker::MarkerTool};
 
 thread_local! {
     static CROP_TOOL_SINGLETON: OnceCell<Rc<RefCell<CropTool>>> = const { OnceCell::new() };
@@ -300,7 +300,8 @@ pub enum Tools {
     Highlight = 9,
     Brush = 10,
     Pixelate = 11,
-    PseudoPixelate = 12,
+    FringePixelate = 12,
+    Fringe = 13,
 }
 
 impl fmt::Display for Tools {
@@ -318,7 +319,8 @@ impl fmt::Display for Tools {
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
             Tools::Pixelate => "Pixelate",
-            Tools::PseudoPixelate => "Pseudo-Pixelate",
+            Tools::FringePixelate => "Fringe-Pixelate",
+            Tools::Fringe => "Fringe",
         };
         write!(f, "{}", name)
     }
@@ -345,7 +347,8 @@ impl FromStr for Tools {
             "highlight" => Ok(Self::Highlight),
             "brush" => Ok(Self::Brush),
             "pixelate" => Ok(Self::Pixelate),
-            "pseudo-pixelate" => Ok(Self::PseudoPixelate),
+            "fringe-pixelate" => Ok(Self::FringePixelate),
+            "fringe" => Ok(Self::Fringe),
             _ => Err(ParseCommandError),
         }
     }
@@ -377,11 +380,19 @@ impl ToolsManager {
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
             Tools::Pixelate,
-            Rc::new(RefCell::new(PixelateTool::default())),
+            Rc::new(RefCell::new(PixelateTool::with_mode(
+                PixelateMode::Pixelate,
+            ))),
         );
         tools.insert(
-            Tools::PseudoPixelate,
-            Rc::new(RefCell::new(PixelateTool::new_pseudo())),
+            Tools::FringePixelate,
+            Rc::new(RefCell::new(PixelateTool::with_mode(
+                PixelateMode::FringePixelate,
+            ))),
+        );
+        tools.insert(
+            Tools::Fringe,
+            Rc::new(RefCell::new(PixelateTool::with_mode(PixelateMode::Fringe))),
         );
         tools.insert(
             Tools::Highlight,
@@ -452,7 +463,8 @@ impl FromVariant for Tools {
             9 => Some(Tools::Highlight),
             10 => Some(Tools::Brush),
             11 => Some(Tools::Pixelate),
-            12 => Some(Tools::PseudoPixelate),
+            12 => Some(Tools::FringePixelate),
+            13 => Some(Tools::Fringe),
             _ => None,
         })
     }
@@ -471,7 +483,8 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Marker => Self::Marker,
             command_line::Tools::Blur => Self::Blur,
             command_line::Tools::Pixelate => Self::Pixelate,
-            command_line::Tools::PseudoPixelate => Self::PseudoPixelate,
+            command_line::Tools::FringePixelate => Self::FringePixelate,
+            command_line::Tools::Fringe => Self::Fringe,
             command_line::Tools::Highlight => Self::Highlight,
             command_line::Tools::Brush => Self::Brush,
         }

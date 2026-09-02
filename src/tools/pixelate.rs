@@ -17,6 +17,14 @@ use femtovg::{Color, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
 use relm4::adw::gdk::ModifierType;
 use relm4::{Sender, gtk::gdk::Key};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PixelateMode {
+    #[default]
+    Pixelate,
+    FringePixelate,
+    Fringe,
+}
+
 #[derive(Clone, Debug)]
 pub struct Pixelate {
     origin: Vec2D,
@@ -25,7 +33,7 @@ pub struct Pixelate {
     style: Style,
     centered: bool,
     editing: bool,
-    pseudo_mode: bool,
+    mode: PixelateMode,
     cached_image: RefCell<Option<ImageId>>,
 }
 
@@ -62,23 +70,34 @@ impl Pixelate {
         }
 
         let img = canvas.screenshot()?;
-        let buf = if self.pseudo_mode {
-            Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
-        } else {
-            let (buf, _, _) = img
-                .sub_image(pos_x, pos_y, width, height)
-                .to_contiguous_buf();
-            Some(buf)
+        let buf = match self.mode {
+            PixelateMode::FringePixelate | PixelateMode::Fringe => {
+                Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
+            }
+            PixelateMode::Pixelate => {
+                let (buf, _, _) = img
+                    .sub_image(pos_x, pos_y, width, height)
+                    .to_contiguous_buf();
+                Some(Cow::Owned(buf.into_owned()))
+            }
         };
 
-        if let Some(b) = buf
-            && let Some(dest_img) = Self::pixelate_regular(b, width, height, blocksize)?
-        {
-            let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
-            Ok(Some(dst_image_id))
-        } else {
-            Ok(None)
-        }
+        let Some(b) = buf else {
+            return Ok(None);
+        };
+
+        let dest_img = match self.mode {
+            PixelateMode::Fringe => Img::new(b.into_owned(), width, height),
+            PixelateMode::Pixelate | PixelateMode::FringePixelate => {
+                match Self::pixelate_regular(b, width, height, blocksize)? {
+                    Some(img) => img,
+                    None => return Ok(None),
+                }
+            }
+        };
+
+        let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
+        Ok(Some(dst_image_id))
     }
 
     fn fill_area_from_fringes(
@@ -333,17 +352,17 @@ pub struct PixelateTool {
     style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
-    pseudo_mode: bool,
+    mode: PixelateMode,
 }
 
 impl PixelateTool {
-    pub fn new_pseudo() -> Self {
+    pub fn with_mode(mode: PixelateMode) -> Self {
         PixelateTool {
             pixelate: None,
             style: Style::default(),
             input_enabled: false,
             sender: None,
-            pseudo_mode: true,
+            mode,
         }
     }
 }
@@ -358,10 +377,10 @@ impl Tool for PixelateTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        if self.pseudo_mode {
-            Tools::PseudoPixelate
-        } else {
-            Tools::Pixelate
+        match self.mode {
+            PixelateMode::Pixelate => Tools::Pixelate,
+            PixelateMode::FringePixelate => Tools::FringePixelate,
+            PixelateMode::Fringe => Tools::Fringe,
         }
     }
 
@@ -381,7 +400,7 @@ impl Tool for PixelateTool {
                     editing: true,
                     style: self.style,
                     cached_image: RefCell::new(None),
-                    pseudo_mode: self.pseudo_mode,
+                    mode: self.mode,
                 });
 
                 ToolUpdateResult::Redraw
