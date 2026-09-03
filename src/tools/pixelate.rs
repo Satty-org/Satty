@@ -1,5 +1,3 @@
-use std::cell::{Cell, RefCell};
-
 use super::{
     Drawable, DrawableClone, InputContext, RenderingMode, Tool, ToolUpdateResult, Tools,
     hit_test_rectangle,
@@ -19,6 +17,7 @@ use relm4::adw::gdk::ModifierType;
 use relm4::gtk::gdk::Cursor;
 use relm4::gtk::prelude::WidgetExt;
 use relm4::{Sender, gtk, gtk::gdk::Key};
+use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PixelateMode {
@@ -37,7 +36,7 @@ pub struct Pixelate {
     centered: bool,
     editing: bool,
     mode: PixelateMode,
-    cached_image: RefCell<Option<ImageId>>,
+    cached_image: RefCell<Option<(ImageId, Vec2D, Vec2D)>>,
     renderable: Cell<bool>,
 }
 
@@ -56,32 +55,6 @@ impl Pixelate {
         )
     }
 
-    fn fringe_area_in_bounds(
-        &self,
-        canvas: &femtovg::Canvas<femtovg::renderer::OpenGl>,
-        pos: Vec2D,
-        size: Vec2D,
-    ) -> bool {
-        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
-        let average_scale = canvas.transform().average_scale();
-        let transformed_size = size * average_scale;
-
-        let blocksize = self
-            .style
-            .size
-            .to_blocksize(self.style.annotation_size_factor);
-
-        let pos_x = transformed_pos.0 as usize;
-        let pos_y = transformed_pos.1 as usize;
-        let width = (transformed_size.x as usize / blocksize) * blocksize;
-        let height = (transformed_size.y as usize / blocksize) * blocksize;
-
-        pos_x >= 1
-            && pos_y >= 1
-            && pos_x + width < canvas.width() as usize
-            && pos_y + height < canvas.height() as usize
-    }
-
     fn calculate_shape(&mut self, pos: Vec2D, modifier: ModifierType) {
         let drag_box = DragBox::from_origin_delta(self.origin, pos, modifier);
         self.centered = drag_box.centered;
@@ -94,9 +67,10 @@ impl Pixelate {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         pos: Vec2D,
         size: Vec2D,
-    ) -> Result<Option<ImageId>> {
-        let transformed_pos = canvas.transform().transform_point(pos.x, pos.y);
-        let average_scale = canvas.transform().average_scale();
+    ) -> Result<Option<(ImageId, Vec2D, Vec2D)>> {
+        let transform = canvas.transform();
+        let transformed_pos = transform.transform_point(pos.x, pos.y);
+        let average_scale = transform.average_scale();
         let transformed_size = size * average_scale;
 
         let blocksize = self
@@ -104,10 +78,10 @@ impl Pixelate {
             .size
             .to_blocksize(self.style.annotation_size_factor);
 
-        let pos_x = transformed_pos.0 as usize;
-        let pos_y = transformed_pos.1 as usize;
-        let width = (transformed_size.x as usize / blocksize) * blocksize;
-        let height = (transformed_size.y as usize / blocksize) * blocksize;
+        let pos_x = transformed_pos.0.round() as usize;
+        let pos_y = transformed_pos.1.round() as usize;
+        let width = (transformed_size.x.round() as usize / blocksize) * blocksize;
+        let height = (transformed_size.y.round() as usize / blocksize) * blocksize;
 
         if width == 0 || height == 0 {
             return Ok(None);
@@ -137,7 +111,13 @@ impl Pixelate {
         };
 
         let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
-        Ok(Some(dst_image_id))
+        let origin = transform.transform_point(0.0, 0.0);
+        let paint_pos = Vec2D::new(
+            (pos_x as f32 - origin.0) / average_scale,
+            (pos_y as f32 - origin.1) / average_scale,
+        );
+        let paint_size = Vec2D::new(width as f32 / average_scale, height as f32 / average_scale);
+        Ok(Some((dst_image_id, paint_pos, paint_size)))
     }
 
     fn fill_area_from_fringes(
@@ -147,30 +127,46 @@ impl Pixelate {
         width: usize,
         height: usize,
     ) -> Result<Option<Cow<'_, [RGBA8]>>> {
-        // this shouldn't happen, because we check if draw can be performed before this runs.
-        // since .sub_image panics, leave this in anyway.
-        if pos_x < 1
-            || pos_y < 1
-            || canvas.width() as usize <= pos_x + width
-            || canvas.height() as usize <= pos_y + height
-        {
-            return Ok(None);
-        }
-
         let img = canvas.screenshot()?;
 
-        let (buf_north, _, _) = img
-            .sub_image(pos_x, pos_y - 1, width, 1)
-            .to_contiguous_buf();
-        let (buf_south, _, _) = img
-            .sub_image(pos_x, pos_y + height, width, 1)
-            .to_contiguous_buf();
-        let (buf_west, _, _) = img
-            .sub_image(pos_x - 1, pos_y, 1, height)
-            .to_contiguous_buf();
-        let (buf_east, _, _) = img
-            .sub_image(pos_x + width, pos_y, 1, height)
-            .to_contiguous_buf();
+        /*eprintln!(
+            "pos_x={pos_x}, pos_y={pos_y}, width={width}, height={height}, img: {:?} {:?}",
+            img.width(),
+            img.height()
+        );*/
+
+        let buf_north = if pos_y >= 1 {
+            let (b, _, _) = img
+                .sub_image(pos_x, pos_y - 1, width, 1)
+                .to_contiguous_buf();
+            b
+        } else {
+            Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); width])
+        };
+        let buf_south = if pos_y + height < canvas.height() as usize {
+            let (b, _, _) = img
+                .sub_image(pos_x, pos_y + height, width, 1)
+                .to_contiguous_buf();
+            b
+        } else {
+            Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); width])
+        };
+        let buf_west = if pos_x >= 1 {
+            let (b, _, _) = img
+                .sub_image(pos_x - 1, pos_y, 1, height)
+                .to_contiguous_buf();
+            b
+        } else {
+            Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); height])
+        };
+        let buf_east = if pos_x + width <= canvas.width() as usize {
+            let (b, _, _) = img
+                .sub_image(pos_x + width, pos_y, 1, height)
+                .to_contiguous_buf();
+            b
+        } else {
+            Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); height])
+        };
 
         let mut buf_new = vec![Rgba::new(0, 0, 0, 0); width * height];
 
@@ -331,9 +327,8 @@ impl Drawable for Pixelate {
         } else {
             size.x.abs() > f32::EPSILON && size.y.abs() > f32::EPSILON
         };
-        let fringe_ok = !self.is_fringe() || self.fringe_area_in_bounds(canvas, pos, size);
 
-        let can_perform = big_enough && fringe_ok;
+        let can_perform = big_enough;
         self.renderable.set(can_perform);
         if self.editing {
             if self.centered {
@@ -376,18 +371,18 @@ impl Drawable for Pixelate {
                 self.cached_image.borrow_mut().replace(x);
             }
 
-            if self.cached_image.borrow().is_some() {
+            if let Some((image_id, paint_pos, paint_size)) = *self.cached_image.borrow() {
                 let mut path = Path::new();
-                path.rect(pos.x, pos.y, size.x, size.y);
+                path.rect(paint_pos.x, paint_pos.y, paint_size.x, paint_size.y);
 
                 canvas.fill_path(
                     &path,
                     &Paint::image(
-                        self.cached_image.borrow().unwrap(), // this unwrap is safe because we placed it above
-                        pos.x,
-                        pos.y,
-                        size.x,
-                        size.y,
+                        image_id,
+                        paint_pos.x,
+                        paint_pos.y,
+                        paint_size.x,
+                        paint_size.y,
                         0f32,
                         1f32,
                     ),
