@@ -652,7 +652,10 @@ impl FemtoVgAreaMut {
         }
 
         // draw active tool when not already drawn in stack order
-        if draw_active_tool && let Some(preview) = self.active_tool.borrow().get_drawable() {
+        if draw_active_tool
+            && self.active_tool.borrow().get_tool_type() != Tools::Crop
+            && let Some(preview) = self.active_tool.borrow().get_drawable()
+        {
             preview.draw(canvas, font, bounds)?;
         }
 
