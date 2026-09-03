@@ -421,12 +421,30 @@ impl SketchBoard {
         )
     }
 
+    fn is_drawable_too_small(&self, drawable: &dyn crate::tools::Drawable) -> bool {
+        if let Some((tl, br)) = drawable.bounds()
+            && let size = br - tl
+            && (size.x < 1.0 || size.y < 1.0 || size.area() < 1.0)
+        {
+            eprintln!(
+                "Drawable size{:?} resp. area {} is too small, ignoring commit.",
+                size,
+                size.area()
+            );
+            return true;
+        }
+        false
+    }
+
     fn deactivate_active_tool(&mut self) -> bool {
         if self.active_tool.borrow().active()
-            && let ToolUpdateResult::Commit(result) =
+            && let ToolUpdateResult::Commit(drawable) =
                 self.active_tool.borrow_mut().handle_deactivated()
         {
-            self.renderer.commit(result);
+            if self.is_drawable_too_small(drawable.as_ref()) {
+                return true;
+            };
+            self.renderer.commit(drawable);
             return true;
         }
         false
@@ -1925,6 +1943,9 @@ impl Component for SketchBoard {
 
         match result {
             ToolUpdateResult::Commit(drawable) => {
+                if self.is_drawable_too_small(drawable.as_ref()) {
+                    return;
+                };
                 self.renderer.commit(drawable);
                 // Queue this after any live drag update so the final display is authoritative.
                 sender_clone.input(SketchBoardInput::ShapeDimensionsUpdate(
