@@ -130,7 +130,11 @@ impl Tool for CropTool {
                 let Some(crop) = &mut self.crop else {
                     return ToolUpdateResult::Unmodified;
                 };
-
+                if crop.size == Vec2D::zero() {
+                    self.crop = None;
+                    self.emit_crop_dimensions_update();
+                    return ToolUpdateResult::Redraw;
+                }
                 ToolUpdateResult::Commit(crop.clone_box())
             }
             MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
