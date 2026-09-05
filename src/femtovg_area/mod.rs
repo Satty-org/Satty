@@ -14,7 +14,7 @@ use crate::{
     configuration::Action,
     math::Vec2D,
     sketch_board::SketchBoardInput,
-    tools::{Drawable, Tool},
+    tools::{Drawable, RenderingMode, Tool},
 };
 
 static FONT_STACK: OnceLock<Vec<FontId>> = OnceLock::new();
@@ -211,6 +211,14 @@ impl FemtoVGArea {
             .as_ref()
             .expect("Did you call init before using FemtoVgArea?")
             .get_drawable_clone(index)
+    }
+
+    pub fn find_drawable_index_by_mode(&self, mode: RenderingMode) -> Option<usize> {
+        self.imp()
+            .inner()
+            .as_ref()
+            .expect("Did you call init before using FemtoVgArea?")
+            .find_drawable_index_by_mode(mode)
     }
 
     pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {

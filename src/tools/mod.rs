@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt;
 use std::str::FromStr;
 use std::{
@@ -158,6 +159,21 @@ pub trait DrawableClone {
     fn clone_box(&self) -> Box<dyn Drawable>;
 }
 
+pub trait AsAny {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: Any> AsAny for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
 impl<T> DrawableClone for T
 where
     T: 'static + Drawable + Clone,
@@ -167,7 +183,7 @@ where
     }
 }
 
-pub trait Drawable: DrawableClone + Debug {
+pub trait Drawable: DrawableClone + Debug + AsAny {
     fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
     -> Result<()>;
     fn handle_undo(&mut self) {}
@@ -191,12 +207,6 @@ pub trait Drawable: DrawableClone + Debug {
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let _ = (tl, br);
     }
-    // Returns position, text content and style if this drawable is an editable text, for
-    // re-opening it in the text tool. Returns None for all other drawable types.
-    fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
-        None
-    }
-
     fn get_style(&self) -> Option<&Style> {
         None
     }
@@ -258,7 +268,7 @@ pub use highlight::{HighlightTool, Highlighters};
 pub use line::LineTool;
 pub use pointer::PointerTool;
 pub use rectangle::RectangleTool;
-pub use text::TextTool;
+pub use text::{Text, TextTool};
 
 use self::{brush::BrushTool, marker::MarkerTool};
 

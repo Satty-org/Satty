@@ -263,15 +263,6 @@ impl Drawable for Text {
         );
     }
 
-    fn edit_info(&self) -> Option<(Vec2D, String, crate::style::Style)> {
-        let content = self.text_buffer.text(
-            &self.text_buffer.start_iter(),
-            &self.text_buffer.end_iter(),
-            false,
-        );
-        Some((self.pos, content.to_string(), self.style))
-    }
-
     fn get_style(&self) -> Option<&Style> {
         Some(&self.style)
     }
@@ -1918,13 +1909,18 @@ impl TextTool {
 
     // Pre-populate the tool with an existing text drawable so the user can edit it.
     // Call this before switching to the Text tool.
-    pub fn load_for_editing(&mut self, pos: Vec2D, content: &str, style: Style) {
-        let t = Text::new(pos, style, self.im_context.clone());
-        t.text_buffer.insert_at_cursor(content);
-        // Move cursor to end
-        t.text_buffer.place_cursor(&t.text_buffer.end_iter());
-        self.text = Some(t);
-        self.style = style;
+    pub fn load_for_editing(&mut self, mut text: Text) {
+        text.editing = true;
+        text.preedit = None;
+        text.im_context = self.im_context.clone();
+        text.text_buffer.place_cursor(&text.text_buffer.end_iter());
+        text.text_buffer
+            .select_range(&text.text_buffer.end_iter(), &text.text_buffer.end_iter());
+        *text.cursor_visible.borrow_mut() = true;
+        *text.draw_rect.borrow_mut() = true;
+
+        self.style = text.style;
+        self.text = Some(text);
         self.set_input_enabled(true);
         self.editing_existing = true;
     }

@@ -24,7 +24,9 @@ use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::math::{Vec2D, crop_rect_in_bounds};
 use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::{Color, Size, Style};
-use crate::tools::{PointerTool, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager};
+use crate::tools::{
+    PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager,
+};
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
 
@@ -940,7 +942,6 @@ impl SketchBoard {
                     .is_none()
             {
                 // switch back to previous tool
-                self.temporary_pointer_previous_tool = None;
                 self.handle_toolbar_event(
                     ToolbarEvent::ToolSelected(previous_tool),
                     sender.clone(),
@@ -1089,7 +1090,10 @@ impl SketchBoard {
     ) -> Option<ToolUpdateResult> {
         let idx = self.renderer.hit_test(pos).first().copied()?;
         let drawable = self.renderer.get_drawable_clone(idx)?;
-        let (text_pos, content, style) = drawable.edit_info()?;
+        let text = drawable
+            .as_any()
+            .downcast_ref::<crate::tools::Text>()?
+            .clone();
 
         // Remove the committed drawable and clear selection
         self.pointer_tool.borrow_mut().deselect();
@@ -1097,9 +1101,7 @@ impl SketchBoard {
         self.renderer.remove_drawable(idx);
 
         // Pre-populate the text tool and switch to it
-        self.text_tool
-            .borrow_mut()
-            .load_for_editing(text_pos, &content, style);
+        self.text_tool.borrow_mut().load_for_editing(text);
         self.return_to_pointer_after_text_commit = true;
 
         sender
@@ -1123,8 +1125,22 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::ToolSelected(tool) => {
-                self.temporary_pointer_previous_tool = None;
                 self.return_to_pointer_after_text_commit = false;
+
+                let mut target_tool = tool;
+
+                if tool == Tools::Crop
+                    && self.temporary_pointer_previous_tool != Some(Tools::Crop)
+                    && let Some(index) = self
+                        .renderer
+                        .find_drawable_index_by_mode(RenderingMode::Crop)
+                {
+                    self.temporary_pointer_previous_tool = Some(Tools::Crop);
+                    target_tool = Tools::Pointer;
+                    self.update_pointer_tool_selection(index, false);
+                } else {
+                    self.temporary_pointer_previous_tool = None;
+                }
 
                 // deactivate old tool and save drawable, if any
                 let old_tool = self.active_tool.clone();
@@ -1142,7 +1158,7 @@ impl SketchBoard {
                 }
 
                 // change active tool
-                self.active_tool = self.tools.get(&tool);
+                self.active_tool = self.tools.get(&target_tool);
                 self.renderer.set_active_tool(self.active_tool.clone());
                 let widget_ref: gtk::Widget = self.renderer.clone().upcast();
                 self.active_tool
@@ -1162,7 +1178,11 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style));
 
-                ToolUpdateResult::Redraw
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::ToolSwitchShortcut(target_tool));
+
+                ToolUpdateResult::RedrawAndStopPropagation
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
