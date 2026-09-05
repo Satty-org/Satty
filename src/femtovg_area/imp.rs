@@ -23,6 +23,7 @@ use resource::resource;
 use crate::{
     APP_CONFIG,
     configuration::Action,
+    epoxy,
     math::{Vec2D, crop_rect_in_bounds},
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool, Tools},
