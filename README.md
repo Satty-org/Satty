@@ -148,6 +148,10 @@ Highlight:
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
+Additional note on fringe inpaint, pixelate and fringe inpaint + pixelate <sup>NEXTRELEASE</sup>:
+
+Due to having to consider a blocksize, there's a remainder in almost all situations. We determine a vertical and horizontal anchor based on the origin, the remainder is located on the opposite sides. To change the location of the remainder, draw the rectangle in a different direction. This does not apply to center based rectangles drawn with <kbd>Alt</kbd>, in this instance the anchor is always top left.
+
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
 Shortcuts can be overwritten in the config by 

@@ -10,9 +10,10 @@ use crate::{
     tools::Cow,
 };
 use anyhow::Result;
-use femtovg::imgref::Img;
+use femtovg::imgref::{Img, ImgVec};
+use femtovg::renderer::OpenGl;
 use femtovg::rgb::RGBA8;
-use femtovg::{Color, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
+use femtovg::{Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
 use relm4::adw::gdk::ModifierType;
 use relm4::gtk::gdk::Cursor;
 use relm4::gtk::prelude::WidgetExt;
@@ -65,33 +66,38 @@ impl Pixelate {
     fn pixelate(
         &self,
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        image: &ImgVec<RGBA8>,
         pos: Vec2D,
         size: Vec2D,
     ) -> Result<Option<(ImageId, Vec2D, Vec2D)>> {
-        let transform = canvas.transform();
-        let transformed_pos = transform.transform_point(pos.x, pos.y);
-        let average_scale = transform.average_scale();
-        let transformed_size = size * average_scale;
-
         let blocksize = self
             .style
             .size
             .to_blocksize(self.style.annotation_size_factor);
 
-        let pos_x = transformed_pos.0.round() as usize;
-        let pos_y = transformed_pos.1.round() as usize;
-        let width = (transformed_size.x.round() as usize / blocksize) * blocksize;
-        let height = (transformed_size.y.round() as usize / blocksize) * blocksize;
+        let size_x = size.x.round() as usize;
+        let size_y = size.y.round() as usize;
+        let width = (size_x / blocksize) * blocksize;
+        let height = (size_y / blocksize) * blocksize;
 
         if width == 0 || height == 0 {
             return Ok(None);
         }
 
-        let img = canvas.screenshot()?;
+        // consider how the rectangle was dragged, due to tbe blocksize there's always a remainder
+        // use this so we get more control about which side the remainder ends up.
+        let anchor_right = !self.centered && self.origin.x > pos.x + size.x / 2.0;
+        let anchor_bottom = !self.centered && self.origin.y > pos.y + size.y / 2.0;
+        let base_x = pos.x.round() as usize + if anchor_right { size_x - width } else { 0 };
+        let base_y = pos.y.round() as usize + if anchor_bottom { size_y - height } else { 0 };
+
+        let pos_x = base_x.min(image.width().saturating_sub(width));
+        let pos_y = base_y.min(image.height().saturating_sub(height));
+
         let buf = if self.is_fringe() {
-            Self::fill_area_from_fringes(canvas, pos_x, pos_y, width, height)?
+            Self::fill_area_from_fringes(image, pos_x, pos_y, width, height)?
         } else {
-            let (buf, _, _) = img
+            let (buf, _, _) = image
                 .sub_image(pos_x, pos_y, width, height)
                 .to_contiguous_buf();
             Some(Cow::Owned(buf.into_owned()))
@@ -111,40 +117,28 @@ impl Pixelate {
         };
 
         let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
-        let origin = transform.transform_point(0.0, 0.0);
-        let paint_pos = Vec2D::new(
-            (pos_x as f32 - origin.0) / average_scale,
-            (pos_y as f32 - origin.1) / average_scale,
-        );
-        let paint_size = Vec2D::new(width as f32 / average_scale, height as f32 / average_scale);
+        let paint_pos = Vec2D::new(pos_x as f32, pos_y as f32);
+        let paint_size = Vec2D::new(width as f32, height as f32);
         Ok(Some((dst_image_id, paint_pos, paint_size)))
     }
 
     fn fill_area_from_fringes(
-        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        image: &ImgVec<RGBA8>,
         pos_x: usize,
         pos_y: usize,
         width: usize,
         height: usize,
     ) -> Result<Option<Cow<'_, [RGBA8]>>> {
-        let img = canvas.screenshot()?;
-
-        /*eprintln!(
-            "pos_x={pos_x}, pos_y={pos_y}, width={width}, height={height}, img: {:?} {:?}",
-            img.width(),
-            img.height()
-        );*/
-
         let buf_north = if pos_y >= 1 {
-            let (b, _, _) = img
+            let (b, _, _) = image
                 .sub_image(pos_x, pos_y - 1, width, 1)
                 .to_contiguous_buf();
             b
         } else {
             Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); width])
         };
-        let buf_south = if pos_y + height < canvas.height() as usize {
-            let (b, _, _) = img
+        let buf_south = if pos_y + height < image.height() {
+            let (b, _, _) = image
                 .sub_image(pos_x, pos_y + height, width, 1)
                 .to_contiguous_buf();
             b
@@ -152,15 +146,15 @@ impl Pixelate {
             Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); width])
         };
         let buf_west = if pos_x >= 1 {
-            let (b, _, _) = img
+            let (b, _, _) = image
                 .sub_image(pos_x - 1, pos_y, 1, height)
                 .to_contiguous_buf();
             b
         } else {
             Cow::Owned(vec![RGBA8::new(128, 128, 128, 128); height])
         };
-        let buf_east = if pos_x + width <= canvas.width() as usize {
-            let (b, _, _) = img
+        let buf_east = if pos_x + width < image.width() {
+            let (b, _, _) = image
                 .sub_image(pos_x + width, pos_y, 1, height)
                 .to_contiguous_buf();
             b
@@ -306,14 +300,25 @@ impl Drawable for Pixelate {
 
     fn draw(
         &self,
-        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         _font: femtovg::FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn draw_baselayer(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        image: &ImgVec<RGBA8>,
+        _font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let size = match self.size {
             Some(s) => s,
             None => return Ok(()), // early exit if none
         };
+
         let blocksize = self
             .style
             .size
@@ -322,73 +327,54 @@ impl Drawable for Pixelate {
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
-        let big_enough = if self.is_pixelate() {
-            size.x >= blocksize as f32 && size.y >= blocksize as f32
-        } else {
-            size.x.abs() > f32::EPSILON && size.y.abs() > f32::EPSILON
-        };
+        let big_enough = size.x >= blocksize as f32 && size.y >= blocksize as f32;
+        self.renderable.set(big_enough);
 
-        let can_perform = big_enough;
-        self.renderable.set(can_perform);
         if self.editing {
             if self.centered {
                 draw_center_marker(canvas, self.origin);
             }
-            // set style
-            let mut color = if can_perform {
-                Color::white()
-            } else {
-                Color::rgb(255, 0, 0)
-            };
-            let border_color = if can_perform {
-                Color::black()
-            } else {
-                Color::rgb(0, 255, 255)
-            };
+            let mut color = Color::white();
+            let border_color = Color::black();
             color.set_alphaf(0.6);
             let paint = Paint::color(color);
             let paint_border = Paint::color(border_color);
 
-            // make rect
             let mut path = Path::new();
             path.rect(pos.x, pos.y, size.x, size.y);
 
-            // draw
             canvas.fill_path(&path, &paint);
             canvas.stroke_path(&path, &paint_border);
-        } else {
-            if !can_perform {
-                return Ok(());
-            }
+            return Ok(());
+        } else if !big_enough {
+            return Ok(());
+        }
 
-            canvas.save();
-            canvas.flush();
+        canvas.save();
+        canvas.flush();
 
-            // create new cached image
-            if self.cached_image.borrow().is_none()
-                && let Some(x) = self.pixelate(canvas, pos, size)?
-            {
-                self.cached_image.borrow_mut().replace(x);
-            }
+        if self.cached_image.borrow().is_none()
+            && let Some(x) = self.pixelate(canvas, image, pos, size)?
+        {
+            self.cached_image.borrow_mut().replace(x);
+        }
 
-            if let Some((image_id, paint_pos, paint_size)) = *self.cached_image.borrow() {
-                let mut path = Path::new();
-                path.rect(paint_pos.x, paint_pos.y, paint_size.x, paint_size.y);
-
-                canvas.fill_path(
-                    &path,
-                    &Paint::image(
-                        image_id,
-                        paint_pos.x,
-                        paint_pos.y,
-                        paint_size.x,
-                        paint_size.y,
-                        0f32,
-                        1f32,
-                    ),
-                );
-                canvas.restore();
-            }
+        if let Some((image_id, paint_pos, paint_size)) = *self.cached_image.borrow() {
+            let mut path = Path::new();
+            path.rect(paint_pos.x, paint_pos.y, paint_size.x, paint_size.y);
+            canvas.fill_path(
+                &path,
+                &Paint::image(
+                    image_id,
+                    paint_pos.x,
+                    paint_pos.y,
+                    paint_size.x,
+                    paint_size.y,
+                    0f32,
+                    1f32,
+                ),
+            );
+            canvas.restore();
         }
         Ok(())
     }

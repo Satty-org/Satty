@@ -10,6 +10,8 @@ use std::{
 };
 
 use anyhow::Result;
+use femtovg::imgref::ImgVec;
+use femtovg::rgb::RGBA8;
 use femtovg::{Canvas, FontId, renderer::OpenGl};
 use relm4::gtk::gdk_pixbuf::{
     glib::{Variant, VariantTy},
@@ -187,6 +189,16 @@ where
 pub trait Drawable: DrawableClone + Debug + AsAny {
     fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
     -> Result<()>;
+    fn draw_baselayer(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        image: &ImgVec<RGBA8>,
+        font: FontId,
+        bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        let _ = image;
+        self.draw(canvas, font, bounds)
+    }
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
@@ -324,8 +336,8 @@ impl fmt::Display for Tools {
             Tools::Blur => "Blur",
             Tools::Highlight => "Highlight",
             Tools::Pixelate => "Pixelate",
-            Tools::FringePixelate => "Fringe-Pixelate",
-            Tools::Fringe => "Fringe",
+            Tools::FringePixelate => "Fringe inpaint+Pixelate",
+            Tools::Fringe => "Fringe inpaint",
         };
         write!(f, "{}", name)
     }
