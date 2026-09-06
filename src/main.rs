@@ -1,15 +1,16 @@
 use configuration::{APP_CONFIG, Configuration};
+use relm4::gtk::gdk::Rectangle;
 use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
 use relm4::gtk::gio::{Application, ApplicationFlags};
 use relm4::gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
+use std::path::Path;
 use std::process::exit;
 use std::sync::{LazyLock, RwLock};
-use std::{fs, panic};
+use std::time::SystemTime;
+use std::{fs, panic, thread};
 use std::{io, time::Duration};
-
-use relm4::gtk::gdk::Rectangle;
 
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp,
@@ -573,10 +574,24 @@ fn run_satty() -> Result<()> {
         Ok(mut temp_dir) => {
             // take is sufficient to have the dir deleted when it's dropped.
             // But that would hide any errors, so use explicit close instead.
-            if let Some(dir) = temp_dir.take()
-                && let Err(e) = dir.close()
-            {
-                eprintln!("Failed to close temporary directory: {}", e);
+            if let Some(dir) = temp_dir.take() {
+                // get the last modified file from the temp directory, with its timestamp
+                // we can determine if we sent a notification recently.
+                // this works so long as we only have notification thumbs there.
+                if let Some(mtime) = newest_mtime(dir.path())
+                    && let Ok(elapsed) = SystemTime::now().duration_since(mtime)
+                    && elapsed < Duration::from_millis(250)
+                {
+                    eprintln!(
+                        "last notification sent {:?} ago, sleeping some more.",
+                        elapsed
+                    );
+                    thread::sleep(Duration::from_millis(250) - elapsed);
+                }
+
+                if let Err(e) = dir.close() {
+                    eprintln!("Failed to close temporary directory: {}", e);
+                }
             }
         }
         Err(e) => {
@@ -585,6 +600,15 @@ fn run_satty() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn newest_mtime(dir: &Path) -> Option<SystemTime> {
+    fs::read_dir(dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.metadata().ok())
+        .filter_map(|meta| meta.modified().ok())
+        .max()
 }
 
 fn main() -> Result<()> {
