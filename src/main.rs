@@ -575,18 +575,20 @@ fn run_satty() -> Result<()> {
             // take is sufficient to have the dir deleted when it's dropped.
             // But that would hide any errors, so use explicit close instead.
             if let Some(dir) = temp_dir.take() {
+                let grace_period = APP_CONFIG.read().notification_grace_period();
                 // get the last modified file from the temp directory, with its timestamp
                 // we can determine if we sent a notification recently.
                 // this works so long as we only have notification thumbs there.
                 if let Some(mtime) = newest_mtime(dir.path())
                     && let Ok(elapsed) = SystemTime::now().duration_since(mtime)
-                    && elapsed < Duration::from_millis(250)
+                    && elapsed < grace_period
                 {
+                    let sleep_time = grace_period - elapsed;
                     eprintln!(
-                        "last notification sent {:?} ago, sleeping some more.",
-                        elapsed
+                        "last notification sent {:?} ago, sleeping additional {:?}.",
+                        elapsed, sleep_time
                     );
-                    thread::sleep(Duration::from_millis(250) - elapsed);
+                    thread::sleep(sleep_time);
                 }
 
                 if let Err(e) = dir.close() {
