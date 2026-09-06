@@ -98,7 +98,7 @@ Default single-key shortcuts:
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
-- <kbd>x</kbd>: Pixelate tool
+- <kbd>x</kbd>: Fringe inpaint+Pixelate tool
 - <kbd>g</kbd>: Highlight tool
 
 ### Pointer Tool <sup>NEXTRELEASE</sup>
