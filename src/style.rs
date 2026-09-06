@@ -281,4 +281,12 @@ impl Size {
             Size::Large => 45.0 * size_factor,
         }
     }
+
+    pub fn to_blocksize(self, size_factor: f32) -> usize {
+        match self {
+            Size::Small => 4 * (size_factor as usize).max(1),
+            Size::Medium => 8 * (size_factor as usize).max(1),
+            Size::Large => 16 * (size_factor as usize).max(1),
+        }
+    }
 }

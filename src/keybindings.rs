@@ -278,6 +278,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("m", SC::SelectTool(Tools::Marker));
         registry.add_key_binding("u", SC::SelectTool(Tools::Blur));
         registry.add_key_binding("g", SC::SelectTool(Tools::Highlight));
+        registry.add_key_binding("x", SC::SelectTool(Tools::FringePixelate));
         registry.add_key_binding("<Control>c", SC::RunAction(A::SaveToClipboard));
         registry.add_key_binding("<Control><Alt>c", SC::RunAction(A::CopyFilepathToClipboard));
         registry.add_key_binding("<Control>s", SC::RunAction(A::SaveToFile));

@@ -293,11 +293,28 @@ impl SimpleComponent for ToolsToolbar {
                 icon_name: "number-circle-1-regular".into(),
                 tooltip: None,
             }],
-            vec![GroupableTool {
-                tool: Tools::Blur,
-                icon_name: "drop-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::FringePixelate,
+                    icon_name: "eye-off-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Pixelate,
+                    icon_name: "checkerboard".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Fringe,
+                    icon_name: "tetris-app-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Blur,
+                    icon_name: "drop-regular".into(),
+                    tooltip: None,
+                },
+            ],
             vec![GroupableTool {
                 tool: Tools::Highlight,
                 icon_name: "highlight-regular".into(),
