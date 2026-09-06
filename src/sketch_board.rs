@@ -1968,6 +1968,10 @@ impl Component for SketchBoard {
                 im_context: model.im_context.clone(),
                 widget: widget_ref,
             }));
+        model
+            .active_tool
+            .borrow_mut()
+            .set_sender(sender.input_sender().clone());
 
         ComponentParts { model, widgets }
     }
