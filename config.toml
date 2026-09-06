@@ -83,6 +83,9 @@ app-id = "org.satty.satty"
 # experimental feature (0.22.0): show thumbnail as notifcation icon
 # notification-thumbnail = "app-icon"
 notification-thumbnail = "screenshot"
+# how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
+# for fast machines, the default value of 250ms is ridiculously high.
+notification-grace-period = 250
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]

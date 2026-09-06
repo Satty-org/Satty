@@ -1,13 +1,13 @@
+use clap::Parser;
+use hex_color::HexColor;
+use relm4::SharedState;
+use std::time::Duration;
 use std::{
     collections::HashMap,
     fs,
     io::{self, Write},
     path::Path,
 };
-
-use clap::Parser;
-use hex_color::HexColor;
-use relm4::SharedState;
 
 use serde::Deserialize;
 use serde::de::Deserializer;
@@ -76,6 +76,7 @@ pub struct Configuration {
     title: Option<String>,
     app_id: Option<String>,
     notification_thumbnail: NotificationThumbnail,
+    notification_grace_period: Duration,
 }
 
 #[derive(Default)]
@@ -362,6 +363,9 @@ impl Configuration {
         }
         if let Some(v) = general.notification_thumbnail {
             self.notification_thumbnail = v;
+        }
+        if let Some(v) = general.notification_grace_period {
+            self.notification_grace_period = std::time::Duration::from_millis(v);
         }
 
         // --- deprecated options ---
@@ -672,6 +676,10 @@ impl Configuration {
     pub fn notification_thumbnail(&self) -> NotificationThumbnail {
         self.notification_thumbnail
     }
+
+    pub fn notification_grace_period(&self) -> Duration {
+        self.notification_grace_period
+    }
 }
 
 impl Default for Configuration {
@@ -714,6 +722,7 @@ impl Default for Configuration {
             title: None,
             app_id: None,
             notification_thumbnail: NotificationThumbnail::default(),
+            notification_grace_period: Duration::from_millis(250),
         }
     }
 }
@@ -785,6 +794,7 @@ struct ConfigurationFileGeneral {
     title: Option<String>,
     app_id: Option<String>,
     notification_thumbnail: Option<NotificationThumbnail>,
+    notification_grace_period: Option<u64>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,
