@@ -148,9 +148,10 @@ Highlight:
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
-Additional note on fringe inpaint, pixelate and fringe inpaint + pixelate <sup>NEXTRELEASE</sup>:
+Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <sup>NEXTRELEASE</sup>:
 
-Due to having to consider a blocksize, there's a remainder in almost all situations. We determine a vertical and horizontal anchor based on the origin, the remainder is located on the opposite sides. To change the location of the remainder, draw the rectangle in a different direction. This does not apply to center based rectangles drawn with <kbd>Alt</kbd>, in this instance the anchor is always top left.
+- **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead.
+- **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
@@ -196,7 +197,8 @@ early-exit = ["all"]
 # early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, text, marker, blur, brush]
+# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, 
+# text, marker, blur, brush, fringe-pixelate, fringe, fringe-pixelate]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -257,6 +259,9 @@ app-id = "org.satty.satty"
 # experimental feature (0.22.0): show thumbnail as notifcation icon
 # notification-thumbnail = "app-icon"
 notification-thumbnail = "screenshot"
+# how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
+# for fast machines, the default value of 250ms is ridiculously high.
+notification-grace-period = 250
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]

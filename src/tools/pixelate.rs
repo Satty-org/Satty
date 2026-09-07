@@ -13,7 +13,7 @@ use anyhow::Result;
 use femtovg::imgref::{Img, ImgVec};
 use femtovg::renderer::OpenGl;
 use femtovg::rgb::RGBA8;
-use femtovg::{Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
+use femtovg::{Canvas, FontId, ImageFlags, ImageId, Paint, Path, rgb::Rgba};
 use relm4::adw::gdk::ModifierType;
 use relm4::gtk::gdk::Cursor;
 use relm4::gtk::prelude::WidgetExt;
@@ -74,25 +74,20 @@ impl Pixelate {
             .style
             .size
             .to_blocksize(self.style.annotation_size_factor);
+        // for testing
+        // let blocksize = self.style.annotation_size_factor.max(2.0) as usize;
 
-        let size_x = size.x.round() as usize;
-        let size_y = size.y.round() as usize;
-        let width = (size_x / blocksize) * blocksize;
-        let height = (size_y / blocksize) * blocksize;
+        // pos/size are pre-clamped in float space, but rounding pos and size
+        // independently can push pos+size one pixel past the image edge, so
+        // clamp again here in integer space against the actual image dimensions.
+        let pos_x = (pos.x.round() as usize).min(image.width());
+        let pos_y = (pos.y.round() as usize).min(image.height());
+        let width = (size.x.round() as usize).min(image.width() - pos_x);
+        let height = (size.y.round() as usize).min(image.height() - pos_y);
 
         if width == 0 || height == 0 {
             return Ok(None);
         }
-
-        // consider how the rectangle was dragged, due to tbe blocksize there's always a remainder
-        // use this so we get more control about which side the remainder ends up.
-        let anchor_right = !self.centered && self.origin.x > pos.x + size.x / 2.0;
-        let anchor_bottom = !self.centered && self.origin.y > pos.y + size.y / 2.0;
-        let base_x = pos.x.round() as usize + if anchor_right { size_x - width } else { 0 };
-        let base_y = pos.y.round() as usize + if anchor_bottom { size_y - height } else { 0 };
-
-        let pos_x = base_x.min(image.width().saturating_sub(width));
-        let pos_y = base_y.min(image.height().saturating_sub(height));
 
         let buf = if self.is_fringe() {
             Self::fill_area_from_fringes(image, pos_x, pos_y, width, height)?
@@ -209,17 +204,32 @@ impl Pixelate {
         blocksize: usize,
     ) -> Result<Option<Img<Vec<Rgba<u8>>>>> {
         let mut buf_new = vec![Rgba::new(0, 0, 0, 0); width * height];
+        // for testing with checker board background to see if we got all pixels
+        // buf_new.fill(Rgba::new(255, 0, 0, 0));
 
-        let blocks_x = width / blocksize;
-        let blocks_y = height / blocksize;
+        let blocksize_x = blocksize.max(2).min(width);
+        let blocksize_y = blocksize.max(2).min(height);
+        let blocks_x = width / blocksize_x;
+        let blocks_y = height / blocksize_y;
+
+        let blocksize_x = (width / blocks_x).max(2);
+        let blocksize_y = (height / blocks_y).max(2);
+        let blocks_x = width / blocksize_x;
+        let blocks_y = height / blocksize_y;
+        let remainder_x = width - blocksize_x * blocks_x;
+        let remainder_y = height - blocksize_y * blocks_y;
 
         for block_y in 0..blocks_y {
-            for block_x in 0..blocks_x {
-                let x0 = block_x * blocksize;
-                let y0 = block_y * blocksize;
-                let x1 = x0 + blocksize;
-                let y1 = y0 + blocksize;
+            // this + 1 feels odd indexes are 0 based
+            let ry = (block_y + remainder_y + 1).saturating_sub(blocks_y);
+            let y0 = block_y * blocksize_y + if ry > 0 { ry - 1 } else { 0 };
+            let y1 = y0 + blocksize_y + if ry > 0 { 1 } else { 0 };
 
+            for block_x in 0..blocks_x {
+                // this + 1 feels odd indexes are 0 based
+                let rx = (block_x + remainder_x + 1).saturating_sub(blocks_x);
+                let x0 = block_x * blocksize_x + if rx > 0 { rx - 1 } else { 0 };
+                let x1 = x0 + blocksize_x + if rx > 0 { 1 } else { 0 };
                 let mut r: u64 = 0;
                 let mut g: u64 = 0;
                 let mut b: u64 = 0;
@@ -233,7 +243,6 @@ impl Pixelate {
                         counter += 1;
                     }
                 }
-                counter = counter.max(1);
 
                 let new_pixel = RGBA8 {
                     r: (r / counter) as u8,
@@ -319,41 +328,17 @@ impl Drawable for Pixelate {
             None => return Ok(()), // early exit if none
         };
 
-        let blocksize = self
-            .style
-            .size
-            .to_blocksize(self.style.annotation_size_factor);
         let (pos, size) = math::rect_ensure_in_bounds(
             math::rect_ensure_positive_size(self.top_left, size),
             bounds,
         );
-        let big_enough = size.x >= blocksize as f32 && size.y >= blocksize as f32;
-        self.renderable.set(big_enough);
 
-        if self.editing {
-            if self.centered {
-                draw_center_marker(canvas, self.origin);
-            }
-            let mut color = Color::white();
-            let border_color = Color::black();
-            color.set_alphaf(0.6);
-            let paint = Paint::color(color);
-            let paint_border = Paint::color(border_color);
-
-            let mut path = Path::new();
-            path.rect(pos.x, pos.y, size.x, size.y);
-
-            canvas.fill_path(&path, &paint);
-            canvas.stroke_path(&path, &paint_border);
-            return Ok(());
-        } else if !big_enough {
-            return Ok(());
-        }
+        self.renderable.set(true);
 
         canvas.save();
         canvas.flush();
 
-        if self.cached_image.borrow().is_none()
+        if (self.cached_image.borrow().is_none() || self.editing)
             && let Some(x) = self.pixelate(canvas, image, pos, size)?
         {
             self.cached_image.borrow_mut().replace(x);
@@ -375,6 +360,9 @@ impl Drawable for Pixelate {
                 ),
             );
             canvas.restore();
+        }
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.origin);
         }
         Ok(())
     }
