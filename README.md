@@ -257,6 +257,12 @@ app-id = "org.satty.satty"
 # experimental feature (0.22.0): show thumbnail as notifcation icon
 # notification-thumbnail = "app-icon"
 notification-thumbnail = "screenshot"
+# how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
+# for fast machines, the default value of 250ms is ridiculously high.
+notification-grace-period = 250
+# set interpolation for the background image
+# interpolation = "nearest-neighbor"
+interpolation = "linear" #default
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]
@@ -448,6 +454,8 @@ Options:
           Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --notification-thumbnail <NOTIFICATION_THUMBNAIL>
           Experimental feature (0.22.0): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
+      --interpolation <INTERPOLATION>
+          interpolation of the background image [possible values: linear, nearest-neighbor]
       --right-click-copy
           Right click to copy. Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>

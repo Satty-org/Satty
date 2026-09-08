@@ -86,6 +86,9 @@ notification-thumbnail = "screenshot"
 # how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
 # for fast machines, the default value of 250ms is ridiculously high.
 notification-grace-period = 250
+# set interpolation for the background image
+# interpolation = "nearest-neighbor"
+interpolation = "linear" #default
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]

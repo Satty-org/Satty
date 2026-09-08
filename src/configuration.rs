@@ -1,6 +1,9 @@
 use clap::Parser;
+use femtovg::ImageFlags;
 use hex_color::HexColor;
 use relm4::SharedState;
+use serde::Deserialize;
+use serde::de::Deserializer;
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -8,9 +11,6 @@ use std::{
     io::{self, Write},
     path::Path,
 };
-
-use serde::Deserialize;
-use serde::de::Deserializer;
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
@@ -20,8 +20,8 @@ use crate::{
 };
 
 use satty_cli::command_line::{
-    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, NotificationThumbnail,
-    Resize,
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, Interpolation,
+    NotificationThumbnail, Resize,
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
@@ -77,6 +77,7 @@ pub struct Configuration {
     app_id: Option<String>,
     notification_thumbnail: NotificationThumbnail,
     notification_grace_period: Duration,
+    interpolation_flags: ImageFlags,
 }
 
 #[derive(Default)]
@@ -367,6 +368,12 @@ impl Configuration {
         if let Some(v) = general.notification_grace_period {
             self.notification_grace_period = std::time::Duration::from_millis(v);
         }
+        if let Some(v) = general.interpolation {
+            self.interpolation_flags = match v {
+                Interpolation::Linear => ImageFlags::empty(),
+                Interpolation::NearestNeighbor => ImageFlags::NEAREST,
+            }
+        }
 
         // --- deprecated options ---
         if let Some(v) = general.right_click_copy
@@ -501,6 +508,12 @@ impl Configuration {
         }
         if let Some(v) = command_line.notification_thumbnail {
             self.notification_thumbnail = v;
+        }
+        if let Some(v) = command_line.interpolation {
+            self.interpolation_flags = match v {
+                Interpolation::Linear => ImageFlags::empty(),
+                Interpolation::NearestNeighbor => ImageFlags::NEAREST,
+            }
         }
 
         // --- deprecated options ---
@@ -680,6 +693,10 @@ impl Configuration {
     pub fn notification_grace_period(&self) -> Duration {
         self.notification_grace_period
     }
+
+    pub fn interpolation_flags(&self) -> ImageFlags {
+        self.interpolation_flags
+    }
 }
 
 impl Default for Configuration {
@@ -723,6 +740,7 @@ impl Default for Configuration {
             app_id: None,
             notification_thumbnail: NotificationThumbnail::default(),
             notification_grace_period: Duration::from_millis(250),
+            interpolation_flags: ImageFlags::empty(),
         }
     }
 }
@@ -795,6 +813,7 @@ struct ConfigurationFileGeneral {
     app_id: Option<String>,
     notification_thumbnail: Option<NotificationThumbnail>,
     notification_grace_period: Option<u64>,
+    interpolation: Option<Interpolation>,
 
     // --- deprecated options ---
     right_click_copy: Option<bool>,

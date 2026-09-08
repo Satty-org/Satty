@@ -571,7 +571,8 @@ impl FemtoVgAreaMut {
             size.x as usize,
             size.y as usize,
             PixelFormat::Rgba8,
-            ImageFlags::empty(),
+            // this should not make a difference here at native res, but does not hurt either
+            APP_CONFIG.read().interpolation_flags(),
         )?;
         canvas.set_render_target(femtovg::RenderTarget::Image(image_id));
 
@@ -796,7 +797,7 @@ impl FemtoVgAreaMut {
             image.width() as usize,
             image.height() as usize,
             format,
-            ImageFlags::empty(),
+            APP_CONFIG.read().interpolation_flags(),
         )?;
 
         // extract values

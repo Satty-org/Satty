@@ -163,6 +163,10 @@ pub struct CommandLine {
     #[arg(long)]
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
+    /// interpolation of the background image
+    #[arg(long)]
+    pub interpolation: Option<Interpolation>,
+
     // --- deprecated options ---
     /// Right click to copy.
     /// Preferably use the `action_on_right_click` option instead.
@@ -173,6 +177,15 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,
     // ---
+}
+
+#[derive(Debug, Default, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
+#[value(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum Interpolation {
+    #[default]
+    Linear,
+    NearestNeighbor,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
