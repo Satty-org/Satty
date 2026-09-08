@@ -290,3 +290,13 @@ impl Size {
         }
     }
 }
+
+impl Style {
+    pub fn corner_radius(&self) -> f32 {
+        if self.round_caps {
+            APP_CONFIG.read().corner_roundness()
+        } else {
+            0.0
+        }
+    }
+}

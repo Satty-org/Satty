@@ -334,7 +334,13 @@ impl Drawable for Pixelate {
 
         if let Some((image_id, paint_pos, paint_size)) = *self.cached_image.borrow() {
             let mut path = Path::new();
-            path.rect(paint_pos.x, paint_pos.y, paint_size.x, paint_size.y);
+            path.rounded_rect(
+                paint_pos.x,
+                paint_pos.y,
+                paint_size.x,
+                paint_size.y,
+                self.style.corner_radius(),
+            );
             canvas.fill_path(
                 &path,
                 &Paint::image(

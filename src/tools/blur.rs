@@ -6,7 +6,6 @@ use femtovg::{Color, ImageFilter, ImageFlags, ImageId, Paint, Path, imgref::Img}
 use relm4::Sender;
 
 use crate::{
-    configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
@@ -134,13 +133,7 @@ impl Drawable for Blur {
 
             // make rect
             let mut path = Path::new();
-            path.rounded_rect(
-                pos.x,
-                pos.y,
-                size.x,
-                size.y,
-                APP_CONFIG.read().corner_roundness(),
-            );
+            path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
 
             // draw
             canvas.fill_path(&path, &paint);
@@ -162,13 +155,7 @@ impl Drawable for Blur {
             }
 
             let mut path = Path::new();
-            path.rounded_rect(
-                pos.x,
-                pos.y,
-                size.x,
-                size.y,
-                APP_CONFIG.read().corner_roundness(),
-            );
+            path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
 
             canvas.fill_path(
                 &path,
