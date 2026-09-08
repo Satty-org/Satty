@@ -144,7 +144,7 @@ impl Drawable for Arrow {
         }
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
         // Preserve the arrow direction by remembering which corner each endpoint was in.
         // bounds() always returns (min, max), so we detect which corners start/end occupy
         // and map them into the new bounds accordingly.

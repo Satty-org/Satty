@@ -51,7 +51,7 @@ impl Drawable for Ellipse {
         self.origin += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         let center = (tl + br) / 2.0;
         self.middle = center;

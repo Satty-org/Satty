@@ -14,6 +14,7 @@ pub struct DragBox {
     pub size: Vec2D,
     pub centered: bool,
     pub keep_aspect: bool,
+    pub delta: Vec2D,
 }
 
 impl DragBox {
@@ -75,6 +76,7 @@ impl DragBox {
             size: new_size.abs(),
             centered,
             keep_aspect: aspect || keep_aspect,
+            delta: event.pos,
         };
         sender
             .send(SketchBoardInput::ShapeDimensionsUpdate(drag_box.size))

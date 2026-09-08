@@ -138,6 +138,8 @@ pub trait Tool {
 
     fn set_input_enabled(&mut self, value: bool);
 
+    fn set_image_size(&mut self, _size: Vec2D) {}
+
     fn handle_undo(&mut self) -> ToolUpdateResult {
         ToolUpdateResult::Unmodified
     }
@@ -238,8 +240,8 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn translate(&mut self, delta: Vec2D) {
         let _ = delta;
     }
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
-        let _ = (tl, br);
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, delta: Vec2D, keep_aspect: bool) {
+        let _ = (tl, br, delta, keep_aspect);
     }
     fn get_style(&self) -> Option<&Style> {
         None

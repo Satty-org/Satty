@@ -531,6 +531,7 @@ impl PointerTool {
         if let Some(sender) = &self.sender
             && let Some((tl, br)) = drawable.bounds()
         {
+            // get it from drawable as it represents the most up-to-date bounds
             sender
                 .send(SketchBoardInput::ShapeDimensionsUpdate(br - tl))
                 .ok();
@@ -549,12 +550,6 @@ impl PointerTool {
             centered: false,
             editing: true,
         });
-
-        if let Some(sender) = &self.sender {
-            sender
-                .send(SketchBoardInput::ShapeDimensionsUpdate(br - tl))
-                .ok();
-        }
     }
 
     // Select a drawable without starting a drag (e.g. after a commit/replace).
@@ -707,7 +702,10 @@ impl Tool for PointerTool {
                 } => {
                     let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
                     let mut preview = original.clone_box();
-                    preview.resize_bounds(new_tl, new_br);
+                    let keep_aspect = event
+                        .modifier
+                        .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
+                    preview.resize_bounds(new_tl, new_br, event.pos, keep_aspect);
                     preview.set_centered(event.modifier.intersects(ModifierType::ALT_MASK));
                     preview.set_editing(true);
                     self.emit_dimensions_update(preview.as_ref());
@@ -764,7 +762,10 @@ impl Tool for PointerTool {
                             let (new_tl, new_br) =
                                 handle.resize(event, orig_bounds.0, orig_bounds.1);
                             let mut final_drawable = original;
-                            final_drawable.resize_bounds(new_tl, new_br);
+                            let keep_aspect = event
+                                .modifier
+                                .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
+                            final_drawable.resize_bounds(new_tl, new_br, event.pos, keep_aspect);
                             final_drawable.set_centered(false);
                             final_drawable.set_editing(false);
                             self.update_selection_bounds(new_tl, new_br);

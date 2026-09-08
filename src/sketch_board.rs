@@ -1210,6 +1210,12 @@ impl SketchBoard {
                         widget: widget_ref,
                     }));
 
+                if target_tool == Tools::Crop {
+                    self.active_tool
+                        .borrow_mut()
+                        .set_image_size(self.image_bounds.1);
+                }
+
                 // set sender for tool
                 self.active_tool
                     .borrow_mut()
@@ -2098,17 +2104,19 @@ impl Component for SketchBoard {
         model.renderer.add_controller(focus_controller);
 
         let widget_ref: gtk::Widget = model.renderer.clone().upcast();
-        model
-            .active_tool
-            .borrow_mut()
-            .set_im_context(Some(crate::tools::InputContext {
-                im_context: model.im_context.clone(),
-                widget: widget_ref,
-            }));
-        model
-            .active_tool
-            .borrow_mut()
-            .set_sender(sender.input_sender().clone());
+        let mut tool = model.active_tool.borrow_mut();
+
+        tool.set_im_context(Some(crate::tools::InputContext {
+            im_context: model.im_context.clone(),
+            widget: widget_ref,
+        }));
+        tool.set_sender(sender.input_sender().clone());
+
+        if tool.get_tool_type() == Tools::Crop {
+            tool.set_image_size(image_bounds.1);
+        }
+
+        drop(tool);
 
         ComponentParts { model, widgets }
     }

@@ -210,7 +210,7 @@ impl Drawable for HighlightKind {
         }
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
         match self {
             HighlightKind::Block(h) => {

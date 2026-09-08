@@ -69,7 +69,7 @@ impl Drawable for Marker {
         Some(&mut self.style)
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
         let Some((old_tl, old_br)) = self.bounds() else {
             return;
         };

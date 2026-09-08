@@ -47,7 +47,7 @@ impl Drawable for Line {
         self.start += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
+    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
         if let Some(direction) = self.direction {
             let end = self.start + direction;
             let start_is_left = self.start.x <= end.x;
