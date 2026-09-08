@@ -30,7 +30,7 @@ notification-thumbnail = "screenshot"
 # how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
 # for fast machines, the default value of 250ms is ridiculously high.
 notification-grace-period = 250
-# Disable notifications
+# Disable notifications - may be ignored in case of errors that can't be reported via terminal
 disable-notifications = false
 
 # Exit directly after copy/save action. 0.21.0: change to list of triggers
@@ -70,7 +70,6 @@ default-fill-shapes = false
 default-round-caps = true
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
-
 # Actions to trigger on right click (order is important)
 # [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
 actions-on-right-click = []

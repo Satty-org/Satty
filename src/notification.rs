@@ -7,19 +7,36 @@ use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
 use relm4::gtk::prelude::Cast;
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection, gio};
 use satty_cli::command_line::NotificationThumbnail;
+use std::io::IsTerminal;
 use tempfile::NamedTempFile;
+
+pub fn log_error(msg: &str) {
+    let msg = &format!("❌️ {msg}").to_string();
+    eprintln!("{msg}");
+    if !std::io::stderr().is_terminal() {
+        show_notification(msg, None, gio::NotificationPriority::Urgent);
+    }
+}
+
+pub fn log_warning(msg: &str) {
+    let msg = &format!("⚠️ {msg}").to_string();
+    eprintln!("{msg}");
+    if !std::io::stderr().is_terminal() {
+        show_notification(msg, None, gio::NotificationPriority::High);
+    }
+}
 
 pub fn log_result(msg: &str, notify: bool) {
     eprintln!("{msg}");
-    if notify && !APP_CONFIG.read().disable_notifications() {
-        show_notification(msg, None);
+    if !std::io::stderr().is_terminal() && notify && !APP_CONFIG.read().disable_notifications() {
+        show_notification(msg, None, gio::NotificationPriority::Normal);
     }
 }
 
 pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
     eprintln!("{msg}");
 
-    if APP_CONFIG.read().disable_notifications() {
+    if std::io::stderr().is_terminal() || APP_CONFIG.read().disable_notifications() {
         return;
     }
 
@@ -82,13 +99,14 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
         _ => None,
     };
 
-    show_notification(msg, icon);
+    show_notification(msg, icon, gio::NotificationPriority::Normal);
 }
 
-fn show_notification(msg: &str, icon: Option<Icon>) {
+fn show_notification(msg: &str, icon: Option<Icon>, priority: gio::NotificationPriority) {
     // construct
     let notification = Notification::new("Satty");
     notification.set_body(Some(msg));
+    notification.set_priority(priority);
 
     if let Some(i) = icon {
         notification.set_icon(&i);
