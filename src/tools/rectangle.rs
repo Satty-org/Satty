@@ -3,7 +3,6 @@ use femtovg::{FontId, Path};
 use relm4::Sender;
 
 use crate::{
-    configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
@@ -71,7 +70,7 @@ impl Drawable for Rectangle {
             self.top_left.y,
             self.size.x,
             self.size.y,
-            APP_CONFIG.read().corner_roundness(),
+            self.style.corner_radius(),
         );
 
         if self.style.fill {

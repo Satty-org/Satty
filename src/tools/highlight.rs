@@ -108,13 +108,7 @@ impl Highlight for Highlighter<BlockHighlight> {
         let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, self.data.size);
 
         let mut shadow_path = Path::new();
-        shadow_path.rounded_rect(
-            pos.x,
-            pos.y,
-            size.x,
-            size.y,
-            APP_CONFIG.read().corner_roundness(),
-        );
+        shadow_path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
 
         let shadow_paint = Paint::color(femtovg::Color::rgba(
             self.style.color.r,
