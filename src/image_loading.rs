@@ -9,6 +9,9 @@ use relm4::gtk::gdk_pixbuf::{Colorspace, Pixbuf, PixbufLoader};
 use relm4::gtk::glib::Bytes;
 use relm4::gtk::prelude::*;
 
+/// Mime types the fallback decoder supports on top of the gdk-pixbuf formats.
+pub const FALLBACK_MIME_TYPES: &[&str] = &["image/webp"];
+
 pub fn pixbuf_from_file(path: &Path) -> Result<Pixbuf> {
     let bytes = fs::read(path).with_context(|| format!("couldn't read file {}", path.display()))?;
     pixbuf_from_bytes(&bytes)

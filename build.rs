@@ -81,6 +81,7 @@ fn main() -> Result<(), io::Error> {
             "eye-off-regular",
             "checkerboard",
             "tetris-app-regular",
+            "image-regular",
         ],
     );
 

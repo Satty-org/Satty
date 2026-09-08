@@ -252,6 +252,8 @@ pub enum Tools {
     Fringe,
     Highlight,
     Brush,
+    // NEXTRELEASE
+    Image,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -288,6 +290,7 @@ impl std::fmt::Display for Tools {
             Fringe => "fringe",
             Highlight => "highlight",
             Brush => "brush",
+            Image => "image",
         };
         f.write_str(s)
     }

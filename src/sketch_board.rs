@@ -44,6 +44,8 @@ pub enum SketchBoardInput {
     RefreshSelectionBounds(usize),
     RefreshMouseCursor(Vec2D),
     ToolbarEvent(ToolbarEvent),
+    // the optional position is the insertion center in canvas coordinates
+    ImageSelected(Pixbuf, Option<Vec2D>),
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
     CommitEvent(TextEventMsg),
@@ -1281,6 +1283,34 @@ impl SketchBoard {
         self.active_tool.borrow().get_tool_type()
     }
 
+    fn handle_image_selected(
+        &mut self,
+        pixbuf: Pixbuf,
+        canvas_pos: Option<Vec2D>,
+    ) -> ToolUpdateResult {
+        let (top_left, bottom_right) = self.image_bounds;
+        let center = canvas_pos.map(|pos| {
+            let pos = self.renderer.abs_canvas_to_image_coordinates(pos);
+            // a drop released over the toolbars would otherwise center the
+            // image off-canvas
+            Vec2D::new(
+                pos.x.clamp(top_left.x, bottom_right.x),
+                pos.y.clamp(top_left.y, bottom_right.y),
+            )
+        });
+
+        // the image tool commits the image right away, so it does not need to
+        // be the active one: pasting keeps the current tool selected
+        self.tools
+            .get(&Tools::Image)
+            .borrow_mut()
+            .handle_event(ToolEvent::ImageSelected(
+                pixbuf,
+                bottom_right - top_left,
+                center,
+            ))
+    }
+
     fn dispatch_key_shortcut_command(
         &mut self,
         command: ShortcutCommand,
@@ -1754,6 +1784,7 @@ impl Component for SketchBoard {
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
+            SketchBoardInput::ImageSelected(pixbuf, pos) => self.handle_image_selected(pixbuf, pos),
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
