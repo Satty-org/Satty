@@ -268,6 +268,15 @@ pub fn rect_ensure_positive_size(pos: Vec2D, size: Vec2D) -> (Vec2D, Vec2D) {
 pub fn rect_ensure_in_bounds(rect: (Vec2D, Vec2D), bounds: (Vec2D, Vec2D)) -> (Vec2D, Vec2D) {
     let (mut pos, mut size) = rect;
 
+    // outside of bounds entirely
+    if pos.x + size.x < bounds.0.x
+        || pos.y + size.y < bounds.0.y
+        || pos.x > bounds.1.x
+        || pos.y > bounds.1.y
+    {
+        return (Vec2D::zero(), Vec2D::zero());
+    }
+
     // The part sticking out has to be measured before pos is moved onto the
     // bound, otherwise the difference is always zero and size stays untouched.
     if pos.x < bounds.0.x {

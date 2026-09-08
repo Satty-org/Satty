@@ -566,6 +566,10 @@ impl FemtoVgAreaMut {
             })
             .unwrap_or(bounds);
 
+        if size.x <= 0.0 || size.y <= 0.0 {
+            return Err(anyhow::anyhow!("Invalid crop"));
+        }
+
         // create render-target
         let image_id = canvas.create_image_empty(
             size.x as usize,
