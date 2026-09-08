@@ -121,7 +121,7 @@ Newly created annotations can be autoselected if enabled in the config.
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>: 
+Crop, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
 - Hold both to combine them.
