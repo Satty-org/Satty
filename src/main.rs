@@ -667,7 +667,8 @@ fn main() -> Result<()> {
     // run the application
     match run_satty() {
         Err(e) => {
-            eprintln!("Error: {e}");
+            notification::log_result(&format!("Error: {e}"), true);
+            thread::sleep(Duration::from_secs(1));
             Err(e)
         }
         Ok(v) => Ok(v),

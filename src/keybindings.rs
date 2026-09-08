@@ -223,8 +223,10 @@ impl ShortcutRegistry {
                 self.key_bindings.insert(key_binding, command);
             }
             Err(err) => {
+                // FIXME adding this line breaks output & start
+                // APP_CONFIG.write().increase_error_count();
                 eprintln!(
-                    "Invalid key binding '{}' for command {:?}: {}",
+                    "⚠️ Invalid key binding '{}' for command {:?}: {}",
                     key_binding_str, command, err
                 );
             }
@@ -305,8 +307,9 @@ impl ShortcutRegistry {
                 registry.add_key_binding(kb_str, SC::SelectTool(tool));
             } else if let Ok(tool) = Tools::from_str(kb_str.as_str()) {
                 registry.add_key_binding(tool_or_cmd, SC::SelectTool(tool));
-                eprintln!("Deprecated syntax for key binding: {kb_str} = \"{tool_or_cmd}\"");
-                eprintln!("    Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\"");
+                APP_CONFIG.write().increase_error_count();
+                eprintln!("⚠️ Deprecated syntax for key binding: {kb_str} = \"{tool_or_cmd}\"");
+                eprintln!("   Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\"");
             } else if let Ok(command) = SC::from_str(tool_or_cmd.as_str()) {
                 registry.add_key_binding(kb_str, command);
             } else if tool_or_cmd == "none" {
@@ -315,14 +318,18 @@ impl ShortcutRegistry {
                         registry.key_bindings.remove(&key_binding);
                     }
                     Err(err) => {
+                        APP_CONFIG.write().increase_error_count();
                         eprintln!(
-                            "Invalid key binding '{}' for command 'none': {}",
+                            "⚠️ Invalid key binding '{}' for command 'none': {}",
                             kb_str, err
                         );
                     }
                 }
             } else {
-                eprintln!("Unknown tool or command in config for key '{kb_str}': '{tool_or_cmd}'");
+                APP_CONFIG.write().increase_error_count();
+                eprintln!(
+                    "⚠️ Unknown tool or command in config for key '{kb_str}': '{tool_or_cmd}'"
+                );
             }
         }
 

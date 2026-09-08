@@ -5,6 +5,7 @@ use femtovg::rgb::{ComponentBytes, RGBA};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::{Cell, RefCell};
+use std::io::IsTerminal;
 use std::io::Write;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,7 @@ use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::math::{Vec2D, crop_rect_in_bounds};
-use crate::notification::{log_result, log_result_with_pixbuf};
+use crate::notification::{log_result, log_result_with_pixbuf, show_notification};
 use crate::style::{Color, Size, Style};
 use crate::tools::{
     ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
@@ -2138,6 +2139,20 @@ impl Component for SketchBoard {
         }
 
         drop(tool);
+
+        let errors = APP_CONFIG.read().get_error_count();
+        if errors > 0 && std::io::stdout().is_terminal() {
+            show_notification(
+                &format!(
+                    "{} error{} occurred during configuration loading.\n\
+                     Please run from termnal and check the output!",
+                    errors,
+                    if errors == 1 { "" } else { "s" }
+                )
+                .to_string(),
+                None,
+            );
+        }
 
         ComponentParts { model, widgets }
     }

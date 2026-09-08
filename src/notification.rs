@@ -85,7 +85,7 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
     show_notification(msg, icon);
 }
 
-fn show_notification(msg: &str, icon: Option<Icon>) {
+pub(crate) fn show_notification(msg: &str, icon: Option<Icon>) {
     // construct
     let notification = Notification::new("Satty");
     notification.set_body(Some(msg));
