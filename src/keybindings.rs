@@ -38,6 +38,7 @@ pub enum ShortcutCommand {
     Undo,
     Redo,
     RunAction(Action),
+    PasteImage,
 
     // bottom toolbar
     SelectColorIndex(u64),
@@ -85,6 +86,7 @@ impl fmt::Display for ShortcutCommand {
                 Action::CopyFilepathToClipboard => "copy-filepath-to-clipboard",
                 Action::Exit => "exit",
             },
+            ShortcutCommand::PasteImage => "paste-image",
 
             // bottom toolbar
             ShortcutCommand::SelectColorIndex(index) => {
@@ -154,6 +156,7 @@ impl FromStr for ShortcutCommand {
                 Ok(ShortcutCommand::RunAction(Action::CopyFilepathToClipboard))
             }
             "exit" => Ok(ShortcutCommand::RunAction(Action::Exit)),
+            "paste-image" => Ok(ShortcutCommand::PasteImage),
 
             // bottom toolbar
             text if text.starts_with("select-color-index:") => {
@@ -284,6 +287,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("<Control><Alt>c", SC::RunAction(A::CopyFilepathToClipboard));
         registry.add_key_binding("<Control>s", SC::RunAction(A::SaveToFile));
         registry.add_key_binding("<Shift><Control>s", SC::RunAction(A::SaveToFileAs));
+        registry.add_key_binding("<Control>v", SC::PasteImage);
 
         // bottom toolbar
         for i in 1..11 {

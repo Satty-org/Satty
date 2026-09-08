@@ -14,11 +14,12 @@ use std::{fs, io};
 
 use gtk::prelude::*;
 
-use relm4::gtk::gdk::{DisplayManager, Key, ModifierType, Texture};
+use relm4::gtk::gdk::{self, DisplayManager, Key, ModifierType, Texture};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
+use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::math::{Vec2D, crop_rect_in_bounds};
@@ -46,6 +47,7 @@ pub enum SketchBoardInput {
     ToolbarEvent(ToolbarEvent),
     // the optional position is the insertion center in canvas coordinates
     ImageSelected(Pixbuf, Option<Vec2D>),
+    PointerLeft,
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
     CommitEvent(TextEventMsg),
@@ -286,6 +288,34 @@ impl InputEvent {
     }
 }
 
+/// Converts dropped content into a pixbuf: either the first file of a
+/// dropped uri list or raw image data dragged from another application.
+pub fn pixbuf_from_drop_value(value: &gtk::glib::Value) -> Option<Pixbuf> {
+    if let Ok(file_list) = value.get::<gdk::FileList>() {
+        pixbuf_from_file_list(&file_list)
+    } else {
+        value
+            .get::<Texture>()
+            .ok()
+            .and_then(|texture| gdk::pixbuf_get_from_texture(&texture))
+    }
+}
+
+/// Loads the first file of a pasted or dropped uri list, notifying on failure.
+fn pixbuf_from_file_list(file_list: &gdk::FileList) -> Option<Pixbuf> {
+    let path = file_list.files().first().and_then(|file| file.path())?;
+    match image_loading::pixbuf_from_file(&path) {
+        Ok(pixbuf) => Some(pixbuf),
+        Err(e) => {
+            log_result(
+                &format!("Error loading image: {e}"),
+                !APP_CONFIG.read().disable_notifications(),
+            );
+            None
+        }
+    }
+}
+
 pub struct SketchBoard {
     renderer: FemtoVGArea,
     // Mirrors the bounds render_native_resolution derives from the background
@@ -305,6 +335,8 @@ pub struct SketchBoard {
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
+    // last pointer position in canvas coordinates, used to paste at the cursor
+    last_pointer_pos: Option<Vec2D>,
 }
 
 impl SketchBoard {
@@ -1283,6 +1315,39 @@ impl SketchBoard {
         self.active_tool.borrow().get_tool_type()
     }
 
+    fn handle_paste_image(&self, sender: ComponentSender<Self>) -> ToolUpdateResult {
+        let Some(display) = DisplayManager::get().default_display() else {
+            eprintln!("Cannot open default display for clipboard.");
+            return ToolUpdateResult::Unmodified;
+        };
+        let clipboard = display.clipboard();
+        let position = self.last_pointer_pos;
+
+        relm4::spawn_local(async move {
+            // read errors simply mean the clipboard holds no such content
+            let pixbuf = if let Ok(Some(texture)) = clipboard.read_texture_future().await {
+                gdk::pixbuf_get_from_texture(&texture)
+            } else if let Ok(value) = clipboard
+                .read_value_future(gdk::FileList::static_type(), gtk::glib::Priority::DEFAULT)
+                .await
+            {
+                // files copied in a file manager arrive as a uri list
+                value
+                    .get::<gdk::FileList>()
+                    .ok()
+                    .as_ref()
+                    .and_then(pixbuf_from_file_list)
+            } else {
+                None
+            };
+
+            if let Some(pixbuf) = pixbuf {
+                sender.input(SketchBoardInput::ImageSelected(pixbuf, position));
+            }
+        });
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_image_selected(
         &mut self,
         pixbuf: Pixbuf,
@@ -1373,6 +1438,7 @@ impl SketchBoard {
                 self.renderer.request_render(&[action]);
                 ToolUpdateResult::Unmodified
             }
+            ShortcutCommand::PasteImage => self.handle_paste_image(sender),
             ShortcutCommand::OpenGtkInspector => {
                 gtk::Window::set_interactive_debugging(true);
                 ToolUpdateResult::Unmodified
@@ -1644,6 +1710,9 @@ impl Component for SketchBoard {
                             Vec2D::new(x as f32, y as f32),
                             false
                         ));
+                    },
+                    connect_leave[sender] => move |_| {
+                        sender.input(SketchBoardInput::PointerLeft);
                     }
                 }
             }
@@ -1667,6 +1736,12 @@ impl Component for SketchBoard {
         let sender_clone = sender.clone();
         let result = match msg {
             SketchBoardInput::InputEvent(mut ie) => {
+                if let InputEvent::Mouse(me) = &ie
+                    && me.type_ == MouseEventType::PointerPos
+                {
+                    // before handle_event_mouse_input rewrites pos to image coordinates
+                    self.last_pointer_pos = Some(me.screen_pos);
+                }
                 if matches!(ie, InputEvent::Mouse(_)) {
                     // changes pos to local coords
                     ie.handle_event_mouse_input(&self.renderer);
@@ -1785,6 +1860,10 @@ impl Component for SketchBoard {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
             SketchBoardInput::ImageSelected(pixbuf, pos) => self.handle_image_selected(pixbuf, pos),
+            SketchBoardInput::PointerLeft => {
+                self.last_pointer_pos = None;
+                ToolUpdateResult::Unmodified
+            }
             SketchBoardInput::RenderResult(img, action) => {
                 self.handle_render_result(img, action, sender);
                 ToolUpdateResult::Unmodified
@@ -1927,6 +2006,7 @@ impl Component for SketchBoard {
             tools,
             im_context,
             last_saved_filepath: RefCell::new(None),
+            last_pointer_pos: None,
         };
 
         let area = &mut model.renderer;

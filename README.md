@@ -121,6 +121,10 @@ Newly created annotations can be autoselected if enabled in the config.
 
 Selecting the tool opens a file chooser, and the picked image is inserted as an annotation, scaled down to at most half the screenshot if it does not fit. From there it behaves like any other annotation: select it with the pointer tool to move it, resize it by its handles or change its layer.
 
+Images can also arrive without selecting the tool first:
+- <kbd>Ctrl+V</kbd> pastes an image or a copied image file from the clipboard, centred on the mouse pointer. The text tool takes the shortcut for itself while it has input focus.
+- Dropping an image or an image file anywhere on the window inserts it where it was dropped.
+
 Formats are those gdk-pixbuf has a loader for, plus webp.
 
 ### Tool Modifiers and Keys
@@ -318,6 +322,7 @@ notification-grace-period = 250
 "<Shift><Control>s" = "save-to-file-as"
 "<Control>c" = "save-to-clipboard"
 "<Shift><Control>c" = "copy-filepath-to-clipboard"
+"<Control>v" = "paste-image"
 
 # bottom toolbar
 "1" = "select-color-index:1"

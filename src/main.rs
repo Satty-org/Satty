@@ -1,5 +1,5 @@
 use configuration::{APP_CONFIG, Configuration};
-use relm4::gtk::gdk::Rectangle;
+use relm4::gtk::gdk::{self, Rectangle};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio::{Application, ApplicationFlags};
 use relm4::gtk::prelude::*;
@@ -39,7 +39,8 @@ mod style;
 mod tools;
 mod ui;
 
-use crate::sketch_board::{SketchBoard, SketchBoardInput};
+use crate::math::Vec2D;
+use crate::sketch_board::{SketchBoard, SketchBoardInput, pixbuf_from_drop_value};
 use crate::style::{Color, Size};
 use crate::tools::Tools;
 
@@ -481,6 +482,36 @@ impl Component for App {
                 sender_clone.input(AppInput::FullscreenChanged(false));
             }
         });
+
+        // on Wayland the drag position is reported as (0,0) until the first
+        // motion event and gtk picks the drop chain there, which may be a
+        // toolbar; the drop target sits on the window so that it is part of
+        // every pick chain
+        let drop_target = gtk::DropTarget::new(gtk::glib::Type::INVALID, gdk::DragAction::COPY);
+        drop_target.set_types(&[gdk::FileList::static_type(), gdk::Texture::static_type()]);
+        {
+            let window = root.clone();
+            let sketch_area = model.sketch_board.widget().clone();
+            let sender = model.sketch_board.sender().clone();
+            // Some sources advertise formats that GTK can only convert after
+            // accepting the drag; unsupported payloads are rejected on drop.
+            drop_target.connect_accept(|_, _| true);
+            // the default handlers report no action before the data is
+            // available, which makes the compositor cancel the drag
+            drop_target.connect_enter(|_, _, _| gdk::DragAction::COPY);
+            drop_target.connect_motion(|_, _, _| gdk::DragAction::COPY);
+            drop_target.connect_drop(move |_, value, x, y| {
+                let Some(pixbuf) = pixbuf_from_drop_value(value) else {
+                    return false;
+                };
+                let position = window
+                    .translate_coordinates(&sketch_area, x, y)
+                    .map(|(x, y)| Vec2D::new(x as f32, y as f32));
+                sender.emit(SketchBoardInput::ImageSelected(pixbuf, position));
+                true
+            });
+        }
+        root.add_controller(drop_target);
 
         generate_profile_output!("app init end");
 

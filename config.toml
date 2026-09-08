@@ -136,6 +136,7 @@ notification-grace-period = 250
 "<Shift><Control>s" = "save-to-file-as"
 "<Control>c" = "save-to-clipboard"
 "<Shift><Control>c" = "copy-filepath-to-clipboard"
+"<Control>v" = "paste-image"
 
 # bottom toolbar
 "1" = "select-color-index:1"
