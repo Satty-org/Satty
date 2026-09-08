@@ -1382,6 +1382,11 @@ impl SketchBoard {
             ShortcutCommand::DeleteSelection => {
                 let pointer_selection = self.pointer_tool.borrow().selected_index();
                 if let Some(idx) = pointer_selection {
+                    if let Some(drawable) = self.renderer.get_drawable_clone(idx)
+                        && drawable.get_rendering_mode() == RenderingMode::Crop
+                    {
+                        self.emit_crop_dimensions(&sender, self.image_bounds);
+                    }
                     self.pointer_tool.borrow_mut().deselect();
                     self.renderer.set_hidden_drawable_index(None);
                     self.renderer.remove_drawable(idx);
