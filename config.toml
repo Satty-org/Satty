@@ -153,6 +153,7 @@ interpolation = "linear" #default
 "s" = "focus-annotation-size-factor"
 "f" = "toggle-fill"
 "k" = "toggle-round-caps"
+"<Ctrl>+i" = "toggle-interpolation"
 
 # Font to use for text annotations
 [font]

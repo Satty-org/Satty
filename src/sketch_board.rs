@@ -1336,6 +1336,10 @@ impl SketchBoard {
                 ));
                 ToolUpdateResult::Unmodified
             }
+            ShortcutCommand::ToggleInterpolation => {
+                self.renderer.toggle_interpolation();
+                ToolUpdateResult::Unmodified
+            }
             ShortcutCommand::Undo => self.handle_undo(),
             ShortcutCommand::Redo => self.handle_redo(),
             ShortcutCommand::ToggleToolbars => self.handle_toggle_toolbars_display(sender),

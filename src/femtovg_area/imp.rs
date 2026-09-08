@@ -46,7 +46,9 @@ pub struct FemtoVGArea {
 pub struct FemtoVgAreaMut {
     source_image: Option<Rc<ImgVec<RGBA8>>>,
     background_image: Pixbuf,
-    background_image_id: Option<femtovg::ImageId>,
+    background_image_id_linear: Option<femtovg::ImageId>,
+    background_image_id_nearest: Option<femtovg::ImageId>,
+    use_linear: bool,
     transparent_background_id: Option<femtovg::ImageId>,
     active_tool: Rc<RefCell<dyn Tool>>,
     scale_factor: f32,
@@ -184,7 +186,9 @@ impl FemtoVGArea {
         self.inner().replace(FemtoVgAreaMut {
             source_image: None,
             background_image,
-            background_image_id: None,
+            background_image_id_linear: None,
+            background_image_id_nearest: None,
+            use_linear: APP_CONFIG.read().use_linear_interpolation(),
             transparent_background_id: None,
             active_tool,
             scale_factor: 1.0,
@@ -572,7 +576,11 @@ impl FemtoVgAreaMut {
             size.y as usize,
             PixelFormat::Rgba8,
             // this should not make a difference here at native res, but does not hurt either
-            APP_CONFIG.read().interpolation_flags(),
+            if self.use_linear {
+                ImageFlags::empty()
+            } else {
+                ImageFlags::NEAREST
+            },
         )?;
         canvas.set_render_target(femtovg::RenderTarget::Image(image_id));
 
@@ -727,11 +735,28 @@ impl FemtoVgAreaMut {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         onscreen: bool,
     ) -> Result<()> {
-        let background_image_id = match self.background_image_id {
+        let background_image_id_linear = match self.background_image_id_linear {
             Some(id) => id,
             None => {
-                let id = Self::upload_background_image(canvas, &self.background_image)?;
-                self.background_image_id.replace(id);
+                let id = Self::upload_background_image(
+                    canvas,
+                    &self.background_image,
+                    ImageFlags::empty(),
+                )?;
+                self.background_image_id_linear.replace(id);
+                id
+            }
+        };
+
+        let background_image_id_nearest = match self.background_image_id_nearest {
+            Some(id) => id,
+            None => {
+                let id = Self::upload_background_image(
+                    canvas,
+                    &self.background_image,
+                    ImageFlags::NEAREST,
+                )?;
+                self.background_image_id_nearest.replace(id);
                 id
             }
         };
@@ -777,7 +802,19 @@ impl FemtoVgAreaMut {
 
         canvas.fill_path(
             &path,
-            &Paint::image(background_image_id, 0f32, 0f32, w, h, 0f32, 1f32),
+            &Paint::image(
+                if self.use_linear {
+                    background_image_id_linear
+                } else {
+                    background_image_id_nearest
+                },
+                0f32,
+                0f32,
+                w,
+                h,
+                0f32,
+                1f32,
+            ),
         );
 
         Ok(())
@@ -786,6 +823,7 @@ impl FemtoVgAreaMut {
     fn upload_background_image(
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         image: &Pixbuf,
+        interpolation_flags: ImageFlags,
     ) -> Result<ImageId> {
         let format = if image.has_alpha() {
             PixelFormat::Rgba8
@@ -797,7 +835,7 @@ impl FemtoVgAreaMut {
             image.width() as usize,
             image.height() as usize,
             format,
-            APP_CONFIG.read().interpolation_flags(),
+            interpolation_flags,
         )?;
 
         // extract values
@@ -851,6 +889,10 @@ impl FemtoVgAreaMut {
         }
 
         Ok(background_image_id)
+    }
+
+    pub(crate) fn toggle_interpolation(&mut self) {
+        self.use_linear = !self.use_linear;
     }
 
     fn create_transparency_bg(

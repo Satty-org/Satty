@@ -120,6 +120,15 @@ impl FemtoVGArea {
         self.imp().resize(0, 0);
     }
 
+    pub fn toggle_interpolation(&self) {
+        self.imp()
+            .inner()
+            .as_mut()
+            .expect("Did you call init before using FemtoVgArea?")
+            .toggle_interpolation();
+        self.request_render(&[]);
+    }
+
     pub fn set_pointer_offset(&self, offset: Vec2D) {
         self.imp()
             .inner()

@@ -46,6 +46,7 @@ pub enum ShortcutCommand {
     FocusAnnotationSizeFactor,
     ToggleFill,
     ToggleRoundCaps,
+    ToggleInterpolation, // maybe added to toolbar later
 }
 
 impl fmt::Display for ShortcutCommand {
@@ -100,6 +101,7 @@ impl fmt::Display for ShortcutCommand {
             ShortcutCommand::FocusAnnotationSizeFactor => "focus-annotation-size-factor",
             ShortcutCommand::ToggleFill => "toggle-fill",
             ShortcutCommand::ToggleRoundCaps => "toggle-round-caps",
+            ShortcutCommand::ToggleInterpolation => "toggle-interpolation",
         };
         write!(f, "{}", name)
     }
@@ -171,6 +173,7 @@ impl FromStr for ShortcutCommand {
             "focus-annotation-size-factor" => Ok(ShortcutCommand::FocusAnnotationSizeFactor),
             "toggle-fill" => Ok(ShortcutCommand::ToggleFill),
             "toggle-round-caps" => Ok(ShortcutCommand::ToggleRoundCaps),
+            "toggle-interpolation" => Ok(ShortcutCommand::ToggleInterpolation),
             _ => Err(ParseCommandError),
         }
     }
@@ -293,6 +296,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("minus", SC::CycleSize);
         registry.add_key_binding("s", SC::FocusAnnotationSizeFactor);
         registry.add_key_binding("f", SC::ToggleFill);
+        registry.add_key_binding("<Control>i", SC::ToggleInterpolation);
 
         // merge with config keybinds, allowing config to override defaults
         for (kb_str, tool_or_cmd) in APP_CONFIG.read().keybinds() {

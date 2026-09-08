@@ -1,5 +1,4 @@
 use clap::Parser;
-use femtovg::ImageFlags;
 use hex_color::HexColor;
 use relm4::SharedState;
 use serde::Deserialize;
@@ -77,7 +76,7 @@ pub struct Configuration {
     app_id: Option<String>,
     notification_thumbnail: NotificationThumbnail,
     notification_grace_period: Duration,
-    interpolation_flags: ImageFlags,
+    use_linear_interpolation: bool,
 }
 
 #[derive(Default)]
@@ -369,9 +368,9 @@ impl Configuration {
             self.notification_grace_period = std::time::Duration::from_millis(v);
         }
         if let Some(v) = general.interpolation {
-            self.interpolation_flags = match v {
-                Interpolation::Linear => ImageFlags::empty(),
-                Interpolation::NearestNeighbor => ImageFlags::NEAREST,
+            self.use_linear_interpolation = match v {
+                Interpolation::Linear => true,
+                Interpolation::NearestNeighbor => false,
             }
         }
 
@@ -510,9 +509,9 @@ impl Configuration {
             self.notification_thumbnail = v;
         }
         if let Some(v) = command_line.interpolation {
-            self.interpolation_flags = match v {
-                Interpolation::Linear => ImageFlags::empty(),
-                Interpolation::NearestNeighbor => ImageFlags::NEAREST,
+            self.use_linear_interpolation = match v {
+                Interpolation::Linear => true,
+                Interpolation::NearestNeighbor => false,
             }
         }
 
@@ -694,8 +693,8 @@ impl Configuration {
         self.notification_grace_period
     }
 
-    pub fn interpolation_flags(&self) -> ImageFlags {
-        self.interpolation_flags
+    pub fn use_linear_interpolation(&self) -> bool {
+        self.use_linear_interpolation
     }
 }
 
@@ -740,7 +739,7 @@ impl Default for Configuration {
             app_id: None,
             notification_thumbnail: NotificationThumbnail::default(),
             notification_grace_period: Duration::from_millis(250),
-            interpolation_flags: ImageFlags::empty(),
+            use_linear_interpolation: false,
         }
     }
 }
