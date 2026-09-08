@@ -2140,6 +2140,14 @@ impl Component for SketchBoard {
 
         drop(tool);
 
+        let error_count = crate::configuration::config_error_count();
+        if error_count > 0 {
+            eprintln!(
+                "⚠️ {} error{} occurred during configuration loading.",
+                error_count,
+                if error_count == 1 { "" } else { "s" }
+            );
+        }
         ComponentParts { model, widgets }
     }
 }

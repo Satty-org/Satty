@@ -1,6 +1,7 @@
 use clap::Parser;
 use hex_color::HexColor;
 use relm4::SharedState;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -25,6 +26,18 @@ use satty_cli::command_line::{
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
+
+// independent of APP_CONFIG so it can be used while the config lock is held
+static CONFIG_ERROR_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn log_config_error(message: impl std::fmt::Display) {
+    CONFIG_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
+    eprintln!("⚠️ {message}");
+}
+
+pub fn config_error_count() -> usize {
+    CONFIG_ERROR_COUNT.load(Ordering::Relaxed)
+}
 
 #[derive(Error, Debug)]
 enum ConfigurationFileError {
@@ -767,16 +780,20 @@ impl Default for ColorPalette {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct ConfigurationFile {
     general: Option<ConfigurationFileGeneral>,
     color_palette: Option<ColorPaletteFile>,
     font: Option<FontFile>,
     keybinds: Option<HashMap<String, String>>,
+
+    // collect unknown fields
+    #[serde(flatten)]
+    pub unknown_fields: HashMap<String, toml::Value>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct FontFile {
     family: Option<String>,
     style: Option<String>,
@@ -784,7 +801,7 @@ struct FontFile {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct ConfigurationFileGeneral {
     #[serde(deserialize_with = "de_fullscreen_mode", default)]
     fullscreen: Option<Fullscreen>,
@@ -825,13 +842,21 @@ struct ConfigurationFileGeneral {
     right_click_copy: Option<bool>,
     action_on_enter: Option<Action>,
     // ---
+
+    // collect unknown fields
+    #[serde(flatten)]
+    pub unknown_fields: HashMap<String, toml::Value>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct ColorPaletteFile {
     palette: Option<Vec<HexColor>>,
     custom: Option<Vec<HexColor>>,
+
+    // collect unknown fields
+    #[serde(flatten)]
+    pub unknown_fields: HashMap<String, toml::Value>,
 }
 
 impl ConfigurationFile {
@@ -859,14 +884,33 @@ impl ConfigurationFile {
         Ok(files)
     }
 
+    fn warning_unknown_field(prefix: &str, unknown_fields: &HashMap<String, toml::Value>) {
+        for key in unknown_fields.keys() {
+            log_config_error(format!("Unknown field in config{}: {}", prefix, key));
+        }
+    }
+
     fn try_read_path<P: AsRef<Path>>(
         path: P,
     ) -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
         let path = path.as_ref();
         eprintln!("Reading configuration file: {:?}", path);
-        match fs::read_to_string(path) {
-            Ok(content) => Ok(Some(toml::from_str::<ConfigurationFile>(&content)?)),
-            Err(e) => Err(e.into()),
+        let config = toml::from_str::<ConfigurationFile>(&fs::read_to_string(path)?)?;
+
+        if !config.unknown_fields.is_empty() {
+            Self::warning_unknown_field("", &config.unknown_fields);
         }
+        if let Some(ref general) = config.general
+            && !general.unknown_fields.is_empty()
+        {
+            Self::warning_unknown_field(".general", &general.unknown_fields);
+        }
+        if let Some(ref color_palette) = config.color_palette
+            && !color_palette.unknown_fields.is_empty()
+        {
+            Self::warning_unknown_field(".color-palette", &color_palette.unknown_fields);
+        }
+
+        Ok(Some(config))
     }
 }

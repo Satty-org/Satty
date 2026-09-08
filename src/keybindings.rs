@@ -7,7 +7,7 @@ use relm4::gtk;
 use relm4::gtk::gdk::prelude::DisplayExtManual;
 use relm4::gtk::gdk::{Key, ModifierType};
 
-use crate::configuration::{APP_CONFIG, Action};
+use crate::configuration::{APP_CONFIG, Action, log_config_error};
 use crate::sketch_board::KeyEventMsg;
 use crate::style::Size;
 use crate::tools::Tools;
@@ -223,10 +223,10 @@ impl ShortcutRegistry {
                 self.key_bindings.insert(key_binding, command);
             }
             Err(err) => {
-                eprintln!(
+                log_config_error(format!(
                     "Invalid key binding '{}' for command {:?}: {}",
                     key_binding_str, command, err
-                );
+                ));
             }
         }
     }
@@ -305,8 +305,10 @@ impl ShortcutRegistry {
                 registry.add_key_binding(kb_str, SC::SelectTool(tool));
             } else if let Ok(tool) = Tools::from_str(kb_str.as_str()) {
                 registry.add_key_binding(tool_or_cmd, SC::SelectTool(tool));
-                eprintln!("Deprecated syntax for key binding: {kb_str} = \"{tool_or_cmd}\"");
-                eprintln!("    Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\"");
+                log_config_error(format!(
+                    "Deprecated syntax for key binding: {kb_str} = \"{tool_or_cmd}\""
+                ));
+                eprintln!("   Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\"");
             } else if let Ok(command) = SC::from_str(tool_or_cmd.as_str()) {
                 registry.add_key_binding(kb_str, command);
             } else if tool_or_cmd == "none" {
@@ -315,14 +317,16 @@ impl ShortcutRegistry {
                         registry.key_bindings.remove(&key_binding);
                     }
                     Err(err) => {
-                        eprintln!(
+                        log_config_error(format!(
                             "Invalid key binding '{}' for command 'none': {}",
                             kb_str, err
-                        );
+                        ));
                     }
                 }
             } else {
-                eprintln!("Unknown tool or command in config for key '{kb_str}': '{tool_or_cmd}'");
+                log_config_error(format!(
+                    "Unknown tool or command in config for key '{kb_str}': '{tool_or_cmd}'"
+                ));
             }
         }
 
