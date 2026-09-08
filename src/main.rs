@@ -1,6 +1,6 @@
 use configuration::{APP_CONFIG, Configuration};
 use relm4::gtk::gdk::Rectangle;
-use relm4::gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
+use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio::{Application, ApplicationFlags};
 use relm4::gtk::prelude::*;
 use std::io::Read;
@@ -17,7 +17,7 @@ use relm4::{
     gtk::{self, CssProvider, Window, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use satty_cli::command_line::{Fullscreen, Resize};
 use tempfile::TempDir;
 
@@ -29,6 +29,7 @@ mod configuration;
 mod epoxy;
 mod femtovg_area;
 mod icons;
+mod image_loading;
 mod ime;
 mod keybindings;
 mod math;
@@ -536,14 +537,10 @@ fn run_satty() -> Result<()> {
     let image = if config.input_filename() == "-" {
         let mut buf = Vec::<u8>::new();
         io::stdin().lock().read_to_end(&mut buf)?;
-        let pb_loader = PixbufLoader::new();
-        pb_loader.write(&buf)?;
-        pb_loader.close()?;
-        pb_loader
-            .pixbuf()
-            .ok_or(anyhow!("Conversion to Pixbuf failed"))?
+        image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
     } else {
-        Pixbuf::from_file(config.input_filename()).context("couldn't load image")?
+        image_loading::pixbuf_from_file(Path::new(config.input_filename()))
+            .context("couldn't load image")?
     };
 
     generate_profile_output!("image loaded, starting gui");
