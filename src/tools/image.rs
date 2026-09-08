@@ -119,6 +119,11 @@ impl ImageTool {
         let Some(sender) = self.sender.clone() else {
             return;
         };
+        // a second dialog would take over the field below and leave the first
+        // one without an owner, which gtk does not survive
+        if self.dialog.as_ref().is_some_and(|d| d.is_visible()) {
+            return;
+        }
         let window = self
             .input_context
             .as_ref()

@@ -1021,7 +1021,7 @@ impl SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
-                self.temporary_pointer_previous_tool = Some(previous_tool);
+                self.remember_tool_before_pointer(previous_tool);
                 ToolUpdateResult::Redraw
             } else {
                 // otherwise pass to tool
@@ -1212,6 +1212,11 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style));
 
+                // after the context and the sender are in place, so that a tool
+                // reacting to this can already talk back; the redraw below
+                // covers whatever it changed
+                let _ = self.active_tool.borrow_mut().handle_activated();
+
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::ToolSwitchShortcut(target_tool));
@@ -1313,6 +1318,13 @@ impl SketchBoard {
 
     pub fn active_tool_type(&self) -> Tools {
         self.active_tool.borrow().get_tool_type()
+    }
+
+    // Remembers the tool to return to after a temporary switch to the pointer
+    // tool. The image tool opens a file chooser when it becomes active, so
+    // returning to it would pop a dialog the user never asked for.
+    fn remember_tool_before_pointer(&mut self, tool: Tools) {
+        self.temporary_pointer_previous_tool = (tool != Tools::Image).then_some(tool);
     }
 
     fn handle_paste_image(&self, sender: ComponentSender<Self>) -> ToolUpdateResult {
@@ -1931,7 +1943,7 @@ impl Component for SketchBoard {
                         sender_for_post_commit
                             .output_sender()
                             .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
-                        self.temporary_pointer_previous_tool = Some(previous_tool);
+                        self.remember_tool_before_pointer(previous_tool);
                     }
                 } else {
                     self.pointer_tool.borrow_mut().deselect();
