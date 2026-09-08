@@ -275,7 +275,7 @@ default-fill-shapes = false
 default-round-caps = true
 # The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
 primary-highlighter = "block"
-# Disable notifications
+# Disable notifications - may be ignored in case of errors that can't be reported via terminal
 disable-notifications = false
 # Actions to trigger on right click (order is important)
 # [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
