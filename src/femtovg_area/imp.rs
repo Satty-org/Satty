@@ -44,6 +44,7 @@ pub struct FemtoVGArea {
 }
 
 pub struct FemtoVgAreaMut {
+    source_image: Option<Rc<ImgVec<RGBA8>>>,
     background_image: Pixbuf,
     background_image_id: Option<femtovg::ImageId>,
     transparent_background_id: Option<femtovg::ImageId>,
@@ -181,6 +182,7 @@ impl FemtoVGArea {
     ) {
         let initial_scale = APP_CONFIG.read().input_scale().unwrap_or(0.0);
         self.inner().replace(FemtoVgAreaMut {
+            source_image: None,
             background_image,
             background_image_id: None,
             transparent_background_id: None,
@@ -366,6 +368,36 @@ impl FemtoVgAreaMut {
             .push(HistoryEntry::Drawable(drawable.clone_box()));
         self.drawables.push(drawable);
         self.redo_stack.clear();
+    }
+
+    fn ensure_source_image(&mut self) -> Rc<ImgVec<RGBA8>> {
+        if self.source_image.is_none() {
+            self.source_image = Some(Rc::new(Self::pixbuf_to_imgvec(&self.background_image)));
+        }
+        self.source_image.clone().unwrap()
+    }
+
+    fn pixbuf_to_imgvec(pixbuf: &Pixbuf) -> ImgVec<RGBA8> {
+        let width = pixbuf.width() as usize;
+        let height = pixbuf.height() as usize;
+        let stride = pixbuf.rowstride() as usize;
+        let has_alpha = pixbuf.has_alpha();
+
+        let mut buf = Vec::<RGBA8>::with_capacity(width * height);
+        let src = unsafe { pixbuf.pixels() };
+        for row in 0..height {
+            let base = row * stride;
+            for col in 0..width {
+                let p = base + col * if has_alpha { 4 } else { 3 };
+                buf.push(RGBA8::new(
+                    src[p],
+                    src[p + 1],
+                    src[p + 2],
+                    if has_alpha { src[p + 3] } else { 255 },
+                ));
+            }
+        }
+        ImgVec::new(buf, width, height)
     }
 
     pub fn last_drawable_index(&self) -> Option<usize> {
@@ -598,6 +630,8 @@ impl FemtoVgAreaMut {
         outside_bg_color: femtovg::Color,
         onscreen: bool,
     ) -> Result<()> {
+        let source_image = self.ensure_source_image();
+
         // clear canvas
         canvas.clear_rect(0, 0, canvas.width(), canvas.height(), outside_bg_color);
 
@@ -621,7 +655,7 @@ impl FemtoVgAreaMut {
             if self.hidden_drawable_index != Some(i)
                 && d.get_rendering_mode() == RenderingMode::Blur
             {
-                d.draw(canvas, font, bounds)?;
+                d.draw_baselayer(canvas, &source_image, font, bounds)?;
             }
         }
 
@@ -630,7 +664,7 @@ impl FemtoVgAreaMut {
             && let Some(preview) = self.active_tool.borrow().get_drawable()
             && preview.get_rendering_mode() == RenderingMode::Blur
         {
-            preview.draw(canvas, font, bounds)?;
+            preview.draw_baselayer(canvas, &source_image, font, bounds)?;
             draw_active_tool = false;
         }
 

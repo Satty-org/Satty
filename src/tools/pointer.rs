@@ -304,6 +304,7 @@ impl PointerTool {
             "nesw-resize" => Some(&["nesw-resize", "top-right-corner"]),
             "ns-resize" => Some(&["ns-resize", "top-center"]),
             "ew-resize" => Some(&["ew-resize", "middle-left"]),
+            "not-allowed" => Some(&["not-allowed", "no-drop"]),
             _ => None,
         };
         cursor_candidates.and_then(|candidates| {
@@ -313,14 +314,36 @@ impl PointerTool {
         })
     }
 
+    fn resize_cursor_name(handle: ResizeHandle) -> &'static str {
+        type RH = ResizeHandle;
+        match handle {
+            RH::TopLeft | RH::BottomRight => "nwse-resize",
+            RH::TopRight | RH::BottomLeft => "nesw-resize",
+            RH::TopCenter | RH::BottomCenter => "ns-resize",
+            RH::MiddleLeft | RH::MiddleRight => "ew-resize",
+        }
+    }
+
     fn set_hover_cursor(&mut self, pos: Vec2D) {
         let Some(widget) = &self.cursor_widget else {
             return;
         };
 
+        let not_renderable = self.preview.as_ref().is_some_and(|p| !p.is_renderable());
+
         let cursor = if let DragState::Moving { .. } = self.drag_state {
             self.last_drag_state = true;
-            self.get_cursor("grabbing")
+            if not_renderable {
+                self.get_cursor("not-allowed")
+            } else {
+                self.get_cursor("grabbing")
+            }
+        } else if let DragState::Resizing { handle, .. } = self.drag_state {
+            if not_renderable {
+                self.get_cursor("not-allowed")
+            } else {
+                self.get_cursor(Self::resize_cursor_name(handle))
+            }
         } else if matches!(self.drag_state, DragState::None) && self.last_drag_state {
             if let Some(sender) = &self.sender {
                 sender.emit(SketchBoardInput::RefreshMouseCursor(pos));
@@ -328,13 +351,7 @@ impl PointerTool {
             self.last_drag_state = false;
             None
         } else if let Some(handle) = self.hit_test_handles(pos) {
-            type RH = ResizeHandle;
-            match handle {
-                RH::TopLeft | RH::BottomRight => self.get_cursor("nwse-resize"),
-                RH::TopRight | RH::BottomLeft => self.get_cursor("nesw-resize"),
-                RH::TopCenter | RH::BottomCenter => self.get_cursor("ns-resize"),
-                RH::MiddleLeft | RH::MiddleRight => self.get_cursor("ew-resize"),
-            }
+            self.get_cursor(Self::resize_cursor_name(handle))
         } else {
             None
         };
@@ -627,7 +644,9 @@ impl Tool for PointerTool {
                         orig_bounds,
                     } => {
                         let delta = event.pos;
-                        let result = if delta.is_zero() {
+                        let not_renderable =
+                            self.preview.as_ref().is_some_and(|p| !p.is_renderable());
+                        let result = if delta.is_zero() || not_renderable {
                             // Click with no movement: just show selection overlay
                             self.update_selection_bounds(orig_bounds.0, orig_bounds.1);
                             self.preview = None;
@@ -652,7 +671,9 @@ impl Tool for PointerTool {
                         orig_bounds,
                     } => {
                         let delta = event.pos;
-                        let result = if delta.is_zero() {
+                        let not_renderable =
+                            self.preview.as_ref().is_some_and(|p| !p.is_renderable());
+                        let result = if delta.is_zero() || not_renderable {
                             self.update_selection_bounds(orig_bounds.0, orig_bounds.1);
                             self.preview = None;
                             ToolUpdateResult::Redraw

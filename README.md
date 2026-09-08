@@ -98,6 +98,7 @@ Default single-key shortcuts:
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
+- <kbd>x</kbd>: Fringe inpaint+Pixelate tool
 - <kbd>g</kbd>: Highlight tool
 
 ### Pointer Tool <sup>NEXTRELEASE</sup>
@@ -120,7 +121,7 @@ Newly created annotations can be autoselected if enabled in the config.
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Rectangle, ellipse, blur <sup>0.22.0</sup> and highlight block mode<sup>0.22.0</sup>: 
+Rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
 - Hold both to combine them.
@@ -146,6 +147,10 @@ Marker:
 Highlight: 
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
+
+Additional note on fringe inpaint, pixelate and fringe inpaint + pixelate <sup>NEXTRELEASE</sup>:
+
+Due to having to consider a blocksize, there's a remainder in almost all situations. We determine a vertical and horizontal anchor based on the origin, the remainder is located on the opposite sides. To change the location of the remainder, draw the rectangle in a different direction. This does not apply to center based rectangles drawn with <kbd>Alt</kbd>, in this instance the anchor is always top left.
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
@@ -394,7 +399,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, highlight, brush]
+          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
@@ -574,3 +579,8 @@ Made with [contrib.rocks](https://contrib.rocks).
 The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
+
+## Credits
+
+- Fringe-Pixelate was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
+
