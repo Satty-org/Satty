@@ -1,4 +1,7 @@
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{
+    Drawable, DrawableClone, Tool, ToolUpdateResult, Tools,
+    drag_box::{DragBox, draw_center_marker},
+};
 use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
@@ -10,8 +13,11 @@ use relm4::Sender;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Crop {
-    pos: Vec2D,
+    origin: Vec2D,
+    top_left: Vec2D,
     size: Vec2D,
+    centered: bool,
+    finishing: bool,
     active: bool,
 }
 
@@ -24,12 +30,11 @@ pub struct CropTool {
 }
 
 impl Crop {
-    fn new(pos: Vec2D) -> Self {
-        Self {
-            pos,
-            size: Vec2D::zero(),
-            active: true,
-        }
+    pub fn calculate_shape(&mut self, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, event.pos, event.modifier);
+        self.centered = drag_box.centered;
+        self.top_left = drag_box.top_left;
+        self.size = drag_box.size;
     }
 }
 
@@ -39,20 +44,23 @@ impl Drawable for Crop {
     }
 
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        Some(math::ensure_bounding_box(self.pos, self.pos + self.size))
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + self.size,
+        ))
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.pos, Some(self.size), tolerance, false)
+        hit_test_rectangle(pos, self.top_left, Some(self.size), tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
-        self.pos += delta;
+        self.top_left += delta;
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
-        self.pos = tl;
+        self.top_left = tl;
         self.size = br - tl;
     }
 
@@ -62,6 +70,10 @@ impl Drawable for Crop {
         _font: femtovg::FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
+        if !self.finishing && self.centered {
+            draw_center_marker(canvas, self.origin);
+        }
+
         let size = self.size;
 
         let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
@@ -70,11 +82,11 @@ impl Drawable for Crop {
         let img_size = img_br - img_tl;
         let mut shadow_path = Path::new();
         shadow_path.rect(img_tl.x, img_tl.y, img_size.x, img_size.y);
-        shadow_path.rect(self.pos.x, self.pos.y, size.x, size.y);
+        shadow_path.rect(self.top_left.x, self.top_left.y, size.x, size.y);
 
         let border_paint = Paint::color(Color::rgbf(0.1, 0.1, 0.1)).with_line_width(2.0);
         let mut border_path = Path::new();
-        border_path.rect(self.pos.x, self.pos.y, size.x, size.y);
+        border_path.rect(self.top_left.x, self.top_left.y, size.x, size.y);
 
         canvas.save();
         canvas.fill_path(&shadow_path, &shadow_paint);
@@ -122,7 +134,14 @@ impl Tool for CropTool {
         match event.type_ {
             MouseEventType::BeginDrag if event.button == MouseButton::Primary => {
                 self.dragging = true;
-                self.crop = Some(Crop::new(event.pos));
+                self.crop = Some(Crop {
+                    origin: event.pos,
+                    top_left: event.pos,
+                    size: Vec2D::zero(),
+                    centered: false,
+                    finishing: false,
+                    active: true,
+                });
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag if event.button == MouseButton::Primary => {
@@ -135,6 +154,8 @@ impl Tool for CropTool {
                     self.emit_crop_dimensions_update();
                     return ToolUpdateResult::Redraw;
                 }
+                crop.finishing = true;
+                crop.calculate_shape(&event);
                 ToolUpdateResult::Commit(crop.clone_box())
             }
             MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
@@ -144,7 +165,7 @@ impl Tool for CropTool {
                 let Some(crop) = &mut self.crop else {
                     return ToolUpdateResult::Unmodified;
                 };
-                crop.size = event.pos;
+                crop.calculate_shape(&event);
                 self.emit_crop_dimensions_update();
                 ToolUpdateResult::Redraw
             }
