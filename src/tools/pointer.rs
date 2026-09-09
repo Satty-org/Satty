@@ -293,7 +293,7 @@ pub fn hit_handle(
 struct SelectionOverlay {
     tl: Vec2D,
     br: Vec2D,
-    scaled_handle_size: Cell<f32>,
+    scale: Cell<f32>,
     centered: bool,
     editing: bool,
 }
@@ -309,15 +309,20 @@ impl Drawable for SelectionOverlay {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
+        let scale = canvas.transform().average_scale().max(f32::EPSILON);
+        // to be used at other places where the scale is not available
+        self.scale.set(scale);
+
         // Selection rectangle
-        draw_rect_marker(canvas, self.tl, self.br - self.tl, false);
+        let out_set = SELECTION_BORDER_OUTSET / scale;
+        let tl = self.tl - out_set;
+        let size = (self.br - self.tl) + out_set * 2.0;
+        draw_rect_marker(canvas, tl, size, false);
 
         // Resize handles
         // draw handles in inverse zoom scale so the visual size stays constant on screen.
-        let scale = canvas.transform().average_scale().max(f32::EPSILON);
         let handle_half = HANDLE_HALF / scale;
         let handle_size = HANDLE_SIZE / scale;
-        self.scaled_handle_size.set(handle_size);
         for handle in ResizeHandle::all() {
             let tl = handle.center(self.tl, self.br) - handle_half;
             draw_rect_marker(canvas, tl, Vec2D::new(handle_size, handle_size), true);
@@ -471,7 +476,7 @@ impl PointerTool {
     // Returns the handle under `pos` given the current selection bounds.
     pub fn hit_test_handles(&self, pos: Vec2D) -> Option<ResizeHandle> {
         let overlay = self.selection_overlay.as_ref()?;
-        let scaled_handle_size = overlay.scaled_handle_size.get();
+        let scaled_handle_size = HANDLE_SIZE / overlay.scale.get();
         hit_handle(scaled_handle_size, pos, overlay.tl, overlay.br)
     }
 
@@ -536,31 +541,11 @@ impl PointerTool {
         let (tl, br) = ensure_bounding_box(tl, br);
         self.selected_bounds = Some((tl, br));
 
-        let handle_size = if let Some(overlay) = &self.selection_overlay {
-            overlay.scaled_handle_size.get()
-        } else {
-            HANDLE_SIZE
-        };
-
-        // Add extra outset to selection overlay if the drawable is small to reduce handle overlapping
-        let w = br.x - tl.x + SELECTION_BORDER_OUTSET * 2.0;
-        let h = br.y - tl.y + SELECTION_BORDER_OUTSET * 2.0;
-        let border_outset_x = if w < 3.0 * handle_size {
-            HANDLE_SIZE
-        } else {
-            SELECTION_BORDER_OUTSET
-        };
-        let border_outset_y = if h < 3.0 * handle_size {
-            HANDLE_SIZE
-        } else {
-            SELECTION_BORDER_OUTSET
-        };
-
         self.selection_overlay = Some(SelectionOverlay {
-            tl: tl - Vec2D::new(border_outset_x, border_outset_y),
-            br: br + Vec2D::new(border_outset_x, border_outset_y),
+            tl,
+            br,
             // is updated in draw() to maintain constant on-screen size regardless of zoom level
-            scaled_handle_size: Cell::new(HANDLE_SIZE),
+            scale: Cell::new(1.0),
             centered: false,
             editing: true,
         });
