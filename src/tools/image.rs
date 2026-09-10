@@ -1,11 +1,12 @@
 use std::cell::Cell;
 
 use anyhow::Result;
-use femtovg::{Color, ImageId, Paint, Path};
+use femtovg::{ImageId, Paint, Path};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::prelude::*;
 use relm4::{RelmWidgetExt, Sender, gtk};
 
+use crate::tools::drag_box::draw_rect_marker;
 use crate::{
     configuration::APP_CONFIG,
     femtovg_area::create_image_from_pixbuf,
@@ -74,18 +75,7 @@ impl Drawable for DragPreview {
             draw_center_marker(canvas, self.origin);
         }
 
-        let DragBox { top_left, size, .. } = self.drag_box;
-        let mut path = Path::new();
-        path.rect(top_left.x, top_left.y, size.x, size.y);
-        // a light line under a dark one, so the box shows on any screenshot
-        canvas.stroke_path(
-            &path,
-            &Paint::color(Color::rgbf(1.0, 1.0, 1.0)).with_line_width(3.0),
-        );
-        canvas.stroke_path(
-            &path,
-            &Paint::color(Color::rgbf(0.1, 0.1, 0.1)).with_line_width(1.0),
-        );
+        draw_rect_marker(canvas, self.drag_box.top_left, self.drag_box.size, false);
         Ok(())
     }
 }

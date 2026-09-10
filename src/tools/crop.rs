@@ -5,7 +5,7 @@ use super::{
 use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
-    tools::{RenderingMode, hit_test_rectangle},
+    tools::{RenderingMode, drag_box::draw_rect_marker, hit_test_rectangle},
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
@@ -70,26 +70,34 @@ impl Drawable for Crop {
         _font: femtovg::FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let size = self.size;
+        let shadow_paint = Paint::color(Color::rgbaf(
+            0.0,
+            0.0,
+            0.0,
+            if self.editing { 0.5 } else { 0.9 },
+        ))
+        .with_fill_rule(femtovg::FillRule::EvenOdd);
 
-        let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
-            .with_fill_rule(femtovg::FillRule::EvenOdd);
         let (img_tl, img_br) = bounds;
-        let img_size = img_br - img_tl;
+        // increase it a bit as otherwise subpixel of the image will still be visible
+        let shadow_tl = (img_tl).min(self.top_left) - 1.0;
+        let shadow_br = (img_br).max(self.top_left + self.size);
+        let shadow_size = shadow_br - shadow_tl + 2.0;
         let mut shadow_path = Path::new();
-        shadow_path.rect(img_tl.x, img_tl.y, img_size.x, img_size.y);
-        shadow_path.rect(self.top_left.x, self.top_left.y, size.x, size.y);
-
-        let border_paint = Paint::color(Color::rgbf(0.1, 0.1, 0.1)).with_line_width(2.0);
-        let mut border_path = Path::new();
-        border_path.rect(self.top_left.x, self.top_left.y, size.x, size.y);
+        // the outer rectangle of the shadow
+        shadow_path.rect(shadow_tl.x, shadow_tl.y, shadow_size.x, shadow_size.y);
+        let tl = self.top_left;
+        let size = self.size;
+        // the inner rectangle of the shadow
+        shadow_path.rect(tl.x, tl.y, size.x, size.y);
 
         canvas.fill_path(&shadow_path, &shadow_paint);
-        canvas.stroke_path(&border_path, &border_paint);
 
         if self.editing && self.centered {
             draw_center_marker(canvas, self.origin);
         }
+
+        draw_rect_marker(canvas, tl, size, false);
 
         Ok(())
     }

@@ -87,9 +87,56 @@ impl DragBox {
     }
 }
 
+fn inner_color() -> Paint {
+    Paint::color(Color::white())
+}
+
+fn outer_color() -> Paint {
+    Paint::color(Color::rgb(70u8, 130u8, 180u8))
+}
+
 pub fn draw_center_marker(canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>, center: Vec2D) {
-    let mut helpers = Path::new();
-    helpers.circle(center.x, center.y, 2.0);
-    let paint = Paint::color(Color::rgba(128, 128, 128, 255)).with_line_width(1.0);
-    canvas.stroke_path(&helpers, &paint);
+    // in inverse zoom scale so the visual size stays constant on screen
+    let scale = canvas.transform().average_scale().max(f32::EPSILON);
+
+    let radius = 4.0 / scale;
+    let mut path = Path::new();
+    path.circle(center.x, center.y, radius);
+    canvas.fill_path(&path, &inner_color());
+    canvas.stroke_path(&path, &outer_color().with_line_width(1.5 / scale));
+}
+
+pub fn draw_rect_marker(
+    canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+    top_left: Vec2D,
+    size: Vec2D,
+    filled: bool,
+) {
+    // draw in inverse zoom scale so the visual size stays constant on screen
+    let scale = canvas.transform().average_scale().max(f32::EPSILON);
+    let line_width = 1.5 / scale;
+
+    let border_paint = inner_color().with_line_width(line_width);
+    let mut border_path = Path::new();
+
+    border_path.rect(top_left.x, top_left.y, size.x, size.y);
+    if filled {
+        canvas.fill_path(&border_path, &border_paint);
+    } else {
+        canvas.stroke_path(&border_path, &border_paint);
+    }
+
+    let border_paint = outer_color().with_line_width(line_width);
+    let mut tl = top_left;
+    let mut size = size;
+
+    // set-out to draw the border outside the original rectangle, e.g. for crop
+    if !filled {
+        tl = tl - line_width;
+        size = size + 2.0 * line_width;
+    }
+
+    let mut border_path = Path::new();
+    border_path.rect(tl.x, tl.y, size.x, size.y);
+    canvas.stroke_path(&border_path, &border_paint);
 }

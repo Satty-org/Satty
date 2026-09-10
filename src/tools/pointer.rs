@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{Color, FontId, Paint, Path};
+use femtovg::FontId;
 use relm4::{
     Sender,
     gtk::{self, gdk::ModifierType, prelude::WidgetExt},
@@ -10,7 +10,10 @@ use crate::{
     configuration::APP_CONFIG,
     math::{Vec2D, ensure_bounding_box, get_closest_aspect_ratio},
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
-    tools::{RenderingMode, drag_box::draw_center_marker},
+    tools::{
+        RenderingMode,
+        drag_box::{draw_center_marker, draw_rect_marker},
+    },
 };
 
 use super::{Drawable, InputContext, Tool, ToolUpdateResult, Tools};
@@ -306,41 +309,18 @@ impl Drawable for SelectionOverlay {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        // draw handles in inverse zoom scale so the visual size stays constant on screen.
-        let scale = canvas.transform().average_scale().max(f32::EPSILON);
-
         // Selection rectangle
-        let stroke_width = 1.5 / scale;
-        let mut rect = Path::new();
-        rect.rect(
-            self.tl.x,
-            self.tl.y,
-            self.br.x - self.tl.x,
-            self.br.y - self.tl.y,
-        );
-        canvas.stroke_path(
-            &rect,
-            &Paint::color(Color::rgba(70, 130, 180, 220)).with_line_width(stroke_width),
-        );
+        draw_rect_marker(canvas, self.tl, self.br - self.tl, false);
 
         // Resize handles
+        // draw handles in inverse zoom scale so the visual size stays constant on screen.
+        let scale = canvas.transform().average_scale().max(f32::EPSILON);
         let handle_half = HANDLE_HALF / scale;
         let handle_size = HANDLE_SIZE / scale;
         self.scaled_handle_size.set(handle_size);
         for handle in ResizeHandle::all() {
-            let c = handle.center(self.tl, self.br);
-            let mut hpath = Path::new();
-            hpath.rect(
-                c.x - handle_half,
-                c.y - handle_half,
-                handle_size,
-                handle_size,
-            );
-            canvas.fill_path(&hpath, &Paint::color(Color::white()));
-            canvas.stroke_path(
-                &hpath,
-                &Paint::color(Color::rgba(70, 130, 180, 255)).with_line_width(stroke_width),
-            );
+            let tl = handle.center(self.tl, self.br) - handle_half;
+            draw_rect_marker(canvas, tl, Vec2D::new(handle_size, handle_size), true);
         }
 
         if self.editing && self.centered {
