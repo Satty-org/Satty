@@ -33,7 +33,11 @@ pub fn font_stack() -> &'static [FontId] {
     FONT_STACK.get().map(Vec::as_slice).unwrap_or(&[])
 }
 
-pub fn create_image_from_pixbuf(canvas: &mut Canvas<OpenGl>, image: &Pixbuf) -> Result<ImageId> {
+pub fn create_image_from_pixbuf(
+    canvas: &mut Canvas<OpenGl>,
+    image: &Pixbuf,
+    flags: ImageFlags,
+) -> Result<ImageId> {
     let format = if image.has_alpha() {
         PixelFormat::Rgba8
     } else {
@@ -44,7 +48,7 @@ pub fn create_image_from_pixbuf(canvas: &mut Canvas<OpenGl>, image: &Pixbuf) -> 
         image.width() as usize,
         image.height() as usize,
         format,
-        ImageFlags::empty(),
+        flags,
     )?;
 
     // extract values
