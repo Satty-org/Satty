@@ -699,6 +699,12 @@ impl FemtoVgAreaMut {
             preview.draw(canvas, font, bounds)?;
         }
 
+        // if not onscreen, flush and return early as the rest is not for export
+        if !onscreen {
+            canvas.flush();
+            return Ok(());
+        }
+
         // draw crop on top of everything but pointer tool selection overlay
         if self.active_tool.borrow().get_tool_type() == Tools::Crop
             && let Some(crop) = self.active_tool.borrow().get_drawable()
