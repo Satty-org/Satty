@@ -20,7 +20,7 @@ pub struct Ellipse {
     radii: Vec2D,
     style: Style,
     centered: bool,
-    finishing: bool,
+    editing: bool,
 }
 
 impl Drawable for Ellipse {
@@ -58,7 +58,7 @@ impl Drawable for Ellipse {
         self.origin = center;
         self.radii = (br - tl).abs() / 2.0;
         self.centered = false;
-        self.finishing = true;
+        self.editing = false;
     }
 
     fn get_style(&self) -> Option<&Style> {
@@ -75,21 +75,26 @@ impl Drawable for Ellipse {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        canvas.save();
         let mut path = Path::new();
         path.ellipse(self.middle.x, self.middle.y, self.radii.x, self.radii.y);
-
-        if !self.finishing && self.centered {
-            draw_center_marker(canvas, self.middle);
-        }
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
         }
         canvas.stroke_path(&path, &self.style.into());
-        canvas.restore();
+
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.middle);
+        }
 
         Ok(())
+    }
+
+    fn set_centered(&mut self, centered: bool) {
+        self.centered = centered;
+    }
+    fn set_editing(&mut self, editing: bool) {
+        self.editing = editing;
     }
 }
 
@@ -140,8 +145,8 @@ impl Tool for EllipseTool {
                     middle: event.pos,
                     radii: Vec2D::zero(),
                     style: self.style,
-                    centered: true,
-                    finishing: false,
+                    centered: false,
+                    editing: true,
                 });
 
                 ToolUpdateResult::Redraw
@@ -152,7 +157,7 @@ impl Tool for EllipseTool {
                 }
 
                 if let Some(ellipse) = &mut self.ellipse {
-                    ellipse.finishing = true;
+                    ellipse.editing = false;
                     if event.pos == Vec2D::zero() {
                         self.ellipse = None;
 

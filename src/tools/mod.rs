@@ -244,9 +244,14 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_style(&self) -> Option<&Style> {
         None
     }
-
     fn get_style_mut(&mut self) -> Option<&mut Style> {
         None
+    }
+    fn set_centered(&mut self, centered: bool) {
+        let _ = centered;
+    }
+    fn set_editing(&mut self, editing: bool) {
+        let _ = editing;
     }
 }
 

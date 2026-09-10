@@ -17,7 +17,7 @@ pub struct Crop {
     top_left: Vec2D,
     size: Vec2D,
     centered: bool,
-    finishing: bool,
+    editing: bool,
     active: bool,
 }
 
@@ -70,10 +70,6 @@ impl Drawable for Crop {
         _font: femtovg::FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        if !self.finishing && self.centered {
-            draw_center_marker(canvas, self.origin);
-        }
-
         let size = self.size;
 
         let shadow_paint = Paint::color(Color::rgbaf(0.0, 0.0, 0.0, 0.5))
@@ -88,12 +84,22 @@ impl Drawable for Crop {
         let mut border_path = Path::new();
         border_path.rect(self.top_left.x, self.top_left.y, size.x, size.y);
 
-        canvas.save();
         canvas.fill_path(&shadow_path, &shadow_paint);
         canvas.stroke_path(&border_path, &border_paint);
 
-        canvas.restore();
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.origin);
+        }
+
         Ok(())
+    }
+
+    fn set_centered(&mut self, centered: bool) {
+        self.centered = centered;
+        self.origin = self.top_left + self.size / 2.0;
+    }
+    fn set_editing(&mut self, editing: bool) {
+        self.editing = editing;
     }
 }
 
@@ -127,7 +133,7 @@ impl Tool for CropTool {
                     top_left: event.pos,
                     size: Vec2D::zero(),
                     centered: false,
-                    finishing: false,
+                    editing: true,
                     active: true,
                 });
                 ToolUpdateResult::Redraw
@@ -141,7 +147,7 @@ impl Tool for CropTool {
                     self.crop = None;
                     return ToolUpdateResult::Redraw;
                 }
-                crop.finishing = true;
+                crop.editing = false;
                 crop.calculate_shape(self.sender.as_ref().unwrap(), &event);
                 ToolUpdateResult::Commit(crop.clone_box())
             }

@@ -127,10 +127,6 @@ impl Drawable for Blur {
             bounds,
         );
         if self.editing {
-            if self.centered {
-                draw_center_marker(canvas, self.origin);
-            }
-
             // set style
             let mut color = Color::black();
             color.set_alphaf(0.6);
@@ -152,9 +148,6 @@ impl Drawable for Blur {
             if size.x <= 0.0 || size.y <= 0.0 {
                 return Ok(());
             }
-
-            canvas.save();
-            canvas.flush();
 
             // create new cached image
             if self.cached_image.borrow().is_none() {
@@ -189,9 +182,21 @@ impl Drawable for Blur {
                     1f32,
                 ),
             );
-            canvas.restore();
         }
+
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.origin);
+        }
+
         Ok(())
+    }
+
+    fn set_centered(&mut self, centered: bool) {
+        self.centered = centered;
+        self.origin = self.top_left + self.size / 2.0;
+    }
+    fn set_editing(&mut self, editing: bool) {
+        self.editing = editing;
     }
 }
 

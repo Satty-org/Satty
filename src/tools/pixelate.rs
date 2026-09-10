@@ -326,11 +326,6 @@ impl Drawable for Pixelate {
             bounds,
         );
 
-        self.renderable.set(true);
-
-        canvas.save();
-        canvas.flush();
-
         if (self.cached_image.borrow().is_none() || self.editing)
             && let Some(x) = self.pixelate(canvas, image, pos, size)?
         {
@@ -352,12 +347,21 @@ impl Drawable for Pixelate {
                     1f32,
                 ),
             );
-            canvas.restore();
         }
+
         if self.editing && self.centered {
-            draw_center_marker(canvas, self.origin);
+            draw_center_marker(canvas, pos + size / 2.0);
         }
+
         Ok(())
+    }
+
+    fn set_centered(&mut self, centered: bool) {
+        self.centered = centered;
+        self.origin = self.top_left + self.size / 2.0;
+    }
+    fn set_editing(&mut self, editing: bool) {
+        self.editing = editing;
     }
 }
 
@@ -443,7 +447,7 @@ impl Tool for PixelateTool {
                     style: self.style,
                     cached_image: RefCell::new(None),
                     mode: self.mode,
-                    renderable: Cell::new(false),
+                    renderable: Cell::new(true),
                 });
 
                 ToolUpdateResult::Redraw

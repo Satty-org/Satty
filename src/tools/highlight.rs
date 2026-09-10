@@ -48,7 +48,7 @@ struct BlockHighlight {
     top_left: Vec2D,
     size: Vec2D,
     centered: bool,
-    finishing: bool,
+    editing: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -107,10 +107,6 @@ impl Highlight for Highlighter<BlockHighlight> {
     fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
         let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, self.data.size);
 
-        if !self.data.finishing && self.data.centered {
-            draw_center_marker(canvas, self.data.origin);
-        }
-
         let mut shadow_path = Path::new();
         shadow_path.rounded_rect(
             pos.x,
@@ -128,6 +124,11 @@ impl Highlight for Highlighter<BlockHighlight> {
         ));
 
         canvas.fill_path(&shadow_path, &shadow_paint);
+
+        if self.data.editing && self.data.centered {
+            draw_center_marker(canvas, self.data.origin);
+        }
+
         Ok(())
     }
 }
@@ -303,6 +304,18 @@ impl Drawable for HighlightKind {
             HighlightKind::Freehand(highlighter) => highlighter.highlight(canvas),
         }
     }
+
+    fn set_centered(&mut self, centered: bool) {
+        if let HighlightKind::Block(highlighter) = self {
+            highlighter.data.centered = centered;
+            highlighter.data.origin = highlighter.data.top_left + highlighter.data.size / 2.0;
+        }
+    }
+    fn set_editing(&mut self, editing: bool) {
+        if let HighlightKind::Block(highlighter) = self {
+            highlighter.data.editing = editing;
+        }
+    }
 }
 
 impl Tool for HighlightTool {
@@ -346,7 +359,7 @@ impl Tool for HighlightTool {
                                     top_left: event.pos,
                                     size: Vec2D::zero(),
                                     centered: false,
-                                    finishing: false,
+                                    editing: true,
                                 },
                                 style: self.style,
                             }))
@@ -438,7 +451,7 @@ impl Tool for HighlightTool {
                 }
 
                 if let HighlightKind::Block(highlighter) = &mut *highlighter_kind {
-                    highlighter.data.finishing = true;
+                    highlighter.data.editing = false;
                 }
 
                 let result = highlighter_kind.clone_box();

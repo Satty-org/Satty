@@ -22,7 +22,7 @@ pub struct Rectangle {
     size: Vec2D,
     style: Style,
     centered: bool,
-    finishing: bool,
+    editing: bool,
 }
 
 impl Drawable for Rectangle {
@@ -48,7 +48,7 @@ impl Drawable for Rectangle {
         self.size = br - tl;
         self.origin = tl;
         self.centered = false;
-        self.finishing = true;
+        self.editing = false;
     }
 
     fn get_style(&self) -> Option<&Style> {
@@ -65,7 +65,6 @@ impl Drawable for Rectangle {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        canvas.save();
         let mut path = Path::new();
         path.rounded_rect(
             self.top_left.x,
@@ -75,17 +74,24 @@ impl Drawable for Rectangle {
             APP_CONFIG.read().corner_roundness(),
         );
 
-        if !self.finishing && self.centered {
-            draw_center_marker(canvas, self.origin);
-        }
-
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
         }
         canvas.stroke_path(&path, &self.style.into());
-        canvas.restore();
+
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.origin);
+        }
 
         Ok(())
+    }
+
+    fn set_centered(&mut self, centered: bool) {
+        self.centered = centered;
+        self.origin = self.top_left + self.size / 2.0;
+    }
+    fn set_editing(&mut self, editing: bool) {
+        self.editing = editing;
     }
 }
 
@@ -132,7 +138,7 @@ impl Tool for RectangleTool {
                     size: Vec2D::zero(),
                     style: self.style,
                     centered: false,
-                    finishing: false,
+                    editing: true,
                 });
 
                 ToolUpdateResult::Redraw
@@ -143,7 +149,7 @@ impl Tool for RectangleTool {
                 }
 
                 if let Some(rectangle) = &mut self.rectangle {
-                    rectangle.finishing = true;
+                    rectangle.editing = false;
                     if event.pos == Vec2D::zero() {
                         self.rectangle = None;
                         ToolUpdateResult::Redraw

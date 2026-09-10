@@ -10,7 +10,7 @@ use crate::{
     configuration::APP_CONFIG,
     math::{Vec2D, ensure_bounding_box, get_closest_aspect_ratio},
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
-    tools::RenderingMode,
+    tools::{RenderingMode, drag_box::draw_center_marker},
 };
 
 use super::{Drawable, InputContext, Tool, ToolUpdateResult, Tools};
@@ -291,6 +291,8 @@ struct SelectionOverlay {
     tl: Vec2D,
     br: Vec2D,
     scaled_handle_size: Cell<f32>,
+    centered: bool,
+    editing: bool,
 }
 
 impl Drawable for SelectionOverlay {
@@ -304,8 +306,6 @@ impl Drawable for SelectionOverlay {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        canvas.save();
-
         // draw handles in inverse zoom scale so the visual size stays constant on screen.
         let scale = canvas.transform().average_scale().max(f32::EPSILON);
 
@@ -336,14 +336,17 @@ impl Drawable for SelectionOverlay {
                 handle_size,
                 handle_size,
             );
-            canvas.fill_path(&hpath, &Paint::color(Color::rgba(255, 255, 255, 255)));
+            canvas.fill_path(&hpath, &Paint::color(Color::white()));
             canvas.stroke_path(
                 &hpath,
                 &Paint::color(Color::rgba(70, 130, 180, 255)).with_line_width(stroke_width),
             );
         }
 
-        canvas.restore();
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.tl + (self.br - self.tl) * 0.5);
+        }
+
         Ok(())
     }
 }
@@ -578,6 +581,8 @@ impl PointerTool {
             br: br + Vec2D::new(border_outset_x, border_outset_y),
             // is updated in draw() to maintain constant on-screen size regardless of zoom level
             scaled_handle_size: Cell::new(HANDLE_SIZE),
+            centered: false,
+            editing: true,
         });
 
         if let Some(sender) = &self.sender {
@@ -738,8 +743,9 @@ impl Tool for PointerTool {
                     let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
                     let mut preview = original.clone_box();
                     preview.resize_bounds(new_tl, new_br);
+                    preview.set_centered(event.modifier.intersects(ModifierType::ALT_MASK));
+                    preview.set_editing(true);
                     self.emit_dimensions_update(preview.as_ref());
-
                     self.update_selection_bounds(new_tl, new_br);
                     self.preview = Some(preview);
                     ToolUpdateResult::Redraw
@@ -794,6 +800,8 @@ impl Tool for PointerTool {
                                 handle.resize(event, orig_bounds.0, orig_bounds.1);
                             let mut final_drawable = original;
                             final_drawable.resize_bounds(new_tl, new_br);
+                            final_drawable.set_centered(false);
+                            final_drawable.set_editing(false);
                             self.update_selection_bounds(new_tl, new_br);
                             self.preview = None;
                             ToolUpdateResult::ReplaceDrawable(index, final_drawable)
