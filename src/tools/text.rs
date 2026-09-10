@@ -294,9 +294,14 @@ impl Drawable for Text {
         let transform = canvas.transform();
         let canva_scale = transform.average_scale();
 
-        let width = _bounds.1.x - self.pos.x;
-
-        let lines = canvas.break_text_vec(width, text, &base_paint)?;
+        let lines: Vec<Range<usize>> = text
+            .split_inclusive('\n')
+            .scan(0, |start, line| {
+                let range = *start..*start + line.len();
+                *start = range.end;
+                Some(range)
+            })
+            .collect();
         self.line_ranges.replace(lines.clone());
 
         let font_metrics = canvas.measure_font(&base_paint)?;

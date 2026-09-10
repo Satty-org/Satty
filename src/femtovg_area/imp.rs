@@ -24,7 +24,7 @@ use crate::{
     APP_CONFIG,
     configuration::Action,
     epoxy,
-    math::{Vec2D, crop_rect_in_bounds},
+    math::Vec2D,
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool, Tools},
 };
@@ -651,15 +651,30 @@ impl FemtoVgAreaMut {
         );
 
         // get offset and size of the crop if there is one
-        let (pos, size) = self
+        let (pos, size) = match self
             .drawables
             .iter()
             .find(|d| d.get_rendering_mode() == RenderingMode::Crop)
-            .and_then(|d| {
-                d.bounds()
-                    .map(|(tl, br)| crop_rect_in_bounds((tl, br - tl), bounds))
-            })
-            .unwrap_or(bounds);
+        {
+            Some(d) => d.bounds().map(|(tl, br)| (tl, br - tl)).unwrap_or(bounds),
+            None => {
+                // no crop: include all annotations, even outside the image
+                let (mut tl, mut br) = bounds;
+                for d in self
+                    .drawables
+                    .iter()
+                    .filter(|d| d.get_rendering_mode() != RenderingMode::Crop)
+                {
+                    if let Some((a, b)) = d.bounds() {
+                        tl = Vec2D::new(tl.x.min(a.x.min(b.x)), tl.y.min(a.y.min(b.y)));
+                        br = Vec2D::new(br.x.max(a.x.max(b.x)), br.y.max(a.y.max(b.y)));
+                    }
+                }
+                let tl = Vec2D::new(tl.x.floor(), tl.y.floor());
+                let br = Vec2D::new(br.x.ceil(), br.y.ceil());
+                (tl, br - tl)
+            }
+        };
 
         if size.x <= 0.0 || size.y <= 0.0 {
             return Err(anyhow::anyhow!("Invalid crop"));
