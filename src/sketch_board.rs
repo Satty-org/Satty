@@ -1944,6 +1944,7 @@ impl Component for SketchBoard {
         match result {
             ToolUpdateResult::Commit(drawable) => {
                 if self.is_drawable_too_small(drawable.as_ref()) {
+                    self.refresh_screen();
                     return;
                 };
                 self.renderer.commit(drawable);
