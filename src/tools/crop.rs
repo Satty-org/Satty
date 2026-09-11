@@ -36,6 +36,7 @@ pub struct CropTool {
 
 // a odd number that I like
 const SNAP_THRESHOLD: f32 = 23.0;
+const ANCHOR_CENTER_TOLERANCE: f32 = 1.0;
 
 impl Crop {
     // `anchor` is the point that must stay fixed while size/top_left are adjusted
@@ -53,10 +54,14 @@ impl Crop {
 
         let anchor_right = anchor.x > orig_tl.x + orig_size.x / 2.0;
         let anchor_bottom = anchor.y > orig_tl.y + orig_size.y / 2.0;
+        let anchor_center_x =
+            (anchor.x - (orig_tl.x + orig_size.x / 2.0)).abs() <= ANCHOR_CENTER_TOLERANCE;
+        let anchor_center_y =
+            (anchor.y - (orig_tl.y + orig_size.y / 2.0)).abs() <= ANCHOR_CENTER_TOLERANCE;
 
         // only snap if we exceed 0 - a value of 0 is already snapped
         // only snap one edge at a time to avoid conflicting adjustments
-        if -snap_theshold <= orig_tl.x && orig_tl.x < 0.0 {
+        if -snap_theshold <= orig_tl.x && orig_tl.x < 0.0 && new_tl.x != 0.0 {
             new_tl.x = 0.0;
             if is_drag {
                 new_size.x = orig_size.x + orig_tl.x;
@@ -64,10 +69,14 @@ impl Crop {
                     new_size.y = (new_size.x / aspect_ratio).round();
                     if anchor_bottom {
                         new_tl.y = anchor.y - new_size.y;
+                    } else if anchor_center_y {
+                        new_tl.y = anchor.y - new_size.y / 2.0;
                     }
                 }
             }
-        } else if -snap_theshold <= orig_tl.y && orig_tl.y < 0.0 {
+        }
+
+        if -snap_theshold <= orig_tl.y && orig_tl.y < 0.0 && new_tl.y != 0.0 {
             new_tl.y = 0.0;
             if is_drag {
                 new_size.y = orig_size.y + orig_tl.y;
@@ -75,28 +84,38 @@ impl Crop {
                     new_size.x = (new_size.y * aspect_ratio).round();
                     if anchor_right {
                         new_tl.x = anchor.x - new_size.x;
+                    } else if anchor_center_x {
+                        new_tl.x = anchor.x - new_size.x / 2.0;
                     }
                 }
             }
-        } else if 0.0 < br_offset.x && br_offset.x <= snap_theshold {
+        }
+
+        if 0.0 < br_offset.x && br_offset.x <= snap_theshold {
             if is_drag {
                 new_size.x = orig_size.x - br_offset.x;
                 if br_offset.x > 0.0 && aspect_ratio > 0.0 {
                     new_size.y = (new_size.x / aspect_ratio).round();
                     if anchor_bottom {
                         new_tl.y = anchor.y - new_size.y;
+                    } else if anchor_center_y {
+                        new_tl.y = anchor.y - new_size.y / 2.0;
                     }
                 }
             } else {
                 new_tl.x = self.image_size.x - orig_size.x;
             }
-        } else if 0.0 < br_offset.y && br_offset.y <= snap_theshold {
+        }
+
+        if 0.0 < br_offset.y && br_offset.y <= snap_theshold {
             if is_drag {
                 new_size.y = orig_size.y - br_offset.y;
                 if br_offset.y > 0.0 && aspect_ratio > 0.0 {
                     new_size.x = (new_size.y * aspect_ratio).round();
                     if anchor_right {
                         new_tl.x = anchor.x - new_size.x;
+                    } else if anchor_center_x {
+                        new_tl.x = anchor.x - new_size.x / 2.0;
                     }
                 }
             } else {
@@ -172,13 +191,18 @@ impl Drawable for Crop {
         // that's the anchor that must stay fixed while snapping/aspect-locking.
         let orig_tl = self.top_left;
         let orig_br = self.top_left + self.size;
+        let center = orig_tl + (orig_br - orig_tl) / 2.0;
         let anchor = Vec2D::new(
-            if (tl.x - orig_tl.x).abs() <= (br.x - orig_br.x).abs() {
+            if ((tl.x + br.x) / 2.0 - center.x).abs() <= ANCHOR_CENTER_TOLERANCE {
+                center.x
+            } else if (tl.x - orig_tl.x).abs() <= (br.x - orig_br.x).abs() {
                 orig_tl.x
             } else {
                 orig_br.x
             },
-            if (tl.y - orig_tl.y).abs() <= (br.y - orig_br.y).abs() {
+            if ((tl.y + br.y) / 2.0 - center.y).abs() <= ANCHOR_CENTER_TOLERANCE {
+                center.y
+            } else if (tl.y - orig_tl.y).abs() <= (br.y - orig_br.y).abs() {
                 orig_tl.y
             } else {
                 orig_br.y
