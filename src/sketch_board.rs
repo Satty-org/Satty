@@ -1357,7 +1357,6 @@ impl SketchBoard {
         placement: Option<ImagePlacement>,
     ) -> ToolUpdateResult {
         let (top_left, bottom_right) = self.image_bounds;
-        let placement = placement.map(|placement| placement.clamped_to(top_left, bottom_right));
 
         // the image tool commits the image right away, so it does not need to
         // be the active one: pasting keeps the current tool selected

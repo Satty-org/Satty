@@ -36,19 +36,6 @@ impl ImagePlacement {
     // for an image, and a click is such a box
     const MIN_BOX_SIZE: f32 = 8.0;
 
-    // a center outside the screenshot, from a drop released over the toolbars
-    // or a click beside a zoomed out screenshot, is moved onto its edge; a box
-    // is wherever the user drew it, as with the other box tools
-    pub fn clamped_to(self, top_left: Vec2D, bottom_right: Vec2D) -> Self {
-        match self {
-            Self::Center(pos) => Self::Center(Vec2D::new(
-                pos.x.clamp(top_left.x, bottom_right.x),
-                pos.y.clamp(top_left.y, bottom_right.y),
-            )),
-            fit @ Self::Fit { .. } => fit,
-        }
-    }
-
     // the placement a drag from `origin` asks for, given its end event
     fn from_drag(origin: Vec2D, event: &MouseEventMsg) -> Self {
         let drag_box = DragBox::from_origin_delta(origin, event.pos, event.modifier);
@@ -141,7 +128,14 @@ impl Image {
                     .min(background_size.y * Self::INITIAL_SIZE_FRACTION / natural_size.y)
                     .min(1.0);
                 let size = natural_size * scale;
-                (center - size * 0.5, size)
+                // the whole image stays on the screenshot, even for a drop
+                // over a toolbar or a click beside a zoomed out screenshot
+                let top_left = center - size * 0.5;
+                let top_left = Vec2D::new(
+                    top_left.x.min(background_size.x - size.x).max(0.0),
+                    top_left.y.min(background_size.y - size.y).max(0.0),
+                );
+                (top_left, size)
             }
             ImagePlacement::Fit {
                 top_left,
@@ -395,29 +389,31 @@ mod tests {
     }
 
     #[test]
-    fn a_center_outside_the_screenshot_is_moved_onto_its_edge() {
-        let (top_left, bottom_right) = (Vec2D::new(0.0, 0.0), Vec2D::new(800.0, 600.0));
-        assert_eq!(
-            ImagePlacement::Center(Vec2D::new(-30.0, 700.0)).clamped_to(top_left, bottom_right),
-            ImagePlacement::Center(Vec2D::new(0.0, 600.0))
-        );
-        assert_eq!(
-            ImagePlacement::Center(Vec2D::new(900.0, -5.0)).clamped_to(top_left, bottom_right),
-            ImagePlacement::Center(Vec2D::new(800.0, 0.0))
-        );
-        let inside = ImagePlacement::Center(Vec2D::new(100.0, 200.0));
-        assert_eq!(inside.clamped_to(top_left, bottom_right), inside);
+    fn center_placement_keeps_the_whole_image_on_the_screenshot() {
+        let at = |x, y| {
+            layout(
+                (100.0, 50.0),
+                Some(ImagePlacement::Center(Vec2D::new(x, y))),
+            )
+            .0
+        };
+        assert_eq!(at(-30.0, 700.0), Vec2D::new(0.0, 550.0));
+        assert_eq!(at(900.0, -5.0), Vec2D::new(700.0, 0.0));
+        assert_eq!(at(100.0, 200.0), Vec2D::new(50.0, 175.0));
     }
 
     #[test]
-    fn a_box_is_not_clamped() {
-        let fit = ImagePlacement::Fit {
-            top_left: Vec2D::new(-50.0, -50.0),
-            size: Vec2D::new(1000.0, 1000.0),
-        };
+    fn fit_placement_may_leave_the_screenshot() {
+        // a box is wherever the user drew it, as with the other box tools
         assert_eq!(
-            fit.clamped_to(Vec2D::new(0.0, 0.0), Vec2D::new(800.0, 600.0)),
-            fit
+            layout(
+                (10.0, 10.0),
+                Some(ImagePlacement::Fit {
+                    top_left: Vec2D::new(-50.0, -50.0),
+                    size: Vec2D::new(100.0, 100.0),
+                })
+            ),
+            (Vec2D::new(-50.0, -50.0), Vec2D::new(100.0, 100.0))
         );
     }
 
