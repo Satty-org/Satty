@@ -84,6 +84,10 @@ impl Vec2D {
         self.x * self.x + self.y * self.y
     }
 
+    pub fn area(&self) -> f32 {
+        self.x * self.y
+    }
+
     pub fn abs(&self) -> Self {
         Self {
             x: self.x.abs(),
