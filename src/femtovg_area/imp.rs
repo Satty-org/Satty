@@ -133,7 +133,7 @@ impl GLAreaImpl for FemtoVGArea {
             // only render if there are actions (save, copy, etc.) to process
             && !a.is_empty()
         {
-            println!("Rendering requested for actions: {:?}", a);
+            eprintln!("Rendering requested for actions: {:?}", a);
             // render image
             let image = match self
                 .inner()
@@ -577,7 +577,7 @@ impl FemtoVgAreaMut {
             return Err(anyhow::anyhow!("Invalid crop"));
         }
 
-        println!("Rendering native resolution with size: {:?}", size);
+        eprintln!("Rendering native resolution with size: {:?}", size);
 
         // create render-target
         let image_id = canvas.create_image_empty(
