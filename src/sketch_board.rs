@@ -1357,16 +1357,7 @@ impl SketchBoard {
         placement: Option<ImagePlacement>,
     ) -> ToolUpdateResult {
         let (top_left, bottom_right) = self.image_bounds;
-        let placement = placement.map(|placement| match placement {
-            // a drop released over the toolbars, or a click beside a zoomed
-            // out screenshot, would otherwise center the image off-canvas
-            ImagePlacement::Center(pos) => ImagePlacement::Center(Vec2D::new(
-                pos.x.clamp(top_left.x, bottom_right.x),
-                pos.y.clamp(top_left.y, bottom_right.y),
-            )),
-            // a box is wherever the user drew it, as with the other box tools
-            fit @ ImagePlacement::Fit { .. } => fit,
-        });
+        let placement = placement.map(|placement| placement.clamped_to(top_left, bottom_right));
 
         // the image tool commits the image right away, so it does not need to
         // be the active one: pasting keeps the current tool selected

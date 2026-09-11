@@ -36,6 +36,19 @@ impl ImagePlacement {
     // for an image, and a click is such a box
     const MIN_BOX_SIZE: f32 = 8.0;
 
+    // a center outside the screenshot, from a drop released over the toolbars
+    // or a click beside a zoomed out screenshot, is moved onto its edge; a box
+    // is wherever the user drew it, as with the other box tools
+    pub fn clamped_to(self, top_left: Vec2D, bottom_right: Vec2D) -> Self {
+        match self {
+            Self::Center(pos) => Self::Center(Vec2D::new(
+                pos.x.clamp(top_left.x, bottom_right.x),
+                pos.y.clamp(top_left.y, bottom_right.y),
+            )),
+            fit @ Self::Fit { .. } => fit,
+        }
+    }
+
     // the placement a drag from `origin` asks for, given its end event
     fn from_drag(origin: Vec2D, event: &MouseEventMsg) -> Self {
         let drag_box = DragBox::from_origin_delta(origin, event.pos, event.modifier);
@@ -379,6 +392,33 @@ mod tests {
             Some(ImagePlacement::Center(Vec2D::new(0.0, 0.0))),
         );
         assert_eq!(size, Vec2D::new(400.0, 300.0));
+    }
+
+    #[test]
+    fn a_center_outside_the_screenshot_is_moved_onto_its_edge() {
+        let (top_left, bottom_right) = (Vec2D::new(0.0, 0.0), Vec2D::new(800.0, 600.0));
+        assert_eq!(
+            ImagePlacement::Center(Vec2D::new(-30.0, 700.0)).clamped_to(top_left, bottom_right),
+            ImagePlacement::Center(Vec2D::new(0.0, 600.0))
+        );
+        assert_eq!(
+            ImagePlacement::Center(Vec2D::new(900.0, -5.0)).clamped_to(top_left, bottom_right),
+            ImagePlacement::Center(Vec2D::new(800.0, 0.0))
+        );
+        let inside = ImagePlacement::Center(Vec2D::new(100.0, 200.0));
+        assert_eq!(inside.clamped_to(top_left, bottom_right), inside);
+    }
+
+    #[test]
+    fn a_box_is_not_clamped() {
+        let fit = ImagePlacement::Fit {
+            top_left: Vec2D::new(-50.0, -50.0),
+            size: Vec2D::new(1000.0, 1000.0),
+        };
+        assert_eq!(
+            fit.clamped_to(Vec2D::new(0.0, 0.0), Vec2D::new(800.0, 600.0)),
+            fit
+        );
     }
 
     #[test]
