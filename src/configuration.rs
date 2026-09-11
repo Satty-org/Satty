@@ -78,6 +78,9 @@ pub struct Configuration {
     app_id: Option<String>,
     notification_thumbnail: NotificationThumbnail,
     notification_grace_period: Duration,
+
+    // number of errors encountered during configuration loading
+    error_count: usize,
 }
 
 #[derive(Default)]
@@ -394,6 +397,7 @@ impl Configuration {
 
         // overwrite with all specified values from config file
         if let Some(file) = file {
+            self.error_count = file.error_count.unwrap_or_default();
             if let Some(general) = file.general {
                 self.merge_general(general);
             }
@@ -688,6 +692,14 @@ impl Configuration {
     pub fn notification_grace_period(&self) -> Duration {
         self.notification_grace_period
     }
+
+    pub fn get_error_count(&self) -> usize {
+        self.error_count
+    }
+    pub fn increase_error_count(&mut self) -> usize {
+        self.error_count += 1;
+        self.error_count
+    }
 }
 
 impl Default for Configuration {
@@ -739,6 +751,7 @@ impl Default for Configuration {
             app_id: None,
             notification_thumbnail: NotificationThumbnail::default(),
             notification_grace_period: Duration::from_millis(250),
+            error_count: 0,
         }
     }
 }
@@ -759,16 +772,21 @@ impl Default for ColorPalette {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct ConfigurationFile {
     general: Option<ConfigurationFileGeneral>,
     color_palette: Option<ColorPaletteFile>,
     font: Option<FontFile>,
     keybinds: Option<HashMap<String, String>>,
+
+    // collect unknown fields
+    #[serde(flatten)]
+    pub unknown_fields: HashMap<String, toml::Value>,
+    error_count: Option<usize>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct FontFile {
     family: Option<String>,
     style: Option<String>,
@@ -776,7 +794,7 @@ struct FontFile {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct ConfigurationFileGeneral {
     #[serde(deserialize_with = "de_fullscreen_mode", default)]
     fullscreen: Option<Fullscreen>,
@@ -817,13 +835,21 @@ struct ConfigurationFileGeneral {
     right_click_copy: Option<bool>,
     action_on_enter: Option<Action>,
     // ---
+
+    // collect unknown fields
+    #[serde(flatten)]
+    pub unknown_fields: HashMap<String, toml::Value>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct ColorPaletteFile {
     palette: Option<Vec<HexColor>>,
     custom: Option<Vec<HexColor>>,
+
+    // collect unknown fields
+    #[serde(flatten)]
+    pub unknown_fields: HashMap<String, toml::Value>,
 }
 
 impl ConfigurationFile {
@@ -844,10 +870,40 @@ impl ConfigurationFile {
         }
     }
 
+    fn warning_unknown_field(prefix: &str, unknown_fields: &HashMap<String, toml::Value>) -> usize {
+        for key in unknown_fields.keys() {
+            eprintln!("⚠️ Unknown field in config{}: {}", prefix, key);
+        }
+        unknown_fields.len()
+    }
+
     fn try_read_path<P: AsRef<Path>>(
         path: P,
     ) -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
         let content = fs::read_to_string(path)?;
-        Ok(Some(toml::from_str::<ConfigurationFile>(&content)?))
+
+        let mut config = toml::from_str::<ConfigurationFile>(&content)?;
+
+        let mut errors = 0;
+
+        if !config.unknown_fields.is_empty() {
+            errors += Self::warning_unknown_field("", &config.unknown_fields);
+        }
+        if let Some(ref general) = config.general
+            && !general.unknown_fields.is_empty()
+        {
+            errors += Self::warning_unknown_field(".general", &general.unknown_fields);
+        }
+        if let Some(ref color_palette) = config.color_palette
+            && !color_palette.unknown_fields.is_empty()
+        {
+            errors += Self::warning_unknown_field(".color-palette", &color_palette.unknown_fields);
+        }
+
+        if errors > 0 {
+            config.error_count = Some(errors);
+        }
+
+        Ok(Some(config))
     }
 }
