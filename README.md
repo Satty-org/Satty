@@ -119,7 +119,7 @@ Newly created annotations can be autoselected if enabled in the config.
 
 ### Image Tool <sup>NEXTRELEASE</sup>
 
-Click the screenshot with the tool to open a file chooser, and the picked image is inserted as an annotation centred where you clicked, scaled down to at most half the screenshot if it does not fit. From there it behaves like any other annotation: select it with the pointer tool to move it, resize it by its handles or change its layer.
+Click the screenshot with the tool to open a file chooser, and the picked image is inserted as an annotation centred where you clicked, scaled down to at most half the screenshot if it does not fit. Drag a box instead of clicking, and the image is scaled to fit into it with its aspect ratio kept. From there it behaves like any other annotation: select it with the pointer tool to move it, resize it by its handles or change its layer.
 
 Images can also arrive without selecting the tool first:
 - <kbd>Ctrl+V</kbd> pastes an image or a copied image file from the clipboard, centred on the mouse pointer. The text tool takes the shortcut for itself while it has input focus.
@@ -132,7 +132,7 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>: 
+Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
 - Hold both to combine them.

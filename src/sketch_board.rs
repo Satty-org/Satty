@@ -1364,6 +1364,8 @@ impl SketchBoard {
                 pos.x.clamp(top_left.x, bottom_right.x),
                 pos.y.clamp(top_left.y, bottom_right.y),
             )),
+            // a box is wherever the user drew it, as with the other box tools
+            fit @ ImagePlacement::Fit { .. } => fit,
         });
 
         // the image tool commits the image right away, so it does not need to
