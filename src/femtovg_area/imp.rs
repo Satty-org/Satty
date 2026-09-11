@@ -46,7 +46,8 @@ pub struct FemtoVGArea {
 pub struct FemtoVgAreaMut {
     source_image: Option<Rc<ImgVec<RGBA8>>>,
     background_image: Pixbuf,
-    background_image_id: Option<femtovg::ImageId>,
+    background_image_id_aliased: Option<femtovg::ImageId>,
+    background_image_id_noaliasing: Option<femtovg::ImageId>,
     transparent_background_id: Option<femtovg::ImageId>,
     active_tool: Rc<RefCell<dyn Tool>>,
     scale_factor: f32,
@@ -128,7 +129,11 @@ impl GLAreaImpl for FemtoVGArea {
         let mut actions = self.request_render.borrow_mut();
 
         // if we got requested to render a frame
-        if let Some(a) = actions.take() {
+        if let Some(a) = actions.take()
+            // only render if there are actions (save, copy, etc.) to process
+            && !a.is_empty()
+        {
+            eprintln!("Rendering requested for actions: {:?}", a);
             // render image
             let image = match self
                 .inner()
@@ -184,7 +189,8 @@ impl FemtoVGArea {
         self.inner().replace(FemtoVgAreaMut {
             source_image: None,
             background_image,
-            background_image_id: None,
+            background_image_id_noaliasing: None,
+            background_image_id_aliased: None,
             transparent_background_id: None,
             active_tool,
             scale_factor: 1.0,
@@ -571,12 +577,14 @@ impl FemtoVgAreaMut {
             return Err(anyhow::anyhow!("Invalid crop"));
         }
 
+        eprintln!("Rendering native resolution with size: {:?}", size);
+
         // create render-target
         let image_id = canvas.create_image_empty(
             size.x as usize,
             size.y as usize,
             PixelFormat::Rgba8,
-            ImageFlags::empty(),
+            ImageFlags::NEAREST, // No aliasing
         )?;
         canvas.set_render_target(femtovg::RenderTarget::Image(image_id));
 
@@ -737,12 +745,35 @@ impl FemtoVgAreaMut {
         canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
         onscreen: bool,
     ) -> Result<()> {
-        let background_image_id = match self.background_image_id {
-            Some(id) => id,
-            None => {
-                let id = super::create_image_from_pixbuf(canvas, &self.background_image)?;
-                self.background_image_id.replace(id);
-                id
+        let scale = canvas.transform().average_scale().max(f32::EPSILON);
+
+        // on screen use aliased background image unless zoomed in significantly
+        let background_image_id = if onscreen && scale < 5.0 {
+            match self.background_image_id_aliased {
+                Some(id) => id,
+                None => {
+                    let id = super::create_image_from_pixbuf(
+                        canvas,
+                        &self.background_image,
+                        ImageFlags::empty(),
+                    )?;
+                    self.background_image_id_aliased.replace(id);
+                    id
+                }
+            }
+        } else {
+            // for export or when zoomed in significantly, use non-aliased background image
+            match self.background_image_id_noaliasing {
+                Some(id) => id,
+                None => {
+                    let id = super::create_image_from_pixbuf(
+                        canvas,
+                        &self.background_image,
+                        ImageFlags::NEAREST | ImageFlags::GENERATE_MIPMAPS,
+                    )?;
+                    self.background_image_id_noaliasing.replace(id);
+                    id
+                }
             }
         };
 
