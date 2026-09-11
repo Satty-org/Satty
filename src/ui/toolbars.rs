@@ -320,6 +320,11 @@ impl SimpleComponent for ToolsToolbar {
                 icon_name: "highlight-regular".into(),
                 tooltip: None,
             }],
+            vec![GroupableTool {
+                tool: Tools::Image,
+                icon_name: "image-regular".into(),
+                tooltip: None,
+            }],
         ];
 
         // Set initial active button correctly

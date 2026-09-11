@@ -43,7 +43,7 @@ chrono = "0.4.44"
 
 # opengl rendering backend
 femtovg = "0.27.0"
-image = { version = "0.25.0", default-features = false, features = ["png"] }  # png decoder for color emoji in femtovg
+image = { version = "0.25.0", default-features = false, features = ["png", "webp"] }  # png decoder for color emoji in femtovg, webp decoder for formats gdk-pixbuf has no loader for
 libloading = "0.9"
 glow = "0.18.0"
 resource = "0.6.1"  # font emedding

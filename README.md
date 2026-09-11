@@ -100,6 +100,7 @@ Default single-key shortcuts:
 - <kbd>u</kbd>: Blur tool
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool
 - <kbd>g</kbd>: Highlight tool
+- <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 ### Pointer Tool <sup>NEXTRELEASE</sup>
 
@@ -116,12 +117,22 @@ Newly created annotations can be autoselected if enabled in the config.
 - Double-click on a text annotation to edit it.
 - Horizontal resizing on a marker changes its number, and vertical resizing changes the extra ring.
 
+### Image Tool <sup>NEXTRELEASE</sup>
+
+Click the screenshot with the tool to open a file chooser, and the picked image is inserted as an annotation centred where you clicked, scaled down to at most half the screenshot if it does not fit. Drag a box instead of clicking, and the image is scaled to fit into it with its aspect ratio kept. From there it behaves like any other annotation: select it with the pointer tool to move it, resize it by its handles or change its layer.
+
+Images can also arrive without selecting the tool first:
+- <kbd>Ctrl+V</kbd> pastes an image or a copied image file from the clipboard, centred on the mouse pointer. The text tool takes the shortcut for itself while it has input focus.
+- Dropping an image or an image file anywhere on the window inserts it where it was dropped.
+
+Formats are those gdk-pixbuf has a loader for, plus webp.
+
 ### Tool Modifiers and Keys
 
 Arrow and line:
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>: 
+Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>: 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to make width and high uniform - results in square resp. circle.
 - Hold both to combine them.
@@ -197,8 +208,8 @@ early-exit = ["all"]
 # early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, 
-# text, marker, blur, brush, fringe-pixelate, fringe, fringe-pixelate]
+# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle,
+# text, marker, blur, brush, fringe-pixelate, fringe, fringe-pixelate, image]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -306,10 +317,12 @@ notification-grace-period = 250
 "m" = "marker"
 "u" = "blur"
 "g" = "highlight"
+"o" = "image"
 "<Control>s" = "save-to-file"
 "<Shift><Control>s" = "save-to-file-as"
 "<Control>c" = "save-to-clipboard"
 "<Shift><Control>c" = "copy-filepath-to-clipboard"
+"<Control>v" = "paste-image"
 
 # bottom toolbar
 "1" = "select-color-index:1"
@@ -404,7 +417,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush]
+          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush, image]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>

@@ -14,6 +14,7 @@ use femtovg::imgref::ImgVec;
 use femtovg::rgb::RGBA8;
 use femtovg::{Canvas, FontId, renderer::OpenGl};
 use relm4::gtk::gdk_pixbuf::{
+    Pixbuf,
     glib::{Variant, VariantTy},
     prelude::{StaticVariantType, ToVariant},
 };
@@ -40,6 +41,7 @@ mod crop;
 mod drag_box;
 mod ellipse;
 mod highlight;
+mod image;
 mod line;
 mod marker;
 mod pixelate;
@@ -52,6 +54,9 @@ pub const HIT_BORDER_TOLERANCE: f32 = 7.0;
 pub enum ToolEvent {
     Input(InputEvent),
     StyleChanged(Style),
+    // the background size, and where the image goes; without a placement it
+    // is centered on the screenshot
+    ImageSelected(Pixbuf, Vec2D, Option<ImagePlacement>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -69,6 +74,7 @@ pub trait Tool {
         match event {
             ToolEvent::Input(e) => self.handle_input_event(e),
             ToolEvent::StyleChanged(s) => self.handle_style_event(s),
+            ToolEvent::ImageSelected(i, b, p) => self.handle_image_selected(i, b, p),
         }
     }
 
@@ -111,6 +117,16 @@ pub trait Tool {
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
         let _ = style;
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_image_selected(
+        &mut self,
+        pixbuf: Pixbuf,
+        background_size: Vec2D,
+        placement: Option<ImagePlacement>,
+    ) -> ToolUpdateResult {
+        let _ = (pixbuf, background_size, placement);
         ToolUpdateResult::Unmodified
     }
 
@@ -285,6 +301,7 @@ pub use blur::BlurTool;
 pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
+pub use image::{ImagePlacement, ImageTool};
 pub use line::LineTool;
 pub use pixelate::PixelateTool;
 pub use pointer::PointerTool;
@@ -319,6 +336,7 @@ pub enum Tools {
     Pixelate = 11,
     FringePixelate = 12,
     Fringe = 13,
+    Image = 14,
 }
 
 impl fmt::Display for Tools {
@@ -338,6 +356,7 @@ impl fmt::Display for Tools {
             Tools::Pixelate => "Pixelate",
             Tools::FringePixelate => "Fringe inpaint+Pixelate",
             Tools::Fringe => "Fringe inpaint",
+            Tools::Image => "Image",
         };
         write!(f, "{}", name)
     }
@@ -366,6 +385,7 @@ impl FromStr for Tools {
             "pixelate" => Ok(Self::Pixelate),
             "fringe-pixelate" => Ok(Self::FringePixelate),
             "fringe" => Ok(Self::Fringe),
+            "image" => Ok(Self::Image),
             _ => Err(ParseCommandError),
         }
     }
@@ -417,6 +437,7 @@ impl ToolsManager {
         );
         tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
+        tools.insert(Tools::Image, Rc::new(RefCell::new(ImageTool::default())));
 
         let crop_tool = shared_crop_tool();
         let text_tool = Rc::new(RefCell::new(TextTool::default()));
@@ -482,6 +503,7 @@ impl FromVariant for Tools {
             11 => Some(Tools::Pixelate),
             12 => Some(Tools::FringePixelate),
             13 => Some(Tools::Fringe),
+            14 => Some(Tools::Image),
             _ => None,
         })
     }
@@ -504,6 +526,7 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Fringe => Self::Fringe,
             command_line::Tools::Highlight => Self::Highlight,
             command_line::Tools::Brush => Self::Brush,
+            command_line::Tools::Image => Self::Image,
         }
     }
 }

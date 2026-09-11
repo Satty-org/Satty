@@ -22,8 +22,8 @@ early-exit = ["all"]
 # early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle, 
-# text, marker, blur, brush, fringe-pixelate, fringe, fringe-pixelate]
+# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle,
+# text, marker, blur, brush, fringe-pixelate, fringe, fringe-pixelate, image]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -131,10 +131,12 @@ notification-grace-period = 250
 "m" = "marker"
 "u" = "blur"
 "g" = "highlight"
+"o" = "image"
 "<Control>s" = "save-to-file"
 "<Shift><Control>s" = "save-to-file-as"
 "<Control>c" = "save-to-clipboard"
 "<Shift><Control>c" = "copy-filepath-to-clipboard"
+"<Control>v" = "paste-image"
 
 # bottom toolbar
 "1" = "select-color-index:1"
