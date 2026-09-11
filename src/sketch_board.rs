@@ -26,7 +26,8 @@ use crate::math::{Vec2D, crop_rect_in_bounds};
 use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::{Color, Size, Style};
 use crate::tools::{
-    PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools, ToolsManager,
+    ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
+    ToolsManager,
 };
 use crate::ui::toolbars::ToolbarEvent;
 use xdg::BaseDirectories;
@@ -47,6 +48,8 @@ pub enum SketchBoardInput {
     ToolbarEvent(ToolbarEvent),
     // the optional position is the insertion center in canvas coordinates
     ImageSelected(Pixbuf, Option<Vec2D>),
+    // placed with the image tool, so already in image coordinates
+    ImagePlaced(Pixbuf, ImagePlacement),
     PointerLeft,
     RenderResult(RenderedImage, Vec<Action>),
     RenderResultFollowup(Option<Pixbuf>, Vec<Action>, Option<String>),
@@ -1021,7 +1024,7 @@ impl SketchBoard {
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
-                self.remember_tool_before_pointer(previous_tool);
+                self.temporary_pointer_previous_tool = Some(previous_tool);
                 ToolUpdateResult::Redraw
             } else {
                 // otherwise pass to tool
@@ -1212,11 +1215,6 @@ impl SketchBoard {
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style));
 
-                // after the context and the sender are in place, so that a tool
-                // reacting to this can already talk back; the redraw below
-                // covers whatever it changed
-                let _ = self.active_tool.borrow_mut().handle_activated();
-
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::ToolSwitchShortcut(target_tool));
@@ -1320,13 +1318,6 @@ impl SketchBoard {
         self.active_tool.borrow().get_tool_type()
     }
 
-    // Remembers the tool to return to after a temporary switch to the pointer
-    // tool. The image tool opens a file chooser when it becomes active, so
-    // returning to it would pop a dialog the user never asked for.
-    fn remember_tool_before_pointer(&mut self, tool: Tools) {
-        self.temporary_pointer_previous_tool = (tool != Tools::Image).then_some(tool);
-    }
-
     fn handle_paste_image(&self, sender: ComponentSender<Self>) -> ToolUpdateResult {
         let Some(display) = DisplayManager::get().default_display() else {
             eprintln!("Cannot open default display for clipboard.");
@@ -1363,17 +1354,16 @@ impl SketchBoard {
     fn handle_image_selected(
         &mut self,
         pixbuf: Pixbuf,
-        canvas_pos: Option<Vec2D>,
+        placement: Option<ImagePlacement>,
     ) -> ToolUpdateResult {
         let (top_left, bottom_right) = self.image_bounds;
-        let center = canvas_pos.map(|pos| {
-            let pos = self.renderer.abs_canvas_to_image_coordinates(pos);
-            // a drop released over the toolbars would otherwise center the
-            // image off-canvas
-            Vec2D::new(
+        let placement = placement.map(|placement| match placement {
+            // a drop released over the toolbars, or a click beside a zoomed
+            // out screenshot, would otherwise center the image off-canvas
+            ImagePlacement::Center(pos) => ImagePlacement::Center(Vec2D::new(
                 pos.x.clamp(top_left.x, bottom_right.x),
                 pos.y.clamp(top_left.y, bottom_right.y),
-            )
+            )),
         });
 
         // the image tool commits the image right away, so it does not need to
@@ -1384,7 +1374,7 @@ impl SketchBoard {
             .handle_event(ToolEvent::ImageSelected(
                 pixbuf,
                 bottom_right - top_left,
-                center,
+                placement,
             ))
     }
 
@@ -1871,7 +1861,15 @@ impl Component for SketchBoard {
             SketchBoardInput::ToolbarEvent(toolbar_event) => {
                 self.handle_toolbar_event(toolbar_event, sender)
             }
-            SketchBoardInput::ImageSelected(pixbuf, pos) => self.handle_image_selected(pixbuf, pos),
+            SketchBoardInput::ImageSelected(pixbuf, pos) => {
+                let placement = pos.map(|pos| {
+                    ImagePlacement::Center(self.renderer.abs_canvas_to_image_coordinates(pos))
+                });
+                self.handle_image_selected(pixbuf, placement)
+            }
+            SketchBoardInput::ImagePlaced(pixbuf, placement) => {
+                self.handle_image_selected(pixbuf, Some(placement))
+            }
             SketchBoardInput::PointerLeft => {
                 self.last_pointer_pos = None;
                 ToolUpdateResult::Unmodified
@@ -1943,7 +1941,7 @@ impl Component for SketchBoard {
                         sender_for_post_commit
                             .output_sender()
                             .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Pointer));
-                        self.remember_tool_before_pointer(previous_tool);
+                        self.temporary_pointer_previous_tool = Some(previous_tool);
                     }
                 } else {
                     self.pointer_tool.borrow_mut().deselect();

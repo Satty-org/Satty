@@ -54,8 +54,9 @@ pub const HIT_BORDER_TOLERANCE: f32 = 7.0;
 pub enum ToolEvent {
     Input(InputEvent),
     StyleChanged(Style),
-    // the optional position is the insertion center in image coordinates
-    ImageSelected(Pixbuf, Vec2D, Option<Vec2D>),
+    // the background size, and where the image goes; without a placement it
+    // is centered on the screenshot
+    ImageSelected(Pixbuf, Vec2D, Option<ImagePlacement>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -123,9 +124,9 @@ pub trait Tool {
         &mut self,
         pixbuf: Pixbuf,
         background_size: Vec2D,
-        position: Option<Vec2D>,
+        placement: Option<ImagePlacement>,
     ) -> ToolUpdateResult {
-        let _ = (pixbuf, background_size, position);
+        let _ = (pixbuf, background_size, placement);
         ToolUpdateResult::Unmodified
     }
 
@@ -300,7 +301,7 @@ pub use blur::BlurTool;
 pub use crop::CropTool;
 pub use ellipse::EllipseTool;
 pub use highlight::{HighlightTool, Highlighters};
-pub use image::ImageTool;
+pub use image::{ImagePlacement, ImageTool};
 pub use line::LineTool;
 pub use pixelate::PixelateTool;
 pub use pointer::PointerTool;
