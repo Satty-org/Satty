@@ -24,7 +24,7 @@ use crate::{
     APP_CONFIG,
     configuration::Action,
     epoxy,
-    math::{Vec2D, crop_rect_in_bounds},
+    math::Vec2D,
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool, Tools},
 };
@@ -567,10 +567,7 @@ impl FemtoVgAreaMut {
             .drawables
             .iter()
             .find(|d| d.get_rendering_mode() == RenderingMode::Crop)
-            .and_then(|d| {
-                d.bounds()
-                    .map(|(tl, br)| crop_rect_in_bounds((tl, br - tl), bounds))
-            })
+            .and_then(|d| d.bounds().map(|(tl, br)| (tl, br - tl)))
             .unwrap_or(bounds);
 
         if size.x <= 0.0 || size.y <= 0.0 {
