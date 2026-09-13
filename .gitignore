@@ -22,3 +22,6 @@ man/
 .vscode/launch.json
 .vscode/tasks.json
 
+# doc generation
+site
+.venv
