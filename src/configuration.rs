@@ -108,7 +108,7 @@ impl FontConfiguration {
             self.style = Some(v);
         }
         if let Some(v) = file_font.fallback {
-            self.fallback = v
+            self.fallback.extend(v);
         }
     }
 }
@@ -253,12 +253,8 @@ impl Configuration {
         };
 
         // read configuration file and exit on error
-        let file = match ConfigurationFile::try_read(&command_line.config) {
+        let files = match ConfigurationFile::try_read(&command_line.config) {
             Ok(c) => c,
-            Err(ConfigurationFileError::ReadFile(e)) if e.kind() == io::ErrorKind::NotFound => {
-                eprintln!("config file not found");
-                None
-            }
             Err(e) => {
                 eprintln!("Error reading config file: {e}");
 
@@ -271,7 +267,7 @@ impl Configuration {
             }
         };
 
-        APP_CONFIG.write().merge(file, command_line);
+        APP_CONFIG.write().merge(files, command_line);
     }
 
     fn merge_general(&mut self, general: ConfigurationFileGeneral) {
@@ -388,12 +384,12 @@ impl Configuration {
         // ---
     }
 
-    fn merge(&mut self, file: Option<ConfigurationFile>, command_line: CommandLine) {
+    fn merge(&mut self, files: Vec<ConfigurationFile>, command_line: CommandLine) {
         // input_filename is required and needs to be overwritten
         self.input_filename = command_line.filename;
 
         // overwrite with all specified values from config file
-        if let Some(file) = file {
+        for file in files {
             if let Some(general) = file.general {
                 self.merge_general(general);
             }
@@ -403,7 +399,9 @@ impl Configuration {
             if let Some(v) = file.font {
                 self.font.merge(v);
             }
-            self.keybinds = file.keybinds.unwrap_or_default();
+            if let Some(v) = file.keybinds {
+                self.keybinds.extend(v);
+            }
         }
 
         // overwrite with all specified values from command line
@@ -829,25 +827,36 @@ struct ColorPaletteFile {
 impl ConfigurationFile {
     fn try_read(
         specified_path: &Option<String>,
-    ) -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
-        match specified_path {
-            None => Self::try_read_xdg(),
-            Some(p) => Self::try_read_path(p),
+    ) -> Result<Vec<ConfigurationFile>, ConfigurationFileError> {
+        if let Some(p) = specified_path {
+            return match Self::try_read_path(p)? {
+                Some(f) => Ok(vec![f]),
+                // _ can't happen with current implementation of try_read_path, any errors (including file not found) are propagated
+                _ => Ok(vec![]),
+            };
         }
-    }
 
-    fn try_read_xdg() -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
+        let mut files = Vec::new();
+
         let dirs = BaseDirectories::with_prefix(env!("CARGO_PKG_NAME"));
-        match dirs.get_config_file("config.toml") {
-            Some(path) => Self::try_read_path(path),
-            None => Ok(None),
+        // only present config files are used
+        for c in dirs.find_config_files("config.toml") {
+            if let Some(f) = Self::try_read_path(c)? {
+                files.push(f);
+            }
         }
+
+        Ok(files)
     }
 
     fn try_read_path<P: AsRef<Path>>(
         path: P,
     ) -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
-        let content = fs::read_to_string(path)?;
-        Ok(Some(toml::from_str::<ConfigurationFile>(&content)?))
+        let path = path.as_ref();
+        eprintln!("Reading configuration file: {:?}", path);
+        match fs::read_to_string(path) {
+            Ok(content) => Ok(Some(toml::from_str::<ConfigurationFile>(&content)?)),
+            Err(e) => Err(e.into()),
+        }
     }
 }
