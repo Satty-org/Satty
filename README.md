@@ -39,7 +39,12 @@ You can download a prebuilt binary for x86-64 on the [Satty Releases](https://gi
 
 Start by providing a filename or a screenshot via stdin and annotate using the available tools. Save to clipboard or file when finished. Tools and Interface have been kept simple.
 
-All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/satty/config.toml` or via the command line interface. In case both are specified, the command line options always override the configuration file.
+The order of configuration is:
+- builtin
+- system wide config (`$XDG_CONFIG_DIRS/satty/config.toml`, usually `/etc/xdg/satty/config.toml`) if present <sup>NEXTRELEASE</sup>
+- user config (`$XDG_CONFIG_HOME/satty/config.toml`, usually `$HOME/.config/satty/config.toml`) if present
+- config specified in command line, if any. Please note: in this case Satty ignores the former two files, and a file not found error on the given config file becomes fatal
+- command line options
 
 ### Shortcuts
 
@@ -408,7 +413,7 @@ Options:
       --license
           Show license
   -c, --config <CONFIG>
-          Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
+          Path to the config file, if specified, this will be an exclusive config. Otherwise, config will be stacked from system and user config using XDG_CONFIG_DIRS/satty/config.toml and XDG_CONFIG_HOME/satty/config.toml
   -f, --filename <FILENAME>
           Path to input image or '-' to read from stdin
       --fullscreen [<FULLSCREEN>]
