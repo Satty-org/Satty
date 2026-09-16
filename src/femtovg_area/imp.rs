@@ -76,6 +76,10 @@ enum HistoryEntry {
         index: usize,
         old: Box<dyn Drawable>,
     },
+    UpdateIndex {
+        index: usize,
+        new_index: usize,
+    },
 }
 
 #[glib::object_subclass]
@@ -464,8 +468,12 @@ impl FemtoVgAreaMut {
         }
         let new_index =
             (index as isize + offset).clamp(0, self.drawables.len() as isize - 1) as usize;
-        let drawable = self.drawables.remove(index);
-        self.drawables.insert(new_index, drawable);
+        if index != new_index {
+            let drawable = self.drawables.remove(index);
+            self.drawables.insert(new_index, drawable);
+            self.undo_stack
+                .push(HistoryEntry::UpdateIndex { index, new_index });
+        }
         Some(new_index)
     }
 
@@ -518,6 +526,17 @@ impl FemtoVgAreaMut {
                 self.drawables.insert(index, old);
                 true
             }
+            Some(HistoryEntry::UpdateIndex { index, new_index }) => {
+                if index < self.drawables.len() && new_index < self.drawables.len() {
+                    let drawable = self.drawables.remove(new_index);
+                    self.drawables.insert(index, drawable);
+                    self.redo_stack.push(HistoryEntry::UpdateIndex {
+                        index: new_index,
+                        new_index: index,
+                    });
+                }
+                true
+            }
             None => false,
         }
     }
@@ -559,6 +578,15 @@ impl FemtoVgAreaMut {
                         index,
                         old: drawable,
                     });
+                }
+                true
+            }
+            Some(HistoryEntry::UpdateIndex { index, new_index }) => {
+                if index < self.drawables.len() && new_index < self.drawables.len() {
+                    let drawable = self.drawables.remove(index);
+                    self.drawables.insert(new_index, drawable);
+                    self.undo_stack
+                        .push(HistoryEntry::UpdateIndex { index, new_index });
                 }
                 true
             }
