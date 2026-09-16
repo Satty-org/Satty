@@ -68,6 +68,18 @@ pub struct FemtoVgAreaMut {
 enum HistoryEntry {
     Drawable(Box<dyn Drawable>),
     ClearAll(Vec<Box<dyn Drawable>>),
+    Replace {
+        index: usize,
+        old: Box<dyn Drawable>,
+    },
+    Remove {
+        index: usize,
+        old: Box<dyn Drawable>,
+    },
+    UpdateIndex {
+        index: usize,
+        new_index: usize,
+    },
 }
 
 #[glib::object_subclass]
@@ -439,9 +451,15 @@ impl FemtoVgAreaMut {
     }
 
     pub fn replace_drawable(&mut self, index: usize, drawable: Box<dyn Drawable>) {
-        if index < self.drawables.len() {
-            self.drawables[index] = drawable;
+        if index >= self.drawables.len() {
+            return;
         }
+        self.undo_stack.push(HistoryEntry::Replace {
+            index,
+            old: self.drawables[index].clone_box(),
+        });
+        self.redo_stack.clear();
+        self.drawables[index] = drawable;
     }
 
     pub fn move_drawable_index(&mut self, index: usize, offset: isize) -> Option<usize> {
@@ -450,15 +468,25 @@ impl FemtoVgAreaMut {
         }
         let new_index =
             (index as isize + offset).clamp(0, self.drawables.len() as isize - 1) as usize;
-        let drawable = self.drawables.remove(index);
-        self.drawables.insert(new_index, drawable);
+        if index != new_index {
+            let drawable = self.drawables.remove(index);
+            self.drawables.insert(new_index, drawable);
+            self.undo_stack
+                .push(HistoryEntry::UpdateIndex { index, new_index });
+        }
         Some(new_index)
     }
 
     pub fn remove_drawable(&mut self, index: usize) {
-        if index < self.drawables.len() {
-            self.drawables.remove(index);
+        if index >= self.drawables.len() {
+            return;
         }
+        let drawable = self.drawables.remove(index);
+        self.undo_stack.push(HistoryEntry::Remove {
+            index,
+            old: drawable,
+        });
+        self.redo_stack.clear();
     }
 
     // Set (or clear) the drawable index to skip during rendering (used while drag-previewing).
@@ -476,6 +504,37 @@ impl FemtoVgAreaMut {
             }
             Some(HistoryEntry::ClearAll(drawables)) => {
                 self.restore_clear_all(drawables);
+                true
+            }
+            Some(HistoryEntry::Replace { index, old }) => {
+                // else shouldn't happen, but if it did, not much we could do
+                if index < self.drawables.len() {
+                    let redoable = std::mem::replace(&mut self.drawables[index], old);
+                    self.redo_stack.push(HistoryEntry::Replace {
+                        index,
+                        old: redoable,
+                    });
+                }
+                true
+            }
+            Some(HistoryEntry::Remove { index, old }) => {
+                let index = index.min(self.drawables.len());
+                self.redo_stack.push(HistoryEntry::Remove {
+                    index,
+                    old: old.clone_box(),
+                });
+                self.drawables.insert(index, old);
+                true
+            }
+            Some(HistoryEntry::UpdateIndex { index, new_index }) => {
+                if index < self.drawables.len() && new_index < self.drawables.len() {
+                    let drawable = self.drawables.remove(new_index);
+                    self.drawables.insert(index, drawable);
+                    self.redo_stack.push(HistoryEntry::UpdateIndex {
+                        index: new_index,
+                        new_index: index,
+                    });
+                }
                 true
             }
             None => false,
@@ -500,6 +559,35 @@ impl FemtoVgAreaMut {
             }
             Some(HistoryEntry::ClearAll(_)) => {
                 self.apply_clear_all();
+                true
+            }
+            Some(HistoryEntry::Replace { index, old }) => {
+                if index < self.drawables.len() {
+                    let undoable = std::mem::replace(&mut self.drawables[index], old);
+                    self.undo_stack.push(HistoryEntry::Replace {
+                        index,
+                        old: undoable,
+                    });
+                }
+                true
+            }
+            Some(HistoryEntry::Remove { index, .. }) => {
+                if index < self.drawables.len() {
+                    let drawable = self.drawables.remove(index);
+                    self.undo_stack.push(HistoryEntry::Remove {
+                        index,
+                        old: drawable,
+                    });
+                }
+                true
+            }
+            Some(HistoryEntry::UpdateIndex { index, new_index }) => {
+                if index < self.drawables.len() && new_index < self.drawables.len() {
+                    let drawable = self.drawables.remove(index);
+                    self.drawables.insert(new_index, drawable);
+                    self.undo_stack
+                        .push(HistoryEntry::UpdateIndex { index, new_index });
+                }
                 true
             }
             None => false,
