@@ -97,6 +97,18 @@ fix:
 	cargo fmt --all
 	cargo clippy --fix --allow-dirty --all-targets --all-features -- -D warnings
 
+prepare-zensical: | .venv
+
+.venv:
+	python3 -m venv .venv
+	. .venv/bin/activate && pip install zensical
+
+build-docs: prepare-zensical
+	. .venv/bin/activate && zensical build
+
+serve-docs: build-docs
+	. .venv/bin/activate && zensical serve
+
 HELP_STARTPATTERN:=^» satty --help$$
 CONFIG_STARTPATTERN:=^\# Satty Configuration file$$
 ENDPATTERN=```
