@@ -105,6 +105,7 @@ prepare-zensical: | .venv
 
 build-docs: prepare-zensical
 	. .venv/bin/activate && zensical build
+	cp -r assets/satty.svg assets/usage.gif docs/assets
 
 serve-docs: build-docs
 	. .venv/bin/activate && zensical serve

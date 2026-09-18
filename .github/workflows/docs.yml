@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: 3.x
+      - run: cp assets/satty.svg assets/usage.gif docs/assets
       - run: pip install zensical
       - run: zensical build --clean
       - uses: actions/upload-pages-artifact@v5
