@@ -215,8 +215,7 @@ aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
 # early-exit = true
 # Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
 corner-roundness = 12
-# Select the tool on startup [possible values: pointer, crop, line, arrow, rectangle,
-# text, marker, blur, brush, fringe-pixelate, fringe, fringe-pixelate, image]
+# Select the tool on startup [possible values: see `satty --help`]
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
@@ -249,7 +248,7 @@ actions-on-enter = ["save-to-clipboard"]
 # Actions to trigger on Escape key (order is important)
 # [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
 actions-on-escape = ["exit"]
-# Action to perform when the Enter key is pressed [possible values: save-to-clipboard, save-to-file]
+# Action to perform when the Enter key is pressed [possible values: see `satty --help`]
 # Deprecated: use actions-on-enter instead
 action-on-enter = "save-to-clipboard"
 # Right click to copy
