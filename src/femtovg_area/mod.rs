@@ -107,7 +107,7 @@ pub fn create_image_from_pixbuf(
 glib::wrapper! {
     pub struct FemtoVGArea(ObjectSubclass<imp::FemtoVGArea>)
         @extends gtk::Widget, gtk::GLArea,
-        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
+        @implements gtk::Buildable, gtk::ConstraintTarget;
 }
 
 impl Default for FemtoVGArea {
