@@ -414,7 +414,7 @@ Options:
   -c, --config <CONFIG>
           Path to the config file, if specified, this will be an exclusive config. Otherwise, config will be stacked from system and user config using XDG_CONFIG_DIRS/satty/config.toml and XDG_CONFIG_HOME/satty/config.toml
   -f, --filename <FILENAME>
-          Path to input image or '-' to read from stdin
+          Path to input image, '-' to read from stdin, or clipboard: to try reading image from clipboard. Pleasen note, this requires paste-command option
       --fullscreen [<FULLSCREEN>]
           Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
       --resize [<MODE|WIDTHxHEIGHT>]
@@ -431,6 +431,8 @@ Options:
           Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush, image]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
+      --paste-command <PASTE_COMMAND>
+          Configure command to read clipboard at startup for clipboard: file
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
           Increase or decrease the size of the annotations
       --save-after-copy
