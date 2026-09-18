@@ -57,3 +57,24 @@ jobs:
       - run: cargo doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -Dwarnings
+
+  readme:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
+    steps:
+      - name: Install dependencies
+        run: yum install -y gtk4-devel libadwaita-devel make
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: make update-readme
+      - name: Check README.md is up to date
+        run: |
+          if ! git diff --exit-code README.md; then
+            echo "::error::README.md is out of date. Run 'make update-readme' and commit the result." >&2
+            exit 1
+          fi
