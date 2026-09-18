@@ -630,14 +630,14 @@ Made with [contrib.rocks](https://contrib.rocks).
 
 ### Heavy Lifting in some areas
 
-- femtovg
-- Relm4
-- GTK
+- [femtovg](https://crates.io/crates/femtovg/)
+- [Relm4](https://relm4.org/)
+- [GTK](https://gtk.org/)
 
 ### Inspiration
 
-- Swappy
-- Flameshot
+- [Swappy](https://github.com/jtheoof/swappy/)
+- [Flameshot](https://flameshot.org/)
   - Fringe-Pixelate was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
 
 ## Star History
