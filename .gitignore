@@ -25,3 +25,5 @@ man/
 # doc generation
 site
 .venv
+docs/assets
+!docs/assets/.gitkeep
