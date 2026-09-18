@@ -50,6 +50,7 @@ pub struct Configuration {
     corner_roundness: f32,
     initial_tool: Tools,
     copy_command: Option<String>,
+    paste_command: Option<String>,
     annotation_size_factor: f32,
     save_after_copy: bool,
     auto_copy: bool,
@@ -296,6 +297,9 @@ impl Configuration {
         if let Some(v) = general.copy_command {
             self.copy_command = Some(v);
         }
+        if let Some(v) = general.paste_command {
+            self.paste_command = Some(v);
+        }
         if let Some(v) = general.output_filename {
             self.output_filename = Some(v);
         }
@@ -443,6 +447,9 @@ impl Configuration {
         if let Some(v) = command_line.copy_command {
             self.copy_command = Some(v);
         }
+        if let Some(v) = command_line.paste_command {
+            self.paste_command = Some(v);
+        }
         if let Some(v) = command_line.output_filename {
             self.output_filename = Some(v);
         }
@@ -552,6 +559,10 @@ impl Configuration {
 
     pub fn copy_command(&self) -> Option<&String> {
         self.copy_command.as_ref()
+    }
+
+    pub fn paste_command(&self) -> Option<&String> {
+        self.paste_command.as_ref()
     }
 
     pub fn fullscreen(&self) -> Option<Fullscreen> {
@@ -704,6 +715,7 @@ impl Default for Configuration {
             corner_roundness: 12.0,
             initial_tool: Tools::Pointer,
             copy_command: None,
+            paste_command: None,
             annotation_size_factor: 1.0,
             save_after_copy: false,
             auto_copy: false,
@@ -787,6 +799,7 @@ struct ConfigurationFileGeneral {
     corner_roundness: Option<f32>,
     initial_tool: Option<Tools>,
     copy_command: Option<String>,
+    paste_command: Option<String>,
     annotation_size_factor: Option<f32>,
     save_after_copy: Option<bool>,
     auto_copy: Option<bool>,
