@@ -10,7 +10,6 @@ env:
 
 jobs:
   release:
-    environment: release
     strategy:
       matrix:
         include:
@@ -27,6 +26,7 @@ jobs:
     # x86_64 builds in the gtk4-rs Fedora container (yum); aarch64 runs natively
     # on GitHub's free arm64 runner with GTK installed via apt (empty container).
     container: ${{ matrix.container }}
+    environment: release
 
     permissions:
       contents: write
@@ -73,11 +73,11 @@ jobs:
           files: satty-${{ matrix.target }}.${{ matrix.archive }}
 
   flatpak:
-    environment: release
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
       options: --privileged
+    environment: release
     permissions:
       contents: write
 
@@ -103,3 +103,24 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: satty-${{ github.ref_name }}.flatpak
+
+  publish:
+    runs-on: ubuntu-latest
+    # Re-publish to crates.io is not possible if this fails. As a precaution, depend
+    # on successful release job.
+    needs: release
+    container: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
+    environment: release
+
+    steps:
+      - name: Install dependencies
+        run: yum install -y gtk4-devel libadwaita-devel
+
+      - uses: actions/checkout@v3
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish satty (workspace)
+        run: cargo publish --locked --workspace
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
