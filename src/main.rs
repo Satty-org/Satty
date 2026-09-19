@@ -6,7 +6,7 @@ use relm4::gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
 use std::path::Path;
-use std::process::exit;
+use std::process::{Command, Stdio, exit};
 use std::sync::{LazyLock, RwLock};
 use std::time::SystemTime;
 use std::{fs, panic, thread};
@@ -567,13 +567,27 @@ fn run_satty() -> Result<()> {
 
     generate_profile_output!("loading image");
     // load input image
-    let image = if config.input_filename() == "-" {
-        let mut buf = Vec::<u8>::new();
-        io::stdin().lock().read_to_end(&mut buf)?;
-        image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
-    } else {
-        image_loading::pixbuf_from_file(Path::new(config.input_filename()))
-            .context("couldn't load image")?
+    let image = match config.input_filename() {
+        "-" => {
+            let mut buf = Vec::<u8>::new();
+            io::stdin().lock().read_to_end(&mut buf)?;
+            image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
+        }
+        "clipboard:" if let Some(paste_command) = config.paste_command() => {
+            let mut buf = Vec::<u8>::new();
+            let mut child = Command::new(paste_command)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .spawn()?;
+
+            child.stdout.take().unwrap().read_to_end(&mut buf)?;
+            image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
+        }
+        "clipboard:" => {
+            anyhow::bail!("Cannot use clipboard: without paste-command option");
+        }
+        _ => image_loading::pixbuf_from_file(Path::new(config.input_filename()))
+            .context("couldn't load image")?,
     };
 
     generate_profile_output!("image loaded, starting gui");

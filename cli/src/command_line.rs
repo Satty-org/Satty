@@ -17,7 +17,7 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub config: Option<String>,
 
-    /// Path to input image or '-' to read from stdin
+    /// Path to input image, '-' to read from stdin, or clipboard: to try reading image from clipboard. Pleasen note, this requires paste-command option.
     #[arg(short, long, required = true)]
     pub filename: Option<String>,
 
@@ -60,6 +60,10 @@ pub struct CommandLine {
     /// Configure the command to be called on copy, for example `wl-copy`
     #[arg(long)]
     pub copy_command: Option<String>,
+
+    /// Configure command to read clipboard at startup for clipboard: file
+    #[arg(long)]
+    pub paste_command: Option<String>,
 
     /// Increase or decrease the size of the annotations
     #[arg(long)]
