@@ -10,6 +10,7 @@ env:
 
 jobs:
   release:
+    environment: release
     strategy:
       matrix:
         include:
@@ -72,6 +73,7 @@ jobs:
           files: satty-${{ matrix.target }}.${{ matrix.archive }}
 
   flatpak:
+    environment: release
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
