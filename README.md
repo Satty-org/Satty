@@ -1,5 +1,6 @@
 # <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
 
+<!-- --8<-- [start:intro] -->
 Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
 ![](assets/usage.gif)
@@ -12,8 +13,10 @@ Satty has been created to provide the following improvements over existing scree
 - working on wlroots based compositors (Sway, Hyprland, River, ...)
 - minimal, modern looking UI, thanks to GTK and Adwaita
 - be a playground for new features (post window selection, post paint editing, ...)
+<!-- --8<-- [end:intro] -->
 
 ## Install
+<!-- --8<-- [start:install] -->
 
 Thanks to our package maintainers, Satty is available for many distributions on Linux and BSD:
 
@@ -35,13 +38,30 @@ You can install satty via `cargo install satty` and `cargo binstall satty`, the 
 
 You can download a prebuilt binary for x86-64 on the [Satty Releases](https://github.com/gabm/satty/releases) page.
 
+### Flatpak <sup>0.20.1</sup>
+
+Satty is available as a Flatpak bundle. Pre-built bundles are automatically created for each release and can be downloaded from the [GitHub Releases](https://github.com/Satty-org/Satty/releases) page.
+
+#### Installing from Flatpak bundle
+
+```sh
+# Download the .flatpak file from the latest release
+# Then install it:
+flatpak install satty-<version>.flatpak
+```
+<!-- --8<-- [end:install] -->
+
 ## Usage
+<!-- --8<-- [start:usage] -->
 
 Start by providing a filename or a screenshot via stdin and annotate using the available tools. Save to clipboard or file when finished. Tools and Interface have been kept simple.
 
 All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/satty/config.toml` or via the command line interface. In case both are specified, the command line options always override the configuration file.
 
+<!-- --8<-- [end:usage] -->
+
 ### Shortcuts
+<!-- --8<-- [start:shortcuts] -->
 
 #### General
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
@@ -58,10 +78,12 @@ All configuration is done either at the config file in `XDG_CONFIG_DIR/.config/s
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
 
 Mouse:
+
 - <kbd>Ctrl+Wheel</kbd>: Zoom in/out <sup>0.22.0</sup>
 - <kbd>Middle</kbd>: Pan
 
 Touchpad: <sup>0.22.0</sup>
+
 - <kbd>Pinch</kbd>: Zoom (two finger)
 - <kbd>Ctrl+Scroll</kbd>: Zoom in/out  (two finger scroll)
 - <kbd>Scroll</kbd>: Pan  (two finger scroll)
@@ -78,6 +100,7 @@ In the bottom toolbar the size can be edited directly or by + and - buttons.
 Minimum is 0.1 and maximum to 99.99.
 
 The bindings are:
+
 - Mouse <kbd>left-button</kbd>, <kbd>wheel</kbd> and key <kbd>up</kbd>/<kbd>down</kbd> step size is 0.1
 - Holding <kbd>Shift</kbd> will switch to 0.01 step size
 - Holding <kbd>Ctrl</kbd> will switch to 1.0 step size
@@ -88,6 +111,7 @@ The bindings are:
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 
 Default single-key shortcuts:
+
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
 - <kbd>b</kbd>: Brush tool
@@ -101,6 +125,24 @@ Default single-key shortcuts:
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool
 - <kbd>g</kbd>: Highlight tool
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
+
+#### Overwriting Keybindings <sup>NEXTRELEASE</sup>
+
+Shortcuts can be overwritten in the config by 
+```toml
+[keybinds]
+"BINDING" = "TOOL-OR-COMMAND"
+```
+
+Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
+
+Pressing any unbound key will print its name to the console.
+
+Setting a binding to `"none"` will unbind it.
+
+The defaults are listed in the `config.toml`.
+<!-- --8<-- [end:shortcuts] -->
+<!-- --8<-- [start:tools] -->
 
 ### Pointer Tool <sup>NEXTRELEASE</sup>
 
@@ -126,6 +168,7 @@ Newly created annotations can be autoselected if enabled in the config.
 Click the screenshot with the tool to open a file chooser, and the picked image is inserted as an annotation centred where you clicked, scaled down to at most half the screenshot if it does not fit. Drag a box instead of clicking, and the image is scaled to fit into it with its aspect ratio kept. From there it behaves like any other annotation: select it with the pointer tool to move it, resize it by its handles or change its layer.
 
 Images can also arrive without selecting the tool first:
+
 - <kbd>Ctrl+V</kbd> pastes an image or a copied image file from the clipboard, centred on the mouse pointer. The text tool takes the shortcut for itself while it has input focus.
 - Dropping an image or an image file anywhere on the window inserts it where it was dropped.
 
@@ -134,15 +177,18 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 ### Tool Modifiers and Keys
 
 Arrow and line:
+
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>: 
+Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
+
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
 - Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>NEXTRELEASE</sup>
 - Hold mutiple to combine them.
 
 Text:
+
 - Press <kbd>Shift+Enter</kbd> to insert line break.
 - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
 - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
@@ -158,9 +204,11 @@ Text:
 - Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>0.22.0</sup>
 
 Marker:
+
 - Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
 
-Highlight: 
+Highlight:
+
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
@@ -168,22 +216,7 @@ Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <s
 
 - **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead.
 - **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
-
-#### Overwriting Keybindings <sup>NEXTRELEASE</sup>
-
-Shortcuts can be overwritten in the config by 
-```toml
-[keybinds]
-"BINDING" = "TOOL-OR-COMMAND"
-```
-
-Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
-
-Pressing any unbound key will print its name to the console.
-
-Setting a binding to `"none"` will unbind it.
-
-The defaults are listed in the `config.toml`.
+<!-- --8<-- [end:tools] -->
 
 ### Configuration File
 
@@ -392,9 +425,9 @@ custom = [
 ]
 ```
 
-
 ### Command Line
 
+<!-- --8<-- [start:cli] -->
 ```
 » satty --help
 Modern Screenshot Annotation.
@@ -481,8 +514,10 @@ Options:
   -V, --version
           Print version
 ```
+<!-- --8<-- [end:cli] -->
 
 ### CSS
+<!-- --8<-- [start:css] -->
 
 Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>0.21.0</sup> may lack transparency, here's an override example:
 
@@ -495,11 +530,15 @@ Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/m
 ```
 
 You can discover styleable elements by using the GTK inspector with env variable `GTK_DEBUG=interactive`. Also, see [wiki](https://github.com/Satty-org/Satty/wiki/Config-examples#css-overridescss) for more examples.
+<!-- --8<-- [end:css] -->
 
+<!-- --8<-- [start:ime] -->
 ### IME <sup>0.20.0</sup>
 
 Satty supports IME via GTK with and without preediting. Please note, at this point Satty has no proper fallback font handling so the font used needs to contain the entered glyphs.
+<!-- --8<-- [end:ime] -->
 
+<!-- --8<-- [start:integration] -->
 ### wlroots based compositors (Sway, Wayfire, River, ...)
 
 You can bind a key to the following command:
@@ -545,7 +584,9 @@ mode $printscreen_mode {
 }
 bindsym $mod+Shift+p mode $printscreen_mode
 ```
+<!-- --8<-- [end:integration] -->
 
+<!-- --8<-- [start:build] -->
 ## Build from source
 
 You first need to install the native dependencies of Satty (see below) and then run:
@@ -561,30 +602,22 @@ PREFIX=/usr/local make install
 PREFIX=/usr/local make uninstall
 ```
 
-### Flatpak <sup>0.20.1</sup>
-
-Satty is available as a Flatpak bundle. Pre-built bundles are automatically created for each release and can be downloaded from the [GitHub Releases](https://github.com/Satty-org/Satty/releases) page.
-
-#### Installing from Flatpak bundle
-
-```sh
-# Download the .flatpak file from the latest release
-# Then install it:
-flatpak install satty-<version>.flatpak
-```
-
 ## Dependencies
 
 Satty is based on GTK-4 and Adwaita.
 Dependencies, depending of each distributions are:
+
 - glib2
 - gtk4 (libgtk-4-x)
 - gdk-pixbuf2
 - libadwaita
 - libepoxy
 - fontconfig
+<!-- --8<-- [end:build] -->
 
-## Maintainers and Contributors
+## Credits
+<!-- --8<-- [start:credits] -->
+### Maintainers and Contributors
 
 Satty wouldn't exist without the help of our contributors and maintainers. Current maintainers are: @RobertMueller2, @fabienjuif, @robertwidfen and @gabm (original author). Our contributors are:
 
@@ -594,17 +627,29 @@ Satty wouldn't exist without the help of our contributors and maintainers. Curre
 
 Made with [contrib.rocks](https://contrib.rocks).
 
+### Heavy Lifting in some areas
+
+- [femtovg](https://crates.io/crates/femtovg/)
+- [Relm4](https://relm4.org/)
+- [GTK](https://gtk.org/)
+
+### Inspiration
+
+- [Swappy](https://github.com/jtheoof/swappy/)
+- [Flameshot](https://flameshot.org/)
+  - Fringe-Pixelate was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Satty-org/Satty&type=date&legend=top-left)](https://www.star-history.com/#Satty-org/Satty&type=date&legend=top-left)
+<!-- --8<-- [end:credits] -->
 
 ## License
+<!-- --8<-- [start:license] -->
 
 The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
+<!-- --8<-- [end:license] -->
 
-## Credits
-
-- Fringe-Pixelate was inspired by https://github.com/flameshot-org/flameshot/pull/3765/changes
 
