@@ -31,7 +31,7 @@ pub struct ToolsToolbar {
 }
 
 pub struct StyleToolbar {
-    custom_color: Color,
+    custom_color: RGBA,
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
     size_action: SimpleAction,
@@ -81,7 +81,7 @@ pub enum StyleToolbarInput {
     SetSize(Size),
     SetAnnotationSizeFactor(f32),
     ShowColorDialog,
-    ColorDialogFinished(Option<Color>),
+    ColorDialogFinished(Option<RGBA>),
     SetVisibility(bool),
     ToggleVisibility,
     DimensionsChanged(Vec2D),
@@ -396,7 +396,7 @@ pub enum ColorButtons {
 
 impl StyleToolbar {
     fn show_color_dialog(&self, sender: ComponentSender<StyleToolbar>, root: Option<Window>) {
-        let current_color: RGBA = self.custom_color.into();
+        let current_color: RGBA = self.custom_color;
         relm4::spawn_local(async move {
             let mut builder = ColorChooserDialog::builder()
                 .modal(true)
@@ -434,7 +434,7 @@ impl StyleToolbar {
             dialog.connect_response(move |_, r| {
                 if r == ResponseType::Ok {
                     dialog_copy.hide();
-                    let color = Color::from_gdk(dialog_copy.rgba());
+                    let color = dialog_copy.rgba();
                     sender.input(StyleToolbarInput::ColorDialogFinished(Some(color)));
                 } else if r == ResponseType::Cancel || r == ResponseType::Close {
                     dialog_copy.hide();
@@ -449,7 +449,7 @@ impl StyleToolbar {
         let config = APP_CONFIG.read();
         match button {
             ColorButtons::Palette(n) => config.color_palette().palette()[n as usize],
-            ColorButtons::Custom => self.custom_color,
+            ColorButtons::Custom => self.custom_color.into(),
         }
     }
 }
@@ -638,7 +638,7 @@ impl Component for StyleToolbar {
             StyleToolbarInput::ColorDialogFinished(color) => {
                 if let Some(color) = color {
                     self.custom_color = color;
-                    self.custom_color_pixbuf = create_icon_pixbuf(color);
+                    self.custom_color_pixbuf = create_icon_pixbuf(color.into());
 
                     // set the custom button active
                     self.color_action
@@ -647,7 +647,7 @@ impl Component for StyleToolbar {
                     // set new color
                     sender
                         .output_sender()
-                        .emit(ToolbarEvent::ColorSelected(color));
+                        .emit(ToolbarEvent::ColorSelected(color.into()));
                 }
             }
             StyleToolbarInput::ColorButtonSelected(button) => {
@@ -669,7 +669,7 @@ impl Component for StyleToolbar {
 
                 // Only update custom_color if this is not a palette color
                 if matches!(palette_match, ColorButtons::Custom) {
-                    self.custom_color = color;
+                    self.custom_color = color.into();
                     self.custom_color_pixbuf = create_icon_pixbuf(color);
                 }
 
@@ -785,7 +785,7 @@ impl Component for StyleToolbar {
 
         // create model
         let mut model = StyleToolbar {
-            custom_color,
+            custom_color: custom_color.into(),
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
             size_action: SimpleAction::from(size_action.clone()),
