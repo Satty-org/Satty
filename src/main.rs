@@ -116,9 +116,9 @@ impl App {
         let input_scale = match config.input_scale() {
             Some(scale) if scale > f32::EPSILON => scale,
             Some(_) => f32::EPSILON * 2.0,
-            None => 1.0
+            None => 1.0,
         };
-        let scale = 1.0/input_scale;
+        let scale = 1.0 / input_scale;
         let fullscreen = config.fullscreen();
         let resize = config.resize();
         let floating_hack = config.floating_hack();
