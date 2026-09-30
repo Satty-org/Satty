@@ -113,18 +113,14 @@ impl App {
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
         let config = APP_CONFIG.read();
-        let input_scale = match config.input_scale() {
-            Some(scale) if scale > f32::EPSILON => scale,
-            Some(_) => f32::EPSILON * 2.0,
-            None => 1.0,
-        };
-        let scale = 1.0 / input_scale;
+        let scale = config.input_scale().unwrap_or(1.0);
+
         let fullscreen = config.fullscreen();
         let resize = config.resize();
         let floating_hack = config.floating_hack();
 
-        let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
-        let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
+        let image_width = (self.image_dimensions.0 as f32 * scale) as f64;
+        let image_height = (self.image_dimensions.1 as f32 * scale) as f64;
 
         #[cfg(debug_assertions)]
         eprintln!(
