@@ -126,6 +126,7 @@ impl App {
         let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
         let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
 
+        #[cfg(debug_assertions)]
         eprintln!(
             "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
             fullscreen, resize, floating_hack
