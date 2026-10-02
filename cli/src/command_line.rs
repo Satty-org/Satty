@@ -13,7 +13,8 @@ pub struct CommandLine {
     #[arg(long, exclusive = true)]
     pub license: bool,
 
-    /// Path to the config file. Otherwise will be read from XDG_CONFIG_DIR/satty/config.toml
+    /// Path to the config file, if specified, this will be an exclusive config.
+    /// Otherwise, config will be stacked from system and user config using XDG_CONFIG_DIRS/satty/config.toml and XDG_CONFIG_HOME/satty/config.toml.
     #[arg(short, long)]
     pub config: Option<String>,
 
