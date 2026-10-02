@@ -66,7 +66,6 @@ pub struct CommandLine {
     pub annotation_size_factor: Option<f32>,
 
     /// After copying the screenshot, save it to a file as well
-    /// Preferably use the `action_on_copy` option instead.
     #[arg(long)]
     pub save_after_copy: bool,
 

@@ -429,7 +429,7 @@ Options:
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
           Increase or decrease the size of the annotations
       --save-after-copy
-          After copying the screenshot, save it to a file as well Preferably use the `action_on_copy` option instead
+          After copying the screenshot, save it to a file as well
       --auto-copy
           Automatically copy to clipboard after every annotation change (0.21.0)
       --actions-on-enter <ACTIONS_ON_ENTER>
