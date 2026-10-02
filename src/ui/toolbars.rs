@@ -880,7 +880,7 @@ impl ToVariant for ColorButtons {
 impl FromVariant for ColorButtons {
     fn from_variant(variant: &Variant) -> Option<Self> {
         <u64>::from_variant(variant).map(|v| match v {
-            std::u64::MAX => Self::Custom,
+            u64::MAX => Self::Custom,
             _ => Self::Palette(v),
         })
     }
