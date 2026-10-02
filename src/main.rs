@@ -113,14 +113,17 @@ impl App {
 
     fn resize_window_initial(&self, root: &Window, sender: ComponentSender<Self>) {
         let config = APP_CONFIG.read();
+        // scale and image_width and image_height below are just used to determine window
+        // size within this function if we need it. This does not affect image scaling as such.
         let scale = config.input_scale().unwrap_or(1.0);
         let fullscreen = config.fullscreen();
         let resize = config.resize();
         let floating_hack = config.floating_hack();
 
-        let image_width = (self.image_dimensions.0 as f32 / scale) as f64;
-        let image_height = (self.image_dimensions.1 as f32 / scale) as f64;
+        let image_width = (self.image_dimensions.0 as f32 * scale) as f64;
+        let image_height = (self.image_dimensions.1 as f32 * scale) as f64;
 
+        #[cfg(debug_assertions)]
         eprintln!(
             "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
             fullscreen, resize, floating_hack
