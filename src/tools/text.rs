@@ -937,7 +937,8 @@ impl Tool for TextTool {
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
         // Any key other than Alt cancels a pending Alt tap: Alt is being used as a
         // modifier (e.g. Ctrl+Alt+Arrow), not tapped on its own to toggle the outline.
-        if !matches!(event.key, Key::Alt_L | Key::Alt_R) {
+        if !matches!(event.key, Key::Alt_L | Key::Alt_R) && event.modifier != ModifierType::ALT_MASK
+        {
             self.alt_tap = false;
         }
         let mut tool_update_result = ToolUpdateResult::StopPropagation;
@@ -1232,7 +1233,10 @@ impl Tool for TextTool {
     }
 
     fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if (event.key == Key::Alt_L || event.key == Key::Alt_R) && self.alt_tap {
+        if self.alt_tap
+            && (event.key == Key::Alt_L || event.key == Key::Alt_R)
+            && event.modifier == ModifierType::ALT_MASK
+        {
             self.alt_tap = false;
             if let Some(t) = &mut self.text {
                 t.effect = t.effect.next();
