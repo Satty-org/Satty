@@ -5,11 +5,11 @@ use std::str::FromStr;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, name="satty")]
 pub struct CommandLine {
-    /// Show manpage. Pipe to man -l -.
+    /// Show manpage. Pipe to man -l -. (Exclusive option)
     #[arg(long, exclusive = true)]
     pub man: bool,
 
-    /// Show license.
+    /// Show license. (Exclusive option)
     #[arg(long, exclusive = true)]
     pub license: bool,
 
@@ -18,9 +18,20 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub config: Option<String>,
 
-    /// Path to input image, '-' to read from stdin, or clipboard: to try reading image from clipboard. Pleasen note, this requires paste-command option.
-    #[arg(short, long, required = true)]
+    /// Path to input image or '-' to read from stdin.
+    /// Required unless --from_clipboard is provided.
+    #[arg(
+        short,
+        long,
+        required_unless_present("from_clipboard"),
+        conflicts_with("from_clipboard")
+    )]
     pub filename: Option<String>,
+
+    /// Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE)
+    /// If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided.
+    #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste")]
+    pub from_clipboard: Option<String>,
 
     /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
@@ -61,10 +72,6 @@ pub struct CommandLine {
     /// Configure the command to be called on copy, for example `wl-copy`
     #[arg(long)]
     pub copy_command: Option<String>,
-
-    /// Configure command to read clipboard at startup for clipboard: file
-    #[arg(long)]
-    pub paste_command: Option<String>,
 
     /// Increase or decrease the size of the annotations
     #[arg(long)]

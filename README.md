@@ -224,8 +224,6 @@ corner-roundness = 12
 initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`. Default is ""
 copy-command = "wl-copy"
-# Configure the command to be called on paste, for example `wl-paste`. This is only needed for using clipboard: as input file Default is ""
-paste-command = "wl-paste"
 # Increase or decrease the size of the annotations
 annotation-size-factor = 2
 # Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
@@ -406,7 +404,7 @@ custom = [
 » satty --help
 Modern Screenshot Annotation.
 
-Usage: satty [OPTIONS] --filename <FILENAME>
+Usage: satty [OPTIONS]
 
 Options:
       --man
@@ -416,7 +414,9 @@ Options:
   -c, --config <CONFIG>
           Path to the config file, if specified, this will be an exclusive config. Otherwise, config will be stacked from system and user config using XDG_CONFIG_DIRS/satty/config.toml and XDG_CONFIG_HOME/satty/config.toml
   -f, --filename <FILENAME>
-          Path to input image, '-' to read from stdin, or clipboard: to try reading image from clipboard. Pleasen note, this requires paste-command option
+          Path to input image or '-' to read from stdin
+      --from-clipboard <FROM_CLIPBOARD>
+          Configure command to read clipboard at startup to use instead of filename
       --fullscreen [<FULLSCREEN>]
           Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
       --resize [<MODE|WIDTHxHEIGHT>]
@@ -433,8 +433,6 @@ Options:
           Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush, image]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
-      --paste-command <PASTE_COMMAND>
-          Configure command to read clipboard at startup for clipboard: file
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
           Increase or decrease the size of the annotations
       --save-after-copy

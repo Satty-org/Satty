@@ -38,10 +38,16 @@ enum ConfigurationFileError {
     TomlDecoding(#[from] toml::de::Error),
 }
 
+pub enum Input {
+    Stdin,
+    File(String),
+    ClipboardCommand(String),
+}
+
 pub struct Configuration {
     man: bool,
     license: bool,
-    input_filename: Option<String>,
+    input: Option<Input>,
     output_filename: Option<String>,
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
@@ -50,7 +56,6 @@ pub struct Configuration {
     corner_roundness: f32,
     initial_tool: Tools,
     copy_command: Option<String>,
-    paste_command: Option<String>,
     annotation_size_factor: f32,
     save_after_copy: bool,
     auto_copy: bool,
@@ -293,9 +298,6 @@ impl Configuration {
         if let Some(v) = general.copy_command {
             self.copy_command = Some(v);
         }
-        if let Some(v) = general.paste_command {
-            self.paste_command = Some(v);
-        }
         if let Some(v) = general.output_filename {
             self.output_filename = Some(v);
         }
@@ -389,8 +391,17 @@ impl Configuration {
     }
 
     fn merge(&mut self, files: Vec<ConfigurationFile>, command_line: CommandLine) {
-        // input_filename is required and needs to be overwritten
-        self.input_filename = command_line.filename;
+        // input is required and needs to be overwritten
+        self.input = if let Some(f) = command_line.filename {
+            match f.as_str() {
+                "-" => Some(Input::Stdin),
+                _ => Some(Input::File(f)),
+            }
+        } else if let Some(f) = command_line.from_clipboard {
+            Some(Input::ClipboardCommand(f))
+        } else {
+            None
+        };
 
         // overwrite with all specified values from config file
         for file in files {
@@ -444,9 +455,6 @@ impl Configuration {
         }
         if let Some(v) = command_line.copy_command {
             self.copy_command = Some(v);
-        }
-        if let Some(v) = command_line.paste_command {
-            self.paste_command = Some(v);
         }
         if let Some(v) = command_line.output_filename {
             self.output_filename = Some(v);
@@ -559,10 +567,6 @@ impl Configuration {
         self.copy_command.as_ref()
     }
 
-    pub fn paste_command(&self) -> Option<&String> {
-        self.paste_command.as_ref()
-    }
-
     pub fn fullscreen(&self) -> Option<Fullscreen> {
         self.fullscreen
     }
@@ -579,11 +583,8 @@ impl Configuration {
         self.output_filename.as_ref()
     }
 
-    pub fn input_filename(&self) -> &str {
-        match self.input_filename {
-            Some(ref v) => v,
-            None => "",
-        }
+    pub fn input(&self) -> Option<&Input> {
+        self.input.as_ref()
     }
 
     pub fn annotation_size_factor(&self) -> f32 {
@@ -704,7 +705,7 @@ impl Default for Configuration {
         Self {
             man: false,
             license: false,
-            input_filename: Some(String::new()),
+            input: None,
             output_filename: None,
             fullscreen: None,
             resize: None,
@@ -713,7 +714,6 @@ impl Default for Configuration {
             corner_roundness: 12.0,
             initial_tool: Tools::Pointer,
             copy_command: None,
-            paste_command: None,
             annotation_size_factor: 1.0,
             save_after_copy: false,
             auto_copy: false,
@@ -797,7 +797,6 @@ struct ConfigurationFileGeneral {
     corner_roundness: Option<f32>,
     initial_tool: Option<Tools>,
     copy_command: Option<String>,
-    paste_command: Option<String>,
     annotation_size_factor: Option<f32>,
     save_after_copy: Option<bool>,
     auto_copy: Option<bool>,

@@ -1,4 +1,4 @@
-use configuration::{APP_CONFIG, Configuration};
+use configuration::{APP_CONFIG, Configuration, Input};
 use relm4::gtk::gdk::{self, Rectangle};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio::{Application, ApplicationFlags};
@@ -570,13 +570,13 @@ fn run_satty() -> Result<()> {
 
     generate_profile_output!("loading image");
     // load input image
-    let image = match config.input_filename() {
-        "-" => {
+    let image = match config.input() {
+        Some(Input::Stdin) => {
             let mut buf = Vec::<u8>::new();
             io::stdin().lock().read_to_end(&mut buf)?;
             image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
         }
-        "clipboard:" if let Some(paste_command) = config.paste_command() => {
+        Some(Input::ClipboardCommand(paste_command)) => {
             let mut buf = Vec::<u8>::new();
             let mut child = Command::new(paste_command)
                 .stdin(Stdio::null())
@@ -584,13 +584,16 @@ fn run_satty() -> Result<()> {
                 .spawn()?;
 
             child.stdout.take().unwrap().read_to_end(&mut buf)?;
-            image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
+            image_loading::pixbuf_from_bytes(&buf)
+                .context(format!("couldn't load image from {:?}", paste_command))?
         }
-        "clipboard:" => {
-            anyhow::bail!("Cannot use clipboard: without paste-command option");
+        Some(Input::File(input_filename)) => {
+            image_loading::pixbuf_from_file(Path::new(input_filename))
+                .context("couldn't load image")?
         }
-        _ => image_loading::pixbuf_from_file(Path::new(config.input_filename()))
-            .context("couldn't load image")?,
+        None => {
+            anyhow::bail!("no input provided");
+        }
     };
 
     generate_profile_output!("image loaded, starting gui");
