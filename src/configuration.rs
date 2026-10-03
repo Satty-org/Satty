@@ -397,11 +397,7 @@ impl Configuration {
                 "-" => Some(Input::Stdin),
                 _ => Some(Input::File(f)),
             }
-        } else if let Some(f) = command_line.from_clipboard {
-            Some(Input::ClipboardCommand(f))
-        } else {
-            None
-        };
+        } else { command_line.from_clipboard.map(Input::ClipboardCommand) };
 
         // overwrite with all specified values from config file
         for file in files {
