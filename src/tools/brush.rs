@@ -83,24 +83,20 @@ impl Drawable for BrushDrawable {
                 1.0
             };
 
-            // Scale all points relative to their current start point
             if let Some(start) = self.start_point {
+                // Points are relative to the start point, so they only need scaling
                 for p in &mut self.points {
-                    // Convert to absolute coordinates
-                    let abs_p = Vec2D {
-                        x: start.x + p.x,
-                        y: start.y + p.y,
-                    };
-                    // Translate to origin (relative to old top-left)
-                    let rel_p = abs_p - current_tl;
-                    // Scale and update point
                     *p = Vec2D {
-                        x: rel_p.x * scale_x,
-                        y: rel_p.y * scale_y,
+                        x: p.x * scale_x,
+                        y: p.y * scale_y,
                     };
                 }
-                // Update start point to new top-left
-                self.start_point = Some(tl);
+                // Map the start point into the new bounds
+                let rel_start = start - current_tl;
+                self.start_point = Some(Vec2D {
+                    x: tl.x + rel_start.x * scale_x,
+                    y: tl.y + rel_start.y * scale_y,
+                });
             }
         }
     }
