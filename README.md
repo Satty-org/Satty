@@ -408,15 +408,15 @@ Usage: satty [OPTIONS]
 
 Options:
       --man
-          Show manpage. Pipe to man -l -
+          Show manpage. Pipe to man -l -. (Exclusive option)
       --license
-          Show license
+          Show license. (Exclusive option)
   -c, --config <CONFIG>
           Path to the config file, if specified, this will be an exclusive config. Otherwise, config will be stacked from system and user config using XDG_CONFIG_DIRS/satty/config.toml and XDG_CONFIG_HOME/satty/config.toml
   -f, --filename <FILENAME>
-          Path to input image or '-' to read from stdin
-      --from-clipboard <FROM_CLIPBOARD>
-          Configure command to read clipboard at startup to use instead of filename
+          Path to input image or '-' to read from stdin. Required unless --from_clipboard is provided
+      --from-clipboard [<CLIPBOARD_COMMAND>]
+          Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE) If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided
       --fullscreen [<FULLSCREEN>]
           Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
       --resize [<MODE|WIDTHxHEIGHT>]
