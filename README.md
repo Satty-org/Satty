@@ -222,7 +222,7 @@ aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
 corner-roundness = 12
 # Select the tool on startup [possible values: see `satty --help`]
 initial-tool = "brush"
-# Configure the command to be called on copy, for example `wl-copy`. Default is ""
+# Configure the command to be called on copy, for example `wl-copy`
 copy-command = "wl-copy"
 # Increase or decrease the size of the annotations
 annotation-size-factor = 2
