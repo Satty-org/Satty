@@ -21,7 +21,7 @@
                 "isDefault": true,
                 "kind": "test"
             },
-            "label": "rust: run swappy"
+            "label": "rust: run satty"
         }
     ]
 }
