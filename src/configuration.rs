@@ -38,10 +38,16 @@ enum ConfigurationFileError {
     TomlDecoding(#[from] toml::de::Error),
 }
 
+pub enum Input {
+    Stdin,
+    File(String),
+    ClipboardCommand(String),
+}
+
 pub struct Configuration {
     man: bool,
     license: bool,
-    input_filename: Option<String>,
+    input: Option<Input>,
     output_filename: Option<String>,
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
@@ -385,8 +391,15 @@ impl Configuration {
     }
 
     fn merge(&mut self, files: Vec<ConfigurationFile>, command_line: CommandLine) {
-        // input_filename is required and needs to be overwritten
-        self.input_filename = command_line.filename;
+        // input is required and needs to be overwritten
+        self.input = if let Some(f) = command_line.filename {
+            match f.as_str() {
+                "-" => Some(Input::Stdin),
+                _ => Some(Input::File(f)),
+            }
+        } else {
+            command_line.from_clipboard.map(Input::ClipboardCommand)
+        };
 
         // overwrite with all specified values from config file
         for file in files {
@@ -568,11 +581,8 @@ impl Configuration {
         self.output_filename.as_ref()
     }
 
-    pub fn input_filename(&self) -> &str {
-        match self.input_filename {
-            Some(ref v) => v,
-            None => "",
-        }
+    pub fn input(&self) -> Option<&Input> {
+        self.input.as_ref()
     }
 
     pub fn annotation_size_factor(&self) -> f32 {
@@ -693,7 +703,7 @@ impl Default for Configuration {
         Self {
             man: false,
             license: false,
-            input_filename: Some(String::new()),
+            input: None,
             output_filename: None,
             fullscreen: None,
             resize: None,

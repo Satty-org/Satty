@@ -1,4 +1,4 @@
-use configuration::{APP_CONFIG, Configuration};
+use configuration::{APP_CONFIG, Configuration, Input};
 use relm4::gtk::gdk::{self, Rectangle};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio::{Application, ApplicationFlags};
@@ -6,7 +6,7 @@ use relm4::gtk::prelude::*;
 use std::io::Read;
 use std::ops::Deref;
 use std::path::Path;
-use std::process::exit;
+use std::process::{Command, Stdio, exit};
 use std::sync::{LazyLock, RwLock};
 use std::time::SystemTime;
 use std::{fs, panic, thread};
@@ -570,13 +570,30 @@ fn run_satty() -> Result<()> {
 
     generate_profile_output!("loading image");
     // load input image
-    let image = if config.input_filename() == "-" {
-        let mut buf = Vec::<u8>::new();
-        io::stdin().lock().read_to_end(&mut buf)?;
-        image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
-    } else {
-        image_loading::pixbuf_from_file(Path::new(config.input_filename()))
-            .context("couldn't load image")?
+    let image = match config.input() {
+        Some(Input::Stdin) => {
+            let mut buf = Vec::<u8>::new();
+            io::stdin().lock().read_to_end(&mut buf)?;
+            image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
+        }
+        Some(Input::ClipboardCommand(paste_command)) => {
+            let mut buf = Vec::<u8>::new();
+            let mut child = Command::new(paste_command)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .spawn()?;
+
+            child.stdout.take().unwrap().read_to_end(&mut buf)?;
+            image_loading::pixbuf_from_bytes(&buf)
+                .context(format!("couldn't load image from {:?}", paste_command))?
+        }
+        Some(Input::File(input_filename)) => {
+            image_loading::pixbuf_from_file(Path::new(input_filename))
+                .context("couldn't load image")?
+        }
+        None => {
+            anyhow::bail!("no input provided");
+        }
     };
 
     generate_profile_output!("image loaded, starting gui");
