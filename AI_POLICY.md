@@ -6,7 +6,7 @@ Preamble
 
 Generative AI (LLM) usage is tempting and can save time, but it's not without pitfalls. Quality of results may depend on the model as well as the prompt, and even then it can go wrong. This policy is not meant to discourage use of Generative AI, but to set guard rails and address risks. In the context of this project, these are:
 
-- code that cannot be reasonably supported without further AI usage
+- code that cannot reasonably be supported without further AI usage
 - impact on code quality
 - breakage of existing architecture
 - waste of time of the humans involved
@@ -16,12 +16,12 @@ _Writing_ code is no longer a problem, but in order to maintain the project, we 
 Posting
 --
 
-AI Agents must not post issues, discussions, PRs to this repository themselves. This can only be done by humans.
+AI agents must not post issues, discussions, PRs to this repository. We only allow humans to do this.
 
 Bug reports
 --
 
-Please make sure the described bug actually exists. A bug report should mainly consist of a concise list of repro steps, expected result, observed result. It should be sparse with regards to additional noise, fluff and formatting.
+Please make sure the described bug actually exists and you have encountered it. A bug report should mainly consist of a concise list of repro steps, expected result, observed result. It should be sparse with regards to additional noise, fluff and formatting, all of which take time to process.
 
 Pull Requests
 --

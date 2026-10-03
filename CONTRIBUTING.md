@@ -40,15 +40,20 @@ We would like to keep 3rd party dependencies to a minimum. Addition of new depen
 - the relevant code parts are non-trivial
 - the functionality in question cannot be provided via existing dependencies
 
+Additionally, replacement of dependencies with a different dependency is possible, e.g. if
+- the old dependency became unmaintained
+- the new dependency is superior in a way that is relevant to Satty
+- the new dependency has advantages for future cross-platform compatibilty
+
 Code comments
 --
 
 Ideally, code should be written in a way that it is self-explanatory. Comments can always help make code parts more understandable. They especially make sense when a section
 - was tricky to figure out
 - is sophisticated or unintuitive or not immediately obvious
-- might be in jeooardy of being overwritten by future you or other contributors due to not understanding it properly
+- might be in jeooardy of being overwritten by future you or other contributors due to not understanding it properly later
 
-Please note that we may ask for additional comments.
+Please note that we may also ask for additional comments on the back of PRs.
 
 Code formatting and hints/improvements
 --
@@ -62,7 +67,7 @@ Missing formatting/hints that precede your PR should be addressed via a separate
 README changes
 --
 
-If a PR changes Satty's behaviour and where appropriate, please adjust `README.md` as well. `make update-readme` adds the command line help (output of `satty --help`) as well as the example config.toml automatically which is relevant whenever command line arguments or config change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
+If a PR changes Satty's behaviour and where appropriate, please adjust `README.md`/documentation as well. `make update-readme` adds the command line help (output of `satty --help`) as well as the example config.toml automatically which is relevant whenever command line arguments or config change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
 
 Command line parameters changes
 --
