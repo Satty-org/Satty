@@ -225,7 +225,7 @@ initial-tool = "brush"
 # Configure the command to be called on copy, for example `wl-copy`. Default is ""
 copy-command = "wl-copy"
 # Configure the command to be called on paste, for example `wl-paste`. This is only needed for using clipboard: as input file Default is ""
-copy-command = "wl-paste"
+paste-command = "wl-paste"
 # Increase or decrease the size of the annotations
 annotation-size-factor = 2
 # Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
