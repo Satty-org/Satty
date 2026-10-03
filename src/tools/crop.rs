@@ -45,6 +45,26 @@ impl Crop {
         // scale independent snap threshold, i.e. in mouse coordinates
         let snap_theshold = SNAP_THRESHOLD / self.scale.get();
 
+        // snap the anchor to the image bounds if it's within the snap threshold
+        let anchor = Vec2D::new(
+            if anchor.x < 0.0 && anchor.x >= -snap_theshold {
+                0.0
+            } else if anchor.x > self.image_size.x && anchor.x <= self.image_size.x + snap_theshold
+            {
+                self.image_size.x
+            } else {
+                anchor.x
+            },
+            if anchor.y < 0.0 && anchor.y >= -snap_theshold {
+                0.0
+            } else if anchor.y > self.image_size.y && anchor.y <= self.image_size.y + snap_theshold
+            {
+                self.image_size.y
+            } else {
+                anchor.y
+            },
+        );
+
         let orig_tl = self.top_left;
         let orig_size = self.size;
         let br_offset = (orig_tl + orig_size) - self.image_size;
@@ -93,7 +113,7 @@ impl Crop {
 
         if 0.0 < br_offset.x && br_offset.x <= snap_theshold {
             if is_drag {
-                new_size.x = orig_size.x - br_offset.x;
+                new_size.x = self.image_size.x - new_tl.x;
                 if br_offset.x > 0.0 && aspect_ratio > 0.0 {
                     new_size.y = (new_size.x / aspect_ratio).round();
                     if anchor_bottom {
@@ -109,7 +129,7 @@ impl Crop {
 
         if 0.0 < br_offset.y && br_offset.y <= snap_theshold {
             if is_drag {
-                new_size.y = orig_size.y - br_offset.y;
+                new_size.y = self.image_size.y - new_tl.y;
                 if br_offset.y > 0.0 && aspect_ratio > 0.0 {
                     new_size.x = (new_size.y * aspect_ratio).round();
                     if anchor_right {
@@ -128,7 +148,34 @@ impl Crop {
     }
 
     pub fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
+        // must snap here origin first - in snap_to_image_bounds it is too late
+        // and it may shift wrong sides if the origin is close to the image bounds.
+        let snap_threshold = SNAP_THRESHOLD / self.scale.get();
+        let snapped_origin = Vec2D::new(
+            if self.origin.x < 0.0 && self.origin.x >= -snap_threshold {
+                0.0
+            } else if self.origin.x > self.image_size.x
+                && self.origin.x <= self.image_size.x + snap_threshold
+            {
+                self.image_size.x
+            } else {
+                self.origin.x
+            },
+            if self.origin.y < 0.0 && self.origin.y >= -snap_threshold {
+                0.0
+            } else if self.origin.y > self.image_size.y
+                && self.origin.y <= self.image_size.y + snap_threshold
+            {
+                self.image_size.y
+            } else {
+                self.origin.y
+            },
+        );
+        let mut adjusted_event = *event;
+        adjusted_event.pos += self.origin - snapped_origin;
+
+        let drag_box =
+            DragBox::from_origin_delta(snapped_origin, self.size, &adjusted_event, sender);
         self.centered = drag_box.centered;
         self.top_left = drag_box.top_left;
         let br = (drag_box.top_left + drag_box.size).round();
@@ -153,8 +200,7 @@ impl Crop {
             0.0
         };
 
-        // the drag origin is the fixed corner while creating the box
-        self.snap_to_image_bounds(true, aspect_ratio, self.origin);
+        self.snap_to_image_bounds(true, aspect_ratio, snapped_origin);
 
         // Notify the sender about the updated rounded dimensions
         sender
@@ -185,8 +231,6 @@ impl Drawable for Crop {
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, keep_aspect: bool) {
-        let (tl, br) = math::ensure_bounding_box(tl.round(), br.round());
-
         // Figure out which corner didn't move (the handle's opposite corner) -
         // that's the anchor that must stay fixed while snapping/aspect-locking.
         let orig_tl = self.top_left;
@@ -208,6 +252,9 @@ impl Drawable for Crop {
                 orig_br.y
             },
         );
+
+        // now round to pixels
+        let (tl, br) = math::ensure_bounding_box(tl.round(), br.round());
 
         // use the stable pre-drag size for the ratio, not the size we're about
         // to overwrite below, to avoid compounding rounding error.
