@@ -86,24 +86,28 @@ impl ResizeHandle {
             let center_scale = if centered { 1.0 } else { 2.0 };
 
             // Adjusts a (width-delta, height-delta) pair, in the "both attached to
-            // br" sign convention, so it maintains aspect_ratio. Which axis is
-            // dominant is picked by whichever the mouse actually moved further
-            // in order to keep the mouse pointer on the edge.
+            // br" sign convention, so it maintains aspect_ratio. The axis with the
+            // larger resulting extent is kept (so the pointer stays on that edge) and
+            // each axis keeps the sign the pointer put it in.
             // When centered, wh is applied to *both* opposite corners, so the
-            // real total size change is 2*wh, not wh - the signum heuristic below
-            // needs that same total to pick the correct axis near a size inversion.
+            // real total size change is 2*wh, not wh.
             let total_scale = 2.0 / center_scale;
-            let fix_aspect = |mut wh: Vec2D| -> Vec2D {
-                let size_delta = size + wh * total_scale;
-                let sdxs = size_delta.x.signum();
-                let sdys = size_delta.y.signum();
-                if sdxs * wh.x >= sdys * wh.y * aspect_ratio {
-                    wh.y = wh.x / aspect_ratio;
+            let fix_aspect = |wh: Vec2D| -> Vec2D {
+                let s = size + wh * total_scale;
+                let sx = if s.x < 0.0 { -1.0 } else { 1.0 };
+                let sy = if s.y < 0.0 { -1.0 } else { 1.0 };
+                let target = if s.x.abs() >= s.y.abs() * aspect_ratio {
+                    Vec2D::new(s.x, sy * s.x.abs() / aspect_ratio)
                 } else {
-                    wh.x = wh.y * aspect_ratio;
-                }
-                wh
+                    Vec2D::new(sx * s.y.abs() * aspect_ratio, s.y)
+                };
+                (target - size) / total_scale
             };
+
+            // Total size change along the other axis so that the magnitude follows
+            // `new_extent` while keeping that axis' original sign.
+            let follow_x = |new_h: f32| size.x.signum() * new_h.abs() * aspect_ratio - size.x;
+            let follow_y = |new_w: f32| size.y.signum() * new_w.abs() / aspect_ratio - size.y;
 
             match self {
                 RH::TopLeft => {
@@ -127,25 +131,25 @@ impl ResizeHandle {
                 }
                 RH::TopCenter => {
                     // h is attached to tl (-dy grows it); w follows via aspect ratio.
-                    delta.x = -delta.y * aspect_ratio;
+                    delta.x = follow_x(size.y - delta.y * total_scale) / total_scale;
                     new_tl.x -= delta.x / center_scale;
                     new_br.x += delta.x / center_scale;
                 }
                 RH::BottomCenter => {
                     // h is attached to br (dy grows it); w follows via aspect ratio.
-                    delta.x = delta.y * aspect_ratio;
+                    delta.x = follow_x(size.y + delta.y * total_scale) / total_scale;
                     new_tl.x -= delta.x / center_scale;
                     new_br.x += delta.x / center_scale;
                 }
                 RH::MiddleLeft => {
                     // w is attached to tl (-dx grows it); h follows via aspect ratio.
-                    delta.y = -delta.x / aspect_ratio;
+                    delta.y = follow_y(size.x - delta.x * total_scale) / total_scale;
                     new_tl.y -= delta.y / center_scale;
                     new_br.y += delta.y / center_scale;
                 }
                 RH::MiddleRight => {
                     // w is attached to br (dx grows it); h follows via aspect ratio.
-                    delta.y = delta.x / aspect_ratio;
+                    delta.y = follow_y(size.x + delta.x * total_scale) / total_scale;
                     new_tl.y -= delta.y / center_scale;
                     new_br.y += delta.y / center_scale;
                 }
@@ -214,19 +218,24 @@ impl ResizeHandle {
             let h = new_br.y - new_tl.y;
             let config = APP_CONFIG.read();
 
-            let closest_aspect_ratio = get_closest_aspect_ratio(w / h, config.aspect_ratios());
+            // Ratio is magnitude only; signs are kept so an inverted axis stays inverted
+            // and the dragged edge stays under the cursor.
+            let closest_aspect_ratio =
+                get_closest_aspect_ratio((w / h).abs(), config.aspect_ratios());
             let aspect_ratio = closest_aspect_ratio.0 / closest_aspect_ratio.1;
+            let sx = if w < 0.0 { -1.0 } else { 1.0 };
+            let sy = if h < 0.0 { -1.0 } else { 1.0 };
             let size = if h.abs() <= f32::EPSILON {
                 Vec2D::new(w, h) // fallback
             } else {
                 match self {
-                    RH::TopCenter | RH::BottomCenter => Vec2D::new(h * aspect_ratio, h),
-                    RH::MiddleLeft | RH::MiddleRight => Vec2D::new(w, w / aspect_ratio),
+                    RH::TopCenter | RH::BottomCenter => Vec2D::new(sx * h.abs() * aspect_ratio, h),
+                    RH::MiddleLeft | RH::MiddleRight => Vec2D::new(w, sy * w.abs() / aspect_ratio),
                     _ => {
                         if w.abs() >= h.abs() * aspect_ratio {
-                            Vec2D::new(w, w / aspect_ratio)
+                            Vec2D::new(w, sy * w.abs() / aspect_ratio)
                         } else {
-                            Vec2D::new(h * aspect_ratio, h)
+                            Vec2D::new(sx * h.abs() * aspect_ratio, h)
                         }
                     }
                 }
