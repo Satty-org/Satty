@@ -175,11 +175,11 @@ pub struct CommandLine {
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
     // --- deprecated options ---
-    /// Right click to copy.
+    /// Right click to copy, deprecated since 0.19.0
     /// Preferably use the `action_on_right_click` option instead.
     #[arg(long)]
     pub right_click_copy: bool,
-    /// Action to perform when pressing Enter.
+    /// Action to perform when pressing Enter, deprecated since 0.19.0
     /// Preferably use the `actions_on_enter` option instead.
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,

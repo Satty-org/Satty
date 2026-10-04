@@ -394,10 +394,16 @@ impl Configuration {
                 .actions_on_right_click
                 .contains(&Action::SaveToClipboard)
         {
+            log_config_error(
+                "Deprecated config option: right-click-copy, use actions-on-right-click instead",
+            );
             self.actions_on_right_click
                 .insert(0, Action::SaveToClipboard);
         }
         if let Some(v) = general.action_on_enter {
+            log_config_error(
+                "Deprecated config option: action-on-enter, use action-on-enter instead",
+            );
             self.actions_on_enter.insert(0, v);
         }
         // ---
@@ -537,10 +543,16 @@ impl Configuration {
                 .actions_on_right_click
                 .contains(&Action::SaveToClipboard)
         {
+            log_config_error(
+                "Deprecated command line option: right-click-copy, use actions-on-right-click instead",
+            );
             self.actions_on_right_click
                 .insert(0, Action::SaveToClipboard);
         }
         if let Some(v) = command_line.action_on_enter {
+            log_config_error(
+                "Deprecated command line option: action-on-enter, use actions-on-enter instead",
+            );
             self.actions_on_enter.insert(0, v.into());
         }
         // ---
