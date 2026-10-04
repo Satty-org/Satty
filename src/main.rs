@@ -13,7 +13,7 @@ use std::{fs, panic, thread};
 use std::{io, time::Duration};
 
 use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp, adw,
     gtk::{self, CssProvider, Window, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel},
 };
 
@@ -56,6 +56,8 @@ pub static TEMP_DIR: LazyLock<RwLock<Option<TempDir>>> =
         }
     });
 
+pub static APP_BROKER: relm4::MessageBroker<AppInput> = relm4::MessageBroker::new();
+
 macro_rules! generate_profile_output {
     ($e: expr) => {
         if (APP_CONFIG.read().profile_startup()) {
@@ -75,10 +77,11 @@ struct App {
     style_toolbar: Controller<StyleToolbar>,
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
+    toast_overlay: adw::ToastOverlay,
 }
 
 #[derive(Debug)]
-enum AppInput {
+pub enum AppInput {
     Realized,
     SetToolbarsDisplay(bool),
     ToggleToolbarsDisplay,
@@ -94,6 +97,7 @@ enum AppInput {
     FullscreenChanged(bool),
     DimensionsUpdate(Vec2D),
     ToolEditingChanged(bool),
+    ShowToast(String),
 }
 
 #[derive(Debug)]
@@ -248,16 +252,19 @@ impl Component for App {
             },
 
             #[local_ref]
-            outer_box_clone -> gtk::Box {
-                add_css_class: "outer_box",
-                append = model.tools_toolbar.widget(),
+            toast_overlay_clone -> adw::ToastOverlay {
                 #[local_ref]
-                overlay_clone -> gtk::Overlay {
-                    add_css_class: "overlay",
-                    model.sketch_board.widget(),
+                outer_box_clone -> gtk::Box {
+                    add_css_class: "outer_box",
+                    append = model.tools_toolbar.widget(),
+                    #[local_ref]
+                    overlay_clone -> gtk::Overlay {
+                        add_css_class: "overlay",
+                        model.sketch_board.widget(),
+                    },
+                    append = model.style_toolbar.widget(),
                 },
-                append = model.style_toolbar.widget(),
-            },
+           },
 
             connect_show[sender] => move |_| {
                 generate_profile_output!("gui show event");
@@ -364,6 +371,9 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetToolEditing(editing));
             }
+            AppInput::ShowToast(msg) => {
+                self.toast_overlay.add_toast(adw::Toast::new(&msg));
+            }
         }
     }
 
@@ -431,6 +441,8 @@ impl Component for App {
         let outer_box_clone = outer_box.clone();
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
+        let toast_overlay = adw::ToastOverlay::new();
+        let toast_overlay_clone = toast_overlay.clone();
 
         // Model
         let model = App {
@@ -440,6 +452,7 @@ impl Component for App {
             image_dimensions,
             outer_box,
             overlay,
+            toast_overlay,
         };
 
         // Initialize style toolbar with full image dimensions
@@ -612,7 +625,9 @@ fn run_satty() -> Result<()> {
     // set flag to allow to run multiple instances
     app.set_flags(ApplicationFlags::NON_UNIQUE);
     // create relm app and run
-    let app = RelmApp::from_app(app).with_args(vec![]);
+    let app = RelmApp::from_app(app)
+        .with_args(vec![])
+        .with_broker(&APP_BROKER);
     relm4_icons::initialize_icons(
         icons::icon_names::GRESOURCE_BYTES,
         icons::icon_names::RESOURCE_PREFIX,

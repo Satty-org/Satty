@@ -2142,11 +2142,12 @@ impl Component for SketchBoard {
 
         let error_count = crate::configuration::config_error_count();
         if error_count > 0 {
-            eprintln!(
-                "⚠️ {} error{} occurred during configuration loading.",
+            log_result(
+            format!(
+                "⚠️ {} error{} occurred during configuration loading, please start from terminal to retrieve error messages.",
                 error_count,
                 if error_count == 1 { "" } else { "s" }
-            );
+            ).as_str(), true);
         }
         ComponentParts { model, widgets }
     }
