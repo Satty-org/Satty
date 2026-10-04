@@ -287,10 +287,10 @@ actions-on-enter = ["save-to-clipboard"]
 # [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
 actions-on-escape = ["exit"]
 # Action to perform when the Enter key is pressed [possible values: see `satty --help`]
-# Deprecated: use actions-on-enter instead
+# Deprecated since 0.19.0: use actions-on-enter instead
 action-on-enter = "save-to-clipboard"
 # Right click to copy
-# Deprecated: use actions-on-right-click instead
+# Deprecated since 0.19.0: use actions-on-right-click instead
 right-click-copy = false
 # request no window decoration. Please note that the compositor has the final say in this. At this point. requires xdg-decoration-unstable-v1.
 no-window-decoration = true
@@ -513,9 +513,9 @@ Options:
       --notification-thumbnail <NOTIFICATION_THUMBNAIL>
           Experimental feature (0.22.0): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
       --right-click-copy
-          Right click to copy. Preferably use the `action_on_right_click` option instead
+          Right click to copy, deprecated since 0.19.0 Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter. Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
+          Action to perform when pressing Enter, deprecated since 0.19.0 Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
   -h, --help
           Print help
   -V, --version
