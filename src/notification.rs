@@ -1,8 +1,8 @@
 use relm4::gtk::gio::{FileIcon, Icon};
 use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
 
-use crate::TEMP_DIR;
 use crate::configuration::APP_CONFIG;
+use crate::{APP_BROKER, AppInput, TEMP_DIR};
 use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
 use relm4::gtk::prelude::Cast;
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection, gio};
@@ -11,8 +11,12 @@ use tempfile::NamedTempFile;
 
 pub fn log_result(msg: &str, notify: bool) {
     eprintln!("{msg}");
-    if notify && !APP_CONFIG.read().disable_notifications() {
-        show_notification(msg, None);
+    if notify {
+        if APP_CONFIG.read().disable_notifications() {
+            APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
+        } else {
+            show_notification(msg, None);
+        }
     }
 }
 
@@ -20,6 +24,7 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
     eprintln!("{msg}");
 
     if APP_CONFIG.read().disable_notifications() {
+        APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
         return;
     }
 
