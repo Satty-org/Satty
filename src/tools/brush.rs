@@ -65,6 +65,9 @@ impl Drawable for BrushDrawable {
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+        // Raw corners crossing each other means the shape is mirrored on that axis
+        let flip_x = br.x < tl.x;
+        let flip_y = br.y < tl.y;
         let (tl, br) = math::ensure_bounding_box(tl, br);
         // Get current bounds
         if let Some((current_tl, current_br)) = self.bounds() {
@@ -85,14 +88,22 @@ impl Drawable for BrushDrawable {
 
             if let Some(start) = self.start_point {
                 // Points are relative to the start point, so they only need scaling
+                let sign_x = if flip_x { -1.0 } else { 1.0 };
+                let sign_y = if flip_y { -1.0 } else { 1.0 };
                 for p in &mut self.points {
                     *p = Vec2D {
-                        x: p.x * scale_x,
-                        y: p.y * scale_y,
+                        x: p.x * scale_x * sign_x,
+                        y: p.y * scale_y * sign_y,
                     };
                 }
-                // Map the start point into the new bounds
-                let rel_start = start - current_tl;
+                // Map the start point into the new bounds (mirrored if flipped)
+                let mut rel_start = start - current_tl;
+                if flip_x {
+                    rel_start.x = current_size.x - rel_start.x;
+                }
+                if flip_y {
+                    rel_start.y = current_size.y - rel_start.y;
+                }
                 self.start_point = Some(Vec2D {
                     x: tl.x + rel_start.x * scale_x,
                     y: tl.y + rel_start.y * scale_y,
