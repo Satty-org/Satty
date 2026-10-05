@@ -15,6 +15,11 @@
     color: @headerbar_fg_color;
     background-color: @headerbar_bg_color;
 }
+
+image.grouped-tools-menu-indicator-hover {
+    color: @accent_color;
+}
+
 .toast {
     color: #f9f9f9;
     background-color: #00000099;
@@ -27,8 +32,13 @@
     border-radius: 0px 0px 0px 0px;
 }
 
-.overlay .toolbar-bottom { border-radius: 6px 6px 0px 0px; }
-.overlay .toolbar-top { border-radius: 0px 0px 6px 6px; }
+.overlay .toolbar-bottom {
+    border-radius: 6px 6px 0px 0px;
+}
+
+.overlay .toolbar-top {
+    border-radius: 0px 0px 6px 6px;
+}
 
 button.editing {
     color: @accent_color;

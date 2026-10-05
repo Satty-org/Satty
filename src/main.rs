@@ -453,6 +453,15 @@ impl Component for App {
 
         let widgets = view_output!();
 
+        let popover_click_controller = gtk::GestureClick::new();
+        popover_click_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let window = root.clone();
+        popover_click_controller.connect_pressed(move |_, _, x, y| {
+            let target = window.pick(x, y, gtk::PickFlags::DEFAULT);
+            ui::close_active_tool_popover_if_outside(target.as_ref());
+        });
+        root.add_controller(popover_click_controller);
+
         if APP_CONFIG.read().focus_toggles_toolbars() {
             let motion_controller = gtk::EventControllerMotion::builder().build();
 
