@@ -424,13 +424,9 @@ impl SketchBoard {
     fn is_drawable_too_small(&self, drawable: &dyn crate::tools::Drawable) -> bool {
         if let Some((tl, br)) = drawable.bounds()
             && let size = br - tl
-            && (size.x < 1.0 || size.y < 1.0 || size.area() < 1.0)
+            && (size.x < 1.0 && size.y < 1.0)
         {
-            eprintln!(
-                "Drawable size{:?} resp. area {} is too small, ignoring commit.",
-                size,
-                size.area()
-            );
+            eprintln!("Drawable size{:?} is too small, ignoring commit.", size);
             return true;
         }
         false
