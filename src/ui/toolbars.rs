@@ -500,6 +500,7 @@ impl Component for StyleToolbar {
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
+                add_css_class: "size-button",
 
                 set_label: "S",
                 set_tooltip: "Small size",
@@ -509,6 +510,7 @@ impl Component for StyleToolbar {
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
+                add_css_class: "size-button",
 
                 set_label: "M",
                 set_tooltip: "Medium size",
@@ -518,6 +520,7 @@ impl Component for StyleToolbar {
             gtk::ToggleButton {
                 set_focusable: false,
                 set_hexpand: false,
+                add_css_class: "size-button",
 
                 set_label: "L",
                 set_tooltip: "Large size",

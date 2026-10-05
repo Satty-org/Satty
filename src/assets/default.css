@@ -33,3 +33,10 @@
 button.editing {
     color: @accent_color;
 }
+
+.size-button {
+    min-width: 35px;
+    min-height: 35px;
+    padding: 0;
+    margin: 0;
+}
