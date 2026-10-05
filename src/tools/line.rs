@@ -6,7 +6,7 @@ use relm4::{
 };
 
 use crate::{
-    math::{self, Vec2D},
+    math::{self, SegmentResizeTarget, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
@@ -47,19 +47,24 @@ impl Drawable for Line {
         self.start += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize_bounds(&mut self, _tl: Vec2D, _br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+        panic!("should never be called");
+    }
+
+    fn resize_bounds_with_segment_target(
+        &mut self,
+        tl: Vec2D,
+        br: Vec2D,
+        delta: Vec2D,
+        keep_aspect: bool,
+        target: Option<SegmentResizeTarget>,
+    ) {
         if let Some(direction) = self.direction {
             let end = self.start + direction;
-            let start_is_left = self.start.x <= end.x;
-            let start_is_top = self.start.y <= end.y;
-            let new_start = Vec2D::new(
-                if start_is_left { tl.x } else { br.x },
-                if start_is_top { tl.y } else { br.y },
-            );
-            let new_end = Vec2D::new(
-                if start_is_left { br.x } else { tl.x },
-                if start_is_top { br.y } else { tl.y },
-            );
+            let segment = (self.start, end);
+            let bounding_box = (tl, br);
+            let (new_start, new_end) =
+                math::resize_segment(segment, bounding_box, delta, keep_aspect, target);
 
             self.start = new_start;
             self.direction = Some(new_end - new_start);
