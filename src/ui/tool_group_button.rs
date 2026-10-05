@@ -1,10 +1,47 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use crate::tools::{GroupableTool, Tools};
 use crate::ui::toolbars::ToolsAction;
 use relm4::actions::ActionablePlus;
 use relm4::factory::{DynamicIndex, FactoryComponent};
-use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, PopoverExt, WidgetExt};
+use relm4::gtk::prelude::{
+    BoxExt, ButtonExt, EventControllerExt, GestureExt, PopoverExt, WidgetExt,
+};
 use relm4::gtk::{Align, Popover, ToggleButton};
 use relm4::{FactorySender, RelmWidgetExt, view};
+
+thread_local! {
+    static ACTIVE_TOOL_POPOVER: std::cell::RefCell<Option<Popover>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub fn close_active_tool_popover_if_outside(target: Option<&relm4::gtk::Widget>) {
+    ACTIVE_TOOL_POPOVER.with(|active| {
+        let mut active = active.borrow_mut();
+        if let Some(popover) = active.as_ref()
+            && !target.is_some_and(|widget| widget.is_ancestor(popover))
+        {
+            popover.popdown();
+            *active = None;
+        }
+    });
+}
+
+fn update_menu_indicator_hover(
+    indicator: &relm4::gtk::Image,
+    button: &ToggleButton,
+    x: f64,
+    y: f64,
+) {
+    let over_indicator =
+        x >= f64::from(button.width()) - 12.0 && y >= f64::from(button.height()) - 12.0;
+    if over_indicator {
+        indicator.add_css_class("grouped-tools-menu-indicator-hover");
+    } else {
+        indicator.remove_css_class("grouped-tools-menu-indicator-hover");
+    }
+}
 
 pub struct ToolGroupInit {
     pub group: Vec<GroupableTool>,
@@ -39,7 +76,10 @@ impl ToolGroupButton {
             widgets.button.set_icon_name(&g.icon_name);
             if let Some(tt) = &g.tooltip {
                 let tooltip = if self.has_extra() {
-                    format!("{}\n\n{}", tt, "right-click for more tools")
+                    format!(
+                        "{}\n\n{}",
+                        tt, "click long or click the triangle or right-click for more tools"
+                    )
                 } else {
                     tt.clone()
                 };
@@ -86,7 +126,7 @@ impl FactoryComponent for ToolGroupButton {
             current: pos,
             editing: false,
             is_active,
-            popover: relm4::gtk::Popover::new(),
+            popover: relm4::gtk::Popover::builder().autohide(false).build(),
         }
     }
 
@@ -114,22 +154,73 @@ impl FactoryComponent for ToolGroupButton {
         }
 
         if self.has_extra() {
-            root.add_overlay(
-                &relm4::gtk::Image::builder()
-                    .icon_name("caret-down-right-filled")
-                    .pixel_size(8)
-                    .halign(Align::End)
-                    .valign(Align::End)
-                    .can_target(false)
-                    .build(),
-            );
+            let menu_indicator = relm4::gtk::Image::builder()
+                .icon_name("caret-down-right-filled")
+                .pixel_size(8)
+                .halign(Align::End)
+                .valign(Align::End)
+                .can_target(false)
+                .build();
+            root.add_overlay(&menu_indicator);
+
+            let motion_controller = relm4::gtk::EventControllerMotion::new();
+            let enter_indicator = menu_indicator.clone();
+            let enter_button = button.clone();
+            motion_controller.connect_enter(move |_, x, y| {
+                update_menu_indicator_hover(&enter_indicator, &enter_button, x, y);
+            });
+            let motion_indicator = menu_indicator.clone();
+            let motion_button = button.clone();
+            motion_controller.connect_motion(move |_, x, y| {
+                update_menu_indicator_hover(&motion_indicator, &motion_button, x, y);
+            });
+            let leave_indicator = menu_indicator.clone();
+            motion_controller.connect_leave(move |_| {
+                leave_indicator.remove_css_class("grouped-tools-menu-indicator-hover");
+            });
+            button.add_controller(motion_controller);
+
+            let triangle_click_controller = relm4::gtk::GestureClick::builder().button(1).build();
+            triangle_click_controller.set_propagation_phase(relm4::gtk::PropagationPhase::Capture);
+            let triangle_pressed = Rc::new(Cell::new(false));
+            let pressed_on_press = Rc::clone(&triangle_pressed);
+            let button_for_hit_test = button.clone();
+            triangle_click_controller.connect_pressed(move |gesture, _, x, y| {
+                let over_indicator = x >= f64::from(button_for_hit_test.width()) - 12.0
+                    && y >= f64::from(button_for_hit_test.height()) - 12.0;
+                pressed_on_press.set(over_indicator);
+                if over_indicator {
+                    gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
+                }
+            });
+            let pressed_on_release = Rc::clone(&triangle_pressed);
+            let triangle_click_sender = sender.clone();
+            triangle_click_controller.connect_released(move |_, _, _, _| {
+                if pressed_on_release.replace(false) {
+                    triangle_click_sender.input(ToolGroupButtonInput::OpenPopover);
+                }
+            });
+            button.add_controller(triangle_click_controller);
+
+            let long_press = relm4::gtk::GestureLongPress::new();
+            long_press.set_delay_factor(0.6);
+            long_press.set_propagation_phase(relm4::gtk::PropagationPhase::Capture);
+            let long_press_sender = sender.clone();
+            long_press.connect_pressed(move |gesture, _, _| {
+                gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
+                long_press_sender.input(ToolGroupButtonInput::OpenPopover);
+            });
+            button.add_controller(long_press);
 
             let right_click_controller = relm4::gtk::GestureClick::builder().button(3).build();
+            right_click_controller.set_propagation_phase(relm4::gtk::PropagationPhase::Capture);
             right_click_controller.connect_pressed(move |gesture, _, _, _| {
                 gesture.set_state(relm4::gtk::EventSequenceState::Claimed);
+            });
+            right_click_controller.connect_released(move |_, _, _, _| {
                 sender.input(ToolGroupButtonInput::OpenPopover);
             });
-            button.add_controller(right_click_controller);
+            root.add_controller(right_click_controller);
 
             let rows = relm4::gtk::Box::new(relm4::gtk::Orientation::Vertical, 2);
             for tool in &self.group {
@@ -163,7 +254,14 @@ impl FactoryComponent for ToolGroupButton {
         match message {
             ToolGroupButtonInput::OpenPopover => {
                 if self.has_extra() {
-                    self.popover.popup();
+                    ACTIVE_TOOL_POPOVER.with(|active| {
+                        let mut active = active.borrow_mut();
+                        if let Some(popover) = active.as_ref() {
+                            popover.popdown();
+                        }
+                        self.popover.popup();
+                        *active = Some(self.popover.clone());
+                    });
                 }
             }
             ToolGroupButtonInput::SelectedToolChanged(tools) => {
