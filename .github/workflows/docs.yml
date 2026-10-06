@@ -3,6 +3,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'assets/*'
+      - 'docs/*'
+      - '*.md'
+      - 'config.toml'
+      - 'zensical.toml'
+      - 'src/configuration.rs'
+      - 'cli/src/command_line.rs'
 permissions:
   contents: read
   pages: write
@@ -12,6 +20,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    if: github.repository == 'Satty-org/Satty'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/configure-pages@v6
