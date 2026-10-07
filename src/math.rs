@@ -139,7 +139,7 @@ impl Vec2D {
         let current_norm2 = self.norm2();
         let new_angle = (current_angle / 0.261_799_4).round() * 0.261_799_4;
 
-        let (a, b) = if new_angle.abs() < PI / 4.0
+        let (mut a, mut b) = if new_angle.abs() < PI / 4.0
         // 45°
         {
             let b = (current_norm2 / ((PI / 2.0 - new_angle).tan().powi(2) + 1.0)).sqrt();
@@ -150,6 +150,9 @@ impl Vec2D {
             let b = (current_norm2 - a * a).sqrt();
             (a, b)
         };
+
+        // round to pixels to avoid small inaccuracies
+        (a, b) = (a.round(), b.round());
 
         if self.x >= 0.0 && self.y >= 0.0 {
             Vec2D::new(a, b)
@@ -332,6 +335,176 @@ pub fn rect_ensure_in_bounds(rect: (Vec2D, Vec2D), bounds: (Vec2D, Vec2D)) -> (V
 // Return the bounding box tl, br for two points
 pub fn ensure_bounding_box(a: Vec2D, b: Vec2D) -> (Vec2D, Vec2D) {
     (a.min(b), a.max(b))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentResizeTarget {
+    Low,
+    High,
+    // Edge-center handles, named after the axis they move along.
+    MiddleX,
+    MiddleY,
+}
+
+// We use this for line and arrow when doing a resize operation with the pointer tool.
+// The bounds of the bounding box are not meaningful for horizontal or vertical lines.
+// Maps the segment `start`-`end` into resized bounds `(tl, br)`, preserving its direction.
+// With `keep_aspect` (Shift/Ctrl are the same), it switches the movement direction on middle
+// handle for vertical/horizontal ones and does the 15°-angle-snap on end points.
+pub fn resize_segment(
+    segment: (Vec2D, Vec2D),
+    bounding_box: (Vec2D, Vec2D),
+    delta: Vec2D,
+    keep_aspect: bool,
+    target: Option<SegmentResizeTarget>,
+) -> (Vec2D, Vec2D) {
+    let new_segment = resize_segment_to_bounds(segment, bounding_box, target);
+    if keep_aspect {
+        move_or_snap_segment(segment, new_segment, delta, target)
+    } else {
+        new_segment
+    }
+}
+
+// Do the actual resizing of the segment.
+fn resize_segment_to_bounds(
+    segment: (Vec2D, Vec2D),
+    bounding_box: (Vec2D, Vec2D),
+    target: Option<SegmentResizeTarget>,
+) -> (Vec2D, Vec2D) {
+    let (start, end) = segment;
+    let (tl, br) = bounding_box;
+    let (otl, obr) = ensure_bounding_box(start, end);
+    let start_is_left = start.x <= end.x;
+    let start_is_top = start.y <= end.y;
+    let mapped_start = Vec2D::new(
+        if start_is_left { tl.x } else { br.x },
+        if start_is_top { tl.y } else { br.y },
+    );
+    let mapped_end = Vec2D::new(
+        if start_is_left { br.x } else { tl.x },
+        if start_is_top { br.y } else { tl.y },
+    );
+
+    let flat_x = otl.x == obr.x;
+    let flat_y = otl.y == obr.y;
+    if flat_x == flat_y {
+        return (mapped_start, mapped_end);
+    }
+
+    let (flat_lo_changed, flat_hi_changed, span_lo_changed, span_hi_changed) = if flat_x {
+        (tl.x != otl.x, br.x != obr.x, tl.y != otl.y, br.y != obr.y)
+    } else {
+        (tl.y != otl.y, br.y != obr.y, tl.x != otl.x, br.x != obr.x)
+    };
+    if flat_lo_changed == flat_hi_changed {
+        return (mapped_start, mapped_end);
+    }
+    let flat_value = match (flat_x, flat_lo_changed) {
+        (true, true) => tl.x,
+        (true, false) => br.x,
+        (false, true) => tl.y,
+        (false, false) => br.y,
+    };
+
+    let start_is_low = if flat_x { start_is_top } else { start_is_left };
+    let (move_start, move_end) = match target {
+        Some(SegmentResizeTarget::Low) => (start_is_low, !start_is_low),
+        Some(SegmentResizeTarget::High) => (!start_is_low, start_is_low),
+        Some(SegmentResizeTarget::MiddleX | SegmentResizeTarget::MiddleY) => (true, true),
+        None => match (span_lo_changed, span_hi_changed) {
+            (true, false) => (start_is_low, !start_is_low),
+            (false, true) => (!start_is_low, start_is_low),
+            _ => (true, true),
+        },
+    };
+
+    let apply_flat_value = |point: Vec2D| {
+        if flat_x {
+            Vec2D::new(flat_value, point.y)
+        } else {
+            Vec2D::new(point.x, flat_value)
+        }
+    };
+    (
+        if move_start {
+            apply_flat_value(mapped_start)
+        } else {
+            start
+        },
+        if move_end {
+            apply_flat_value(mapped_end)
+        } else {
+            end
+        },
+    )
+}
+
+// Keep-aspect handling: the dragged end follows the pointer but its direction relative to
+// the fixed end is snapped to 15° steps. A segment dragged by an edge-center handle is moved
+// along or perpendicular to its own direction instead.
+// The resize handles' own aspect math is not meaningful for segments, so `new_segment` is only
+// used to tell which end is dragged.
+fn move_or_snap_segment(
+    segment: (Vec2D, Vec2D),
+    new_segment: (Vec2D, Vec2D),
+    delta: Vec2D,
+    target: Option<SegmentResizeTarget>,
+) -> (Vec2D, Vec2D) {
+    let (start, end) = segment;
+    let start_moved = new_segment.0.distance_to(&start) > f32::EPSILON;
+    let end_moved = new_segment.1.distance_to(&end) > f32::EPSILON;
+
+    let flat = (start.x == end.x) != (start.y == end.y);
+    let start_is_low = if start.x == end.x {
+        start.y < end.y
+    } else {
+        start.x < end.x
+    };
+
+    // `None` means: move the whole segment.
+    let drag_start = match target {
+        Some(SegmentResizeTarget::MiddleX | SegmentResizeTarget::MiddleY) => None,
+        Some(SegmentResizeTarget::Low) => Some(start_is_low),
+        Some(SegmentResizeTarget::High) => Some(!start_is_low),
+        None if flat => (start_moved != end_moved).then_some(start_moved),
+        None if start_moved || end_moved => {
+            Some(new_segment.0.distance_to(&start) >= new_segment.1.distance_to(&end))
+        }
+        None => return segment,
+    };
+
+    let Some(drag_start) = drag_start else {
+        let dir = end - start;
+        let norm = dir.norm();
+        if norm <= f32::EPSILON {
+            return segment;
+        }
+        let u = dir / norm;
+        // The handle whose axis is more perpendicular to the segment moves it along its
+        // direction, the other one moves it perpendicular to it.
+        let handle_is_y = target == Some(SegmentResizeTarget::MiddleY);
+        let along = handle_is_y == (dir.x.abs() >= dir.y.abs());
+        let axis = if along { u } else { Vec2D::new(-u.y, u.x) };
+        let shift = axis * (delta.x * axis.x + delta.y * axis.y);
+        return (start + shift, end + shift);
+    };
+
+    let (fixed, dragged) = if drag_start {
+        (end, start)
+    } else {
+        (start, end)
+    };
+    let v = dragged + delta - fixed;
+    if v.is_zero() {
+        return segment;
+    }
+    let moved = fixed + v.snapped_vector_15deg();
+    if drag_start {
+        (moved, end)
+    } else {
+        (start, moved)
+    }
 }
 
 // The part of a crop rectangle that is actually inside the image: what a save

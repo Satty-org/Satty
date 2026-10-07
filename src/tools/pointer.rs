@@ -8,7 +8,7 @@ use std::cell::Cell;
 
 use crate::{
     configuration::APP_CONFIG,
-    math::{Vec2D, ensure_bounding_box, get_closest_aspect_ratio},
+    math::{SegmentResizeTarget, Vec2D, ensure_bounding_box, get_closest_aspect_ratio},
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     tools::{
         RenderingMode,
@@ -61,6 +61,37 @@ impl ResizeHandle {
             ResizeHandle::BottomLeft => Vec2D::new(tl.x, br.y),
             ResizeHandle::BottomCenter => Vec2D::new(mx, br.y),
             ResizeHandle::BottomRight => br,
+        }
+    }
+
+    fn segment_target(&self, tl: Vec2D, br: Vec2D) -> Option<SegmentResizeTarget> {
+        if tl.y == br.y && tl.x != br.x {
+            // horizontal segment
+            match self {
+                Self::TopLeft | Self::MiddleLeft | Self::BottomLeft => {
+                    Some(SegmentResizeTarget::Low)
+                }
+                Self::TopRight | Self::MiddleRight | Self::BottomRight => {
+                    Some(SegmentResizeTarget::High)
+                }
+                Self::TopCenter | Self::BottomCenter => Some(SegmentResizeTarget::MiddleY),
+            }
+        } else if tl.x == br.x && tl.y != br.y {
+            // vertical segment
+            match self {
+                Self::TopLeft | Self::TopCenter | Self::TopRight => Some(SegmentResizeTarget::Low),
+                Self::BottomLeft | Self::BottomCenter | Self::BottomRight => {
+                    Some(SegmentResizeTarget::High)
+                }
+                Self::MiddleLeft | Self::MiddleRight => Some(SegmentResizeTarget::MiddleX),
+            }
+        } else {
+            // diagonal segment: only the edge-center handles move the whole segment
+            match self {
+                Self::TopCenter | Self::BottomCenter => Some(SegmentResizeTarget::MiddleY),
+                Self::MiddleLeft | Self::MiddleRight => Some(SegmentResizeTarget::MiddleX),
+                _ => None,
+            }
         }
     }
 
@@ -714,7 +745,13 @@ impl Tool for PointerTool {
                     let keep_aspect = event
                         .modifier
                         .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
-                    preview.resize_bounds(new_tl, new_br, event.pos, keep_aspect);
+                    preview.resize_bounds_with_segment_target(
+                        new_tl,
+                        new_br,
+                        event.pos,
+                        keep_aspect,
+                        handle.segment_target(orig_bounds.0, orig_bounds.1),
+                    );
                     preview.set_centered(event.modifier.intersects(ModifierType::ALT_MASK));
                     preview.set_editing(true);
                     self.emit_dimensions_update(preview.as_ref());
@@ -774,7 +811,13 @@ impl Tool for PointerTool {
                             let keep_aspect = event
                                 .modifier
                                 .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
-                            final_drawable.resize_bounds(new_tl, new_br, event.pos, keep_aspect);
+                            final_drawable.resize_bounds_with_segment_target(
+                                new_tl,
+                                new_br,
+                                event.pos,
+                                keep_aspect,
+                                handle.segment_target(orig_bounds.0, orig_bounds.1),
+                            );
                             final_drawable.set_centered(false);
                             final_drawable.set_editing(false);
                             self.update_selection_bounds(new_tl, new_br);
