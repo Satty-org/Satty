@@ -8,11 +8,10 @@ use relm4::{RelmWidgetExt, Sender, gtk};
 
 use crate::tools::drag_box::draw_rect_marker;
 use crate::{
-    configuration::APP_CONFIG,
     femtovg_area::create_image_from_pixbuf,
     image_loading,
     math::{self, Vec2D},
-    notification::log_result,
+    notification::log_error,
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     tools::hit_test_rectangle,
 };
@@ -252,10 +251,7 @@ impl ImageTool {
             {
                 match image_loading::pixbuf_from_file(&path) {
                     Ok(pixbuf) => sender.emit(SketchBoardInput::ImagePlaced(pixbuf, placement)),
-                    Err(e) => log_result(
-                        &format!("Error loading image: {e}"),
-                        !APP_CONFIG.read().disable_notifications(),
-                    ),
+                    Err(e) => log_error(&format!("Error loading image: {e}")),
                 }
             }
             dialog.destroy();
