@@ -22,6 +22,8 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/satty.svg)](https://repology.org/project/satty/versions)
 
+For emoji support please install the "Noto Color Emoji" font.
+
 ### Specifics
 | Distribution | Command | Note |
 | --- | --- | --- |
