@@ -503,12 +503,34 @@ impl Tool for PixelateTool {
     }
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.pixelate.is_some() {
-            self.pixelate = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(pixelate) = &mut self.pixelate
+        {
+            pixelate.centered = true;
+            pixelate.top_left = pixelate.origin - pixelate.size;
+            pixelate.size *= 2.0;
+            self.update_drag_cursor();
+            return ToolUpdateResult::Redraw;
         }
+
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_key_release_event(
+        &mut self,
+        event: crate::sketch_board::KeyEventMsg,
+    ) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(pixelate) = &mut self.pixelate
+        {
+            pixelate.centered = false;
+            pixelate.top_left = pixelate.origin;
+            pixelate.size /= 2.0;
+            self.update_drag_cursor();
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
     }
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {

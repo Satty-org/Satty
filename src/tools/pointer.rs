@@ -2,7 +2,11 @@ use anyhow::Result;
 use femtovg::FontId;
 use relm4::{
     Sender,
-    gtk::{self, gdk::ModifierType, prelude::WidgetExt},
+    gtk::{
+        self,
+        gdk::{Key, ModifierType},
+        prelude::WidgetExt,
+    },
 };
 use std::cell::Cell;
 
@@ -335,7 +339,6 @@ struct SelectionOverlay {
     br: Vec2D,
     scale: Cell<f32>,
     centered: bool,
-    editing: bool,
 }
 
 impl Drawable for SelectionOverlay {
@@ -368,8 +371,8 @@ impl Drawable for SelectionOverlay {
             draw_rect_marker(canvas, tl, Vec2D::new(handle_size, handle_size), true);
         }
 
-        if self.editing && self.centered {
-            draw_center_marker(canvas, self.tl + (self.br - self.tl) * 0.5);
+        if self.centered {
+            draw_center_marker(canvas, (self.tl + self.br) / 2.0);
         }
 
         Ok(())
@@ -411,6 +414,10 @@ pub struct PointerTool {
     current_cycle_index: usize,
     // Absolute pointer position (image coordinates) at drag start.
     drag_start_pos: Option<Vec2D>,
+    // Used for toggling centered mode
+    last_resize_event: Option<MouseEventMsg>,
+    // Whether the selection should display center marker.
+    centered: bool,
 }
 
 impl Default for PointerTool {
@@ -429,6 +436,8 @@ impl Default for PointerTool {
             hit_objects_at_pos: Vec::new(),
             current_cycle_index: 0,
             drag_start_pos: None,
+            last_resize_event: None,
+            centered: false,
         }
     }
 }
@@ -531,7 +540,14 @@ impl PointerTool {
         self.selected_index = Some(index);
         self.selected_bounds = Some(orig_bounds);
         self.selection_overlay = None;
-        self.preview = Some(drawable.clone_box());
+        let drawable_clone = drawable.clone_box();
+        self.preview = Some(drawable_clone);
+        self.last_resize_event = None;
+        if let Some(preview) = &mut self.preview {
+            preview.set_centered(self.centered);
+            preview.set_editing(self.centered);
+        }
+
         self.drag_state = DragState::Moving {
             index,
             original: drawable,
@@ -554,6 +570,7 @@ impl PointerTool {
         self.selected_bounds = Some(orig_bounds);
         self.selection_overlay = None;
         self.preview = Some(drawable.clone_box());
+        self.last_resize_event = None;
         self.drag_state = DragState::Resizing {
             index,
             original: drawable,
@@ -565,6 +582,37 @@ impl PointerTool {
 
     fn current_drag_pos(&self, delta: Vec2D) -> Vec2D {
         self.drag_start_pos.map_or(delta, |start| start + delta)
+    }
+
+    fn update_resize_preview(&mut self, event: MouseEventMsg) {
+        let DragState::Resizing {
+            original,
+            handle,
+            orig_bounds,
+            ..
+        } = &self.drag_state
+        else {
+            return;
+        };
+
+        let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
+        let mut preview = original.clone_box();
+        let keep_aspect = event
+            .modifier
+            .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
+        preview.resize_bounds_with_segment_target(
+            new_tl,
+            new_br,
+            event.pos,
+            keep_aspect,
+            handle.segment_target(orig_bounds.0, orig_bounds.1),
+        );
+        self.centered = event.modifier.intersects(ModifierType::ALT_MASK);
+        preview.set_centered(self.centered);
+        preview.set_editing(true);
+        self.emit_dimensions_update(preview.as_ref());
+        self.update_selection_bounds(new_tl, new_br);
+        self.preview = Some(preview);
     }
 
     fn emit_dimensions_update(&self, drawable: &dyn Drawable) {
@@ -581,14 +629,12 @@ impl PointerTool {
     fn update_selection_bounds(&mut self, tl: Vec2D, br: Vec2D) {
         let (tl, br) = ensure_bounding_box(tl, br);
         self.selected_bounds = Some((tl, br));
-
         self.selection_overlay = Some(SelectionOverlay {
             tl,
             br,
             // is updated in draw() to maintain constant on-screen size regardless of zoom level
             scale: Cell::new(1.0),
-            centered: false,
-            editing: true,
+            centered: self.centered,
         });
     }
 
@@ -598,6 +644,7 @@ impl PointerTool {
         self.update_selection_bounds(bounds.0, bounds.1);
         self.drag_state = DragState::None;
         self.preview = None;
+        self.last_resize_event = None;
     }
 
     pub fn deselect(&mut self) {
@@ -611,6 +658,7 @@ impl PointerTool {
         self.hit_objects_at_pos.clear();
         self.current_cycle_index = 0;
         self.drag_start_pos = None;
+        self.last_resize_event = None;
     }
 
     // Cycle through overlapping objects at the same position.
@@ -677,12 +725,20 @@ impl Tool for PointerTool {
     }
 
     fn handle_key_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if self.selected_index.is_none()
-            || event
-                .modifier
-                .intersects(ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
-        {
+        if self.selected_index.is_none() {
             return ToolUpdateResult::Unmodified;
+        }
+
+        if matches!(event.key, Key::Alt_L | Key::Alt_R) {
+            self.centered = true;
+            if let Some(selection_overlay) = &mut self.selection_overlay {
+                selection_overlay.centered = true;
+            }
+            if let Some(mut resize_event) = self.last_resize_event {
+                resize_event.modifier = event.modifier | ModifierType::ALT_MASK;
+                self.update_resize_preview(resize_event);
+            }
+            return ToolUpdateResult::Redraw;
         }
 
         let step = if event.modifier.contains(ModifierType::SHIFT_MASK) {
@@ -692,10 +748,10 @@ impl Tool for PointerTool {
         };
 
         let delta = match event.key {
-            relm4::gtk::gdk::Key::Left => Vec2D::new(-step, 0.0),
-            relm4::gtk::gdk::Key::Right => Vec2D::new(step, 0.0),
-            relm4::gtk::gdk::Key::Up => Vec2D::new(0.0, -step),
-            relm4::gtk::gdk::Key::Down => Vec2D::new(0.0, step),
+            Key::Left => Vec2D::new(-step, 0.0),
+            Key::Right => Vec2D::new(step, 0.0),
+            Key::Up => Vec2D::new(0.0, -step),
+            Key::Down => Vec2D::new(0.0, step),
             _ => return ToolUpdateResult::Unmodified,
         };
 
@@ -707,6 +763,26 @@ impl Tool for PointerTool {
         }
     }
 
+    fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        if self.selected_index.is_none() {
+            return ToolUpdateResult::Unmodified;
+        }
+
+        if matches!(event.key, Key::Alt_L | Key::Alt_R) {
+            self.centered = false;
+            if let Some(selection_overlay) = &mut self.selection_overlay {
+                selection_overlay.centered = false;
+            }
+            if let Some(mut resize_event) = self.last_resize_event {
+                resize_event.modifier = event.modifier & !ModifierType::ALT_MASK;
+                self.update_resize_preview(resize_event);
+            }
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         if event.button == MouseButton::Middle {
             return ToolUpdateResult::Unmodified;
@@ -714,6 +790,18 @@ impl Tool for PointerTool {
 
         // For EndDrag/UpdateDrag, event.pos is the cumulative delta since BeginDrag.
         match event.type_ {
+            MouseEventType::BeginDrag => {
+                let centered = event.modifier.intersects(ModifierType::ALT_MASK);
+                self.centered = centered;
+                self.last_resize_event = None;
+                if let Some(preview) = &mut self.preview {
+                    preview.set_centered(self.centered);
+                    preview.set_editing(true);
+                }
+
+                ToolUpdateResult::Redraw
+            }
+
             MouseEventType::PointerPos | MouseEventType::Release => {
                 self.set_hover_cursor(event.pos);
                 ToolUpdateResult::Unmodified
@@ -734,35 +822,16 @@ impl Tool for PointerTool {
                     self.preview = Some(preview);
                     ToolUpdateResult::Redraw
                 }
-                DragState::Resizing {
-                    original,
-                    handle,
-                    orig_bounds,
-                    ..
-                } => {
-                    let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
-                    let mut preview = original.clone_box();
-                    let keep_aspect = event
-                        .modifier
-                        .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
-                    preview.resize_bounds_with_segment_target(
-                        new_tl,
-                        new_br,
-                        event.pos,
-                        keep_aspect,
-                        handle.segment_target(orig_bounds.0, orig_bounds.1),
-                    );
-                    preview.set_centered(event.modifier.intersects(ModifierType::ALT_MASK));
-                    preview.set_editing(true);
-                    self.emit_dimensions_update(preview.as_ref());
-                    self.update_selection_bounds(new_tl, new_br);
-                    self.preview = Some(preview);
+                DragState::Resizing { .. } => {
+                    self.last_resize_event = Some(event);
+                    self.update_resize_preview(event);
                     ToolUpdateResult::Redraw
                 }
                 DragState::None => ToolUpdateResult::Unmodified,
             },
 
             MouseEventType::EndDrag => {
+                self.last_resize_event = None;
                 let current_pos = self.current_drag_pos(event.pos);
                 match std::mem::replace(&mut self.drag_state, DragState::None) {
                     DragState::Moving {

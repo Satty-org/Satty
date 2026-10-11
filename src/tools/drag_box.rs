@@ -63,7 +63,7 @@ impl DragBox {
         }
 
         let size_factor = if centered { 2.0 } else { 1.0 };
-        new_size = new_size * size_factor;
+        new_size *= size_factor;
 
         let top_left = if centered {
             origin.min(origin - new_size.abs() / size_factor)

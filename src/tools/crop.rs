@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::Result;
 use femtovg::{Color, Paint, Path};
-use relm4::Sender;
+use relm4::{Sender, gtk::gdk::Key};
 
 #[derive(Debug, Clone)]
 pub struct Crop {
@@ -343,6 +343,37 @@ impl Tool for CropTool {
 
     fn get_tool_type(&self) -> super::Tools {
         Tools::Crop
+    }
+
+    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(crop) = &mut self.crop
+        {
+            crop.centered = true;
+            crop.top_left = crop.origin - crop.size;
+            crop.size *= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_key_release_event(
+        &mut self,
+        event: crate::sketch_board::KeyEventMsg,
+    ) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(crop) = &mut self.crop
+        {
+            crop.centered = false;
+            crop.top_left = crop.origin;
+            crop.size /= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
