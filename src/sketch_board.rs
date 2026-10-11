@@ -1792,10 +1792,18 @@ impl Component for SketchBoard {
                 }
 
                 if let InputEvent::Key(ke) = ie {
-                    let active_tool_result = self
-                        .active_tool
-                        .borrow_mut()
-                        .handle_event(ToolEvent::Input(ie.clone()));
+                    let active_tool_result = if ke.key == Key::Escape
+                        && self.active_tool_type() == Tools::Pointer
+                        && self.pointer_tool.borrow().selected_index().is_some()
+                    {
+                        self.pointer_tool.borrow_mut().deselect();
+                        self.renderer.set_hidden_drawable_index(None);
+                        ToolUpdateResult::Redraw
+                    } else {
+                        self.active_tool
+                            .borrow_mut()
+                            .handle_event(ToolEvent::Input(ie.clone()))
+                    };
 
                     match active_tool_result {
                         ToolUpdateResult::StopPropagation
