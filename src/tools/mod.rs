@@ -27,7 +27,7 @@ use relm4::{
 use serde_derive::Deserialize;
 
 use crate::{
-    math::{Vec2D, ensure_bounding_box},
+    math::{SegmentResizeTarget, Vec2D, ensure_bounding_box},
     sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, SketchBoardInput, TextEventMsg},
     style::Style,
 };
@@ -242,6 +242,17 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     }
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, delta: Vec2D, keep_aspect: bool) {
         let _ = (tl, br, delta, keep_aspect);
+    }
+    fn resize_bounds_with_segment_target(
+        &mut self,
+        tl: Vec2D,
+        br: Vec2D,
+        delta: Vec2D,
+        keep_aspect: bool,
+        target: Option<SegmentResizeTarget>,
+    ) {
+        let _ = target;
+        self.resize_bounds(tl, br, delta, keep_aspect);
     }
     fn get_style(&self) -> Option<&Style> {
         None
