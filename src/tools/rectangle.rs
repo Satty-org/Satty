@@ -46,7 +46,17 @@ impl Drawable for Rectangle {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, self.size, tolerance, self.style.fill)
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        hit_test_rectangle(
+            pos,
+            self.top_left,
+            self.size,
+            line_width / 2.0 + tolerance,
+            self.style.fill,
+        )
     }
 
     fn translate(&mut self, delta: Vec2D) {
