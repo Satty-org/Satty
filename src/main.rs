@@ -587,7 +587,9 @@ fn run_satty() -> Result<()> {
         }
         Some(Input::ClipboardCommand(paste_command)) => {
             let mut buf = Vec::<u8>::new();
-            let mut child = Command::new(paste_command)
+            let mut child = Command::new("sh")
+                .arg("-c")
+                .arg(paste_command)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .spawn()?;
