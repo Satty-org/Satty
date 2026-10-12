@@ -2,7 +2,7 @@
 
 ## Description
 
-<!-- Sorry for removing your commit body. It's currently not possible to retain it when using a PR template. Please add it back here or provide a new one. -->
+<!-- Optional heading, feel free to just use the commit text body instead. -->
 
 ### "Breaking Change" section for release notes
 
