@@ -53,6 +53,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - After you edit a text with a double click, Enter selects the text with the pointer tool [#795]
 - Draw a line already when start and end are equal [#803]
 - Blur no longer depends on the zoom of the canvas. [804]
+- Selecting lines, arrows, rectangles and ellipses with the pointer tool takes their line width into account, so thick strokes can be grabbed anywhere on the stroke. [#810]
 
 ### Security
 
@@ -69,5 +70,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#804]: https://github.com/Satty-org/Satty/pull/804
 [#806]: https://github.com/Satty-org/Satty/pull/806
 [#808]: https://github.com/Satty-org/Satty/pull/808
+[#810]: https://github.com/Satty-org/Satty/pull/810
 
 <!-- --8<-- [end:changelog] -->

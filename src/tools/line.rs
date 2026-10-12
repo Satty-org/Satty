@@ -47,7 +47,11 @@ impl Drawable for Line {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        pos.distance_to_segment(self.start, self.end) <= tolerance
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        pos.distance_to_segment(self.start, self.end) <= tolerance + line_width / 2.0
     }
 
     fn translate(&mut self, delta: Vec2D) {

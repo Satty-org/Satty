@@ -48,6 +48,11 @@ impl Drawable for Ellipse {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        let tolerance = tolerance + line_width / 2.0;
         hit_test_ellipse(pos, self.top_left, self.size, tolerance, self.style.fill)
     }
 
