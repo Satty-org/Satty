@@ -30,7 +30,7 @@ pub struct CommandLine {
 
     /// Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE)
     /// If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided.
-    #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste")]
+    #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste -t image")]
     pub from_clipboard: Option<String>,
 
     /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
