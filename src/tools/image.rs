@@ -6,20 +6,19 @@ use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::prelude::*;
 use relm4::{RelmWidgetExt, Sender, gtk};
 
-use crate::tools::drag_box::draw_rect_marker;
-use crate::{
-    configuration::APP_CONFIG,
-    femtovg_area::create_image_from_pixbuf,
-    image_loading,
-    math::{self, Vec2D},
-    notification::log_result,
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
-    tools::hit_test_rectangle,
-};
-
 use super::{
     Drawable, InputContext, Tool, ToolUpdateResult, Tools,
     drag_box::{DragBox, draw_center_marker},
+};
+use crate::logging::LogSeverity;
+use crate::tools::drag_box::draw_rect_marker;
+use crate::{
+    femtovg_area::create_image_from_pixbuf,
+    image_loading,
+    logging::{LogLevel, log},
+    math::{self, Vec2D},
+    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
+    tools::hit_test_rectangle,
 };
 
 /// Where an inserted image goes, in image coordinates.
@@ -266,9 +265,10 @@ impl ImageTool {
             {
                 match image_loading::pixbuf_from_file(&path) {
                     Ok(pixbuf) => sender.emit(SketchBoardInput::ImagePlaced(pixbuf, placement)),
-                    Err(e) => log_result(
+                    Err(e) => log(
                         &format!("Error loading image: {e}"),
-                        !APP_CONFIG.read().disable_notifications(),
+                        LogLevel::Error,
+                        LogSeverity::Normal,
                     ),
                 }
             }
