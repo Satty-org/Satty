@@ -1,6 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::Sender;
+use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     math::{self, Vec2D},
@@ -16,8 +16,8 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub struct Ellipse {
     origin: Vec2D,
-    middle: Vec2D,
-    radii: Vec2D,
+    top_left: Vec2D,
+    size: Vec2D,
     style: Style,
     centered: bool,
     editing: bool,
@@ -25,12 +25,13 @@ pub struct Ellipse {
 
 impl Drawable for Ellipse {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let radii = self.radii.abs();
-        Some((self.middle - radii, self.middle + radii))
+        Some((self.top_left, self.top_left + self.size))
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let d = (pos - self.middle) / (self.radii + tolerance);
+        let radii = self.size.abs() * 0.5;
+        let center = self.top_left + radii;
+        let d = (pos - center) / (radii + tolerance);
         if d * d > 1.0 {
             // outside the outer tolerance
             return false;
@@ -42,21 +43,19 @@ impl Drawable for Ellipse {
         }
 
         // outside the inner tolerance
-        let inner_d = (pos - self.middle) / (self.radii - tolerance);
+        let inner_d = (pos - center) / (radii - tolerance);
         inner_d * inner_d > 1.0
     }
 
     fn translate(&mut self, delta: Vec2D) {
-        self.middle += delta;
+        self.top_left += delta;
         self.origin += delta;
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
         let (tl, br) = math::ensure_bounding_box(tl, br);
-        let center = (tl + br) / 2.0;
-        self.middle = center;
-        self.origin = center;
-        self.radii = (br - tl).abs() / 2.0;
+        self.top_left = tl;
+        self.size = br - tl;
         self.centered = false;
         self.editing = false;
     }
@@ -76,7 +75,9 @@ impl Drawable for Ellipse {
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let mut path = Path::new();
-        path.ellipse(self.middle.x, self.middle.y, self.radii.x, self.radii.y);
+        let radii = self.size.abs() * 0.5;
+        let center = self.top_left + radii;
+        path.ellipse(center.x, center.y, radii.x, radii.y);
 
         if self.style.fill {
             canvas.fill_path(&path, &self.style.into());
@@ -84,7 +85,7 @@ impl Drawable for Ellipse {
         canvas.stroke_path(&path, &self.style.into());
 
         if self.editing && self.centered {
-            draw_center_marker(canvas, self.middle);
+            draw_center_marker(canvas, center);
         }
 
         Ok(())
@@ -100,10 +101,10 @@ impl Drawable for Ellipse {
 
 impl Ellipse {
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, self.radii * 2.0, event, sender);
+        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
         self.centered = drag_box.centered;
-        self.middle = drag_box.middle();
-        self.radii = drag_box.size.abs() * 0.5;
+        self.top_left = drag_box.top_left;
+        self.size = drag_box.size;
     }
 }
 
@@ -132,6 +133,37 @@ impl Tool for EllipseTool {
         Tools::Ellipse
     }
 
+    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(ellipse) = &mut self.ellipse
+        {
+            ellipse.centered = true;
+            ellipse.top_left = ellipse.origin - ellipse.size;
+            ellipse.size *= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_key_release_event(
+        &mut self,
+        event: crate::sketch_board::KeyEventMsg,
+    ) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(ellipse) = &mut self.ellipse
+        {
+            ellipse.centered = false;
+            ellipse.top_left = ellipse.origin;
+            ellipse.size /= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         match event.type_ {
             MouseEventType::BeginDrag => {
@@ -142,8 +174,8 @@ impl Tool for EllipseTool {
                 // start new
                 self.ellipse = Some(Ellipse {
                     origin: event.pos,
-                    middle: event.pos,
-                    radii: Vec2D::zero(),
+                    top_left: event.pos,
+                    size: Vec2D::zero(),
                     style: self.style,
                     centered: false,
                     editing: true,
@@ -160,7 +192,6 @@ impl Tool for EllipseTool {
                     ellipse.editing = false;
                     if event.pos == Vec2D::zero() {
                         self.ellipse = None;
-
                         ToolUpdateResult::Redraw
                     } else {
                         ellipse.calculate_shape(self.sender.as_ref().unwrap(), &event);

@@ -457,10 +457,33 @@ impl Tool for HighlightTool {
         }
     }
 
+    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(HighlightKind::Block(hb)) = &mut self.highlighter
+        {
+            hb.data.centered = true;
+            hb.data.top_left = hb.data.origin - hb.data.size;
+            hb.data.size *= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_key_release_event(
         &mut self,
         event: crate::sketch_board::KeyEventMsg,
     ) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(HighlightKind::Block(hb)) = &mut self.highlighter
+        {
+            hb.data.centered = false;
+            hb.data.top_left = hb.data.origin;
+            hb.data.size /= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
         // Adds an extra point when shift is released in the freehand mode, this
         // allows for users to make sharper turns. Release shift a second time
         // to remove the added point (only if the cursor has not moved).

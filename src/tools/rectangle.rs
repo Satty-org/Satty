@@ -1,6 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::Sender;
+use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     math::{self, Vec2D},
@@ -122,6 +122,37 @@ impl Tool for RectangleTool {
 
     fn active(&self) -> bool {
         self.rectangle.is_some()
+    }
+
+    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(rectangle) = &mut self.rectangle
+        {
+            rectangle.centered = true;
+            rectangle.top_left = rectangle.origin - rectangle.size;
+            rectangle.size *= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
+    }
+
+    fn handle_key_release_event(
+        &mut self,
+        event: crate::sketch_board::KeyEventMsg,
+    ) -> ToolUpdateResult {
+        if matches!(event.key, Key::Alt_L | Key::Alt_R)
+            && let Some(rectangle) = &mut self.rectangle
+        {
+            rectangle.centered = false;
+            rectangle.top_left = rectangle.origin;
+            rectangle.size /= 2.0;
+
+            return ToolUpdateResult::Redraw;
+        }
+
+        ToolUpdateResult::Unmodified
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {

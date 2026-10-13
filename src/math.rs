@@ -1,7 +1,7 @@
 use std::{
     f32::consts::PI,
     fmt::Display,
-    ops::{Add, AddAssign, Div, Mul, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
 };
 
 pub fn get_closest_aspect_ratio(aspect_ratio: f32, aspect_ratios: &[(f32, f32)]) -> (f32, f32) {
@@ -251,6 +251,12 @@ impl Mul<f32> for Vec2D {
     }
 }
 
+impl MulAssign<f32> for Vec2D {
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = *self * rhs;
+    }
+}
+
 impl Mul<Vec2D> for Vec2D {
     type Output = f32;
 
@@ -264,6 +270,12 @@ impl Div<f32> for Vec2D {
 
     fn div(self, rhs: f32) -> Self::Output {
         Vec2D::new(self.x / rhs, self.y / rhs)
+    }
+}
+
+impl DivAssign<f32> for Vec2D {
+    fn div_assign(&mut self, rhs: f32) {
+        *self = *self / rhs;
     }
 }
 
