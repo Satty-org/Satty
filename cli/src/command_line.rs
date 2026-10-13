@@ -33,6 +33,10 @@ pub struct CommandLine {
     #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste -t image")]
     pub from_clipboard: Option<String>,
 
+    /// log level (NEXTRELEASE)
+    #[arg(long, value_enum)]
+    pub log_level: Option<LogLevel>,
+
     /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
     /// Mileage may vary depending on compositor.
@@ -184,6 +188,18 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,
     // ---
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq, Eq, PartialOrd, Ord)]
+#[value(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum LogLevel {
+    Fatal,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
