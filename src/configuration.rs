@@ -19,8 +19,8 @@ use crate::{style::Color, tools::Tools};
 
 use crate::tools::Highlighters;
 use satty_cli::command_line::{
-    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, NotificationThumbnail,
-    Resize,
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
+    NotificationThumbnail, Resize,
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
@@ -60,6 +60,7 @@ pub struct Configuration {
     license: bool,
     input: Option<Input>,
     output_filename: Option<String>,
+    log_level: LogLevel,
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
     floating_hack: bool,
@@ -311,6 +312,9 @@ impl Configuration {
         if let Some(v) = general.output_filename {
             self.output_filename = Some(v);
         }
+        if let Some(v) = general.log_level {
+            self.log_level = v
+        }
         if let Some(v) = general.annotation_size_factor {
             self.annotation_size_factor = v;
         }
@@ -396,7 +400,7 @@ impl Configuration {
         }
         if let Some(v) = general.action_on_enter {
             log_config_error(
-                "Deprecated config option: action-on-enter, use action-on-enter instead",
+                "Deprecated config option: action-on-enter, use actions-on-enter instead",
             );
             self.actions_on_enter.insert(0, v);
         }
@@ -469,6 +473,9 @@ impl Configuration {
         }
         if let Some(v) = command_line.output_filename {
             self.output_filename = Some(v);
+        }
+        if let Some(v) = command_line.log_level {
+            self.log_level = v;
         }
         if let Some(v) = command_line.annotation_size_factor {
             self.annotation_size_factor = v;
@@ -597,6 +604,10 @@ impl Configuration {
         self.output_filename.as_ref()
     }
 
+    pub fn log_level(&self) -> LogLevel {
+        self.log_level
+    }
+
     pub fn input(&self) -> Option<&Input> {
         self.input.as_ref()
     }
@@ -717,6 +728,7 @@ impl Default for Configuration {
             license: false,
             input: None,
             output_filename: None,
+            log_level: LogLevel::Info,
             fullscreen: None,
             resize: None,
             floating_hack: false,
@@ -815,6 +827,7 @@ struct ConfigurationFileGeneral {
     auto_copy: Option<bool>,
     auto_select_new: Option<bool>,
     output_filename: Option<String>,
+    log_level: Option<LogLevel>,
     actions_on_enter: Option<Vec<Action>>,
     actions_on_escape: Option<Vec<Action>>,
     actions_on_right_click: Option<Vec<Action>>,

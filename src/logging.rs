@@ -3,25 +3,74 @@ use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
 
 use crate::configuration::APP_CONFIG;
 use crate::{APP_BROKER, AppInput, TEMP_DIR};
+use chrono::Local;
 use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
 use relm4::gtk::prelude::Cast;
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection, gio};
-use satty_cli::command_line::NotificationThumbnail;
+pub use satty_cli::command_line::{LogLevel, NotificationThumbnail};
 use tempfile::NamedTempFile;
 
-pub fn log_result(msg: &str, notify: bool) {
-    eprintln!("{msg}");
-    if notify {
+//TODO naming
+trait Prefix {
+    fn prefix(&self) -> &'static str;
+}
+
+impl Prefix for LogLevel {
+    fn prefix(&self) -> &'static str {
+        match self {
+            LogLevel::Fatal => "💀",
+            LogLevel::Error => "✖",
+            LogLevel::Warn => "⚠",
+            LogLevel::Info => "ℹ",
+            LogLevel::Debug => "⚙",
+            LogLevel::Trace => "…",
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LogSeverity {
+    #[default]
+    Low,
+    High,
+    Normal,
+    Urgent,
+}
+
+impl From<LogSeverity> for gio::NotificationPriority {
+    fn from(val: LogSeverity) -> Self {
+        match val {
+            LogSeverity::Urgent => gio::NotificationPriority::Urgent,
+            LogSeverity::High => gio::NotificationPriority::High,
+            LogSeverity::Normal => gio::NotificationPriority::Normal,
+            LogSeverity::Low => gio::NotificationPriority::Low, // not really used, but ok
+        }
+    }
+}
+
+pub fn log(msg: &str, level: LogLevel, severity: LogSeverity) {
+    if level <= APP_CONFIG.read().log_level() {
+        let ts = Local::now().format("%Y-%m-%dT%H:%M:%S");
+        let pfx = level.prefix();
+        let output = format!("{ts} {pfx} {msg}");
+        eprintln!("{output}");
+    }
+
+    if severity >= LogSeverity::High {
         if APP_CONFIG.read().disable_notifications() {
             APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
         } else {
-            show_notification(msg, None);
+            show_notification(msg, None, severity);
         }
     }
 }
 
 pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
-    eprintln!("{msg}");
+    //TODO duplicated
+    let ts = Local::now().format("%Y-%m-%dT%H:%M:%S");
+    let pfx = LogLevel::Info.prefix();
+    let output = format!("{ts} {pfx} {msg}");
+    eprintln!("{output}");
 
     if APP_CONFIG.read().disable_notifications() {
         APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
@@ -87,10 +136,10 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
         _ => None,
     };
 
-    show_notification(msg, icon);
+    show_notification(msg, icon, LogSeverity::Normal);
 }
 
-fn show_notification(msg: &str, icon: Option<Icon>) {
+fn show_notification(msg: &str, icon: Option<Icon>, severity: LogSeverity) {
     // construct
     let notification = Notification::new("Satty");
     notification.set_body(Some(msg));
@@ -113,6 +162,7 @@ fn show_notification(msg: &str, icon: Option<Icon>) {
                 .file()
         {
             notification.set_icon(&FileIcon::new(&icon_file));
+            notification.set_priority(severity.into());
         }
     }
 
