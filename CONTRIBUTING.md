@@ -27,6 +27,7 @@ Commits and PRs
 - Please make sure that all commits in a non-draft PR compile.
 - The PR should use a conventional commit message.
 - PRs should not break existing config or disrupt existing user workflows. But if there are potential surprises, please add a "!" for attention, e.g. "fix!", "feat!", and provide a small section that may be included in the release notes.
+- Please fill out the check list provided in our pull request template.
 
 Milestones
 --
