@@ -2,7 +2,7 @@
 
 ## Description
 
-<!-- Optional heading, feel free to just use the commit text body instead. -->
+<!-- Optional heading, feel free to just use the commit text body instead. Please do not paste LLM output verbatim. -->
 
 ### "Breaking Change" section for release notes
 
