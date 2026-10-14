@@ -58,6 +58,8 @@ pub enum SketchBoardInput {
     Exit,
     ScaleFactorChanged,
     ShapeDimensionsUpdate(Vec2D),
+    // the image tool abandoned the draft selection a file dialog belonged to
+    FileDialogCanceled,
     Output(SketchBoardOutput),
 }
 
@@ -82,6 +84,7 @@ pub enum InputEvent {
     Key(KeyEventMsg),
     KeyRelease(KeyEventMsg),
     Text(TextEventMsg),
+    FileDialogCanceled,
 }
 
 // from https://flatuicolors.com/palette/au
@@ -1395,6 +1398,16 @@ impl SketchBoard {
             ))
     }
 
+    /// Clears the draft selection left behind by a cancelled image dialog.
+    fn handle_file_dialog_canceled(&mut self) -> ToolUpdateResult {
+        // the image tool commits right away, so the pending box lives in the
+        // tool even when it is not the active one
+        self.tools
+            .get(&Tools::Image)
+            .borrow_mut()
+            .handle_input_event(InputEvent::FileDialogCanceled)
+    }
+
     fn dispatch_key_shortcut_command(
         &mut self,
         command: ShortcutCommand,
@@ -1922,6 +1935,15 @@ impl Component for SketchBoard {
             SketchBoardInput::ShapeDimensionsUpdate(size) => {
                 self.emit_shape_dimensions(&sender, size);
                 ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::FileDialogCanceled => {
+                let result = self.handle_file_dialog_canceled();
+                if matches!(result, ToolUpdateResult::Redraw) {
+                    // box that carried the dimensions is gone, so fall back to
+                    // what save would produce
+                    self.emit_shape_dimensions(&sender, self.current_output_dimensions());
+                }
+                result
             }
             SketchBoardInput::Output(output) => {
                 sender.output_sender().emit(output);

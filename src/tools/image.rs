@@ -62,6 +62,19 @@ impl ImagePlacement {
 struct DragPreview {
     origin: Vec2D,
     drag_box: DragBox,
+    /// still to be consumed by the file dialog, dropped on cancel
+    awaiting_file_dialog: bool,
+}
+
+impl DragPreview {
+    /// whether the drag box survives a rejected file dialog
+    ///
+    /// a pending box is drawn with the dimensions it reports, so once
+    /// the dialog it belongs to is gone the box has to go with it,
+    /// otherwise the toolbar keeps showing the abandoned selection
+    fn canceled_by_rejected_file_dialog(&self) -> bool {
+        self.awaiting_file_dialog
+    }
 }
 
 impl Drawable for DragPreview {
@@ -247,9 +260,8 @@ impl ImageTool {
         dialog.add_filter(&filter);
 
         dialog.connect_response(move |dialog, response| {
-            if response == gtk::ResponseType::Accept
-                && let Some(path) = dialog.file().and_then(|file| file.path())
-            {
+            let accepted = response == gtk::ResponseType::Accept;
+            if accepted && let Some(path) = dialog.file().and_then(|file| file.path()) {
                 match image_loading::pixbuf_from_file(&path) {
                     Ok(pixbuf) => sender.emit(SketchBoardInput::ImagePlaced(pixbuf, placement)),
                     Err(e) => log_result(
@@ -258,6 +270,9 @@ impl ImageTool {
                     ),
                 }
             }
+            // the dialog is done with the box whether or not an image was
+            // picked, so cancelling must take the draft selection back
+            sender.emit(SketchBoardInput::FileDialogCanceled);
             dialog.destroy();
         });
 
@@ -269,6 +284,22 @@ impl ImageTool {
 impl Tool for ImageTool {
     fn get_tool_type(&self) -> Tools {
         Tools::Image
+    }
+
+    /// Drops the draft selection of an image dialog that the user abandoned.
+    ///
+    /// Draws nothing itself: the box that sets the toolbar dimensions is the
+    /// one being dropped, so the caller has to refresh the renderer.
+    fn handle_file_dialog_canceled(&mut self) -> ToolUpdateResult {
+        if !self
+            .drag
+            .as_ref()
+            .is_some_and(DragPreview::canceled_by_rejected_file_dialog)
+        {
+            return ToolUpdateResult::Unmodified;
+        }
+        self.drag = None;
+        ToolUpdateResult::Redraw
     }
 
     fn input_enabled(&self) -> bool {
@@ -320,6 +351,7 @@ impl Tool for ImageTool {
                         &event,
                         self.sender.as_ref().unwrap(),
                     ),
+                    awaiting_file_dialog: false,
                 });
                 ToolUpdateResult::Unmodified
             }
@@ -336,14 +368,18 @@ impl Tool for ImageTool {
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
-                let Some(drag) = self.drag.take() else {
+                let Some(mut drag) = self.drag.take() else {
                     return ToolUpdateResult::Unmodified;
                 };
+                drag.awaiting_file_dialog = true;
                 self.open_file_dialog(ImagePlacement::from_drag(
                     drag.origin,
                     &event,
                     self.sender.as_ref().unwrap(),
                 ));
+                // the dialog opening keeps the box alive: it is what the
+                // dimensions label reports while the user picks a file
+                self.drag = Some(drag);
                 ToolUpdateResult::Redraw
             }
             _ => ToolUpdateResult::Unmodified,
@@ -546,4 +582,76 @@ mod tests {
     //         }
     //     );
     // }
+    fn pending_drag() -> DragPreview {
+        DragPreview {
+            origin: Vec2D::zero(),
+            drag_box: DragBox {
+                top_left: Vec2D::zero(),
+                size: Vec2D::new(120.0, 80.0),
+                centered: false,
+                keep_aspect: false,
+                delta: Vec2D::zero(),
+            },
+            awaiting_file_dialog: false,
+        }
+    }
+
+    #[test]
+    fn a_drag_still_being_drawn_is_not_dropped_by_a_rejected_dialog() {
+        // only the box a dialog was opened for may be cancelled, otherwise an
+        // unrelated response would wipe the selection in progress
+        assert!(!pending_drag().canceled_by_rejected_file_dialog());
+    }
+
+    #[test]
+    fn a_drag_backing_a_file_dialog_is_dropped_when_the_dialog_is_rejected() {
+        let mut drag = pending_drag();
+        drag.awaiting_file_dialog = true;
+        assert!(drag.canceled_by_rejected_file_dialog());
+    }
+
+    #[test]
+    fn a_cancelled_dialog_clears_the_dimensions_the_draft_box_reported() {
+        let mut tool = ImageTool {
+            drag: Some(DragPreview {
+                awaiting_file_dialog: true,
+                ..pending_drag()
+            }),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            tool.handle_file_dialog_canceled(),
+            ToolUpdateResult::Redraw
+        ));
+        // nothing is left to draw, so the toolbar can no longer report the
+        // dimensions of the abandoned selection
+        assert!(tool.get_drawable().is_none());
+    }
+
+    #[test]
+    fn cancelling_without_a_pending_selection_leaves_the_board_alone() {
+        let mut tool = ImageTool::default();
+
+        // no box, no dimensions to reset: answering otherwise would force a
+        // redraw (and a dimensions update) on every unrelated dialog response
+        assert!(matches!(
+            tool.handle_file_dialog_canceled(),
+            ToolUpdateResult::Unmodified
+        ));
+    }
+
+    #[test]
+    fn cancelling_keeps_a_drag_that_no_dialog_owns() {
+        let mut tool = ImageTool {
+            drag: Some(pending_drag()),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            tool.handle_file_dialog_canceled(),
+            ToolUpdateResult::Unmodified
+        ));
+        assert!(tool.get_drawable().is_some());
+    }
 }

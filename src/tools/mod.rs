@@ -86,12 +86,19 @@ pub trait Tool {
         ToolUpdateResult::Unmodified
     }
 
+    /// Called when a file dialog a tool opened was dismissed without
+    /// producing anything, so draft state tied to it can be dropped.
+    fn handle_file_dialog_canceled(&mut self) -> ToolUpdateResult {
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_input_event(&mut self, event: InputEvent) -> ToolUpdateResult {
         match event {
             InputEvent::Mouse(e) => self.handle_mouse_event(e),
             InputEvent::Key(e) => self.handle_key_event(e),
             InputEvent::KeyRelease(e) => self.handle_key_release_event(e),
             InputEvent::Text(e) => self.handle_text_event(e),
+            InputEvent::FileDialogCanceled => self.handle_file_dialog_canceled(),
         }
     }
 
