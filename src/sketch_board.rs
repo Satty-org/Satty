@@ -622,6 +622,13 @@ impl SketchBoard {
         let _ = fs::write(last_dir_file, parent.to_string_lossy().as_bytes());
     }
 
+    fn write_image_file(path: &Path, data: &[u8]) -> io::Result<()> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, data)
+    }
+
     fn handle_save(&self, image: &Pixbuf) {
         let output_filename = match APP_CONFIG.read().output_filename() {
             None => {
@@ -661,8 +668,11 @@ impl SketchBoard {
             }
             return;
         }
-        match fs::write(&output_filename, data) {
-            Err(e) => log_result(&format!("Error while saving file: {e}"), true),
+        match Self::write_image_file(Path::new(&output_filename), &data) {
+            Err(e) => log_result(
+                &format!("Error while saving file '{output_filename}': {e}"),
+                true,
+            ),
             Ok(_) => {
                 // Store the filepath for copy-filepath action
                 *self.last_saved_filepath.borrow_mut() = Some(output_filename.clone());
@@ -737,8 +747,11 @@ impl SketchBoard {
                         None => return,
                     };
 
-                    match fs::write(&output_filename, &data) {
-                        Err(e) => log_result(&format!("Error while saving file: {e}"), true),
+                    match Self::write_image_file(Path::new(&output_filename), &data) {
+                        Err(e) => log_result(
+                            &format!("Error while saving file '{output_filename}': {e}"),
+                            true,
+                        ),
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
                             filename = Some(output_filename.clone());
