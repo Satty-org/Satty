@@ -214,6 +214,10 @@ Marker:
 
 - Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
 
+Brush:
+
+- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. <sup>NEXTRELEASE</sup>
+
 Highlight:
 
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).

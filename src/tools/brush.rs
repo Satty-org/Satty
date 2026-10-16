@@ -5,13 +5,14 @@ use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 use crate::{
     configuration::APP_CONFIG,
     math::{self, Vec2D},
-    sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
+    sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
     tools::hit_test_rectangle,
 };
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;
+use relm4::gtk::gdk::{Key, ModifierType};
 
 #[derive(Default)]
 pub struct BrushTool {
@@ -32,8 +33,21 @@ pub struct BrushDrawable {
 }
 
 impl BrushDrawable {
-    fn add_point(&mut self, point: Vec2D) {
-        self.points.push(self.smoother.update(point));
+    fn add_point(&mut self, point: Vec2D, shift_pressed: bool) {
+        if !shift_pressed {
+            self.points.push(self.smoother.update(point));
+            return;
+        }
+        if shift_pressed && self.points.len() > 1 {
+            self.points.pop();
+        }
+        let anchor = if self.points.len() == 1 {
+            Vec2D::zero()
+        } else {
+            *self.points.last().unwrap()
+        };
+        self.points
+            .push(anchor + (point - anchor).snapped_vector_15deg());
     }
 }
 
@@ -187,8 +201,7 @@ impl Tool for BrushTool {
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
-                brush.add_point(event.pos);
-
+                brush.add_point(event.pos, event.modifier.contains(ModifierType::SHIFT_MASK));
                 // commit
                 let result = brush.clone_box();
                 self.drawable = None;
@@ -203,7 +216,7 @@ impl Tool for BrushTool {
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
-                brush.add_point(event.pos);
+                brush.add_point(event.pos, event.modifier.contains(ModifierType::SHIFT_MASK));
                 ToolUpdateResult::Redraw
             }
             MouseEventType::Click => {
@@ -227,6 +240,17 @@ impl Tool for BrushTool {
             Some(d) => Some(d),
             None => None,
         }
+    }
+
+    fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
+        if (event.key == Key::Shift_L || event.key == Key::Shift_R)
+            && let Some(brush) = &mut self.drawable
+        {
+            // duplicate the last point to maintain the current segment
+            brush.points.push(*brush.points.last().unwrap());
+            brush.smoother.reset(*brush.points.last().unwrap());
+        }
+        ToolUpdateResult::Unmodified
     }
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
@@ -259,6 +283,12 @@ impl Smoother {
             max_history,
             last_update: None,
         }
+    }
+
+    pub fn reset(&mut self, start: Vec2D) {
+        self.history.clear();
+        self.smoothed_point = Some(start);
+        self.last_update = Some(Instant::now());
     }
 
     pub fn update(&mut self, raw: Vec2D) -> Vec2D {
