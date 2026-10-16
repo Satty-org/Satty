@@ -882,7 +882,7 @@ impl FemtoVgAreaMut {
 
         let transparency_bg_id = match self.transparent_background_id {
             Some(id) if onscreen => Some(id),
-            None => {
+            None if onscreen => {
                 if let Some(id) = Self::create_transparency_bg(canvas) {
                     self.transparent_background_id.replace(id);
                     Some(id)
