@@ -1,53 +1,76 @@
 [general]
+# experimental feature (0.21.0): set window title
+title = "Satty"
+# experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
+app-id = "org.satty.satty"
+
 # Start Satty in fullscreen mode
 fullscreen = false
 # fullscreen = true
 # since 0.20.1, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
 #fullscreen = "all"
 #fullscreen = "current-screen"
+
 # resize initially (0.20.1)
 resize = { mode = "smart" }
 # resize = { mode = "size", width = 2000, height = 800 }
+
 # try to have the window float (0.20.1). This may depend on the compositor.
 floating-hack = true
-# Change to true to automatically copy to clipboard after every annotation change (0.21.0)
-auto-copy = false
-# Change to true to automatically select newly created annotation (NEXTRELEASE)
-auto-select-new = false
-# Exit directly after copy/save action. 0.21.0: change to list of triggers
-# Note that exit-early-save-as was removed with 0.21.0.
-early-exit = ["all"]
-# Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
-aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
-# is equivalent to both
-# early-exit = ["copy", "save", "save-as"]
-# early-exit = true
-# Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
-corner-roundness = 12
-# Select the tool on startup [possible values: see `satty --help`]
-initial-tool = "brush"
-# Configure the command to be called on copy, for example `wl-copy`
-copy-command = "wl-copy"
-# Increase or decrease the size of the annotations
-annotation-size-factor = 2
-# Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
-# starting with 0.20.0, can contain leading tilde (~) for home directory
-# starting with 0.21.0, save as uses this as initial filename/path when available
-output-filename = "/tmp/test-%Y-%m-%d_%H:%M:%S.png"
-# After copying the screenshot, save it to a file as well
-save-after-copy = false
 # Hide toolbars by default
 default-hide-toolbars = false
 # Experimental (since 0.20.0): whether window focus shows/hides toolbars. This does not affect initial state of toolbars, see default-hide-toolbars.
 focus-toggles-toolbars = false
+# request no window decoration. Please note that the compositor has the final say in this. At this point. requires xdg-decoration-unstable-v1.
+no-window-decoration = true
+
+# experimental feature (0.22.0): show thumbnail as notification icon
+# notification-thumbnail = "app-icon"
+notification-thumbnail = "screenshot"
+# how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
+# for fast machines, the default value of 250ms is ridiculously high.
+notification-grace-period = 250
+# Disable notifications
+disable-notifications = false
+
+# Exit directly after copy/save action. 0.21.0: change to list of triggers
+# Note that exit-early-save-as was removed with 0.21.0.
+early-exit = ["all"]
+# is equivalent to both
+# early-exit = ["copy", "save", "save-as"]
+# early-exit = true
+
+# Change to true to automatically copy to clipboard after every annotation change (0.21.0)
+auto-copy = false
+# Configure the command to be called on copy, for example `wl-copy`
+copy-command = "wl-copy"
+# After copying the screenshot, save it to a file as well
+save-after-copy = false
+
+# Filename to use for saving action. Omit to be asked via the save-as dialog on first save; the chosen file is then reused for later saves. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
+# starting with 0.20.0, can contain leading tilde (~) for home directory
+# starting with 0.21.0, save as uses this as initial filename/path when available
+output-filename = "~/Pictures/Screenshots/screenshot-%Y-%m-%d_%H:%M:%S.png"
+
+# Select the tool on startup [possible values: see `satty --help`]
+initial-tool = "brush"
+# Change to true to automatically select newly created annotation (NEXTRELEASE)
+auto-select-new = false
+# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since NEXTRELEASE
+primary-highlighter = "block"
+# Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
+aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
+# Increase or decrease the size of the annotations
+annotation-size-factor = 2
+# Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
+corner-roundness = 12
 # Fill shapes by default (since 0.20.0)
 default-fill-shapes = false
 # Round caps for arrow and line tools
 default-round-caps = true
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since NEXTRELEASE
-primary-highlighter = "block"
-# Disable notifications
-disable-notifications = false
+# experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
+brush-smooth-history-size = 10
+
 # Actions to trigger on right click (order is important)
 # [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
 actions-on-right-click = []
@@ -63,10 +86,7 @@ action-on-enter = "save-to-clipboard"
 # Right click to copy
 # Deprecated since 0.19.0: use actions-on-right-click instead
 right-click-copy = false
-# request no window decoration. Please note that the compositor has the final say in this. At this point. requires xdg-decoration-unstable-v1.
-no-window-decoration = true
-# experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
-brush-smooth-history-size = 10
+
 # experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
 pan-step-size = 50.0
 # experimental feature (0.20.1): The zoom factor to use for the image.
@@ -78,16 +98,6 @@ text-move-length = 50.0
 # This may be more useful to set via the command line.
 # Note, before 0.21.0 this is ignored with explicit resize.
 input-scale = 1.0
-# experimental feature (0.21.0): set window title
-title = "Satty"
-# experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
-app-id = "org.satty.satty"
-# experimental feature (0.22.0): show thumbnail as notifcation icon
-# notification-thumbnail = "app-icon"
-notification-thumbnail = "screenshot"
-# how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
-# for fast machines, the default value of 250ms is ridiculously high.
-notification-grace-period = 250
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]
