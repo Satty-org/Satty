@@ -32,7 +32,7 @@ impl Drawable for Ellipse {
         let radii = self.size.abs() * 0.5;
         let center = self.top_left + radii;
         let d = (pos - center) / (radii + tolerance);
-        if d * d > 1.0 {
+        if d.norm2() > 1.0 {
             // outside the outer tolerance
             return false;
         }
@@ -44,7 +44,7 @@ impl Drawable for Ellipse {
 
         // outside the inner tolerance
         let inner_d = (pos - center) / (radii - tolerance);
-        inner_d * inner_d > 1.0
+        inner_d.norm2() > 1.0
     }
 
     fn translate(&mut self, delta: Vec2D) {

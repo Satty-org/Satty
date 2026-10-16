@@ -84,6 +84,14 @@ impl Vec2D {
         self.x * self.x + self.y * self.y
     }
 
+    pub fn dot(self, other: Self) -> f32 {
+        self.x * other.x + self.y * other.y
+    }
+
+    pub fn cross(self, other: Self) -> f32 {
+        self.x * other.y - self.y * other.x
+    }
+
     pub fn area(&self) -> f32 {
         self.x * self.y
     }
@@ -169,7 +177,7 @@ impl Vec2D {
         self.x.abs() < f32::EPSILON && self.y.abs() < f32::EPSILON
     }
 
-    pub fn distance_to(&self, other: &Vec2D) -> f32 {
+    pub fn distance_to(&self, other: Vec2D) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
         (dx * dx + dy * dy).sqrt()
@@ -178,12 +186,12 @@ impl Vec2D {
     pub fn distance_to_segment(&self, a: Vec2D, b: Vec2D) -> f32 {
         let ab = b - a;
         if ab.is_zero() {
-            return self.distance_to(&a);
+            return self.distance_to(a);
         }
         let ap = *self - a;
-        let factor = (ap * ab / ab.norm2()).clamp(0.0, 1.0);
+        let factor = (ap.norm2() / ab.norm2()).clamp(0.0, 1.0);
         let projected_point = a + ab * factor;
-        self.distance_to(&projected_point)
+        self.distance_to(projected_point)
     }
 }
 
@@ -258,10 +266,17 @@ impl MulAssign<f32> for Vec2D {
 }
 
 impl Mul<Vec2D> for Vec2D {
-    type Output = f32;
+    type Output = Vec2D;
 
     fn mul(self, rhs: Vec2D) -> Self::Output {
-        self.x * rhs.x + self.y * rhs.y
+        Vec2D::new(self.x * rhs.x, self.y * rhs.y)
+    }
+}
+
+impl MulAssign<Vec2D> for Vec2D {
+    fn mul_assign(&mut self, rhs: Vec2D) {
+        self.x *= rhs.x;
+        self.y *= rhs.y;
     }
 }
 
@@ -284,6 +299,13 @@ impl Div<Vec2D> for Vec2D {
 
     fn div(self, rhs: Vec2D) -> Self::Output {
         Vec2D::new(self.x / rhs.x, self.y / rhs.y)
+    }
+}
+
+impl DivAssign<Vec2D> for Vec2D {
+    fn div_assign(&mut self, rhs: Vec2D) {
+        self.x /= rhs.x;
+        self.y /= rhs.y;
     }
 }
 
@@ -464,8 +486,8 @@ fn move_or_snap_segment(
     target: Option<SegmentResizeTarget>,
 ) -> (Vec2D, Vec2D) {
     let (start, end) = segment;
-    let start_moved = new_segment.0.distance_to(&start) > f32::EPSILON;
-    let end_moved = new_segment.1.distance_to(&end) > f32::EPSILON;
+    let start_moved = new_segment.0.distance_to(start) > f32::EPSILON;
+    let end_moved = new_segment.1.distance_to(end) > f32::EPSILON;
 
     let flat = (start.x == end.x) != (start.y == end.y);
     let start_is_low = if start.x == end.x {
@@ -481,7 +503,7 @@ fn move_or_snap_segment(
         Some(SegmentResizeTarget::High) => Some(!start_is_low),
         None if flat => (start_moved != end_moved).then_some(start_moved),
         None if start_moved || end_moved => {
-            Some(new_segment.0.distance_to(&start) >= new_segment.1.distance_to(&end))
+            Some(new_segment.0.distance_to(start) >= new_segment.1.distance_to(end))
         }
         None => return segment,
     };

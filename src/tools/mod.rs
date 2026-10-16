@@ -298,6 +298,64 @@ pub fn hit_test_rectangle(
     pos.x < tl_inner.x || pos.x > br_inner.x || pos.y < tl_inner.y || pos.y > br_inner.y
 }
 
+pub fn hit_test_line(pos: Vec2D, start_point: Vec2D, points: &[Vec2D], tolerance: f32) -> bool {
+    let mut last: Vec2D = start_point;
+    for p in points.iter().skip(1) {
+        let next = start_point + *p;
+        if pos.distance_to_segment(last, next) <= tolerance {
+            return true;
+        }
+        last = next;
+    }
+    false
+}
+
+pub fn calculate_line_bounds(start_point: Vec2D, points: &[Vec2D]) -> (Vec2D, Vec2D) {
+    let mut tl = start_point;
+    let mut br = start_point;
+    for p in points.iter().skip(1) {
+        let abs = start_point + *p;
+        tl = tl.min(abs);
+        br = br.max(abs);
+    }
+    (tl, br)
+}
+
+fn resize_line_bounds(tl: Vec2D, br: Vec2D, start_point: &mut Vec2D, points: &mut [Vec2D]) {
+    // Raw corners crossing each other means the shape is mirrored on that axis
+    let flip_x = br.x < tl.x;
+    let flip_y = br.y < tl.y;
+    let (tl, br) = ensure_bounding_box(tl, br);
+
+    let (current_tl, current_br) = calculate_line_bounds(*start_point, points);
+    let current_size = current_br - current_tl;
+    let new_size = br - tl;
+
+    let axis_scale = |new: f32, current: f32, flip: bool| {
+        let s = if current.abs() > f32::EPSILON {
+            new / current
+        } else {
+            1.0
+        };
+        if flip { -s } else { s }
+    };
+    let scale = Vec2D::new(
+        axis_scale(new_size.x, current_size.x, flip_x),
+        axis_scale(new_size.y, current_size.y, flip_y),
+    );
+
+    // Points are relative to the start point, so they only need scaling
+    for p in points.iter_mut() {
+        *p *= scale;
+    }
+    // A mirrored axis grows from the opposite edge
+    let origin = Vec2D::new(
+        if flip_x { br.x } else { tl.x },
+        if flip_y { br.y } else { tl.y },
+    );
+    *start_point = origin + (*start_point - current_tl) * scale;
+}
+
 #[derive(Debug)]
 pub enum ToolUpdateResult {
     Commit(Box<dyn Drawable>),
