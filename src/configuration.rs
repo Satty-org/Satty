@@ -15,11 +15,9 @@ use serde::de::Deserializer;
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
-use crate::{
-    style::Color,
-    tools::{Highlighters, Tools},
-};
+use crate::{style::Color, tools::Tools};
 
+use crate::tools::Highlighters;
 use satty_cli::command_line::{
     Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, NotificationThumbnail,
     Resize,
@@ -82,7 +80,6 @@ pub struct Configuration {
     default_fill_shapes: bool,
     default_round_caps: bool,
     font: FontConfiguration,
-    primary_highlighter: Highlighters,
     aspect_ratios: Vec<(f32, f32)>,
     disable_notifications: bool,
     profile_startup: bool,
@@ -347,9 +344,6 @@ impl Configuration {
         if let Some(v) = general.default_round_caps {
             self.default_round_caps = v;
         }
-        if let Some(v) = general.primary_highlighter {
-            self.primary_highlighter = v;
-        }
         if let Some(v) = general.aspect_ratios {
             self.aspect_ratios = v;
         }
@@ -499,9 +493,6 @@ impl Configuration {
         }
         if let Some(v) = command_line.font_style {
             self.font.style = Some(v);
-        }
-        if let Some(v) = command_line.primary_highlighter {
-            self.primary_highlighter = v.into();
         }
         if command_line.disable_notifications {
             self.disable_notifications = command_line.disable_notifications;
@@ -658,10 +649,6 @@ impl Configuration {
         self.default_round_caps
     }
 
-    pub fn primary_highlighter(&self) -> Highlighters {
-        self.primary_highlighter
-    }
-
     pub fn aspect_ratios(&self) -> &[(f32, f32)] {
         &self.aspect_ratios
     }
@@ -750,7 +737,6 @@ impl Default for Configuration {
             default_fill_shapes: false,
             default_round_caps: true,
             font: FontConfiguration::default(),
-            primary_highlighter: Highlighters::Block,
             aspect_ratios: vec![
                 (1.0, 1.0),
                 (5.0, 4.0),
@@ -836,6 +822,7 @@ struct ConfigurationFileGeneral {
     focus_toggles_toolbars: Option<bool>,
     default_fill_shapes: Option<bool>,
     default_round_caps: Option<bool>,
+    #[allow(dead_code)]
     primary_highlighter: Option<Highlighters>,
     aspect_ratios: Option<Vec<(f32, f32)>>,
     disable_notifications: Option<bool>,

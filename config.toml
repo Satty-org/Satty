@@ -44,7 +44,7 @@ focus-toggles-toolbars = false
 default-fill-shapes = false
 # Round caps for arrow and line tools
 default-round-caps = true
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
+# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since NEXTRELEASE
 primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false

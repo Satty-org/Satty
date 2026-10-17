@@ -130,7 +130,8 @@ Default single-key shortcuts:
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool
-- <kbd>g</kbd>: Highlight tool
+- <kbd>g</kbd>: Block Highlight tool
+- <kbd>G</kbd>: Freehand Highlight tool
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
@@ -220,7 +221,7 @@ Brush:
 
 Highlight:
 
-- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below).
+- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below). Removed in favour of distinct tool variants <sup>NEXTRELEASE</sup>
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
 Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <sup>NEXTRELEASE</sup>:
@@ -279,7 +280,7 @@ focus-toggles-toolbars = false
 default-fill-shapes = false
 # Round caps for arrow and line tools
 default-round-caps = true
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand]
+# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since NEXTRELEASE
 primary-highlighter = "block"
 # Disable notifications
 disable-notifications = false
@@ -469,7 +470,7 @@ Options:
       --corner-roundness <CORNER_ROUNDNESS>
           Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
       --initial-tool <TOOL>
-          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush, image]
+          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush, image, highlight-freehand]
       --copy-command <COPY_COMMAND>
           Configure the command to be called on copy, for example `wl-copy`
       --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
@@ -494,8 +495,6 @@ Options:
           Font family to use for text annotations
       --font-style <FONT_STYLE>
           Font style to use for text annotations
-      --primary-highlighter <PRIMARY_HIGHLIGHTER>
-          The primary highlighter to use, secondary is accessible with CTRL [possible values: block, freehand]
       --disable-notifications
           Disable notifications
       --profile-startup
@@ -518,6 +517,8 @@ Options:
           Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
       --notification-thumbnail <NOTIFICATION_THUMBNAIL>
           Experimental feature (0.22.0): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
+      --primary-highlighter <PRIMARY_HIGHLIGHTER>
+          The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE [possible values: block, freehand]
       --right-click-copy
           Right click to copy, deprecated since 0.19.0 Preferably use the `action_on_right_click` option instead
       --action-on-enter <ACTION_ON_ENTER>
