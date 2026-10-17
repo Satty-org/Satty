@@ -4,10 +4,9 @@ use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 
 use crate::{
     configuration::APP_CONFIG,
-    math::{self, Vec2D},
+    math::Vec2D,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::hit_test_rectangle,
 };
 
 use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
@@ -26,7 +25,7 @@ pub struct BrushTool {
 pub struct BrushDrawable {
     // The start point of the brush stroke this is relative to canvas
     // after this the points are relative to the start point
-    start_point: Option<Vec2D>,
+    start_point: Vec2D,
     points: Vec<Vec2D>,
     smoother: Smoother,
     style: Style,
@@ -53,77 +52,24 @@ impl BrushDrawable {
 
 impl Drawable for BrushDrawable {
     fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let start = self.start_point?;
-        let mut tl = start;
-        let mut br = start;
-        for p in self.points.iter().skip(1) {
-            let abs = start + *p;
-            tl = tl.min(abs);
-            br = br.max(abs);
-        }
-        Some((tl, br))
+        Some(super::calculate_line_bounds(self.start_point, &self.points))
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let (tl, br) = match self.bounds() {
-            Some(bounds) => bounds,
-            None => return false,
-        };
-        hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        let tolerance = tolerance + line_width / 2.0;
+        super::hit_test_line(pos, self.start_point, &self.points, tolerance)
     }
 
     fn translate(&mut self, delta: Vec2D) {
-        if let Some(ref mut sp) = self.start_point {
-            *sp += delta;
-        }
+        self.start_point += delta;
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
-        // Raw corners crossing each other means the shape is mirrored on that axis
-        let flip_x = br.x < tl.x;
-        let flip_y = br.y < tl.y;
-        let (tl, br) = math::ensure_bounding_box(tl, br);
-        // Get current bounds
-        if let Some((current_tl, current_br)) = self.bounds() {
-            let current_size = current_br - current_tl;
-            let new_size = br - tl;
-
-            // Calculate scale factors
-            let scale_x = if current_size.x.abs() > 0.001 {
-                new_size.x / current_size.x
-            } else {
-                1.0
-            };
-            let scale_y = if current_size.y.abs() > 0.001 {
-                new_size.y / current_size.y
-            } else {
-                1.0
-            };
-
-            if let Some(start) = self.start_point {
-                // Points are relative to the start point, so they only need scaling
-                let sign_x = if flip_x { -1.0 } else { 1.0 };
-                let sign_y = if flip_y { -1.0 } else { 1.0 };
-                for p in &mut self.points {
-                    *p = Vec2D {
-                        x: p.x * scale_x * sign_x,
-                        y: p.y * scale_y * sign_y,
-                    };
-                }
-                // Map the start point into the new bounds (mirrored if flipped)
-                let mut rel_start = start - current_tl;
-                if flip_x {
-                    rel_start.x = current_size.x - rel_start.x;
-                }
-                if flip_y {
-                    rel_start.y = current_size.y - rel_start.y;
-                }
-                self.start_point = Some(Vec2D {
-                    x: tl.x + rel_start.x * scale_x,
-                    y: tl.y + rel_start.y * scale_y,
-                });
-            }
-        }
+        super::resize_line_bounds(tl, br, &mut self.start_point, &mut self.points);
     }
 
     fn get_style(&self) -> Option<&Style> {
@@ -144,13 +90,8 @@ impl Drawable for BrushDrawable {
             return Ok(());
         }
 
-        let Some(start_point) = self.start_point else {
-            return Ok(());
-        };
-
-        canvas.save();
         let mut path = Path::new();
-
+        let start_point = self.start_point;
         path.move_to(start_point.x, start_point.y);
         for p in self.points.iter().skip(1) {
             path.line_to(start_point.x + p.x, start_point.y + p.y);
@@ -162,7 +103,6 @@ impl Drawable for BrushDrawable {
                 .with_line_cap(LineCap::Round)
                 .with_line_join(LineJoin::Round),
         );
-        canvas.restore();
         Ok(())
     }
 }
@@ -190,7 +130,7 @@ impl Tool for BrushTool {
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
-                brush.start_point = Some(event.pos);
+                brush.start_point = event.pos;
                 ToolUpdateResult::Redraw
             }
             MouseEventType::EndDrag => {
@@ -224,9 +164,9 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 }
                 self.drawable = Some(BrushDrawable {
-                    start_point: None,
+                    start_point: event.pos,
                     smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
-                    points: vec![event.pos],
+                    points: vec![],
                     style: self.style,
                 });
                 ToolUpdateResult::Unmodified
@@ -327,7 +267,7 @@ impl Smoother {
         };
         let last = *self.history.last().unwrap_or(&raw);
         let first = self.history.first().unwrap_or(&raw);
-        let distance = last.distance_to(first);
+        let distance = last.distance_to(*first);
         let total_dt = dt * self.history.len() as f32;
         let speed = distance / total_dt.clamp(0.001, 1.0);
 

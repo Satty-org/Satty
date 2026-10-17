@@ -54,7 +54,7 @@ impl Drawable for Marker {
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
         let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 2.0 } else { 0.0 };
         let d = (pos - self.pos) / (r + tolerance);
-        d * d <= 1.0
+        d.norm2() <= 1.0
     }
 
     fn translate(&mut self, delta: Vec2D) {

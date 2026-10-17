@@ -14,7 +14,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::{DrawableClone, hit_test_rectangle},
+    tools::DrawableClone,
 };
 
 use satty_cli::command_line;
@@ -53,6 +53,7 @@ struct BlockHighlight {
 
 #[derive(Clone, Debug)]
 struct FreehandHighlight {
+    start_point: Vec2D,
     points: Vec<Vec2D>,
     shift_pressed: bool,
 }
@@ -72,15 +73,11 @@ impl Highlight for Highlighter<FreehandHighlight> {
         canvas.save();
 
         let mut path = Path::new();
-        let first = self
-            .data
-            .points
-            .first()
-            .expect("should exist at least one point in highlight instance.");
+        let start_point = self.data.start_point;
 
-        path.move_to(first.x, first.y);
-        for p in self.data.points.iter().skip(1) {
-            path.line_to(first.x + p.x, first.y + p.y);
+        path.move_to(start_point.x, start_point.y);
+        for p in self.data.points.iter() {
+            path.line_to(start_point.x + p.x, start_point.y + p.y);
         }
 
         let mut paint = Paint::color(femtovg::Color::rgba(
@@ -157,38 +154,31 @@ impl Drawable for HighlightKind {
                 h.data.top_left,
                 h.data.top_left + h.data.size,
             )),
-            HighlightKind::Freehand(h) => {
-                let mut min_x = f32::MAX;
-                let mut min_y = f32::MAX;
-                let mut max_x = f32::MIN;
-                let mut max_y = f32::MIN;
-                let first = h.data.points.first()?;
-                for (i, p) in h.data.points.iter().enumerate() {
-                    // First point is absolute, subsequent points are stored as offsets.
-                    let abs = if i == 0 { *p } else { *first + *p };
-                    min_x = min_x.min(abs.x);
-                    min_y = min_y.min(abs.y);
-                    max_x = max_x.max(abs.x);
-                    max_y = max_y.max(abs.y);
-                }
-                let stroke_width = h
-                    .style
-                    .size
-                    .to_highlight_width(h.style.annotation_size_factor);
-                Some((
-                    Vec2D::new(min_x, min_y) - stroke_width,
-                    Vec2D::new(max_x, max_y) + stroke_width,
-                ))
-            }
+            HighlightKind::Freehand(h) => Some(super::calculate_line_bounds(
+                h.data.start_point,
+                &h.data.points,
+            )),
         }
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let (tl, br) = match self.bounds() {
-            Some(bounds) => bounds,
-            None => return false,
-        };
-        hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+        match self {
+            HighlightKind::Block(_) => {
+                let (tl, br) = match self.bounds() {
+                    Some(bounds) => bounds,
+                    None => return false,
+                };
+                super::hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+            }
+            HighlightKind::Freehand(h) => {
+                let line_width = h
+                    .style
+                    .size
+                    .to_highlight_width(h.style.annotation_size_factor);
+                let tolerance = tolerance + line_width / 2.0;
+                super::hit_test_line(pos, h.data.start_point, &h.data.points, tolerance)
+            }
+        }
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -197,78 +187,20 @@ impl Drawable for HighlightKind {
                 h.data.top_left += delta;
             }
             HighlightKind::Freehand(h) => {
-                if let Some(first) = h.data.points.first_mut() {
-                    *first += delta;
-                }
+                h.data.start_point += delta;
             }
         }
     }
 
     fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
-        let (tl, br) = math::ensure_bounding_box(tl, br);
         match self {
             HighlightKind::Block(h) => {
+                let (tl, br) = math::ensure_bounding_box(tl, br);
                 h.data.top_left = tl;
                 h.data.size = br - tl;
             }
             HighlightKind::Freehand(h) => {
-                // Resize freehand by scaling all points from current bounds to new bounds.
-                if h.data.points.is_empty() {
-                    return;
-                }
-
-                let first_abs = h.data.points[0];
-                let mut min_x = f32::MAX;
-                let mut min_y = f32::MAX;
-                let mut max_x = f32::MIN;
-                let mut max_y = f32::MIN;
-                for (i, point) in h.data.points.iter().enumerate() {
-                    let abs = if i == 0 { *point } else { first_abs + *point };
-                    min_x = min_x.min(abs.x);
-                    min_y = min_y.min(abs.y);
-                    max_x = max_x.max(abs.x);
-                    max_y = max_y.max(abs.y);
-                }
-
-                let current_tl = Vec2D::new(min_x, min_y);
-                let current_br = Vec2D::new(max_x, max_y);
-
-                let current_size = current_br - current_tl;
-                let new_size = br - tl;
-
-                let scale_x = if current_size.x.abs() > f32::EPSILON {
-                    new_size.x / current_size.x
-                } else {
-                    1.0
-                };
-                let scale_y = if current_size.y.abs() > f32::EPSILON {
-                    new_size.y / current_size.y
-                } else {
-                    1.0
-                };
-
-                let mut transformed_abs_points = Vec::with_capacity(h.data.points.len());
-
-                for (i, point) in h.data.points.iter().enumerate() {
-                    let abs = if i == 0 { *point } else { first_abs + *point };
-                    let relative = abs - current_tl;
-                    transformed_abs_points.push(Vec2D::new(
-                        tl.x + relative.x * scale_x,
-                        tl.y + relative.y * scale_y,
-                    ));
-                }
-
-                let new_first_abs = transformed_abs_points[0];
-                h.data.points[0] = new_first_abs;
-                for (target, abs) in h
-                    .data
-                    .points
-                    .iter_mut()
-                    .skip(1)
-                    .zip(transformed_abs_points.iter().skip(1))
-                {
-                    *target = *abs - new_first_abs;
-                }
+                super::resize_line_bounds(tl, br, &mut h.data.start_point, &mut h.data.points);
             }
         }
     }
@@ -365,7 +297,8 @@ impl Tool for HighlightTool {
                         self.highlighter =
                             Some(HighlightKind::Freehand(Highlighter::<FreehandHighlight> {
                                 data: FreehandHighlight {
-                                    points: vec![event.pos],
+                                    start_point: event.pos,
+                                    points: vec![],
                                     shift_pressed,
                                 },
                                 style: self.style,
