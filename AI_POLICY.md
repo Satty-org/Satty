@@ -18,6 +18,8 @@ Posting
 
 AI agents must not post issues, discussions, PRs to this repository. We only allow humans to do this.
 
+Please refrain from pasting LLM output verbatim.
+
 Bug reports
 --
 

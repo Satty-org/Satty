@@ -14,3 +14,4 @@ body:
     id: idea
     attributes:
       label: Description
+      description: Description of the feature request. Please do not use LLM output verbatim.
