@@ -110,6 +110,22 @@ build-docs: prepare-zensical
 serve-docs: build-docs
 	. .venv/bin/activate && zensical serve
 
+# Check the links of the built docs with lychee; links to the site itself,
+# including the absolute /Satty/ paths of 404.html, are checked against site/.
+# Extra lychee options can be passed with LYCHEE_ARGS, e.g. LYCHEE_ARGS=-vv
+SITE_URL:=https://satty-org.github.io/Satty
+SITE_DIR:=$(CURDIR)/site
+LYCHEE:=lychee --root-dir "$(SITE_DIR)" \
+	--remap "file://$(SITE_DIR)/Satty file://$(SITE_DIR)" \
+	--remap "$(SITE_URL) file://$(SITE_DIR)" \
+	--index-files index.html
+
+check-docs-links: build-docs
+	$(LYCHEE) --offline $(LYCHEE_ARGS) site/
+
+check-docs-links-online: build-docs
+	$(LYCHEE) $(LYCHEE_ARGS) site/
+
 # generate USAGE.md from the clap definition via clapdown
 update-usage:
 	cargo run -q -p satty_cli --example usage_markdown > USAGE.md

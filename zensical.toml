@@ -28,7 +28,7 @@ nav = [
   ] },
   { "Contributing" = [
     { "Contributing" = "contributing/index.md" },
-    { "AI Policy" = "ai_policy.md" },
+    { "AI Policy" = "contributing/AI_POLICY.md" },
   ] },
   { "Changelog" = "changelog.md" },
   { "Credits" = "credits.md" },

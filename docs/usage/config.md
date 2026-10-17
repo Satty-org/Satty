@@ -4,6 +4,14 @@ icon: lucide/monitor-cog
 
 --8<-- "README.md:config-search"
 
+## Styles
+
+--8<-- "README.md:styles"
+
+[config.toml]: #example-config
+
+## Example config
+
 This is an example config. Please note, we're not pointing out defaults everywhere yet, it is a WIP.
 
 ```toml title="config.toml" linenums="1"

@@ -4,8 +4,8 @@ on:
     branches:
       - main
     paths:
-      - 'assets/*'
-      - 'docs/*'
+      - 'assets/**'
+      - 'docs/**'
       - '*.md'
       - 'config.toml'
       - 'zensical.toml'
