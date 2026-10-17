@@ -22,8 +22,8 @@ use crate::femtovg_area::FemtoVGArea;
 use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
+use crate::logging::{LogLevel, LogSeverity, log, log_result_with_pixbuf};
 use crate::math::{Vec2D, crop_rect_in_bounds};
-use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::{Color, Size, Style};
 use crate::tools::{
     ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
@@ -310,9 +310,10 @@ fn pixbuf_from_file_list(file_list: &gdk::FileList) -> Option<Pixbuf> {
     match image_loading::pixbuf_from_file(&path) {
         Ok(pixbuf) => Some(pixbuf),
         Err(e) => {
-            log_result(
+            log(
                 &format!("Error loading image: {e}"),
-                !APP_CONFIG.read().disable_notifications(),
+                LogLevel::Error,
+                LogSeverity::Normal,
             );
             None
         }
@@ -426,7 +427,11 @@ impl SketchBoard {
             && let size = br - tl
             && (size.x < 1.0 && size.y < 1.0)
         {
-            eprintln!("Drawable size{:?} is too small, ignoring commit.", size);
+            log(
+                &format!("Drawable size{:?} is too small, ignoring commit.", size),
+                LogLevel::Debug,
+                LogSeverity::Low,
+            );
             return true;
         }
         false
@@ -498,12 +503,20 @@ impl SketchBoard {
             }
 
             if early_exit {
-                log_result("Early exit, ignoring further actions.", false);
+                log(
+                    "Early exit, ignoring further actions.",
+                    LogLevel::Info,
+                    LogSeverity::Low,
+                );
                 self.handle_exit();
                 return;
             }
             if action == Action::Exit {
-                log_result("Exit action, ignoring further actions.", false);
+                log(
+                    "Exit action, ignoring further actions.",
+                    LogLevel::Info,
+                    LogSeverity::Low,
+                );
                 self.handle_exit();
                 return;
             }
@@ -541,8 +554,10 @@ impl SketchBoard {
         let mut output_filename = if panic::catch_unwind(|| delayed_format.to_string()).is_ok() {
             delayed_format.to_string()
         } else {
-            eprintln!(
-                "Warning: Could not format filename {output_filename} due to chrono format error, falling back to literal filename."
+            log(
+                "Could not format filename {output_filename} due to chrono format error, falling back to literal filename.",
+                LogLevel::Warn,
+                LogSeverity::Low,
             );
             output_filename.to_owned()
         };
@@ -554,7 +569,11 @@ impl SketchBoard {
                 home_dir.push(tilde_stripped);
                 output_filename = home_dir.to_string_lossy().into_owned();
             } else {
-                log_result("~ found but could not determine homedir", true);
+                log(
+                    "~ found but could not determine homedir",
+                    LogLevel::Warn,
+                    LogSeverity::Normal,
+                );
                 return None;
             }
         }
@@ -632,7 +651,11 @@ impl SketchBoard {
     fn handle_save(&self, image: &Pixbuf) {
         let output_filename = match APP_CONFIG.read().output_filename() {
             None => {
-                eprintln!("No Output filename specified!");
+                log(
+                    "No Output filename specified!",
+                    LogLevel::Error,
+                    LogSeverity::High,
+                );
                 return;
             }
             Some(o) => o.clone(),
@@ -644,9 +667,10 @@ impl SketchBoard {
 
         // TODO: we could support more data types
         if output_filename != "-" && !output_filename.ends_with(".png") {
-            log_result(
+            log(
                 "The only supported format is png, but the filename does not end in png",
-                true,
+                LogLevel::Error,
+                LogSeverity::High,
             );
             return;
         }
@@ -654,7 +678,11 @@ impl SketchBoard {
         let data = match image.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("Error serializing image: {e}");
+                log(
+                    &format!("Error serializing image: {e}"),
+                    LogLevel::Error,
+                    LogSeverity::High,
+                );
                 return;
             }
         };
@@ -664,14 +692,19 @@ impl SketchBoard {
             let stdout = io::stdout();
             let mut handle = stdout.lock();
             if let Err(e) = handle.write_all(&data) {
-                eprintln!("Error writing image to stdout: {e}");
+                log(
+                    &format!("Error writing image to stdout: {e}"),
+                    LogLevel::Error,
+                    LogSeverity::High,
+                );
             }
             return;
         }
         match Self::write_image_file(Path::new(&output_filename), &data) {
-            Err(e) => log_result(
+            Err(e) => log(
                 &format!("Error while saving file '{output_filename}': {e}"),
-                true,
+                LogLevel::Error,
+                LogSeverity::High,
             ),
             Ok(_) => {
                 // Store the filepath for copy-filepath action
@@ -704,7 +737,11 @@ impl SketchBoard {
         let data = match pixbuf.save_to_bufferv("png", &Vec::new()) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("Error serializing image: {e}");
+                log(
+                    &format!("Error serializing image: {e}"),
+                    LogLevel::Error,
+                    LogSeverity::High,
+                );
                 return;
             }
         };
@@ -728,7 +765,11 @@ impl SketchBoard {
             if let Some(initial_dir) = initial_dir {
                 let initial_dir = gtk::gio::File::for_path(initial_dir);
                 if let Err(e) = dialog.set_current_folder(Some(&initial_dir)) {
-                    eprintln!("Error setting Save As folder: {e}");
+                    log(
+                        &format!("Error setting Save As folder: {e}"),
+                        LogLevel::Error,
+                        LogSeverity::High,
+                    );
                 }
             }
 
@@ -748,9 +789,10 @@ impl SketchBoard {
                     };
 
                     match Self::write_image_file(Path::new(&output_filename), &data) {
-                        Err(e) => log_result(
+                        Err(e) => log(
                             &format!("Error while saving file '{output_filename}': {e}"),
-                            true,
+                            LogLevel::Error,
+                            LogSeverity::High,
                         ),
                         Ok(_) => {
                             exit_app = APP_CONFIG.read().early_exit_save_as();
@@ -764,7 +806,11 @@ impl SketchBoard {
                     };
                 }
                 if exit_app {
-                    log_result("early exit after save as, ignoring further actions.", false);
+                    log(
+                        "early exit after save as, ignoring further actions.",
+                        LogLevel::Info,
+                        LogSeverity::Low,
+                    );
                     sender.input(SketchBoardInput::Exit);
                 } else if filename.is_some() || !followup_actions.is_empty() {
                     let followup_actions_clone = followup_actions.clone();
@@ -826,7 +872,11 @@ impl SketchBoard {
         };
 
         match result {
-            Err(e) => eprintln!("Error saving {e}"),
+            Err(e) => log(
+                &format!("Error saving {e}"),
+                LogLevel::Error,
+                LogSeverity::High,
+            ),
             Ok(()) => {
                 log_result_with_pixbuf("Copied to clipboard.", image.clone());
 
@@ -864,8 +914,16 @@ impl SketchBoard {
         };
 
         match result {
-            Err(e) => log_result(&format!("Error copying filepath: {e}"), true),
-            Ok(()) => log_result(&format!("Filepath copied to clipboard: {}", filepath), true),
+            Err(e) => log(
+                &format!("Error copying filepath: {e}"),
+                LogLevel::Error,
+                LogSeverity::High,
+            ),
+            Ok(()) => log(
+                &format!("Filepath copied to clipboard: {}", filepath),
+                LogLevel::Info,
+                LogSeverity::Low,
+            ),
         }
     }
 
@@ -1358,7 +1416,11 @@ impl SketchBoard {
 
     fn handle_paste_image(&self, sender: ComponentSender<Self>) -> ToolUpdateResult {
         let Some(display) = DisplayManager::get().default_display() else {
-            eprintln!("Cannot open default display for clipboard.");
+            log(
+                &format!("Cannot open default display for clipboard."),
+                LogLevel::Error,
+                LogSeverity::High,
+            );
             return ToolUpdateResult::Unmodified;
         };
         let clipboard = display.clipboard();
@@ -2159,11 +2221,12 @@ impl Component for SketchBoard {
 
         let error_count = crate::configuration::config_error_count();
         if error_count > 0 {
-            eprintln!(
-                "⚠️ {} error{} occurred during configuration loading.",
+            log(
+            format!(
+                "{} error{} occurred during configuration loading, please start from terminal to retrieve error messages.",
                 error_count,
                 if error_count == 1 { "" } else { "s" }
-            );
+            ).as_str(), LogLevel::Warn, LogSeverity::High);
         }
         ComponentParts { model, widgets }
     }

@@ -15,12 +15,14 @@ use crate::{
     configuration::APP_CONFIG,
     femtovg_area,
     ime::preedit::{Preedit, UnderlineKind},
+    logging::{LogLevel, log},
     math::Vec2D,
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, TextEventMsg},
     style::Style,
 };
 
 use super::{Drawable, DrawableClone, InputContext, Tool, ToolUpdateResult, Tools};
+use crate::logging::LogSeverity;
 use crate::sketch_board::SketchBoardInput;
 use relm4::Sender;
 use relm4::gtk::gdk::DisplayManager;
@@ -1122,7 +1124,11 @@ impl Tool for TextTool {
                 Key::v | Key::V => {
                     let display = DisplayManager::get().default_display();
                     if display.is_none() {
-                        eprintln!("Cannot open default display for clipboard.");
+                        log(
+                            "Cannot open default display for clipboard.",
+                            LogLevel::Error,
+                            LogSeverity::Normal,
+                        );
                         return ToolUpdateResult::StopPropagation;
                     }
                     let clipboard = display.unwrap().clipboard();
@@ -1142,10 +1148,18 @@ impl Tool for TextTool {
                                 }
                             }
                             Ok(None) => {
-                                eprintln!("Clipboard contains no text");
+                                log(
+                                    "Clipboard contains no text",
+                                    LogLevel::Info,
+                                    LogSeverity::Low,
+                                );
                             }
                             Err(err) => {
-                                eprintln!("Clipboard read error: {}", err);
+                                log(
+                                    &format!("Clipboard read error: {}", err),
+                                    LogLevel::Error,
+                                    LogSeverity::Normal,
+                                );
                             }
                         }
                     });
@@ -1160,7 +1174,11 @@ impl Tool for TextTool {
 
                             let display = DisplayManager::get().default_display();
                             if display.is_none() {
-                                eprintln!("Cannot open default display for clipboard.");
+                                log(
+                                    &format!("Cannot open default display for clipboard."),
+                                    LogLevel::Error,
+                                    LogSeverity::Normal,
+                                );
                                 return ToolUpdateResult::StopPropagation;
                             }
 
@@ -1179,7 +1197,11 @@ impl Tool for TextTool {
 
                             let display = DisplayManager::get().default_display();
                             if display.is_none() {
-                                eprintln!("Cannot open default display for clipboard.");
+                                log(
+                                    &format!("Cannot open default display for clipboard."),
+                                    LogLevel::Error,
+                                    LogSeverity::Normal,
+                                );
                                 return ToolUpdateResult::StopPropagation;
                             }
 
@@ -1199,7 +1221,11 @@ impl Tool for TextTool {
                     if event.modifier == ModifierType::SHIFT_MASK {
                         let display = DisplayManager::get().default_display();
                         if display.is_none() {
-                            eprintln!("Cannot open default display for clipboard.");
+                            log(
+                                &format!("Cannot open default display for clipboard."),
+                                LogLevel::Error,
+                                LogSeverity::Normal,
+                            );
                             return ToolUpdateResult::StopPropagation;
                         }
                         let selection_clipboard = display.unwrap().primary_clipboard();
@@ -1218,10 +1244,18 @@ impl Tool for TextTool {
                                     }
                                 }
                                 Ok(None) => {
-                                    eprintln!("selection_clipboard contains no text");
+                                    log(
+                                        &format!("selection_clipboard contains no text"),
+                                        LogLevel::Info,
+                                        LogSeverity::Low,
+                                    );
                                 }
                                 Err(err) => {
-                                    eprintln!("selection_clipboard read error: {}", err);
+                                    log(
+                                        &format!("selection_clipboard read error: {}", err),
+                                        LogLevel::Error,
+                                        LogSeverity::Normal,
+                                    );
                                 }
                             }
                         });
@@ -1363,7 +1397,11 @@ impl Tool for TextTool {
                     if let Some(t) = &mut self.text {
                         let display = DisplayManager::get().default_display();
                         if display.is_none() {
-                            eprintln!("Cannot open default display for clipboard.");
+                            log(
+                                &format!("Cannot open default display for clipboard."),
+                                LogLevel::Error,
+                                LogSeverity::Normal,
+                            );
                             return ToolUpdateResult::StopPropagation;
                         }
                         let selection_clipboard = display.unwrap().primary_clipboard();
@@ -1385,10 +1423,18 @@ impl Tool for TextTool {
                                     }
                                 }
                                 Ok(None) => {
-                                    eprintln!("selection_clipboard contains no text");
+                                    log(
+                                        "selection_clipboard contains no text",
+                                        LogLevel::Info,
+                                        LogSeverity::Low,
+                                    );
                                 }
                                 Err(err) => {
-                                    eprintln!("selection_clipboard read error: {}", err);
+                                    log(
+                                        &format!("selection_clipboard read error: {}", err),
+                                        LogLevel::Error,
+                                        LogSeverity::Normal,
+                                    );
                                 }
                             }
                         });
