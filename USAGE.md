@@ -50,7 +50,7 @@ Modern Screenshot Annotation.
 `--initial-tool <TOOL>`
 :   Select the tool on startup
 
-    Possible values: `pointer`, `crop`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `blur`, `pixelate`, `fringe-pixelate`, `fringe`, `highlight`, `brush`, `image`
+    Possible values: `pointer`, `crop`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `blur`, `pixelate`, `fringe-pixelate`, `fringe`, `highlight`, `brush`, `image`, `highlight-freehand`
 
 `--copy-command <COPY_COMMAND>`
 :   Configure the command to be called on copy, for example `wl-copy`
@@ -94,11 +94,6 @@ Modern Screenshot Annotation.
 `--font-style <FONT_STYLE>`
 :   Font style to use for text annotations
 
-`--primary-highlighter <PRIMARY_HIGHLIGHTER>`
-:   The primary highlighter to use, secondary is accessible with CTRL
-
-    Possible values: `block`, `freehand`
-
 `--disable-notifications`
 :   Disable notifications
 
@@ -133,6 +128,11 @@ Modern Screenshot Annotation.
 :   Experimental feature (0.22.0): use preview thumbnail in notifications where available
 
     Possible values: `screenshot`, `app-icon`
+
+`--primary-highlighter <PRIMARY_HIGHLIGHTER>`
+:   The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE
+
+    Possible values: `block`, `freehand`
 
 `--right-click-copy`
 :   Right click to copy, deprecated since 0.19.0 Preferably use the `action_on_right_click` option instead
