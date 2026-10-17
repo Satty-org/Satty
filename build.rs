@@ -82,7 +82,7 @@ fn main() -> Result<(), io::Error> {
             "checkerboard",
             "tetris-app-regular",
             "image-regular",
-            "rectangle-landscape-filled"
+            "rectangle-landscape-filled",
         ],
     );
 
