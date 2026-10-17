@@ -76,7 +76,7 @@ The order of configuration is:
 - <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
-- <kbd>Ctrl+S</kbd>: Save to specified output file
+- <kbd>Ctrl+S</kbd>: Save to specified output file, creating missing folders in its path <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>0.21.0</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
