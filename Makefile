@@ -110,20 +110,6 @@ build-docs: prepare-zensical
 serve-docs: build-docs
 	. .venv/bin/activate && zensical serve
 
-HELP_STARTPATTERN:=^» satty --help$$
-CONFIG_STARTPATTERN:=^\# Satty Configuration file$$
-ENDPATTERN=```
-
-# sed command adds command line help to README.md
-# within startpattern and endpattern: 
-#   when startpattern is found, print it and read stdin
-#   when endpattern is found, print it
-#   everything else, delete
-#
-# The double -e is needed because r command cannot be terminated with semicolon.
-# -i is tricky to use for both BSD/busybox sed AND GNU sed at the same time, so use mv instead.
-update-readme: target/release/satty
-	target/release/satty --help 2>&1 | sed -e '/${HELP_STARTPATTERN}/,/${ENDPATTERN}/{ /${HELP_STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
-	mv README.md.new README.md
-	cat config.toml | sed -e '/${CONFIG_STARTPATTERN}/,/${ENDPATTERN}/{ /${CONFIG_STARTPATTERN}/p;r /dev/stdin' -e '/${ENDPATTERN}/p; d; }' README.md > README.md.new
-	mv README.md.new README.md
+# generate USAGE.md from the clap definition via clapdown
+update-usage:
+	cargo run -q -p satty_cli --example usage_markdown > USAGE.md

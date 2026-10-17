@@ -271,6 +271,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clapdown"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68bcefa13c36a119d957224c65214f792139033a34f8157297ac2a7fff5a343a"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1437,6 +1446,7 @@ name = "satty_cli"
 version = "0.22.0"
 dependencies = [
  "clap",
+ "clapdown",
  "serde",
 ]
 
