@@ -178,9 +178,7 @@ impl Vec2D {
     }
 
     pub fn distance_to(&self, other: Vec2D) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        (dx * dx + dy * dy).sqrt()
+        (*self - other).norm()
     }
 
     pub fn distance_to_segment(&self, a: Vec2D, b: Vec2D) -> f32 {
@@ -189,7 +187,7 @@ impl Vec2D {
             return self.distance_to(a);
         }
         let ap = *self - a;
-        let factor = (ap.norm2() / ab.norm2()).clamp(0.0, 1.0);
+        let factor = (ap.dot(ab) / ab.norm2()).clamp(0.0, 1.0);
         let projected_point = a + ab * factor;
         self.distance_to(projected_point)
     }
