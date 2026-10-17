@@ -117,10 +117,6 @@ pub struct CommandLine {
     #[arg(long)]
     pub font_style: Option<String>,
 
-    /// The primary highlighter to use, secondary is accessible with CTRL
-    #[arg(long)]
-    pub primary_highlighter: Option<Highlighters>,
-
     /// Disable notifications
     #[arg(long)]
     pub disable_notifications: bool,
@@ -175,6 +171,10 @@ pub struct CommandLine {
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
     // --- deprecated options ---
+    /// The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE
+    #[arg(long)]
+    pub primary_highlighter: Option<Highlighters>,
+
     /// Right click to copy, deprecated since 0.19.0
     /// Preferably use the `action_on_right_click` option instead.
     #[arg(long)]
@@ -265,6 +265,7 @@ pub enum Tools {
     Brush,
     // NEXTRELEASE
     Image,
+    HighlightFreehand,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -302,6 +303,7 @@ impl std::fmt::Display for Tools {
             Highlight => "highlight",
             Brush => "brush",
             Image => "image",
+            HighlightFreehand => "freehand-highlight",
         };
         f.write_str(s)
     }

@@ -10,14 +10,11 @@ use relm4::{
 use serde_derive::Deserialize;
 
 use crate::{
-    configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
     tools::{DrawableClone, hit_test_rectangle},
 };
-
-use satty_cli::command_line;
 
 use super::{
     Drawable, Tool, ToolUpdateResult, Tools,
@@ -26,20 +23,12 @@ use super::{
 
 const HIGHLIGHT_OPACITY: f64 = 0.4;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Highlighters {
+    #[default]
     Block = 0,
     Freehand = 1,
-}
-
-impl From<command_line::Highlighters> for Highlighters {
-    fn from(tool: command_line::Highlighters) -> Self {
-        match tool {
-            command_line::Highlighters::Block => Self::Block,
-            command_line::Highlighters::Freehand => Self::Freehand,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -144,6 +133,7 @@ enum HighlightKind {
 
 #[derive(Default, Clone, Debug)]
 pub struct HighlightTool {
+    mode: Highlighters,
     highlighter: Option<HighlightKind>,
     style: Style,
     input_enabled: bool,
@@ -312,6 +302,15 @@ impl Drawable for HighlightKind {
     }
 }
 
+impl HighlightTool {
+    pub fn with_mode(mode: Highlighters) -> Self {
+        Self {
+            mode,
+            ..Default::default()
+        }
+    }
+}
+
 impl Tool for HighlightTool {
     fn input_enabled(&self) -> bool {
         self.input_enabled
@@ -326,26 +325,23 @@ impl Tool for HighlightTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        Tools::Highlight
+        match self.mode {
+            Highlighters::Block => Tools::Highlight,
+            Highlighters::Freehand => Tools::HighlightFreehand,
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
         let shift_pressed = event.modifier.intersects(ModifierType::SHIFT_MASK);
-        let ctrl_pressed = event.modifier.intersects(ModifierType::CONTROL_MASK);
-        let primary_highlighter = APP_CONFIG.read().primary_highlighter();
         match event.type_ {
             MouseEventType::BeginDrag => {
                 if event.button == MouseButton::Middle {
                     return ToolUpdateResult::Unmodified;
                 }
-                // There exists two types of highlighting modes currently: freehand, block
-                // A user may set a primary highlighter mode, with the other being accessible
-                // by clicking CTRL when starting a highlight (doesn't need to be held).
-                match (primary_highlighter, ctrl_pressed) {
-                    // This matches when CTRL is not pressed and the primary highlighting mode
-                    // is block, along with its inverse, CTRL pressed with the freehand mode
-                    // being their primary highlighting mode.
-                    (Highlighters::Block, false) | (Highlighters::Freehand, true) => {
+
+                //set origin
+                match self.mode {
+                    Highlighters::Block => {
                         self.highlighter =
                             Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
                                 data: BlockHighlight {
@@ -358,10 +354,7 @@ impl Tool for HighlightTool {
                                 style: self.style,
                             }))
                     }
-                    // This matches the remaining two cases, which is when the user has the
-                    // freehand mode as the primary mode and CTRL is not pressed, and conversely,
-                    // when CTRL is pressed and the users primary mode is block.
-                    (Highlighters::Freehand, false) | (Highlighters::Block, true) => {
+                    Highlighters::Freehand => {
                         self.highlighter =
                             Some(HighlightKind::Freehand(Highlighter::<FreehandHighlight> {
                                 data: FreehandHighlight {
@@ -372,7 +365,6 @@ impl Tool for HighlightTool {
                             }))
                     }
                 }
-
                 ToolUpdateResult::Redraw
             }
             MouseEventType::UpdateDrag | MouseEventType::EndDrag => {

@@ -351,6 +351,7 @@ pub enum Tools {
     FringePixelate = 12,
     Fringe = 13,
     Image = 14,
+    HighlightFreehand = 15,
 }
 
 impl fmt::Display for Tools {
@@ -366,11 +367,12 @@ impl fmt::Display for Tools {
             Tools::Text => "Text",
             Tools::Marker => "Marker",
             Tools::Blur => "Blur",
-            Tools::Highlight => "Highlight",
+            Tools::Highlight => "Block Highlight",
             Tools::Pixelate => "Pixelate",
             Tools::FringePixelate => "Fringe inpaint+Pixelate",
             Tools::Fringe => "Fringe inpaint",
             Tools::Image => "Image",
+            Tools::HighlightFreehand => "Freehand Highlight",
         };
         write!(f, "{}", name)
     }
@@ -400,6 +402,7 @@ impl FromStr for Tools {
             "fringe-pixelate" => Ok(Self::FringePixelate),
             "fringe" => Ok(Self::Fringe),
             "image" => Ok(Self::Image),
+            "highlight-freehand" => Ok(Self::HighlightFreehand),
             _ => Err(ParseCommandError),
         }
     }
@@ -447,7 +450,13 @@ impl ToolsManager {
         );
         tools.insert(
             Tools::Highlight,
-            Rc::new(RefCell::new(HighlightTool::default())),
+            Rc::new(RefCell::new(HighlightTool::with_mode(Highlighters::Block))),
+        );
+        tools.insert(
+            Tools::HighlightFreehand,
+            Rc::new(RefCell::new(HighlightTool::with_mode(
+                Highlighters::Freehand,
+            ))),
         );
         tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
@@ -518,6 +527,7 @@ impl FromVariant for Tools {
             12 => Some(Tools::FringePixelate),
             13 => Some(Tools::Fringe),
             14 => Some(Tools::Image),
+            15 => Some(Tools::HighlightFreehand),
             _ => None,
         })
     }
@@ -541,6 +551,7 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Highlight => Self::Highlight,
             command_line::Tools::Brush => Self::Brush,
             command_line::Tools::Image => Self::Image,
+            command_line::Tools::HighlightFreehand => Self::HighlightFreehand,
         }
     }
 }
