@@ -87,6 +87,7 @@ pub struct Image {
     size: Vec2D,
     // the canvas owns the uploaded texture, so it is only known once drawn
     cached_image_id: Cell<Option<ImageId>>,
+    cached_image_noaliasing_id: Cell<Option<ImageId>>,
 }
 
 impl Image {
@@ -102,6 +103,7 @@ impl Image {
             top_left,
             size,
             cached_image_id: Cell::new(None),
+            cached_image_noaliasing_id: Cell::new(None),
         }
     }
 
@@ -170,13 +172,21 @@ impl Drawable for Image {
         _font: femtovg::FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let image_id = match self.cached_image_id.get() {
-            Some(id) => id,
-            None => {
-                let id = create_image_from_pixbuf(canvas, &self.pixbuf, ImageFlags::empty())?;
-                self.cached_image_id.set(Some(id));
-                id
-            }
+        if self.cached_image_id.get().is_none() {
+            let id = create_image_from_pixbuf(canvas, &self.pixbuf, ImageFlags::empty())?;
+            self.cached_image_id.set(Some(id));
+            let id = create_image_from_pixbuf(canvas, &self.pixbuf, ImageFlags::NEAREST)?;
+            self.cached_image_noaliasing_id.set(Some(id));
+        }
+
+        let canvas_scale = canvas.transform().average_scale().max(f32::EPSILON);
+        let image_scale = (self.size.x / self.pixbuf.width() as f32)
+            .max(self.size.y / self.pixbuf.height() as f32);
+        // like in imp.rs:render_background_image
+        let image_id = if canvas_scale < 5.0 && canvas_scale * image_scale <= 2.0 {
+            self.cached_image_id.get().unwrap()
+        } else {
+            self.cached_image_noaliasing_id.get().unwrap()
         };
 
         let mut path = Path::new();
@@ -191,7 +201,8 @@ impl Drawable for Image {
                 self.size.y,
                 0f32,
                 1f32,
-            ),
+            )
+            .with_anti_alias(false),
         );
 
         Ok(())
