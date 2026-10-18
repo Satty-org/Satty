@@ -13,6 +13,7 @@ include = [
   "Cargo.lock",
   "LICENSE*",
   "README.md",
+  "USAGE.md",
   "assets/",
   "build.rs"
 ]
