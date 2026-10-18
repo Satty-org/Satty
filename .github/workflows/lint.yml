@@ -58,7 +58,7 @@ jobs:
         env:
           RUSTDOCFLAGS: -Dwarnings
 
-  readme:
+  usage:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
@@ -71,10 +71,10 @@ jobs:
           targets: x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: make update-readme
-      - name: Check README.md is up to date
+      - run: make update-usage
+      - name: Check USAGE.md is up to date
         run: |
-          if ! git diff --exit-code README.md; then
-            echo "::error::README.md is out of date. Run 'make update-readme' and commit the result." >&2
+          if ! git diff --exit-code USAGE.md; then
+            echo "::error::USAGE.md is out of date. Run 'make update-usage' and commit the result." >&2
             exit 1
           fi

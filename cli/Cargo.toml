@@ -11,3 +11,6 @@ repository.workspace = true
 [dependencies]
 clap.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+clapdown = "0.2.0"

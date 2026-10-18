@@ -32,9 +32,7 @@ nav = [
   "license.md"
 ]
 
-watch = [
-  "README.md"
-]
+watch = ["README.md", "USAGE.md"]
 
 # extra_css = ["stylesheets/extra.css"]
 # extra_javascript = ["javascripts/extra.js"]

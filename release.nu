@@ -33,6 +33,7 @@ export def main [version: string] {
     update_next_release cli/src/command_line.rs $version
     update_next_release src/configuration.rs $version
     update_next_release config.toml $version
+    update_next_release USAGE.md $version
     update_next_release README.md $version
 
     # show diff so we can review the replacements

@@ -5,7 +5,7 @@ use std::str::FromStr;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, name="satty")]
 pub struct CommandLine {
-    /// Show manpage. Pipe to man -l -. (Exclusive option)
+    /// Show manpage. Pipe to `man -l -`. (Exclusive option)
     #[arg(long, exclusive = true)]
     pub man: bool,
 
@@ -18,7 +18,7 @@ pub struct CommandLine {
     #[arg(short, long)]
     pub config: Option<String>,
 
-    /// Path to input image or '-' to read from stdin.
+    /// Path to input image or `-` to read from stdin.
     /// Required unless --from_clipboard is provided.
     #[arg(
         short,
@@ -41,7 +41,8 @@ pub struct CommandLine {
 
     /// Resize to coordinates or use smart mode (0.20.1).
     /// --resize without parameter is equivalent to --resize smart
-    /// [possible values: smart, WxH.]
+    ///
+    /// Possible values: `smart`, `WxH`
     #[arg(long, num_args=0..=1, value_name="MODE|WIDTHxHEIGHT", default_missing_value = "smart", value_parser = Resize::from_str)]
     pub resize: Option<Resize>,
 
@@ -50,7 +51,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub floating_hack: bool,
 
-    /// Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format
+    /// Filename to use for saving action or `-` to print to stdout. Omit to disable saving to file. Might contain format
     /// specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>.
     /// Since 0.20.0, can contain tilde (~) for home dir
     #[arg(short, long)]

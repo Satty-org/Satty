@@ -25,9 +25,10 @@ Thanks to our package maintainers, Satty is available for many distributions on 
 For emoji support please install the "Noto Color Emoji" font.
 
 ### Specifics
+
 | Distribution | Command | Note |
 | --- | --- | --- |
-| Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/gabm/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
+| Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/Satty-org/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
 | Alpine Linux | `apk add satty` | Available in [Alpine Community](https://pkgs.alpinelinux.org/packages?name=satty&branch=edge&repo=&arch=&maintainer=) |
 
 ### Cargo
@@ -38,7 +39,7 @@ You can install satty via `cargo install satty` and `cargo binstall satty`, the 
 
 ### Prebuilt Sources
 
-You can download a prebuilt binary for x86-64 on the [Satty Releases](https://github.com/gabm/satty/releases) page.
+You can download a prebuilt binary for x86-64 on the [Satty Releases](https://github.com/Satty-org/Satty/releases) page.
 
 ### Flatpak <sup>0.20.1</sup>
 
@@ -54,23 +55,44 @@ flatpak install satty-<version>.flatpak
 <!-- --8<-- [end:install] -->
 
 ## Usage
+
+See [USAGE.md](USAGE.md) for all command line options.
+
 <!-- --8<-- [start:usage] -->
 
 Start by providing a filename or a screenshot via stdin and annotate using the available tools. Save to clipboard or file when finished. Tools and Interface have been kept simple.
 
-The order of configuration is:
+```shell
+# open a file
+satty -f assets/usage.png
+# get screenshot with slurp and grim
+grim -g "$(slurp -o)" - | satty -f -
+# get screenshot with DMS
+dms screenshot --stdout | satty -f -
+```
+
+<!-- --8<-- [end:usage] -->
+
+## Configuration
+
+See [config.toml](config.toml) for the configuration.
+
+<!-- --8<-- [start:config-search] -->
+The search order for configuration files is:
+
 - builtin
 - system wide config (`$XDG_CONFIG_DIRS/satty/config.toml`, usually `/etc/xdg/satty/config.toml`) if present <sup>NEXTRELEASE</sup>
 - user config (`$XDG_CONFIG_HOME/satty/config.toml`, usually `$HOME/.config/satty/config.toml`) if present
 - config specified in command line, if any. Please note: in this case Satty ignores the former two files, and a file not found error on the given config file becomes fatal
 - command line options
 
-<!-- --8<-- [end:usage] -->
+<!-- --8<-- [end:config-search] -->
 
 ### Shortcuts
 <!-- --8<-- [start:shortcuts] -->
 
 #### General
+
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
 - <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
 - <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
@@ -148,10 +170,11 @@ Pressing any unbound key will print its name to the console.
 
 Setting a binding to `"none"` will unbind it.
 
-The defaults are listed in the `config.toml`.
 <!-- --8<-- [end:shortcuts] -->
-<!-- --8<-- [start:tools] -->
 
+The defaults are listed in the [config.toml](config.toml).
+
+<!-- --8<-- [start:tools] -->
 ### Pointer Tool <sup>NEXTRELEASE</sup>
 
 Annotations can be selected by click.
@@ -230,310 +253,10 @@ Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <s
 - **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
 <!-- --8<-- [end:tools] -->
 
-### Configuration File
-
-```toml
-# Satty Configuration file
-[general]
-# Start Satty in fullscreen mode
-fullscreen = false
-# fullscreen = true
-# since 0.20.1, this can be written like below. Current is just the current screen, all is all screens. This may depend on the compositor.
-#fullscreen = "all"
-#fullscreen = "current-screen"
-# resize initially (0.20.1)
-resize = { mode = "smart" }
-# resize = { mode = "size", width = 2000, height = 800 }
-# try to have the window float (0.20.1). This may depend on the compositor.
-floating-hack = true
-# Change to true to automatically copy to clipboard after every annotation change (0.21.0)
-auto-copy = false
-# Change to true to automatically select newly created annotation (NEXTRELEASE)
-auto-select-new = false
-# Exit directly after copy/save action. 0.21.0: change to list of triggers
-# Note that exit-early-save-as was removed with 0.21.0.
-early-exit = ["all"]
-# Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
-aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
-# is equivalent to both
-# early-exit = ["copy", "save", "save-as"]
-# early-exit = true
-# Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
-corner-roundness = 12
-# Select the tool on startup [possible values: see `satty --help`]
-initial-tool = "brush"
-# Configure the command to be called on copy, for example `wl-copy`
-copy-command = "wl-copy"
-# Increase or decrease the size of the annotations
-annotation-size-factor = 2
-# Filename to use for saving action. Omit to disable saving to file. Might contain format specifiers: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
-# starting with 0.20.0, can contain leading tilde (~) for home directory
-# starting with 0.21.0, save as uses this as initial filename/path when available
-output-filename = "/tmp/test-%Y-%m-%d_%H:%M:%S.png"
-# After copying the screenshot, save it to a file as well
-save-after-copy = false
-# Hide toolbars by default
-default-hide-toolbars = false
-# Experimental (since 0.20.0): whether window focus shows/hides toolbars. This does not affect initial state of toolbars, see default-hide-toolbars.
-focus-toggles-toolbars = false
-# Fill shapes by default (since 0.20.0)
-default-fill-shapes = false
-# Round caps for arrow and line tools
-default-round-caps = true
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since NEXTRELEASE
-primary-highlighter = "block"
-# Disable notifications
-disable-notifications = false
-# Actions to trigger on right click (order is important)
-# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-actions-on-right-click = []
-# Actions to trigger on Enter key (order is important)
-# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-actions-on-enter = ["save-to-clipboard"]
-# Actions to trigger on Escape key (order is important)
-# [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-actions-on-escape = ["exit"]
-# Action to perform when the Enter key is pressed [possible values: see `satty --help`]
-# Deprecated since 0.19.0: use actions-on-enter instead
-action-on-enter = "save-to-clipboard"
-# Right click to copy
-# Deprecated since 0.19.0: use actions-on-right-click instead
-right-click-copy = false
-# request no window decoration. Please note that the compositor has the final say in this. At this point. requires xdg-decoration-unstable-v1.
-no-window-decoration = true
-# experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
-brush-smooth-history-size = 10
-# experimental feature (0.20.1): The pan step size to use when panning with arrow keys.
-pan-step-size = 50.0
-# experimental feature (0.20.1): The zoom factor to use for the image.
-# 1.0 means no zooming.
-zoom-factor = 1.1
-# experimental feature (0.20.1): The length to move the text when using arrow keys. defaults to 50.0
-text-move-length = 50.0
-# experimental feature (0.20.1): Scale factor on the input image when it was taken (e.g. DPI scale on the monitor it was recorded from).
-# This may be more useful to set via the command line.
-# Note, before 0.21.0 this is ignored with explicit resize.
-input-scale = 1.0
-# experimental feature (0.21.0): set window title
-title = "Satty"
-# experimental feature (0.21.0): set app_id, note this has to match D-Bus well-known name format, otherwise GTK does not accept it.
-app-id = "org.satty.satty"
-# experimental feature (0.22.0): show thumbnail as notifcation icon
-# notification-thumbnail = "app-icon"
-notification-thumbnail = "screenshot"
-# how long we are waiting after notification thumbnail was sent before exiting (exit early or quit). This is based on the temporary file mtime.
-# for fast machines, the default value of 250ms is ridiculously high.
-notification-grace-period = 250
-
-# Generic keyboard shortcuts (NEXTRELEASE)
-[keybinds]
-# "<Control>q" = "run-actions-on-escape" # additionally to Escape
-# "i" = "none" # unbind "i" default for line
-# "l" = "line"
-
-# Global
-"<Shift><Control>d" = "open-gtk-inspector"
-"<Shift><Control>i" = "open-gtk-inspector"
-"<Alt>Left" = "pan-left"
-"<Alt>Right" = "pan-right"
-"<Alt>Up" = "pan-up"
-"<Alt>Down" = "pan-down"
-"Delete" = "delete-selection"
-"Escape" = "run-actions-on-escape"
-"Return" = "run-actions-on-enter"
-"<Control>t" = "toggle-toolbars"
-
-# scale is in %, 0 is fit to window
-"<Alt>2" = "scale:50"
-"<Alt>3" = "scale:33"
-"<Alt>4" = "scale:25"
-"<Control>2" = "scale:200"
-"<Control>3" = "scale:300"
-"<Control>4" = "scale:400"
-
-# top toolbar
-"<Alt>1" = "scale:100"
-"<Control>1" = "scale:0"
-"<Shift>Delete" = "clear-all"
-"<Control>z" = "undo"
-"<Control>y" = "redo"
-"p" = "pointer"
-"c" = "crop"
-"b" = "brush"
-"i" = "line"
-"z" = "arrow"
-"r" = "rectangle"
-"e" = "ellipse"
-"t" = "text"
-"m" = "marker"
-"u" = "blur"
-"g" = "highlight"
-"o" = "image"
-"<Control>s" = "save-to-file"
-"<Shift><Control>s" = "save-to-file-as"
-"<Control>c" = "save-to-clipboard"
-"<Shift><Control>c" = "copy-filepath-to-clipboard"
-"<Control>v" = "paste-image"
-
-# bottom toolbar
-"1" = "select-color-index:1"
-"2" = "select-color-index:2"
-"3" = "select-color-index:3"
-"4" = "select-color-index:4"
-"5" = "select-color-index:5"
-"6" = "select-color-index:6"
-"7" = "select-color-index:7"
-"8" = "select-color-index:8"
-"9" = "select-color-index:9"
-"minus" = "cycle-size"
-#"..." = "select-size:(small|medium|large)"
-"s" = "focus-annotation-size-factor"
-"f" = "toggle-fill"
-"k" = "toggle-round-caps"
-
-# Font to use for text annotations
-[font]
-family = "Roboto"
-style = "Regular"
-# specify fallback fonts (0.20.1)
-# Please note, there is no default setting for these and the fonts listed below
-# are not shipped with Satty but need to be available on the system.
-# An installed color emoji font (e.g. Noto Color Emoji) is picked up automatically
-# as the last fallback, so emoji render without extra configuration. (0.22.0)
-fallback = [
-    "Noto Sans CJK SC",
-    # "Noto Sans CJK JP",
-    # "Noto Sans CJK TC",
-    # "Noto Sans CJK KR",
-    # "Noto Serif CJK JP",
-    # "Noto Serif JP",
-    # "IPAGothic",
-    # "IPAexGothic",
-    # "Source Han Sans",
-    # add or remove as needed - more fonts may make satty slower
-]
-
-# Custom colours for the colour palette
-[color-palette]
-# These will be shown in the toolbar for quick selection
-palette = [
-    # RRGGBBAA format, where AA is the alpha channel 
-    # (00 is fully transparent, ff is fully opaque)
-    "#f0932bff",
-    "#eb4d4bff",
-    "#6ab04cff",
-    "#22a6b3ff",
-    "#130f40FF",
-    # add or remove as needed
-]
-
-# These will be available in the color picker as presets
-# Leave empty to use GTK's default
-custom = [
-    # "#a52a2a",
-    # "#ffd700",
-    # "#008000",
-    # add or remove as needed
-]
-```
-
-### Command Line
-
-<!-- --8<-- [start:cli] -->
-```
-» satty --help
-Modern Screenshot Annotation.
-
-Usage: satty [OPTIONS]
-
-Options:
-      --man
-          Show manpage. Pipe to man -l -. (Exclusive option)
-      --license
-          Show license. (Exclusive option)
-  -c, --config <CONFIG>
-          Path to the config file, if specified, this will be an exclusive config. Otherwise, config will be stacked from system and user config using XDG_CONFIG_DIRS/satty/config.toml and XDG_CONFIG_HOME/satty/config.toml
-  -f, --filename <FILENAME>
-          Path to input image or '-' to read from stdin. Required unless --from_clipboard is provided
-      --from-clipboard [<CLIPBOARD_COMMAND>]
-          Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE) If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided
-      --fullscreen [<FULLSCREEN>]
-          Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor [possible values: all, current-screen]
-      --resize [<MODE|WIDTHxHEIGHT>]
-          Resize to coordinates or use smart mode (0.20.1). --resize without parameter is equivalent to --resize smart [possible values: smart, WxH.]
-      --floating-hack
-          Try to enforce floating (0.20.1). Mileage may vary depending on compositor
-  -o, --output-filename <OUTPUT_FILENAME>
-          Filename to use for saving action or '-' to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
-      --early-exit [<EARLY_EXIT>...]
-          Exit directly after save action. 0.21.0: changed to accommodate different triggers [possible values: all, copy, save, save-as]
-      --corner-roundness <CORNER_ROUNDNESS>
-          Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
-      --initial-tool <TOOL>
-          Select the tool on startup [alias: --init-tool] [possible values: pointer, crop, line, arrow, rectangle, ellipse, text, marker, blur, pixelate, fringe-pixelate, fringe, highlight, brush, image, highlight-freehand]
-      --copy-command <COPY_COMMAND>
-          Configure the command to be called on copy, for example `wl-copy`
-      --annotation-size-factor <ANNOTATION_SIZE_FACTOR>
-          Increase or decrease the size of the annotations
-      --save-after-copy
-          After copying the screenshot, save it to a file as well
-      --auto-copy
-          Automatically copy to clipboard after every annotation change (0.21.0)
-      --actions-on-enter <ACTIONS_ON_ENTER>
-          Actions to perform when pressing Enter [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-      --actions-on-escape <ACTIONS_ON_ESCAPE>
-          Actions to perform when pressing Escape [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-      --actions-on-right-click <ACTIONS_ON_RIGHT_CLICK>
-          Actions to perform when hitting the copy Button [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-  -d, --default-hide-toolbars
-          Hide toolbars by default
-      --focus-toggles-toolbars
-          Experimental (since 0.20.0): Whether to toggle toolbars based on focus. Doesn't affect initial state
-      --default-fill-shapes
-          Experimental feature (since 0.20.0): Fill shapes by default
-      --font-family <FONT_FAMILY>
-          Font family to use for text annotations
-      --font-style <FONT_STYLE>
-          Font style to use for text annotations
-      --disable-notifications
-          Disable notifications
-      --profile-startup
-          Print profiling
-      --no-window-decoration
-          Disable the window decoration (title bar, borders, etc.) Please note that the compositor has the final say in this. Requires xdg-decoration-unstable-v1
-      --brush-smooth-history-size <BRUSH_SMOOTH_HISTORY_SIZE>
-          Experimental feature: How many points to use for the brush smoothing algorithm. 0 disables smoothing. The default value is 0 (disabled)
-      --zoom-factor <ZOOM_FACTOR>
-          Experimental feature (0.20.1): The zoom factor to use for the image. 1.0 means no zoom. defaults to 1.1
-      --pan-step-size <PAN_STEP_SIZE>
-          Experimental feature (0.20.1): The pan step size to use when panning with arrow keys. defaults to 50.0
-      --text-move-length <TEXT_MOVE_LENGTH>
-          Experimental feature (0.20.1): The length to move the text when using the arrow keys. defaults to 50.0
-      --input-scale <INPUT_SCALE>
-          Experimental feature (0.20.1): Scale the default window size to fit different displays. Note that before 0.21.0 this is ignored with explicit resize
-      --title <TITLE>
-          Experimental feature (0.21.0): Set window title
-      --app-id <APP_ID>
-          Experimental feature (0.21.0): Set toplevel app_id. Note that this has to match D-Bus well known name format, otherwise GTK does not accept it
-      --notification-thumbnail <NOTIFICATION_THUMBNAIL>
-          Experimental feature (0.22.0): use preview thumbnail in notifications where available [possible values: screenshot, app-icon]
-      --primary-highlighter <PRIMARY_HIGHLIGHTER>
-          The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE [possible values: block, freehand]
-      --right-click-copy
-          Right click to copy, deprecated since 0.19.0 Preferably use the `action_on_right_click` option instead
-      --action-on-enter <ACTION_ON_ENTER>
-          Action to perform when pressing Enter, deprecated since 0.19.0 Preferably use the `actions_on_enter` option instead [possible values: save-to-clipboard, save-to-file, save-to-file-as, copy-filepath-to-clipboard, exit]
-  -h, --help
-          Print help
-  -V, --version
-          Print version
-```
-<!-- --8<-- [end:cli] -->
-
 ### CSS
 <!-- --8<-- [start:css] -->
 
-Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>0.21.0</sup> may lack transparency, here's an override example:
+Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>0.21.0</sup> may lack transparency, here's an override example:
 
 ```css
 .outer_box,
@@ -558,13 +281,34 @@ Satty supports IME via GTK with and without preediting. Please note, at this poi
 You can bind a key to the following command:
 
 ```sh
-grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
+grim -g "$(slurp -o -r -c '#ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-%Y%m%d-%H:%M:%S.png
 ```
 
-Hyprland users must escape the `#` with another `#`:
+#### Hyprland
 
-```sh
-grim -g "$(slurp -o -r -c '##ff0000ff')" -t ppm - | satty --filename - --fullscreen --output-filename ~/Pictures/Screenshots/satty-$(date '+%Y%m%d-%H:%M:%S').png
+The following Hyprland binding will use slurp and grim to make the screenshot, copy it to the clipboard by `wl-copy` and start Satty with a predefined output path:
+
+```lua
+hl.bind(
+    "Print",
+    hl.dsp.exec_cmd(
+        'sh -c "grim -g \\"$(slurp -o -c \'#ff0000ff\')\\" -t ppm - | tee >(wl-copy --type image/png) | satty -f - --output-filename ~/Pictures/screenshot-%Y-%m-%d_%H-%M-%S.png"'
+    ),
+    { description = "Satty Screenshot" }
+)
+```
+
+To make Satty a floating window in Hyprland, add a window rule:
+
+```lua
+hl.window_rule({
+    match = { class = "com.gabm.satty" },
+    no_anim = true,
+    float = true,
+    center = true,
+    --min_size = { 200, 200 },
+    --min_size = { 600, 600 },
+})
 ```
 
 Please note we're using ppm in both examples. Compared to png, ppm is uncompressed and this can save time.
@@ -635,8 +379,8 @@ Dependencies, depending of each distributions are:
 
 Satty wouldn't exist without the help of our contributors and maintainers. Current maintainers are: @RobertMueller2, @fabienjuif, @robertwidfen and @gabm (original author). Our contributors are:
 
-<a href="https://github.com/gabm/satty/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=gabm/satty" />
+<a href="https://github.com/Satty-org/Satty/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Satty-org/Satty" />
 </a>
 
 Made with [contrib.rocks](https://contrib.rocks).
