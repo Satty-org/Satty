@@ -68,7 +68,7 @@ Missing formatting/hints that precede your PR should be addressed via a separate
 README changes
 --
 
-If a PR changes Satty's behaviour and where appropriate, please adjust `README.md`/documentation as well. `make update-readme` adds the command line help (output of `satty --help`) as well as the example config.toml automatically which is relevant whenever command line arguments or config change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
+If a PR changes Satty's behaviour and where appropriate, please adjust `README.md`/documentation as well. `make update-usage` adds the command line help (output of `satty --help`) as well as the example config.toml automatically which is relevant whenever command line arguments or config change. While it can be tempting to add other fixes to the README while you're at it, unrelated changes to it which precede your PR should be addressed in a separate issue/PR first. If in doubt how to resolve such a situation, ask.
 
 Command line parameters changes
 --
