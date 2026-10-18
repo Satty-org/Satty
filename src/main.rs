@@ -18,9 +18,10 @@ use relm4::{
 };
 
 use anyhow::{Context, Result};
-use satty_cli::command_line::{Fullscreen, Resize};
+use satty_cli::command_line::{Fullscreen, LogLevel, Resize};
 use tempfile::TempDir;
 
+use crate::logging::{LogSeverity, log};
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -51,7 +52,11 @@ pub static TEMP_DIR: LazyLock<RwLock<Option<TempDir>>> =
     LazyLock::new(|| match tempfile::TempDir::new() {
         Ok(dir) => RwLock::new(Some(dir)),
         Err(e) => {
-            eprintln!("Failed to create temporary directory: {}", e);
+            log(
+                &format!("Failed to create temporary directory: {e}"),
+                LogLevel::Error,
+                LogSeverity::High,
+            );
             RwLock::new(None)
         }
     });
@@ -61,10 +66,14 @@ pub static APP_BROKER: relm4::MessageBroker<AppInput> = relm4::MessageBroker::ne
 macro_rules! generate_profile_output {
     ($e: expr) => {
         if (APP_CONFIG.read().profile_startup()) {
-            eprintln!(
-                "{:5} ms time elapsed: {}",
-                (chrono::Local::now() - *START_TIME).num_milliseconds(),
-                $e
+            log(
+                &format!(
+                    "{:5} ms time elapsed: {}",
+                    (chrono::Local::now() - *START_TIME).num_milliseconds(),
+                    $e
+                ),
+                LogLevel::Debug,
+                LogSeverity::Low,
             );
         }
     };
@@ -128,9 +137,13 @@ impl App {
         let image_height = (self.image_dimensions.1 as f32 * scale) as f64;
 
         #[cfg(debug_assertions)]
-        eprintln!(
-            "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
-            fullscreen, resize, floating_hack
+        log(
+            &format!(
+                "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
+                fullscreen, resize, floating_hack
+            ),
+            LogLevel::Debug,
+            LogSeverity::Low,
         );
 
         if fullscreen == Some(Fullscreen::All)
@@ -229,7 +242,11 @@ impl App {
                     );
                 }
             }
-            None => eprintln!("Cannot apply style"),
+            None => log(
+                "Cannot apply style to display",
+                LogLevel::Error,
+                LogSeverity::High,
+            ),
         }
     }
 }
@@ -555,9 +572,13 @@ fn read_css_overrides() -> Option<String> {
     let path = dirs.get_config_file("overrides.css")?;
 
     if !path.exists() {
-        eprintln!(
-            "CSS overrides file {} does not exist, using builtin CSS only.",
-            path.display()
+        log(
+            &format!(
+                "CSS overrides file {} does not exist, using builtin CSS only.",
+                path.display()
+            ),
+            LogLevel::Warn,
+            LogSeverity::Low,
         );
         return None;
     }
@@ -565,10 +586,14 @@ fn read_css_overrides() -> Option<String> {
     match fs::read_to_string(&path) {
         Ok(content) => Some(content),
         Err(e) => {
-            eprintln!(
-                "failed to read CSS overrides from {} with error: {}",
-                path.display(),
-                e
+            log(
+                &format!(
+                    "failed to read CSS overrides from {} with error: {}",
+                    path.display(),
+                    e
+                ),
+                LogLevel::Error,
+                LogSeverity::Normal,
             );
             None
         }
@@ -627,7 +652,11 @@ fn run_satty() -> Result<()> {
         Some(app_id) if Application::id_is_valid(app_id) => Some(app_id.deref()),
         o => {
             if let Some(app_id) = o {
-                eprintln!("Invalid app id: {}, using fallback", app_id);
+                log(
+                    &format!("Invalid app id: {}, using fallback", app_id),
+                    LogLevel::Error,
+                    LogSeverity::Low,
+                );
             }
             Some("com.gabm.satty")
         }
@@ -660,20 +689,28 @@ fn run_satty() -> Result<()> {
                     && elapsed < grace_period
                 {
                     let sleep_time = grace_period - elapsed;
-                    eprintln!(
-                        "last notification sent {:?} ago, sleeping additional {:?}.",
-                        elapsed, sleep_time
+                    log(
+                        &format!(
+                            "last notification sent {:?} ago, sleeping additional {:?}.",
+                            elapsed, sleep_time
+                        ),
+                        LogLevel::Debug,
+                        LogSeverity::Low,
                     );
                     thread::sleep(sleep_time);
                 }
 
                 if let Err(e) = dir.close() {
-                    eprintln!("Failed to close temporary directory: {}", e);
+                    log(
+                        &format!("Failed to close temporary directory: {}", e),
+                        LogLevel::Error,
+                        LogSeverity::Low,
+                    );
                 }
             }
         }
         Err(e) => {
-            eprintln!("{}", e);
+            log(&format!("{}", e), LogLevel::Error, LogSeverity::Normal);
         }
     }
 
@@ -703,9 +740,13 @@ fn main() -> Result<()> {
         exit(0);
     }
     if APP_CONFIG.read().profile_startup() {
-        eprintln!(
-            "startup timestamp was {}",
-            START_TIME.format("%s.%f %Y-%m-%d %H:%M:%S")
+        log(
+            &format!(
+                "startup timestamp was {}",
+                START_TIME.format("%s.%f %Y-%m-%d %H:%M:%S")
+            ),
+            LogLevel::Debug,
+            LogSeverity::Low,
         );
     }
     generate_profile_output!("configuration loaded");
@@ -713,7 +754,7 @@ fn main() -> Result<()> {
     // run the application
     match run_satty() {
         Err(e) => {
-            eprintln!("Error: {e}");
+            log(&format!("Error: {e}"), LogLevel::Error, LogSeverity::Urgent);
             Err(e)
         }
         Ok(v) => Ok(v),
