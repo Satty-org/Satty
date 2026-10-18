@@ -37,7 +37,7 @@ Modern Screenshot Annotation.
 :   Try to enforce floating (0.20.1). Mileage may vary depending on compositor
 
 `-o`, `--output-filename <OUTPUT_FILENAME>`
-:   Filename to use for saving action or `-`` to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
+:   Filename to use for saving action or `-` to print to stdout. Omit to disable saving to file. Might contain format specifiers: <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>. Since 0.20.0, can contain tilde (~) for home dir
 
 `--early-exit <EARLY_EXIT>`
 :   Exit directly after save action. 0.21.0: changed to accommodate different triggers
