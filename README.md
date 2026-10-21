@@ -275,10 +275,10 @@ Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/m
 You can discover styleable elements by using the GTK inspector with env variable `GTK_DEBUG=interactive`. Also, see [wiki](https://github.com/Satty-org/Satty/wiki/Config-examples#css-overridescss) for more examples.
 <!-- --8<-- [end:css] -->
 
+### IME
 <!-- --8<-- [start:ime] -->
-### IME <sup>0.20.0</sup>
 
-Satty supports IME via GTK with and without preediting. Please note, at this point Satty has no proper fallback font handling so the font used needs to contain the entered glyphs.
+Satty supports IME <sup>0.20.0</sup> via GTK with and without preediting. Please note, at this point Satty has no proper fallback font handling so the font used needs to contain the entered glyphs.
 <!-- --8<-- [end:ime] -->
 
 <!-- --8<-- [start:integration] -->

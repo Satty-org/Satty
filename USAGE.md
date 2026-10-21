@@ -1,6 +1,6 @@
 <!-- --8<-- [start:cli] -->
 
-# Command Line Options for Satty
+# CLI Options
 
 Modern Screenshot Annotation.
 

@@ -4,6 +4,6 @@ icon: lucide/rocket
 
 --8<-- "README.md:usage"
 
-See [integration](integration.md) for more.
+See [Integration](integration.md) for more.
 
-See [cli](cli.md) for more.
+See [CLI Options](cli.md) for more.
