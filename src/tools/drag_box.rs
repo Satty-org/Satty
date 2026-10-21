@@ -24,11 +24,25 @@ impl DragBox {
         event: &MouseEventMsg,
         sender: &Sender<SketchBoardInput>,
     ) -> Self {
-        let aspect = event.modifier.intersects(ModifierType::SHIFT_MASK);
-        let keep_aspect = event.modifier.intersects(ModifierType::CONTROL_MASK);
-        let centered = event.modifier.intersects(ModifierType::ALT_MASK);
+        let drag_box = Self::from_delta(origin, orig_size, event.pos, event.modifier);
+        sender
+            .send(SketchBoardInput::ShapeDimensionsUpdate(drag_box.size))
+            .ok();
+        drag_box
+    }
 
-        let mut new_size = event.pos;
+    // the box itself, without reporting its dimensions
+    pub fn from_delta(
+        origin: Vec2D,
+        orig_size: Vec2D,
+        delta: Vec2D,
+        modifier: ModifierType,
+    ) -> Self {
+        let aspect = modifier.intersects(ModifierType::SHIFT_MASK);
+        let keep_aspect = modifier.intersects(ModifierType::CONTROL_MASK);
+        let centered = modifier.intersects(ModifierType::ALT_MASK);
+
+        let mut new_size = delta;
         let sign_x = new_size.x.signum();
         let sign_y = new_size.y.signum();
         let width = new_size.x.abs();
@@ -71,17 +85,13 @@ impl DragBox {
             origin.min(origin + new_size)
         };
 
-        let drag_box = Self {
+        Self {
             top_left,
             size: new_size.abs(),
             centered,
             keep_aspect: aspect || keep_aspect,
-            delta: event.pos,
-        };
-        sender
-            .send(SketchBoardInput::ShapeDimensionsUpdate(drag_box.size))
-            .ok();
-        drag_box
+            delta,
+        }
     }
 
     pub fn middle(&self) -> Vec2D {

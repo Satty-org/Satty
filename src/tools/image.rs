@@ -42,9 +42,12 @@ impl ImagePlacement {
         let drag_box = DragBox::from_origin_delta(origin, Vec2D::zero(), event, sender);
         // the same box on screen, so that what counts as a click does not
         // change with the zoom
-        let screen_box =
-        // FIXME was using screen_pos in old version - now we pass event and dragbox used pos
-            DragBox::from_origin_delta(Vec2D::zero(), Vec2D::zero(), event, sender);
+        let screen_box = DragBox::from_delta(
+            Vec2D::zero(),
+            Vec2D::zero(),
+            event.screen_pos,
+            event.modifier,
+        );
 
         if screen_box.size.x < Self::MIN_BOX_SIZE || screen_box.size.y < Self::MIN_BOX_SIZE {
             Self::Center(drag_box.middle())
@@ -364,6 +367,8 @@ impl Tool for ImageTool {
 
 #[cfg(test)]
 mod tests {
+    use relm4::gtk::gdk::ModifierType;
+
     use super::*;
 
     fn layout(natural: (f32, f32), placement: Option<ImagePlacement>) -> (Vec2D, Vec2D) {
@@ -461,100 +466,117 @@ mod tests {
         );
     }
 
-    // FIXME need to create a Sender stub for the from_drag tests
+    // the end of a drag: `delta` in image coordinates, `screen_delta` in
+    // screen pixels, which differ by the zoom
+    fn end_drag(delta: Vec2D, screen_delta: Vec2D, modifier: ModifierType) -> MouseEventMsg {
+        MouseEventMsg {
+            type_: MouseEventType::EndDrag,
+            button: MouseButton::Primary,
+            modifier,
+            screen_pos: screen_delta,
+            is_touchpad: false,
+            pos: delta,
+            n_pressed: 1,
+            release: false,
+        }
+    }
 
-    // // the end of a drag: `delta` in image coordinates, `screen_delta` in
-    // // screen pixels, which differ by the zoom
-    // fn end_drag(delta: Vec2D, screen_delta: Vec2D, modifier: ModifierType) -> MouseEventMsg {
-    //     MouseEventMsg {
-    //         type_: MouseEventType::EndDrag,
-    //         button: MouseButton::Primary,
-    //         modifier,
-    //         screen_pos: screen_delta,
-    //         is_touchpad: false,
-    //         pos: delta,
-    //         n_pressed: 1,
-    //         release: false,
-    //     }
-    // }
+    // the placement of a drag from (50, 50), and the shape dimensions it
+    // reported on the way
+    fn from_drag_reporting(
+        delta: (f32, f32),
+        screen_delta: (f32, f32),
+        modifier: ModifierType,
+    ) -> (ImagePlacement, Vec<Vec2D>) {
+        let (sender, receiver) = relm4::channel();
+        let placement = ImagePlacement::from_drag(
+            Vec2D::new(50.0, 50.0),
+            &end_drag(
+                Vec2D::new(delta.0, delta.1),
+                Vec2D::new(screen_delta.0, screen_delta.1),
+                modifier,
+            ),
+            &sender,
+        );
+        drop(sender);
 
-    // fn from_drag(
-    //     delta: (f32, f32),
-    //     screen_delta: (f32, f32),
-    //     sender: &Sender<SketchBoardInput>,
-    // ) -> ImagePlacement {
-    //     ImagePlacement::from_drag(
-    //         Vec2D::new(50.0, 50.0),
-    //         &end_drag(
-    //             Vec2D::new(delta.0, delta.1),
-    //             Vec2D::new(screen_delta.0, screen_delta.1),
-    //             ModifierType::empty(),
-    //         ),
-    //         sender,
-    //     )
-    // }
+        let mut dimensions = Vec::new();
+        while let Some(message) = receiver.recv_sync() {
+            if let SketchBoardInput::ShapeDimensionsUpdate(size) = message {
+                dimensions.push(size);
+            }
+        }
+        (placement, dimensions)
+    }
 
-    // #[test]
-    // fn a_drag_fits_into_the_dragged_box() {
-    //     assert_eq!(
-    //         from_drag((100.0, -40.0), (100.0, -40.0), sender),
-    //         ImagePlacement::Fit {
-    //             top_left: Vec2D::new(50.0, 10.0),
-    //             size: Vec2D::new(100.0, 40.0),
-    //         }
-    //     );
-    // }
+    fn from_drag(delta: (f32, f32), screen_delta: (f32, f32)) -> ImagePlacement {
+        from_drag_reporting(delta, screen_delta, ModifierType::empty()).0
+    }
 
-    // #[test]
-    // fn a_press_that_barely_moved_centers_on_the_press() {
-    //     assert_eq!(
-    //         from_drag((0.0, 0.0), (0.0, 0.0)),
-    //         ImagePlacement::Center(Vec2D::new(50.0, 50.0))
-    //     );
-    //     assert_eq!(
-    //         from_drag((2.0, 2.0), (2.0, 2.0)),
-    //         ImagePlacement::Center(Vec2D::new(51.0, 51.0))
-    //     );
-    // }
+    #[test]
+    fn a_drag_fits_into_the_dragged_box() {
+        assert_eq!(
+            from_drag((100.0, -40.0), (100.0, -40.0)),
+            ImagePlacement::Fit {
+                top_left: Vec2D::new(50.0, 10.0),
+                size: Vec2D::new(100.0, 40.0),
+            }
+        );
+    }
 
-    // #[test]
-    // fn a_box_too_thin_for_an_image_centers_on_its_middle() {
-    //     assert_eq!(
-    //         from_drag((100.0, 2.0), (100.0, 2.0)),
-    //         ImagePlacement::Center(Vec2D::new(100.0, 51.0))
-    //     );
-    // }
+    #[test]
+    fn a_press_that_barely_moved_centers_on_the_press() {
+        assert_eq!(
+            from_drag((0.0, 0.0), (0.0, 0.0)),
+            ImagePlacement::Center(Vec2D::new(50.0, 50.0))
+        );
+        assert_eq!(
+            from_drag((2.0, 2.0), (2.0, 2.0)),
+            ImagePlacement::Center(Vec2D::new(51.0, 51.0))
+        );
+    }
 
-    // #[test]
-    // fn what_counts_as_a_click_does_not_depend_on_the_zoom() {
-    //     // zoomed in: a few image pixels are a real drag on screen
-    //     assert!(matches!(
-    //         from_drag((5.0, 5.0), (20.0, 20.0)),
-    //         ImagePlacement::Fit { .. }
-    //     ));
-    //     // zoomed out: many image pixels are still a click on screen
-    //     assert!(matches!(
-    //         from_drag((20.0, 20.0), (5.0, 5.0)),
-    //         ImagePlacement::Center(_)
-    //     ));
-    // }
+    #[test]
+    fn a_box_too_thin_for_an_image_centers_on_its_middle() {
+        assert_eq!(
+            from_drag((100.0, 2.0), (100.0, 2.0)),
+            ImagePlacement::Center(Vec2D::new(100.0, 51.0))
+        );
+    }
 
-    // #[test]
-    // fn alt_centers_the_box_on_the_press() {
-    //     let placement = ImagePlacement::from_drag(
-    //         Vec2D::new(50.0, 50.0),
-    //         &end_drag(
-    //             Vec2D::new(40.0, 20.0),
-    //             Vec2D::new(40.0, 20.0),
-    //             ModifierType::ALT_MASK,
-    //         ),
-    //     );
-    //     assert_eq!(
-    //         placement,
-    //         ImagePlacement::Fit {
-    //             top_left: Vec2D::new(30.0, 40.0),
-    //             size: Vec2D::new(40.0, 20.0),
-    //         }
-    //     );
-    // }
+    #[test]
+    fn what_counts_as_a_click_does_not_depend_on_the_zoom() {
+        // zoomed in: a few image pixels are a real drag on screen
+        assert!(matches!(
+            from_drag((5.0, 5.0), (20.0, 20.0)),
+            ImagePlacement::Fit { .. }
+        ));
+        // zoomed out: many image pixels are still a click on screen
+        assert!(matches!(
+            from_drag((20.0, 20.0), (5.0, 5.0)),
+            ImagePlacement::Center(_)
+        ));
+    }
+
+    #[test]
+    fn a_drag_reports_its_size_in_image_pixels() {
+        let (_, dimensions) =
+            from_drag_reporting((10.0, 10.0), (40.0, 40.0), ModifierType::empty());
+        assert_eq!(dimensions.last(), Some(&Vec2D::new(10.0, 10.0)));
+    }
+
+    #[test]
+    fn alt_centers_the_box_on_the_press() {
+        // the dragged corner stays under the pointer, so the box is twice
+        // the drag
+        let (placement, _) =
+            from_drag_reporting((40.0, 20.0), (40.0, 20.0), ModifierType::ALT_MASK);
+        assert_eq!(
+            placement,
+            ImagePlacement::Fit {
+                top_left: Vec2D::new(10.0, 30.0),
+                size: Vec2D::new(80.0, 40.0),
+            }
+        );
+    }
 }
