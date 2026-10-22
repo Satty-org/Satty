@@ -1,6 +1,9 @@
+use crate::{style::Color, tools::Tools};
 use clap::Parser;
 use hex_color::HexColor;
 use relm4::SharedState;
+use serde::Deserialize;
+use serde::de::Deserializer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{
@@ -9,14 +12,10 @@ use std::{
     io::{self, Write},
     path::Path,
 };
-
-use serde::Deserialize;
-use serde::de::Deserializer;
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
-use crate::{style::Color, tools::Tools};
-
+use crate::logging::{LogSeverity, log};
 use crate::tools::Highlighters;
 use satty_cli::command_line::{
     Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
@@ -30,7 +29,7 @@ static CONFIG_ERROR_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub fn log_config_error(message: impl std::fmt::Display) {
     CONFIG_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
-    eprintln!("⚠️ {message}");
+    log(&format!("{message}"), LogLevel::Warn, LogSeverity::Normal);
 }
 
 pub fn config_error_count() -> usize {
@@ -273,7 +272,11 @@ impl Configuration {
         let files = match ConfigurationFile::try_read(&command_line.config) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Error reading config file: {e}");
+                log(
+                    &format!("Error reading config file: {e}"),
+                    LogLevel::Fatal,
+                    LogSeverity::Urgent,
+                );
 
                 // swallow broken pipes
                 let _ = std::io::stdout().lock().flush();
@@ -906,7 +909,11 @@ impl ConfigurationFile {
         path: P,
     ) -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
         let path = path.as_ref();
-        eprintln!("Reading configuration file: {:?}", path);
+        log(
+            &format!("Reading configuration file: {:?}", path),
+            LogLevel::Info,
+            LogSeverity::Normal,
+        );
         let config = toml::from_str::<ConfigurationFile>(&fs::read_to_string(path)?)?;
 
         if !config.unknown_fields.is_empty() {

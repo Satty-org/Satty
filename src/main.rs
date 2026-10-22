@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use satty_cli::command_line::{Fullscreen, LogLevel, Resize};
 use tempfile::TempDir;
 
-use crate::logging::{LogSeverity, log};
+use crate::logging::{CONFIG_READ, LogSeverity, log};
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -731,6 +731,7 @@ fn main() -> Result<()> {
     // populate the APP_CONFIG from commandline and
     // config file. this might exit, if an error occurred.
     Configuration::load();
+    _ = CONFIG_READ.set(());
     if APP_CONFIG.read().man() {
         print!(include_str!(concat!(env!("OUT_DIR"), "/satty.1")));
         exit(0);
