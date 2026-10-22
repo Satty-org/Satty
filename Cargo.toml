@@ -49,7 +49,6 @@ libloading = "0.9"
 glow = "0.18.0"
 resource = "0.6.1"  # font emedding
 fontconfig = "0.11.0"  # font loading
-keycode = "1.0.0"
 
 [dependencies.relm4-icons]
 version = "0.11.0"
