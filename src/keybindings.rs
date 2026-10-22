@@ -179,6 +179,99 @@ impl FromStr for ShortcutCommand {
     }
 }
 
+/// Returns true for a letter of a script other than Latin, e.g. Cyrillic or Greek.
+fn is_non_latin_letter(key: Key) -> bool {
+    key.to_unicode().is_some_and(|c| {
+        // Basic Latin to Latin Extended-B, and Latin Extended Additional
+        let latin = c <= '\u{024F}' || ('\u{1E00}'..='\u{1EFF}').contains(&c);
+        c.is_alphabetic() && !latin
+    })
+}
+
+/// The unshifted keys of the US QWERTY layout, each row with the evdev keycode
+/// of its first key.
+#[rustfmt::skip]
+const US_QWERTY_ROWS: [(u32, &[Key]); 4] = [
+    (2, &[
+        Key::_1, Key::_2, Key::_3, Key::_4, Key::_5, Key::_6, Key::_7, Key::_8, Key::_9, Key::_0,
+        Key::minus, Key::equal,
+    ]),
+    (16, &[
+        Key::q, Key::w, Key::e, Key::r, Key::t, Key::y, Key::u, Key::i, Key::o, Key::p,
+        Key::bracketleft, Key::bracketright,
+    ]),
+    (30, &[
+        Key::a, Key::s, Key::d, Key::f, Key::g, Key::h, Key::j, Key::k, Key::l,
+        Key::semicolon, Key::apostrophe, Key::grave,
+    ]),
+    (43, &[
+        Key::backslash, Key::z, Key::x, Key::c, Key::v, Key::b, Key::n, Key::m,
+        Key::comma, Key::period, Key::slash,
+    ]),
+];
+
+/// Returns the key at the physical position of `keycode` in the US QWERTY layout.
+fn us_qwerty_key(keycode: u32) -> Option<Key> {
+    // XKB keycodes are evdev keycodes plus 8
+    let evdev = keycode.checked_sub(8)?;
+    US_QWERTY_ROWS.iter().find_map(|(first, row)| {
+        let index = usize::try_from(evdev.checked_sub(*first)?).ok()?;
+        row.get(index).copied()
+    })
+}
+
+/// Returns the key to match shortcuts with when `active` cannot match them.
+///
+/// `active` is the unshifted key in the active layout, `other_layouts` holds the
+/// unshifted keys of the same physical key in the other configured layouts, in
+/// layout order, and `keycode` is the hardware keycode of the event.
+///
+/// Only a letter of a non-Latin script falls back, because no default shortcut
+/// can match it. A Latin key never does: in Dvorak or QWERTZ, a key at the
+/// position of a bound QWERTY key would otherwise trigger that binding too.
+/// A configured Latin layout wins over the US QWERTY position, so that a
+/// German user gets the German layout.
+fn fallback_key(active: Key, other_layouts: &[Key], keycode: u32) -> Option<Key> {
+    if !is_non_latin_letter(active) {
+        return None;
+    }
+    other_layouts
+        .iter()
+        .copied()
+        .find(|key| !is_non_latin_letter(*key))
+        .or_else(|| us_qwerty_key(keycode))
+}
+
+/// Returns the keys a key event matches shortcuts with: the unshifted key in
+/// the active `layout`, and the key to fall back to, see [`fallback_key`].
+pub fn shortcut_keys(key: Key, keycode: u32, layout: u32) -> (Key, Option<Key>) {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return (key, None);
+    };
+    let unshifted = |layout: i32| {
+        display
+            .translate_key(keycode, ModifierType::empty(), layout)
+            .map(|t| t.0)
+    };
+    let Ok(layout) = i32::try_from(layout) else {
+        return (key, None);
+    };
+    let active = unshifted(layout).unwrap_or(key);
+
+    let mut other_layouts: Vec<i32> = display
+        .map_keycode(keycode)
+        .unwrap_or_default()
+        .iter()
+        .map(|(keymap_key, _)| keymap_key.group())
+        .filter(|group| *group != layout)
+        .collect();
+    other_layouts.sort_unstable();
+    other_layouts.dedup();
+    let other_keys: Vec<Key> = other_layouts.into_iter().filter_map(unshifted).collect();
+
+    (active, fallback_key(active, &other_keys, keycode))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct KeyBinding {
     modifiers: ModifierType,
@@ -349,24 +442,28 @@ impl ShortcutRegistry {
                 | Key::Super_R
         );
 
-        // determine unshifted key
-        let key = gtk::gdk::Display::default()
-            .and_then(|d| d.translate_key(event.code, gtk::gdk::ModifierType::empty(), 0))
-            .map_or(event.key, |t| t.0);
-
-        let key_binding = KeyBinding {
-            key,
-            modifiers: event.modifier,
-        };
-
-        if let Some(command) = self.key_bindings.get(&key_binding) {
-            Some(*command)
-        } else if !modifier_only {
+        let command = self.command_for_keys(event.shortcut_key, event.fallback_key, event.modifier);
+        if command.is_none() && !modifier_only {
+            let key_binding = KeyBinding {
+                key: event.shortcut_key,
+                modifiers: event.modifier,
+            };
             eprintln!("\"{}\" is not bound to a command or tool", key_binding);
-            None
-        } else {
-            None
         }
+        command
+    }
+
+    /// Looks up `key` first, so that a binding in the active layout wins.
+    fn command_for_keys(
+        &self,
+        key: Key,
+        fallback_key: Option<Key>,
+        modifiers: ModifierType,
+    ) -> Option<ShortcutCommand> {
+        std::iter::once(key)
+            .chain(fallback_key)
+            .find_map(|key| self.key_bindings.get(&KeyBinding { modifiers, key }))
+            .copied()
     }
 
     pub fn get_binding_for_command(&self, command: ShortcutCommand) -> Option<String> {
@@ -377,5 +474,135 @@ impl ShortcutRegistry {
                 None
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // XKB keycodes of the keys at the US QWERTY positions of "b" and "z"
+    const KEYCODE_B: u32 = 56;
+    const KEYCODE_Z: u32 = 52;
+
+    #[test]
+    fn non_latin_letters_are_detected() {
+        assert!(is_non_latin_letter(Key::Cyrillic_i));
+        assert!(is_non_latin_letter(Key::Greek_beta));
+        assert!(!is_non_latin_letter(Key::b));
+        assert!(!is_non_latin_letter(Key::odiaeresis));
+        assert!(!is_non_latin_letter(Key::period));
+        assert!(!is_non_latin_letter(Key::_1));
+        assert!(!is_non_latin_letter(Key::Return));
+    }
+
+    #[test]
+    fn latin_key_has_no_fallback() {
+        // Dvorak types "x" where QWERTY types "b"
+        assert_eq!(fallback_key(Key::x, &[Key::b], KEYCODE_B), None);
+    }
+
+    #[test]
+    fn punctuation_has_no_fallback() {
+        // Dvorak types "." where QWERTY types "e"
+        assert_eq!(fallback_key(Key::period, &[Key::e], 26), None);
+    }
+
+    #[test]
+    fn non_ascii_latin_letter_has_no_fallback() {
+        // German types "ö" where QWERTY types ";"
+        assert_eq!(fallback_key(Key::odiaeresis, &[], 47), None);
+    }
+
+    #[test]
+    fn non_latin_letter_falls_back_to_latin_layout() {
+        assert_eq!(
+            fallback_key(Key::Cyrillic_i, &[Key::b], KEYCODE_B),
+            Some(Key::b)
+        );
+    }
+
+    #[test]
+    fn configured_latin_layout_wins_over_physical_position() {
+        // German types "y" where QWERTY types "z"
+        assert_eq!(
+            fallback_key(Key::Cyrillic_ya, &[Key::y], KEYCODE_Z),
+            Some(Key::y)
+        );
+    }
+
+    #[test]
+    fn first_latin_layout_wins() {
+        assert_eq!(
+            fallback_key(
+                Key::Cyrillic_ya,
+                &[Key::Greek_zeta, Key::y, Key::z],
+                KEYCODE_Z
+            ),
+            Some(Key::y)
+        );
+    }
+
+    #[test]
+    fn without_latin_layout_falls_back_to_physical_position() {
+        assert_eq!(fallback_key(Key::Cyrillic_i, &[], KEYCODE_B), Some(Key::b));
+        assert_eq!(
+            fallback_key(Key::Cyrillic_i, &[Key::Greek_beta], KEYCODE_B),
+            Some(Key::b)
+        );
+        // Russian types "х" where QWERTY types "["
+        assert_eq!(
+            fallback_key(Key::Cyrillic_ha, &[], 34),
+            Some(Key::bracketleft)
+        );
+    }
+
+    #[test]
+    fn unknown_physical_position_has_no_fallback() {
+        assert_eq!(fallback_key(Key::Cyrillic_i, &[], 200), None);
+    }
+
+    fn registry(bindings: &[(Key, ShortcutCommand)]) -> ShortcutRegistry {
+        let mut registry = ShortcutRegistry::default();
+        for (key, command) in bindings {
+            registry.key_bindings.insert(
+                KeyBinding {
+                    modifiers: ModifierType::empty(),
+                    key: *key,
+                },
+                *command,
+            );
+        }
+        registry
+    }
+
+    #[test]
+    fn fallback_key_matches_when_active_key_is_unbound() {
+        let registry = registry(&[(Key::b, ShortcutCommand::SelectTool(Tools::Brush))]);
+        assert_eq!(
+            registry.command_for_keys(Key::Cyrillic_i, Some(Key::b), ModifierType::empty()),
+            Some(ShortcutCommand::SelectTool(Tools::Brush))
+        );
+    }
+
+    #[test]
+    fn active_key_wins_over_fallback_key() {
+        let registry = registry(&[
+            (Key::b, ShortcutCommand::SelectTool(Tools::Brush)),
+            (Key::Cyrillic_i, ShortcutCommand::SelectTool(Tools::Text)),
+        ]);
+        assert_eq!(
+            registry.command_for_keys(Key::Cyrillic_i, Some(Key::b), ModifierType::empty()),
+            Some(ShortcutCommand::SelectTool(Tools::Text))
+        );
+    }
+
+    #[test]
+    fn modifiers_must_match() {
+        let registry = registry(&[(Key::z, ShortcutCommand::Undo)]);
+        assert_eq!(
+            registry.command_for_keys(Key::Cyrillic_ya, Some(Key::z), ModifierType::CONTROL_MASK),
+            None
+        );
     }
 }

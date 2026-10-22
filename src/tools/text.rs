@@ -948,7 +948,14 @@ impl Tool for TextTool {
         }
         let mut tool_update_result = ToolUpdateResult::StopPropagation;
         if let Some(t) = &mut self.text {
-            match event.key {
+            // Ctrl+A, Ctrl+C, Ctrl+V and Ctrl+X also work in a non-Latin layout
+            let key = match event.fallback_key {
+                Some(fallback_key) if event.modifier.contains(ModifierType::CONTROL_MASK) => {
+                    fallback_key
+                }
+                _ => event.key,
+            };
+            match key {
                 Key::Return => match event.modifier {
                     ModifierType::SHIFT_MASK => {
                         //delete selection
