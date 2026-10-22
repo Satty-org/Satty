@@ -248,28 +248,44 @@ pub fn shortcut_keys(key: Key, keycode: u32, layout: u32) -> (Key, Option<Key>) 
     let Some(display) = gtk::gdk::Display::default() else {
         return (key, None);
     };
-    let unshifted = |layout: i32| {
-        display
-            .translate_key(keycode, ModifierType::empty(), layout)
-            .map(|t| t.0)
-    };
-    let Ok(layout) = i32::try_from(layout) else {
-        return (key, None);
-    };
-    let active = unshifted(layout).unwrap_or(key);
-
-    let mut other_layouts: Vec<i32> = display
+    let layouts: Vec<u32> = display
         .map_keycode(keycode)
         .unwrap_or_default()
         .iter()
-        .map(|(keymap_key, _)| keymap_key.group())
-        .filter(|group| *group != layout)
+        .filter_map(|(keymap_key, _)| u32::try_from(keymap_key.group()).ok())
+        .collect();
+    let unshifted = |layout: u32| {
+        display
+            .translate_key(keycode, ModifierType::empty(), i32::try_from(layout).ok()?)
+            .map(|t| t.0)
+    };
+    match resolve_shortcut_keys(keycode, layout, &layouts, unshifted) {
+        Some(keys) => keys,
+        None => (key, None),
+    }
+}
+
+/// Returns the unshifted key of `keycode` in the `active` layout and the key to
+/// fall back to, or `None` if the active layout has no key for `keycode`.
+///
+/// `layouts` holds the layouts of the keymap that have a key for `keycode`, and
+/// `unshifted` returns that key in one of them.
+fn resolve_shortcut_keys(
+    keycode: u32,
+    active: u32,
+    layouts: &[u32],
+    unshifted: impl Fn(u32) -> Option<Key>,
+) -> Option<(Key, Option<Key>)> {
+    let active_key = unshifted(active)?;
+    let mut other_layouts: Vec<u32> = layouts
+        .iter()
+        .copied()
+        .filter(|layout| *layout != active)
         .collect();
     other_layouts.sort_unstable();
     other_layouts.dedup();
     let other_keys: Vec<Key> = other_layouts.into_iter().filter_map(unshifted).collect();
-
-    (active, fallback_key(active, &other_keys, keycode))
+    Some((active_key, fallback_key(active_key, &other_keys, keycode)))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -480,6 +496,7 @@ impl ShortcutRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xkbcommon::xkb;
 
     // XKB keycodes of the keys at the US QWERTY positions of "b" and "z"
     const KEYCODE_B: u32 = 56;
@@ -595,6 +612,171 @@ mod tests {
             registry.command_for_keys(Key::Cyrillic_i, Some(Key::b), ModifierType::empty()),
             Some(ShortcutCommand::SelectTool(Tools::Text))
         );
+    }
+
+    /// A keyboard with real XKB layouts, as RMLVO names like "us,ru" and "dvorak,".
+    struct Keyboard {
+        keymap: xkb::Keymap,
+    }
+
+    impl Keyboard {
+        fn new(layouts: &str, variants: &str) -> Self {
+            let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+            let keymap = xkb::Keymap::new_from_names(
+                &context,
+                "",
+                "",
+                layouts,
+                variants,
+                None,
+                xkb::KEYMAP_COMPILE_NO_FLAGS,
+            )
+            .expect("compile the XKB keymap");
+            Self { keymap }
+        }
+
+        /// Returns the command for a press of the key with the `evdev` keycode
+        /// while the layout with index `active` is active.
+        fn command(
+            &self,
+            registry: &ShortcutRegistry,
+            modifiers: ModifierType,
+            evdev: u32,
+            active: u32,
+        ) -> Option<ShortcutCommand> {
+            let keycode = evdev + 8;
+            let code = xkb::Keycode::new(keycode);
+            let layouts: Vec<u32> = (0..self.keymap.num_layouts_for_key(code)).collect();
+            let (key, fallback_key) = resolve_shortcut_keys(keycode, active, &layouts, |layout| {
+                let sym = *self.keymap.key_get_syms_by_level(code, layout, 0).first()?;
+                Key::from_name(xkb::keysym_get_name(sym))
+            })?;
+            registry.command_for_keys(key, fallback_key, modifiers)
+        }
+    }
+
+    // evdev keycodes, named by the US QWERTY key at their position
+    const QWERTY_E: u32 = 18;
+    const QWERTY_Y: u32 = 21;
+    const QWERTY_J: u32 = 36;
+    const QWERTY_Z: u32 = 44;
+    const QWERTY_C: u32 = 46;
+    const QWERTY_B: u32 = 48;
+    const QWERTY_N: u32 = 49;
+    const QWERTY_SLASH: u32 = 53;
+
+    const NONE: ModifierType = ModifierType::empty();
+    const CTRL: ModifierType = ModifierType::CONTROL_MASK;
+    const BRUSH: Option<ShortcutCommand> = Some(ShortcutCommand::SelectTool(Tools::Brush));
+    const PIXELATE: Option<ShortcutCommand> =
+        Some(ShortcutCommand::SelectTool(Tools::FringePixelate));
+    const ARROW: Option<ShortcutCommand> = Some(ShortcutCommand::SelectTool(Tools::Arrow));
+    const UNDO: Option<ShortcutCommand> = Some(ShortcutCommand::Undo);
+    const REDO: Option<ShortcutCommand> = Some(ShortcutCommand::Redo);
+
+    fn default_registry() -> ShortcutRegistry {
+        let mut registry = ShortcutRegistry::default();
+        for (modifiers, key, command) in [
+            (NONE, Key::b, BRUSH),
+            (NONE, Key::x, PIXELATE),
+            (NONE, Key::z, ARROW),
+            (NONE, Key::c, Some(ShortcutCommand::SelectTool(Tools::Crop))),
+            (
+                NONE,
+                Key::e,
+                Some(ShortcutCommand::SelectTool(Tools::Ellipse)),
+            ),
+            (CTRL, Key::z, UNDO),
+            (CTRL, Key::y, REDO),
+        ] {
+            registry
+                .key_bindings
+                .insert(KeyBinding { modifiers, key }, command.unwrap());
+        }
+        registry
+    }
+
+    #[test]
+    fn german_layout_keeps_its_own_z_and_y() {
+        // #508: Ctrl+Z on a German keyboard must not do a redo
+        let r = default_registry();
+        let de = Keyboard::new("de", "");
+        assert_eq!(de.command(&r, CTRL, QWERTY_Y, 0), UNDO);
+        assert_eq!(de.command(&r, CTRL, QWERTY_Z, 0), REDO);
+        assert_eq!(de.command(&r, NONE, QWERTY_Y, 0), ARROW);
+    }
+
+    #[test]
+    fn german_and_us_layouts_follow_the_active_layout() {
+        let r = default_registry();
+        let de_us = Keyboard::new("de,us", "");
+        assert_eq!(de_us.command(&r, CTRL, QWERTY_Y, 0), UNDO);
+        assert_eq!(de_us.command(&r, CTRL, QWERTY_Z, 1), UNDO);
+        assert_eq!(de_us.command(&r, CTRL, QWERTY_Y, 1), REDO);
+    }
+
+    #[test]
+    fn russian_falls_back_to_the_german_layout() {
+        let r = default_registry();
+        let de_ru = Keyboard::new("de,ru", "");
+        assert_eq!(de_ru.command(&r, CTRL, QWERTY_Y, 1), UNDO);
+        assert_eq!(de_ru.command(&r, CTRL, QWERTY_Z, 1), REDO);
+    }
+
+    #[test]
+    fn russian_falls_back_to_the_us_layout_in_either_order() {
+        let r = default_registry();
+        for (layouts, ru, us) in [("us,ru", 1, 0), ("ru,us", 0, 1)] {
+            let keyboard = Keyboard::new(layouts, "");
+            for active in [ru, us] {
+                assert_eq!(keyboard.command(&r, NONE, QWERTY_B, active), BRUSH);
+                assert_eq!(keyboard.command(&r, CTRL, QWERTY_Z, active), UNDO);
+            }
+        }
+    }
+
+    #[test]
+    fn russian_alone_falls_back_to_the_physical_position() {
+        let r = default_registry();
+        let ru = Keyboard::new("ru", "");
+        assert_eq!(ru.command(&r, NONE, QWERTY_B, 0), BRUSH);
+        assert_eq!(ru.command(&r, CTRL, QWERTY_Z, 0), UNDO);
+    }
+
+    #[test]
+    fn dvorak_alone_follows_its_own_letters() {
+        let r = default_registry();
+        let dvorak = Keyboard::new("us", "dvorak");
+        // Dvorak types "b" on the QWERTY "n" key and "x" on the QWERTY "b" key
+        assert_eq!(dvorak.command(&r, NONE, QWERTY_N, 0), BRUSH);
+        assert_eq!(dvorak.command(&r, NONE, QWERTY_B, 0), PIXELATE);
+        // and "." on the QWERTY "e" key, "j" on the QWERTY "c" key
+        assert_eq!(dvorak.command(&r, NONE, QWERTY_E, 0), None);
+        assert_eq!(dvorak.command(&r, NONE, QWERTY_C, 0), None);
+        // and "z" on the QWERTY "/" key
+        assert_eq!(dvorak.command(&r, CTRL, QWERTY_SLASH, 0), UNDO);
+        assert_eq!(dvorak.command(&r, CTRL, QWERTY_Z, 0), None);
+    }
+
+    #[test]
+    fn dvorak_as_second_layout_follows_its_own_letters() {
+        let r = default_registry();
+        let us_dvorak = Keyboard::new("us,us", ",dvorak");
+        assert_eq!(us_dvorak.command(&r, NONE, QWERTY_N, 1), BRUSH);
+        assert_eq!(us_dvorak.command(&r, NONE, QWERTY_B, 1), PIXELATE);
+        assert_eq!(us_dvorak.command(&r, NONE, QWERTY_E, 1), None);
+        assert_eq!(us_dvorak.command(&r, NONE, QWERTY_J, 1), None);
+    }
+
+    #[test]
+    fn russian_dvorak_falls_back_to_english_dvorak() {
+        let r = default_registry();
+        let dvorak_ru = Keyboard::new("us,ru", "dvorak,phonetic_dvorak");
+        for active in [0, 1] {
+            assert_eq!(dvorak_ru.command(&r, NONE, QWERTY_N, active), BRUSH);
+            assert_eq!(dvorak_ru.command(&r, NONE, QWERTY_B, active), PIXELATE);
+            assert_eq!(dvorak_ru.command(&r, CTRL, QWERTY_SLASH, active), UNDO);
+        }
     }
 
     #[test]

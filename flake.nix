@@ -29,6 +29,7 @@
             wrapGAppsHook4 # this is needed for relm4-icons to properly load after gtk::init()
             libadwaita
             fontconfig
+            libxkbcommon # real keyboard layouts in keybinding tests
 
             (rustPkgs.rust.override {
               extensions = ["rust-src"];
