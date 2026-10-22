@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 clap.workspace = true
 serde.workspace = true
+native-dialog.workspace = true
 
 [dev-dependencies]
 clapdown = "0.2.0"

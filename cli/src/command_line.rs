@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use serde::Deserialize;
+use std::fmt::Display;
 use std::str::FromStr;
 
 #[derive(Parser, Debug)]
@@ -33,7 +34,7 @@ pub struct CommandLine {
     #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste -t image")]
     pub from_clipboard: Option<String>,
 
-    /// log level (NEXTRELEASE)
+    /// set log level, note that this is not effective before config has been read (NEXTRELEASE)
     #[arg(long, value_enum)]
     pub log_level: Option<LogLevel>,
 
@@ -201,6 +202,31 @@ pub enum LogLevel {
     Info,
     Debug,
     Trace,
+}
+
+impl Into<native_dialog::MessageLevel> for LogLevel {
+    fn into(self) -> native_dialog::MessageLevel {
+        match self {
+            LogLevel::Fatal => native_dialog::MessageLevel::Error,
+            LogLevel::Error => native_dialog::MessageLevel::Error,
+            LogLevel::Warn => native_dialog::MessageLevel::Warning,
+            LogLevel::Info => native_dialog::MessageLevel::Info,
+            _ => native_dialog::MessageLevel::Info, // should not be used
+        }
+    }
+}
+
+impl Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLevel::Fatal => write!(f, "FATAL ERROR"),
+            LogLevel::Error => write!(f, "ERROR"),
+            LogLevel::Warn => write!(f, "WARNING"),
+            LogLevel::Info => write!(f, "INFO"),
+            LogLevel::Debug => write!(f, "DEBUG"),
+            LogLevel::Trace => write!(f, "TRACE"),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
