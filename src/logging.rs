@@ -5,9 +5,10 @@ use std::sync::OnceLock;
 use crate::configuration::APP_CONFIG;
 use crate::{APP_BROKER, AppInput, TEMP_DIR};
 use chrono::Local;
+use native_dialog::DialogBuilder;
 use relm4::gtk;
 use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
-use relm4::gtk::prelude::{Cast, WidgetExt};
+use relm4::gtk::prelude::{Cast, DialogExt, GtkApplicationExt, GtkWindowExt, WidgetExt};
 use relm4::gtk::{
     ButtonsType, IconLookupFlags, IconTheme, MessageDialog, MessageType, TextDirection, gio,
 };
@@ -67,7 +68,13 @@ pub fn log(msg: &str, level: LogLevel, severity: LogSeverity) {
 
     if severity >= LogSeverity::High {
         if !can_read_config || !has_gtk {
-            eprintln!("{msg}"); //TODO
+            DialogBuilder::message()
+                .set_level(level.into())
+                .set_title(format!("{level}"))
+                .set_text(msg)
+                .alert()
+                .show()
+                .unwrap();
         } else if APP_CONFIG.read().disable_notifications() {
             APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
         } else {
@@ -77,14 +84,23 @@ pub fn log(msg: &str, level: LogLevel, severity: LogSeverity) {
 
     // if it's fatal, we shouldn't rely on toast or notification
     if has_gtk && level == LogLevel::Fatal {
-        let message_dialog = MessageDialog::builder()
-            .title("Fatal error")
-            .message_type(MessageType::Error)
-            .buttons(ButtonsType::Close)
-            .text(msg)
-            .modal(true)
-            .build();
-        message_dialog.show();
+        let app = relm4::main_application();
+        if let Some(window) = app.active_window() {
+            let message_dialog = MessageDialog::builder()
+                .transient_for(&window)
+                .title("Fatal error")
+                .message_type(MessageType::Error)
+                .buttons(ButtonsType::Ok)
+                .text(msg)
+                .modal(true)
+                .build();
+
+            message_dialog.connect_response(|d, _| {
+                d.destroy();
+            });
+
+            message_dialog.show();
+        }
     }
 }
 
