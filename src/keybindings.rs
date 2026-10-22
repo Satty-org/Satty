@@ -481,7 +481,11 @@ impl ShortcutRegistry {
                 key: event.shortcut_key,
                 modifiers: event.modifier,
             };
-            eprintln!("\"{}\" is not bound to a command or tool", key_binding);
+            log(
+                &format!("\"{}\" is not bound to a command or tool", key_binding),
+                LogLevel::Warn,
+                LogSeverity::Low,
+            );
         }
         command
     }

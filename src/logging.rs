@@ -1,16 +1,21 @@
 use relm4::gtk::gio::{FileIcon, Icon};
 use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
+use std::sync::OnceLock;
 
 use crate::configuration::APP_CONFIG;
 use crate::{APP_BROKER, AppInput, TEMP_DIR};
 use chrono::Local;
+use relm4::gtk;
 use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
-use relm4::gtk::prelude::Cast;
-use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection, gio};
+use relm4::gtk::prelude::{Cast, WidgetExt};
+use relm4::gtk::{
+    ButtonsType, IconLookupFlags, IconTheme, MessageDialog, MessageType, TextDirection, gio,
+};
 pub use satty_cli::command_line::{LogLevel, NotificationThumbnail};
 use tempfile::NamedTempFile;
 
-//TODO naming
+pub static CONFIG_READ: OnceLock<()> = OnceLock::new();
+
 trait Prefix {
     fn prefix(&self) -> &'static str;
 }
@@ -32,8 +37,8 @@ impl Prefix for LogLevel {
 pub enum LogSeverity {
     #[default]
     Low,
-    High,
     Normal,
+    High,
     Urgent,
 }
 
@@ -49,7 +54,11 @@ impl From<LogSeverity> for gio::NotificationPriority {
 }
 
 pub fn log(msg: &str, level: LogLevel, severity: LogSeverity) {
-    if level <= APP_CONFIG.read().log_level() {
+    let can_read_config = CONFIG_READ.get().is_some();
+    let has_gtk = gtk::is_initialized();
+
+    // avoid blocking before config is read, hopefully ;)
+    if !can_read_config || level <= APP_CONFIG.read().log_level() {
         let ts = Local::now().format("%Y-%m-%dT%H:%M:%S");
         let pfx = level.prefix();
         let output = format!("{ts} {pfx} {msg}");
@@ -57,16 +66,30 @@ pub fn log(msg: &str, level: LogLevel, severity: LogSeverity) {
     }
 
     if severity >= LogSeverity::High {
-        if APP_CONFIG.read().disable_notifications() {
+        if !can_read_config || !has_gtk {
+            eprintln!("{msg}"); //TODO
+        } else if APP_CONFIG.read().disable_notifications() {
             APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
         } else {
             show_notification(msg, None, severity);
         }
     }
+
+    // if it's fatal, we shouldn't rely on toast or notification
+    if has_gtk && level == LogLevel::Fatal {
+        let message_dialog = MessageDialog::builder()
+            .title("Fatal error")
+            .message_type(MessageType::Error)
+            .buttons(ButtonsType::Close)
+            .text(msg)
+            .modal(true)
+            .build();
+        message_dialog.show();
+    }
 }
 
 pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
-    //TODO duplicated
+    //TODO partially duplicated
     let ts = Local::now().format("%Y-%m-%dT%H:%M:%S");
     let pfx = LogLevel::Info.prefix();
     let output = format!("{ts} {pfx} {msg}");
