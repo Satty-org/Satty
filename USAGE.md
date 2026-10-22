@@ -23,6 +23,11 @@ Modern Screenshot Annotation.
 `--from-clipboard <CLIPBOARD_COMMAND>`
 :   Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE) If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided
 
+`--log-level <LOG_LEVEL>`
+:   set log level, note that this is not effective before config has been read (NEXTRELEASE)
+
+    Possible values: `fatal`, `error`, `warn`, `info`, `debug`, `trace`
+
 `--fullscreen <FULLSCREEN>`
 :   Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor
 

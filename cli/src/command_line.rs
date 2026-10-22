@@ -204,14 +204,12 @@ pub enum LogLevel {
     Trace,
 }
 
-impl Into<native_dialog::MessageLevel> for LogLevel {
-    fn into(self) -> native_dialog::MessageLevel {
-        match self {
-            LogLevel::Fatal => native_dialog::MessageLevel::Error,
-            LogLevel::Error => native_dialog::MessageLevel::Error,
+impl From<LogLevel> for native_dialog::MessageLevel {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Fatal | LogLevel::Error => native_dialog::MessageLevel::Error,
             LogLevel::Warn => native_dialog::MessageLevel::Warning,
-            LogLevel::Info => native_dialog::MessageLevel::Info,
-            _ => native_dialog::MessageLevel::Info, // should not be used
+            _ => native_dialog::MessageLevel::Info,
         }
     }
 }
