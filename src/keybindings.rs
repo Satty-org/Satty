@@ -191,7 +191,7 @@ fn is_non_latin_letter(key: Key) -> bool {
 /// The unshifted keys of the US QWERTY layout, each row with the evdev keycode
 /// of its first key.
 #[rustfmt::skip]
-const US_QWERTY_ROWS: [(u32, &[Key]); 4] = [
+const US_QWERTY_ROWS: [(u32, &[Key]); 5] = [
     (2, &[
         Key::_1, Key::_2, Key::_3, Key::_4, Key::_5, Key::_6, Key::_7, Key::_8, Key::_9, Key::_0,
         Key::minus, Key::equal,
@@ -208,6 +208,8 @@ const US_QWERTY_ROWS: [(u32, &[Key]); 4] = [
         Key::backslash, Key::z, Key::x, Key::c, Key::v, Key::b, Key::n, Key::m,
         Key::comma, Key::period, Key::slash,
     ]),
+    // the extra key of ISO keyboards, between the left Shift and Z
+    (86, &[Key::less]),
 ];
 
 /// Returns the key at the physical position of `keycode` in the US QWERTY layout.
@@ -496,6 +498,7 @@ impl ShortcutRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use relm4::gtk::glib::translate::IntoGlib;
     use xkbcommon::xkb;
 
     // XKB keycodes of the keys at the US QWERTY positions of "b" and "z"
@@ -635,6 +638,13 @@ mod tests {
             Self { keymap }
         }
 
+        /// Returns the unshifted key of the XKB `keycode` in `layout`.
+        fn unshifted(&self, keycode: u32, layout: u32) -> Option<Key> {
+            let code = xkb::Keycode::new(keycode);
+            let sym = *self.keymap.key_get_syms_by_level(code, layout, 0).first()?;
+            Key::from_name(xkb::keysym_get_name(sym))
+        }
+
         /// Returns the command for a press of the key with the `evdev` keycode
         /// while the layout with index `active` is active.
         fn command(
@@ -648,10 +658,24 @@ mod tests {
             let code = xkb::Keycode::new(keycode);
             let layouts: Vec<u32> = (0..self.keymap.num_layouts_for_key(code)).collect();
             let (key, fallback_key) = resolve_shortcut_keys(keycode, active, &layouts, |layout| {
-                let sym = *self.keymap.key_get_syms_by_level(code, layout, 0).first()?;
-                Key::from_name(xkb::keysym_get_name(sym))
+                self.unshifted(keycode, layout)
             })?;
             registry.command_for_keys(key, fallback_key, modifiers)
+        }
+    }
+
+    #[test]
+    fn us_qwerty_table_matches_the_us_layout() {
+        // Both ways: each key of the table is right, and no printable key is missing.
+        // The keypad is not in the table: its keysyms are outside the ASCII range.
+        // Evdev keycodes from 128 are extra keys, e.g. the parentheses of some
+        // keypads, which type ASCII but are not on the main block.
+        let us = Keyboard::new("us", "");
+        for keycode in 0..128 + 8 {
+            let printable = us
+                .unshifted(keycode, 0)
+                .filter(|key| (0x21..=0x7e).contains(&key.into_glib()));
+            assert_eq!(us_qwerty_key(keycode), printable, "XKB keycode {keycode}");
         }
     }
 
