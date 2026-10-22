@@ -342,7 +342,8 @@ impl Tool for HighlightTool {
                                 *points.last().unwrap()
                             };
                             let snapped_pos = event.pos.sub(last).snapped_vector_15deg().add(last);
-                            println!(
+                            #[cfg(debug_assertions)]
+                            eprintln!(
                                 "{:?} {:?} {:?} ",
                                 highlighter.data.start_point, points, event.pos
                             );
