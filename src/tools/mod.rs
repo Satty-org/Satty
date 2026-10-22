@@ -300,7 +300,7 @@ pub fn hit_test_rectangle(
 
 pub fn hit_test_line(pos: Vec2D, start_point: Vec2D, points: &[Vec2D], tolerance: f32) -> bool {
     let mut last: Vec2D = start_point;
-    for p in points.iter().skip(1) {
+    for p in points.iter() {
         let next = start_point + *p;
         if pos.distance_to_segment(last, next) <= tolerance {
             return true;
@@ -313,7 +313,7 @@ pub fn hit_test_line(pos: Vec2D, start_point: Vec2D, points: &[Vec2D], tolerance
 pub fn calculate_line_bounds(start_point: Vec2D, points: &[Vec2D]) -> (Vec2D, Vec2D) {
     let mut tl = start_point;
     let mut br = start_point;
-    for p in points.iter().skip(1) {
+    for p in points.iter() {
         let abs = start_point + *p;
         tl = tl.min(abs);
         br = br.max(abs);

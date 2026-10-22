@@ -37,10 +37,10 @@ impl BrushDrawable {
             self.points.push(self.smoother.update(point));
             return;
         }
-        if shift_pressed && self.points.len() > 1 {
+        if shift_pressed && !self.points.is_empty() {
             self.points.pop();
         }
-        let anchor = if self.points.len() == 1 {
+        let anchor = if self.points.is_empty() {
             Vec2D::zero()
         } else {
             *self.points.last().unwrap()
@@ -93,7 +93,7 @@ impl Drawable for BrushDrawable {
         let mut path = Path::new();
         let start_point = self.start_point;
         path.move_to(start_point.x, start_point.y);
-        for p in self.points.iter().skip(1) {
+        for p in self.points.iter() {
             path.line_to(start_point.x + p.x, start_point.y + p.y);
         }
 
@@ -133,31 +133,24 @@ impl Tool for BrushTool {
                 brush.start_point = event.pos;
                 ToolUpdateResult::Redraw
             }
-            MouseEventType::EndDrag => {
+            MouseEventType::UpdateDrag | MouseEventType::EndDrag => {
                 if event.button == MouseButton::Middle {
                     return ToolUpdateResult::Unmodified;
                 }
-
                 let Some(brush) = &mut self.drawable else {
                     return ToolUpdateResult::Unmodified;
                 };
+
                 brush.add_point(event.pos, event.modifier.contains(ModifierType::SHIFT_MASK));
+
+                if event.type_ == MouseEventType::UpdateDrag {
+                    return ToolUpdateResult::Redraw;
+                }
                 // commit
                 let result = brush.clone_box();
                 self.drawable = None;
 
                 ToolUpdateResult::Commit(result)
-            }
-            MouseEventType::UpdateDrag => {
-                if event.button == MouseButton::Middle {
-                    return ToolUpdateResult::Unmodified;
-                }
-
-                let Some(brush) = &mut self.drawable else {
-                    return ToolUpdateResult::Unmodified;
-                };
-                brush.add_point(event.pos, event.modifier.contains(ModifierType::SHIFT_MASK));
-                ToolUpdateResult::Redraw
             }
             MouseEventType::Click => {
                 if event.button != MouseButton::Primary {

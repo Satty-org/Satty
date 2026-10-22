@@ -44,7 +44,6 @@ struct BlockHighlight {
 struct FreehandHighlight {
     start_point: Vec2D,
     points: Vec<Vec2D>,
-    shift_pressed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -292,7 +291,6 @@ impl Tool for HighlightTool {
                                 data: FreehandHighlight {
                                     start_point: event.pos,
                                     points: vec![],
-                                    shift_pressed,
                                 },
                                 style: self.style,
                             }))
@@ -331,36 +329,29 @@ impl Tool for HighlightTool {
                         // another aligned line.
                         // This extra point can be removed by releasing shift again (if the cursor
                         // hasn't moved)
+                        let points = &mut highlighter.data.points;
                         if shift_pressed {
-                            // if shift was pressed before we remove an extra point which would
-                            // have been the previous aligned point. However ignore if there is
-                            // only one point which means the highlight has just started.
-                            if highlighter.data.shift_pressed && highlighter.data.points.len() >= 2
-                            {
-                                highlighter
-                                    .data
-                                    .points
-                                    .pop()
-                                    .expect("at least 2 points in highlight path.");
-                            };
                             // use the last point to position the snapping guide, or 0 if the point
                             // is the first one.
-                            let last = if highlighter.data.points.len() == 1 {
+                            if !points.is_empty() {
+                                points.pop();
+                            }
+                            let last = if points.is_empty() {
                                 Vec2D::zero()
                             } else {
-                                *highlighter
-                                    .data
-                                    .points
-                                    .last_mut()
-                                    .expect("at least one point")
+                                *points.last().unwrap()
                             };
                             let snapped_pos = event.pos.sub(last).snapped_vector_15deg().add(last);
-                            highlighter.data.points.push(snapped_pos);
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "{:?} {:?} {:?} ",
+                                highlighter.data.start_point, points, event.pos
+                            );
+                            points.push(snapped_pos);
                         } else {
-                            highlighter.data.points.push(event.pos);
+                            points.push(event.pos);
                         }
 
-                        highlighter.data.shift_pressed = shift_pressed;
                         ToolUpdateResult::Redraw
                     }
                 };
@@ -415,16 +406,10 @@ impl Tool for HighlightTool {
         if (event.key == Key::Shift_L || event.key == Key::Shift_R)
             && let Some(HighlightKind::Freehand(highlighter)) = &mut self.highlighter
         {
+            // duplicate the last point to maintain the current segment
             let points = &mut highlighter.data.points;
-            let last = points
-                .last()
-                .expect("line highlight must have at least one point");
-            if points.len() >= 2 {
-                if *last == points[points.len() - 2] {
-                    points.pop();
-                } else {
-                    points.push(*last);
-                }
+            if !points.is_empty() {
+                points.push(*points.last().unwrap());
                 return ToolUpdateResult::Redraw;
             };
         };
