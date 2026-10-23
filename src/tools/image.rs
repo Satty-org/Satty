@@ -10,7 +10,6 @@ use super::{
     Drawable, InputContext, Tool, ToolUpdateResult, Tools,
     drag_box::{DragBox, draw_center_marker},
 };
-use crate::logging::LogSeverity;
 use crate::tools::drag_box::draw_rect_marker;
 use crate::{
     femtovg_area::create_image_from_pixbuf,
@@ -265,11 +264,7 @@ impl ImageTool {
             {
                 match image_loading::pixbuf_from_file(&path) {
                     Ok(pixbuf) => sender.emit(SketchBoardInput::ImagePlaced(pixbuf, placement)),
-                    Err(e) => log(
-                        &format!("Error loading image: {e}"),
-                        LogLevel::Error,
-                        LogSeverity::Normal,
-                    ),
+                    Err(e) => log(&format!("Error loading image: {e}"), LogLevel::Error),
                 }
             }
             dialog.destroy();

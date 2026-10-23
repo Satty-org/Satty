@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use satty_cli::command_line::{Fullscreen, LogLevel, Resize};
 use tempfile::TempDir;
 
-use crate::logging::{CONFIG_READ, LogSeverity, log};
+use crate::logging::{CONFIG_READ, LogSeverity, log, log_with_severity};
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -35,6 +35,7 @@ mod ime;
 mod keybindings;
 mod logging;
 mod math;
+mod notification;
 mod sketch_board;
 mod style;
 mod tools;
@@ -52,7 +53,7 @@ pub static TEMP_DIR: LazyLock<RwLock<Option<TempDir>>> =
     LazyLock::new(|| match tempfile::TempDir::new() {
         Ok(dir) => RwLock::new(Some(dir)),
         Err(e) => {
-            log(
+            log_with_severity(
                 &format!("Failed to create temporary directory: {e}"),
                 LogLevel::Error,
                 LogSeverity::High,
@@ -73,7 +74,6 @@ macro_rules! generate_profile_output {
                     $e
                 ),
                 LogLevel::Debug,
-                LogSeverity::Low,
             );
         }
     };
@@ -143,7 +143,6 @@ impl App {
                 fullscreen, resize, floating_hack
             ),
             LogLevel::Debug,
-            LogSeverity::Low,
         );
 
         if fullscreen == Some(Fullscreen::All)
@@ -242,7 +241,7 @@ impl App {
                     );
                 }
             }
-            None => log(
+            None => log_with_severity(
                 "Cannot apply style to display",
                 LogLevel::Error,
                 LogSeverity::High,
@@ -578,7 +577,6 @@ fn read_css_overrides() -> Option<String> {
                 path.display()
             ),
             LogLevel::Warn,
-            LogSeverity::Low,
         );
         return None;
     }
@@ -593,7 +591,6 @@ fn read_css_overrides() -> Option<String> {
                     e
                 ),
                 LogLevel::Error,
-                LogSeverity::Normal,
             );
             None
         }
@@ -655,7 +652,6 @@ fn run_satty() -> Result<()> {
                 log(
                     &format!("Invalid app id: {}, using fallback", app_id),
                     LogLevel::Error,
-                    LogSeverity::Low,
                 );
             }
             Some("com.gabm.satty")
@@ -695,7 +691,6 @@ fn run_satty() -> Result<()> {
                             elapsed, sleep_time
                         ),
                         LogLevel::Debug,
-                        LogSeverity::Low,
                     );
                     thread::sleep(sleep_time);
                 }
@@ -704,13 +699,12 @@ fn run_satty() -> Result<()> {
                     log(
                         &format!("Failed to close temporary directory: {}", e),
                         LogLevel::Error,
-                        LogSeverity::Low,
                     );
                 }
             }
         }
         Err(e) => {
-            log(&format!("{}", e), LogLevel::Error, LogSeverity::Normal);
+            log(&format!("{}", e), LogLevel::Error);
         }
     }
 
@@ -747,7 +741,6 @@ fn main() -> Result<()> {
                 START_TIME.format("%s.%f %Y-%m-%d %H:%M:%S")
             ),
             LogLevel::Debug,
-            LogSeverity::Low,
         );
     }
     generate_profile_output!("configuration loaded");
@@ -755,7 +748,7 @@ fn main() -> Result<()> {
     // run the application
     match run_satty() {
         Err(e) => {
-            log(&format!("Error: {e}"), LogLevel::Error, LogSeverity::Urgent);
+            log_with_severity(&format!("Error: {e}"), LogLevel::Error, LogSeverity::Urgent);
             Err(e)
         }
         Ok(v) => Ok(v),

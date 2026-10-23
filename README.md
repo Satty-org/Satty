@@ -389,6 +389,8 @@ Dependencies, depending of each distributions are:
 - libadwaita
 - libepoxy
 - fontconfig
+
+Please note, we use native-dialog to display an error message if anything happens before gtk could be initialized. On Linux and BSD, this depends on Zenity, KDialog or YAD.
 <!-- --8<-- [end:build] -->
 
 ## Credits

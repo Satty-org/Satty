@@ -21,7 +21,7 @@ use relm4::{Sender, gtk};
 use resource::resource;
 
 use super::{font_stack, set_font_stack};
-use crate::logging::LogSeverity;
+use crate::logging::{LogSeverity, log_with_severity};
 use crate::{
     APP_CONFIG,
     configuration::Action,
@@ -149,7 +149,6 @@ impl GLAreaImpl for FemtoVGArea {
             log(
                 &format!("Rendering requested for actions: {:?}", a),
                 LogLevel::Debug,
-                LogSeverity::Low,
             );
             // render image
             let image = match self
@@ -160,7 +159,7 @@ impl GLAreaImpl for FemtoVGArea {
             {
                 Ok(t) => t,
                 Err(e) => {
-                    log(
+                    log_with_severity(
                         &format!("Error while rendering image: {e}"),
                         LogLevel::Error,
                         LogSeverity::High,
@@ -185,7 +184,7 @@ impl GLAreaImpl for FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .render_framebuffer(canvas, font)
         {
-            log(
+            log_with_severity(
                 &format!("Error rendering to framebuffer: {e}"),
                 LogLevel::Error,
                 LogSeverity::High,
@@ -278,7 +277,6 @@ impl FemtoVGArea {
                         font.name,
                     ),
                     LogLevel::Info,
-                    LogSeverity::Low,
                 );
             }
 
@@ -301,11 +299,7 @@ impl FemtoVGArea {
                 loaded_fonts.push(id);
             }
             Err(e) => {
-                log(
-                    &format!("Primary font: {}", e),
-                    LogLevel::Error,
-                    LogSeverity::Low,
-                );
+                log(&format!("Primary font: {}", e), LogLevel::Error);
             }
         }
 
@@ -322,11 +316,7 @@ impl FemtoVGArea {
                     loaded_fonts.push(id);
                 }
                 Err(e) => {
-                    log(
-                        &format!("Fallback font: {}", e),
-                        LogLevel::Error,
-                        LogSeverity::Low,
-                    );
+                    log(&format!("Fallback font: {}", e), LogLevel::Error);
                 }
             }
         }
@@ -341,11 +331,7 @@ impl FemtoVGArea {
                 loaded_fonts.push(id);
             }
             Err(e) => {
-                log(
-                    &format!("Emoji font: {}", e),
-                    LogLevel::Error,
-                    LogSeverity::Low,
-                );
+                log(&format!("Emoji font: {}", e), LogLevel::Error);
             }
         }
 
@@ -712,7 +698,6 @@ impl FemtoVgAreaMut {
         log(
             &format!("Rendering native resolution with size: {:?}", size),
             LogLevel::Debug,
-            LogSeverity::Low,
         );
 
         // create render-target
@@ -984,7 +969,6 @@ impl FemtoVgAreaMut {
                 log(
                     "Could not create transparency background image",
                     LogLevel::Error,
-                    LogSeverity::Normal,
                 );
                 None
             }

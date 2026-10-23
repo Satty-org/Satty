@@ -1,4 +1,4 @@
-use crate::logging::{LogSeverity, log};
+use crate::logging::{LogSeverity, log_with_severity};
 use libloading::Library;
 use satty_cli::command_line::LogLevel;
 use std::ffi::c_void;
@@ -33,7 +33,7 @@ pub fn get_proc_addr(name: &str) -> *const c_void {
     let library = match panic::catch_unwind(load_epoxy) {
         Ok(library) => library,
         Err(_) => {
-            log("failed to load epoxy", LogLevel::Error, LogSeverity::Urgent);
+            log_with_severity("failed to load epoxy", LogLevel::Error, LogSeverity::Urgent);
             return ptr::null();
         }
     };

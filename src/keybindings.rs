@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use satty_cli::command_line::LogLevel;
 
 use crate::configuration::{APP_CONFIG, Action, log_config_error};
-use crate::logging::{LogSeverity, log};
+use crate::logging::log;
 use crate::sketch_board::KeyEventMsg;
 use crate::style::Size;
 use crate::tools::Tools;
@@ -434,7 +434,6 @@ impl ShortcutRegistry {
                 log(
                     &format!("Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\""),
                     LogLevel::Warn,
-                    LogSeverity::Low,
                 );
             } else if let Ok(command) = SC::from_str(tool_or_cmd.as_str()) {
                 registry.add_key_binding(kb_str, command);
@@ -484,7 +483,6 @@ impl ShortcutRegistry {
             log(
                 &format!("\"{}\" is not bound to a command or tool", key_binding),
                 LogLevel::Warn,
-                LogSeverity::Low,
             );
         }
         command
