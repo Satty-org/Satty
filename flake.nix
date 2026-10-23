@@ -30,7 +30,6 @@
             libadwaita
             fontconfig
             libxkbcommon # real keyboard layouts in keybinding tests
-            zenity
 
             (rustPkgs.rust.override {
               extensions = ["rust-src"];

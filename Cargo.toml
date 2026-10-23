@@ -1,5 +1,6 @@
 [package]
 name = "satty"
+default-run = "satty"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -19,7 +20,18 @@ include = [
 ]
 
 [features]
+default = ["fatal-error-dialog"]
 ci-release = []
+fatal-error-dialog = []
+
+[[bin]]
+name = "satty"
+path = "src/main.rs"
+
+[[bin]]
+name = "satty-fatal-error-dialog"
+path = "src/bin/satty-fatal-error-dialog.rs"
+required-features = ["fatal-error-dialog"]
 
 [dependencies]
 satty_cli.workspace = true
@@ -83,4 +95,3 @@ license = "MPL-2.0"
 clap = { version = "4.6.6", features = ["derive"] }
 satty_cli = { path = "cli", version = "0.22.0" }
 serde = { version = "1.0", features = ["derive"] }
-native-dialog = "0.9.7"

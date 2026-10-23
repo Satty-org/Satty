@@ -1,14 +1,15 @@
+#[cfg(feature = "fatal-error-dialog")]
+use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::configuration::APP_CONFIG;
 use crate::notification::{show_notification, show_notification_with_pixbuf};
-use crate::{APP_BROKER, AppInput};
+use crate::{APP_BROKER, AppInput, ui};
 use chrono::Local;
-use native_dialog::DialogBuilder;
 use relm4::gtk;
 use relm4::gtk::gdk_pixbuf::Pixbuf;
+use relm4::gtk::gio;
 use relm4::gtk::prelude::{DialogExt, GtkApplicationExt, GtkWindowExt, WidgetExt};
-use relm4::gtk::{ButtonsType, MessageDialog, MessageType, gio};
 pub use satty_cli::command_line::LogLevel;
 
 pub static CONFIG_READ: OnceLock<()> = OnceLock::new();
@@ -58,6 +59,16 @@ pub fn log(msg: &str, level: LogLevel) {
     }
 }
 
+#[cfg(feature = "fatal-error-dialog")]
+fn spawn_fatal_dialog(msg: &str) {
+    let helper = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("satty-fatal-error-dialog")));
+    if let Some(helper) = helper {
+        let _ = Command::new(helper).arg(msg).status();
+    }
+}
+
 pub fn log_with_severity(msg: &str, level: LogLevel, severity: LogSeverity) {
     log(msg, level);
 
@@ -69,31 +80,16 @@ pub fn log_with_severity(msg: &str, level: LogLevel, severity: LogSeverity) {
     let has_gtk = gtk::is_initialized();
 
     if !can_read_config || !has_gtk {
-        let _ = DialogBuilder::message()
-            .set_level(level.into())
-            .set_title(format!("{level}"))
-            .set_text(msg)
-            .alert()
-            .show();
+        #[cfg(feature = "fatal-error-dialog")]
+        spawn_fatal_dialog(msg);
     } else if level == LogLevel::Fatal {
         // if it's fatal, we shouldn't rely on toast or notification
         let app = relm4::main_application();
-        if let Some(window) = app.active_window() {
-            let message_dialog = MessageDialog::builder()
-                .transient_for(&window)
-                .title("Fatal error")
-                .message_type(MessageType::Error)
-                .buttons(ButtonsType::Ok)
-                .text(msg)
-                .modal(true)
-                .build();
-
-            message_dialog.connect_response(|d, _| {
-                d.destroy();
-            });
-
-            message_dialog.show();
-        }
+        let message_dialog = ui::common_dialogs::build_fatal_error_dialog(msg, app.active_window());
+        message_dialog.connect_response(|d, _| {
+            d.destroy();
+        });
+        message_dialog.show();
     } else if APP_CONFIG.read().disable_notifications() {
         APP_BROKER.send(AppInput::ShowToast(msg.to_owned()));
     } else {
