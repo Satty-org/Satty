@@ -15,7 +15,7 @@ use std::{
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
-use crate::logging::{LogSeverity, log};
+use crate::logging::{LogSeverity, log, log_with_severity};
 use crate::tools::Highlighters;
 use satty_cli::command_line::{
     Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
@@ -29,7 +29,7 @@ static CONFIG_ERROR_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub fn log_config_error(message: impl std::fmt::Display) {
     CONFIG_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
-    log(&format!("{message}"), LogLevel::Warn, LogSeverity::Normal);
+    log(&format!("{message}"), LogLevel::Warn);
 }
 
 pub fn config_error_count() -> usize {
@@ -272,7 +272,7 @@ impl Configuration {
         let files = match ConfigurationFile::try_read(&command_line.config) {
             Ok(c) => c,
             Err(e) => {
-                log(
+                log_with_severity(
                     &format!("Error reading config file: {e}"),
                     LogLevel::Fatal,
                     LogSeverity::Urgent,
@@ -912,7 +912,6 @@ impl ConfigurationFile {
         log(
             &format!("Reading configuration file: {:?}", path),
             LogLevel::Info,
-            LogSeverity::Normal,
         );
         let config = toml::from_str::<ConfigurationFile>(&fs::read_to_string(path)?)?;
 
