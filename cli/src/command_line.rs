@@ -204,16 +204,6 @@ pub enum LogLevel {
     Trace,
 }
 
-impl From<LogLevel> for native_dialog::MessageLevel {
-    fn from(level: LogLevel) -> Self {
-        match level {
-            LogLevel::Fatal | LogLevel::Error => native_dialog::MessageLevel::Error,
-            LogLevel::Warn => native_dialog::MessageLevel::Warning,
-            _ => native_dialog::MessageLevel::Info,
-        }
-    }
-}
-
 impl Display for LogLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
