@@ -15,4 +15,9 @@
   <url type="homepage">https://github.com/Satty-org/Satty</url>
   <url type="bugtracker">https://github.com/Satty-org/Satty/issues</url>
   <developer_name>Matthias Gabriel</developer_name>
+  <launchable type="desktop-id">org.satty.Satty.desktop</launchable>
+  <categories>
+    <category>Graphics</category>
+    <category>Utility</category>
+  </categories>
 </component>
