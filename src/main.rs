@@ -748,7 +748,7 @@ fn main() -> Result<()> {
     // run the application
     match run_satty() {
         Err(e) => {
-            log_with_severity(&format!("Error: {e}"), LogLevel::Error, LogSeverity::Urgent);
+            log_with_severity(&format!("Error: {e}"), LogLevel::Fatal, LogSeverity::Urgent);
             Err(e)
         }
         Ok(v) => Ok(v),

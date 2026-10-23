@@ -69,13 +69,12 @@ pub fn log_with_severity(msg: &str, level: LogLevel, severity: LogSeverity) {
     let has_gtk = gtk::is_initialized();
 
     if !can_read_config || !has_gtk {
-        DialogBuilder::message()
+        let _ = DialogBuilder::message()
             .set_level(level.into())
             .set_title(format!("{level}"))
             .set_text(msg)
             .alert()
-            .show()
-            .unwrap();
+            .show();
     } else if level == LogLevel::Fatal {
         // if it's fatal, we shouldn't rely on toast or notification
         let app = relm4::main_application();
