@@ -170,6 +170,12 @@ Pressing any unbound key will print its name to the console.
 
 Setting a binding to `"none"` will unbind it.
 
+#### Keyboard Layouts <sup>NEXTRELEASE</sup>
+
+A binding matches the key that the active layout produces. In QWERTZ or Dvorak, it follows the letters on the keys, not their positions.
+
+When the active layout produces a letter of a non-Latin script, for example Cyrillic or Greek, a binding also matches the same key in the first configured Latin layout. If no Latin layout is configured, it matches the key at the same position in the US QWERTY layout. A binding for the non-Latin key itself has priority. This also applies to <kbd>Ctrl+A</kbd>, <kbd>Ctrl+C</kbd>, <kbd>Ctrl+V</kbd> and <kbd>Ctrl+X</kbd> in the text tool.
+
 <!-- --8<-- [end:shortcuts] -->
 
 The defaults are listed in the [config.toml](config.toml).

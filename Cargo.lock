@@ -74,12 +74,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "arraydeque"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -955,30 +949,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keycode"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29541831d33940ea1c68a1b8980382c1a507c95a528a98c0e335b361b9726975"
-dependencies = [
- "arraydeque",
- "arrayvec",
- "bitflags",
- "keycode_macro",
-]
-
-[[package]]
-name = "keycode_macro"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4facccc788054d521c263b66648eee8caf470f59cf8340d8cd0cce4a74ebcab2"
-dependencies = [
- "anyhow",
- "heck",
- "proc-macro2",
- "quote",
-]
-
-[[package]]
 name = "libadwaita"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1425,7 +1395,6 @@ dependencies = [
  "glow",
  "hex_color",
  "image",
- "keycode",
  "libloading 0.9.0",
  "relm4",
  "relm4-icons",
@@ -1439,6 +1408,7 @@ dependencies = [
  "tokio",
  "toml",
  "xdg",
+ "xkbcommon",
 ]
 
 [[package]]
@@ -1971,6 +1941,22 @@ name = "xdg"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
+
+[[package]]
+name = "xkbcommon"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7a974f48060a14e95705c01f24ad9c3345022f4d97441b8a36beb7ed5c4a02d"
+dependencies = [
+ "libc",
+ "xkeysym",
+]
+
+[[package]]
+name = "xkeysym"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "yeslogic-fontconfig-sys"

@@ -21,7 +21,7 @@ use crate::configuration::{APP_CONFIG, Action};
 use crate::femtovg_area::FemtoVGArea;
 use crate::image_loading;
 use crate::ime::pango_adapter::spans_from_pango_attrs;
-use crate::keybindings::{ActionTrigger, ShortcutCommand, ShortcutRegistry};
+use crate::keybindings::{self, ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::math::{Vec2D, crop_rect_in_bounds};
 use crate::notification::{log_result, log_result_with_pixbuf};
 use crate::style::{Color, Size, Style};
@@ -98,6 +98,10 @@ pub struct KeyEventMsg {
     pub key: Key,
     pub code: u32,
     pub modifier: ModifierType,
+    /// The unshifted key in the active layout
+    pub shortcut_key: Key,
+    /// The key to match shortcuts with when `shortcut_key` is a non-Latin letter
+    pub fallback_key: Option<Key>,
 }
 #[derive(Debug, Clone)]
 pub enum TextEventMsg {
@@ -1713,10 +1717,10 @@ impl Component for SketchBoard {
                         if ime_enabled.get() {
                             im_context.focus_in();
                             if !im_context.filter_keypress(controller.current_event().unwrap()) {
-                                sender.input(SketchBoardInput::new_key_event(KeyEventMsg::new(key, code, modifier)));
+                                sender.input(SketchBoardInput::new_key_event(KeyEventMsg::new(key, code, modifier, controller.group())));
                             }
                         } else {
-                            sender.input(SketchBoardInput::new_key_event(KeyEventMsg::new(key, code, modifier)));
+                            sender.input(SketchBoardInput::new_key_event(KeyEventMsg::new(key, code, modifier, controller.group())));
                         }
                         relm4::gtk::glib::Propagation::Stop
                     },
@@ -1728,10 +1732,10 @@ impl Component for SketchBoard {
                         if ime_enabled.get() {
                             im_context.focus_in();
                             if !im_context.filter_keypress(controller.current_event().unwrap()) {
-                                sender.input(SketchBoardInput::new_key_release_event(KeyEventMsg::new(key, code, modifier)));
+                                sender.input(SketchBoardInput::new_key_release_event(KeyEventMsg::new(key, code, modifier, controller.group())));
                             }
                         } else {
-                            sender.input(SketchBoardInput::new_key_release_event(KeyEventMsg::new(key, code, modifier)));
+                            sender.input(SketchBoardInput::new_key_release_event(KeyEventMsg::new(key, code, modifier, controller.group())));
                         }
                     },
                 },
@@ -2170,11 +2174,14 @@ impl Component for SketchBoard {
 }
 
 impl KeyEventMsg {
-    pub fn new(key: Key, code: u32, modifier: ModifierType) -> Self {
+    pub fn new(key: Key, code: u32, modifier: ModifierType, layout: u32) -> Self {
+        let (shortcut_key, fallback_key) = keybindings::shortcut_keys(key, code, layout);
         Self {
             key,
             code,
             modifier,
+            shortcut_key,
+            fallback_key,
         }
     }
 }
