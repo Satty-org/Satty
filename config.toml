@@ -112,9 +112,13 @@ input-scale = 1.0
 "<Alt>Right" = "pan-right"
 "<Alt>Up" = "pan-up"
 "<Alt>Down" = "pan-down"
+"<Control>plus" = "zoom:1"
+"<Control>equal" = "zoom:1"
+"<Control>minus" = "zoom:-1"
 "Delete" = "delete-selection"
 "Escape" = "run-actions-on-escape"
 "Return" = "run-actions-on-enter"
+"KP_Enter" = "run-actions-on-enter"
 "<Control>t" = "toggle-toolbars"
 
 # scale is in %, 0 is fit to window
@@ -142,11 +146,13 @@ input-scale = 1.0
 "m" = "marker"
 "u" = "blur"
 "g" = "highlight"
+"<Shift>g" = "highlight-freehand"
+"x" = "fringe-pixelate"
 "o" = "image"
 "<Control>s" = "save-to-file"
 "<Shift><Control>s" = "save-to-file-as"
 "<Control>c" = "save-to-clipboard"
-"<Shift><Control>c" = "copy-filepath-to-clipboard"
+"<Control><Alt>c" = "copy-filepath-to-clipboard"
 "<Control>v" = "paste-image"
 
 # bottom toolbar
@@ -159,6 +165,7 @@ input-scale = 1.0
 "7" = "select-color-index:7"
 "8" = "select-color-index:8"
 "9" = "select-color-index:9"
+"0" = "select-color-index:10"
 "minus" = "cycle-size"
 #"..." = "select-size:(small|medium|large)"
 "s" = "focus-annotation-size-factor"
