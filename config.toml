@@ -151,6 +151,7 @@ input-scale = 1.0
 "m" = "marker"
 "x" = "fringe-pixelate"
 "u" = "blur"
+"<Shift>x" = "blackout"
 "g" = "highlight"
 "s" = "spotlight"
 "<Shift>u" = "lensblur"

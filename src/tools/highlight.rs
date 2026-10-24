@@ -21,16 +21,19 @@ use super::{
     drag_box::{DragBox, draw_center_marker},
 };
 
-// Freehand is implemented by the BrushTool, HighlightTool handles Block and Spotlight
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Freehand is implemented by the BrushTool, HighlightTool handles the others
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Highlighters {
-    Block = 0,
-    Spotlight = 2,
+    #[default]
+    Block,
+    Spotlight,
+    /// opaque black instead of the style color
+    Blackout,
 }
 
 #[derive(Clone, Debug)]
 struct BlockHighlight {
-    is_spotlight: bool,
+    mode: Highlighters,
     shared_spotlight_alpha: Option<Arc<Mutex<f32>>>,
     origin: Vec2D,
     top_left: Vec2D,
@@ -75,7 +78,7 @@ impl BlockHighlight {
 
 #[derive(Default, Clone, Debug)]
 pub struct HighlightTool {
-    is_spotlight: bool,
+    mode: Highlighters,
     highlighter: Option<BlockHighlight>,
     style: Style,
     input_enabled: bool,
@@ -85,7 +88,7 @@ pub struct HighlightTool {
 
 impl Drawable for BlockHighlight {
     fn get_rendering_mode(&self) -> super::RenderingMode {
-        if self.is_spotlight {
+        if self.mode == Highlighters::Spotlight {
             RenderingMode::SpotlightHighlight
         } else {
             RenderingMode::Default
@@ -107,11 +110,14 @@ impl Drawable for BlockHighlight {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        if self.is_spotlight && !self.style.fill {
-            return super::hit_test_ellipse(pos, self.top_left, self.size, tolerance, false);
+        let fill_hit_test = self.mode == Highlighters::Blackout;
+        let (tl, size) = (self.top_left, self.size);
+
+        if self.mode == Highlighters::Spotlight && !self.style.fill {
+            return super::hit_test_ellipse(pos, tl, size, tolerance, fill_hit_test);
         }
 
-        super::hit_test_rectangle(pos, self.top_left, self.size, tolerance, false)
+        super::hit_test_rectangle(pos, tl, size, tolerance, fill_hit_test)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -130,7 +136,7 @@ impl Drawable for BlockHighlight {
 
     fn set_style(&mut self, style: Style) {
         self.style = style;
-        if self.is_spotlight
+        if self.mode == Highlighters::Spotlight
             && let Some(alpha) = &self.shared_spotlight_alpha
         {
             *alpha.lock().unwrap() = self.style.spotlight_alpha();
@@ -147,7 +153,7 @@ impl Drawable for BlockHighlight {
         output_target: RenderTarget,
     ) {
         assert!(
-            self.is_spotlight,
+            self.mode == Highlighters::Spotlight,
             "draw_spotlight called on non-spotlight highlight"
         );
         let alpha: f32 = *self
@@ -192,12 +198,15 @@ impl Drawable for BlockHighlight {
             shadow_path.ellipse(center.x, center.y, radii.x, radii.y);
         }
 
-        let shadow_paint = Paint::color(femtovg::Color::rgba(
-            self.style.color.r,
-            self.style.color.g,
-            self.style.color.b,
-            (255.0 * self.style.highlight_alpha()) as u8,
-        ));
+        let shadow_paint = Paint::color(match self.mode {
+            Highlighters::Blackout => Color::black(),
+            _ => Color::rgba(
+                self.style.color.r,
+                self.style.color.g,
+                self.style.color.b,
+                (255.0 * self.style.highlight_alpha()) as u8,
+            ),
+        });
 
         canvas.fill_path(&shadow_path, &shadow_paint);
 
@@ -224,10 +233,9 @@ impl Drawable for BlockHighlight {
 
 impl HighlightTool {
     pub fn with_mode(mode: Highlighters) -> Self {
-        let is_spotlight = mode == Highlighters::Spotlight;
         Self {
-            is_spotlight,
-            shared_spotlight_alpha: is_spotlight
+            mode,
+            shared_spotlight_alpha: (mode == Highlighters::Spotlight)
                 .then(|| Arc::new(Mutex::new(Style::default().spotlight_alpha()))),
             ..Default::default()
         }
@@ -248,10 +256,10 @@ impl Tool for HighlightTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        if self.is_spotlight {
-            Tools::HighlightSpotlight
-        } else {
-            Tools::BlockHighlighter
+        match self.mode {
+            Highlighters::Block => Tools::BlockHighlighter,
+            Highlighters::Spotlight => Tools::HighlightSpotlight,
+            Highlighters::Blackout => Tools::Blackout,
         }
     }
 
@@ -264,7 +272,7 @@ impl Tool for HighlightTool {
 
                 //set origin
                 self.highlighter = Some(BlockHighlight {
-                    is_spotlight: self.is_spotlight,
+                    mode: self.mode,
                     shared_spotlight_alpha: self.shared_spotlight_alpha.clone(),
                     origin: event.pos,
                     top_left: event.pos,

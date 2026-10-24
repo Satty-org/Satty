@@ -523,9 +523,10 @@ pub enum Tools {
     Pixelate,
     Fringe,
     Blur,
-    Lensblur,
+    Blackout,
     BlockHighlighter,
     HighlightSpotlight,
+    Lensblur,
     Image,
 }
 
@@ -547,6 +548,7 @@ impl fmt::Display for Tools {
             Tools::Pixelate => "Pixelate",
             Tools::Fringe => "Fringe Inpaint",
             Tools::Blur => "Blur",
+            Tools::Blackout => "Blackout",
             Tools::Lensblur => "Lensblur",
             Tools::BlockHighlighter => "Block Highlighter",
             Tools::HighlightSpotlight => "Spotlight",
@@ -560,7 +562,7 @@ impl fmt::Display for Tools {
 pub struct ParseCommandError;
 
 /// The names of the tools in the config, the keybinds and on the command line.
-const TOOL_NAMES: [(&str, Tools); 19] = [
+const TOOL_NAMES: [(&str, Tools); 20] = [
     ("pointer", Tools::Pointer),
     ("crop", Tools::Crop),
     ("pen", Tools::Pen),
@@ -576,9 +578,10 @@ const TOOL_NAMES: [(&str, Tools); 19] = [
     ("pixelate", Tools::Pixelate),
     ("fringe", Tools::Fringe),
     ("blur", Tools::Blur),
-    ("lensblur", Tools::Lensblur),
+    ("blackout", Tools::Blackout),
     ("highlight", Tools::BlockHighlighter),
     ("spotlight", Tools::HighlightSpotlight),
+    ("lensblur", Tools::Lensblur),
     ("image", Tools::Image),
 ];
 
@@ -664,6 +667,12 @@ impl ToolsManager {
         );
         tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
+            Tools::Blackout,
+            Rc::new(RefCell::new(HighlightTool::with_mode(
+                Highlighters::Blackout,
+            ))),
+        );
+        tools.insert(
             Tools::Lensblur,
             Rc::new(RefCell::new(BlurTool::spotlight())),
         );
@@ -744,9 +753,10 @@ impl FromVariant for Tools {
             v if v == Tools::Pixelate as u32 => Some(Tools::Pixelate),
             v if v == Tools::Fringe as u32 => Some(Tools::Fringe),
             v if v == Tools::Blur as u32 => Some(Tools::Blur),
-            v if v == Tools::Lensblur as u32 => Some(Tools::Lensblur),
+            v if v == Tools::Blackout as u32 => Some(Tools::Blackout),
             v if v == Tools::BlockHighlighter as u32 => Some(Tools::BlockHighlighter),
             v if v == Tools::HighlightSpotlight as u32 => Some(Tools::HighlightSpotlight),
+            v if v == Tools::Lensblur as u32 => Some(Tools::Lensblur),
             v if v == Tools::Image as u32 => Some(Tools::Image),
             _ => None,
         })
@@ -771,9 +781,10 @@ impl From<command_line::Tools> for Tools {
             command_line::Tools::Pixelate => Self::Pixelate,
             command_line::Tools::Fringe => Self::Fringe,
             command_line::Tools::Blur => Self::Blur,
-            command_line::Tools::Lensblur => Self::Lensblur,
+            command_line::Tools::Blackout => Self::Blackout,
             command_line::Tools::Highlight => Self::BlockHighlighter,
             command_line::Tools::Spotlight => Self::HighlightSpotlight,
+            command_line::Tools::Lensblur => Self::Lensblur,
             command_line::Tools::Image => Self::Image,
         }
     }

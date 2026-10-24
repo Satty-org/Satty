@@ -342,6 +342,11 @@ impl SimpleComponent for ToolsToolbar {
                     icon_name: "drop-regular".into(),
                     tooltip: None,
                 },
+                GroupableTool {
+                    tool: Tools::Blackout,
+                    icon_name: "rectangle-landscape-filled".into(),
+                    tooltip: None,
+                },
             ],
             vec![
                 GroupableTool {

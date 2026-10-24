@@ -413,6 +413,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("t", SC::SelectTool(Tools::Text));
         registry.add_key_binding("m", SC::SelectTool(Tools::Marker));
         registry.add_key_binding("x", SC::SelectTool(Tools::FringePixelate));
+        registry.add_key_binding("<Shift>x", SC::SelectTool(Tools::Blackout));
         registry.add_key_binding("u", SC::SelectTool(Tools::Blur));
         registry.add_key_binding("<Shift>u", SC::SelectTool(Tools::Lensblur));
         registry.add_key_binding("g", SC::SelectTool(Tools::BlockHighlighter));
