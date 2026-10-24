@@ -174,6 +174,8 @@ Setting a binding to `"none"` will unbind it.
 
 A binding matches the key that the active layout produces. In QWERTZ or Dvorak, it follows the letters on the keys, not their positions.
 
+A binding also matches a key that needs Shift to be typed, without the Shift. For example, `<Control>equal` matches <kbd>Ctrl+=</kbd> on a US keyboard and <kbd>Ctrl+Shift+0</kbd> on a German one.
+
 When the active layout produces a letter of a non-Latin script, for example Cyrillic or Greek, a binding also matches the same key in the first configured Latin layout. If no Latin layout is configured, it matches the key at the same position in the US QWERTY layout. A binding for the non-Latin key itself has priority. This also applies to <kbd>Ctrl+A</kbd>, <kbd>Ctrl+C</kbd>, <kbd>Ctrl+V</kbd> and <kbd>Ctrl+X</kbd> in the text tool.
 
 <!-- --8<-- [end:shortcuts] -->
