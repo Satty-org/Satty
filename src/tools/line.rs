@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{FontId, Path};
+use femtovg::{FontId, Paint, Path};
 use relm4::Sender;
 
 use crate::{
@@ -76,8 +76,16 @@ impl Drawable for Line {
     ) -> Result<()> {
         let mut path = Path::new();
         path.move_to(self.start.x, self.start.y);
-        path.line_to(self.end.x, self.end.y);
-        canvas.stroke_path(&path, &self.style.into());
+        let end = if self.start == self.end {
+            // also before the first move, when there are no points yet
+            // draw a point at start - a little bit hacky :-)
+            self.end + Vec2D::new(0.01, 0.0)
+        } else {
+            self.end
+        };
+        path.line_to(end.x, end.y);
+        let paint: Paint = self.style.into();
+        canvas.stroke_path(&path, &paint);
 
         Ok(())
     }
