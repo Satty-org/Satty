@@ -230,8 +230,7 @@ impl Drawable for Arrow {
 
         let arrow_offset = end - self.start;
         let arrow_length = arrow_offset.norm() - line_width / 2.0;
-        let arrow_direction = arrow_offset * (1.0 / arrow_length);
-
+        let arrow_direction = arrow_offset * (1.0 / arrow_offset.norm());
         // We rotate the canvas so that we can draw the arrow on the x-axis.
         // start will be at (0,0)
         // end will be at (length, 0)
@@ -305,10 +304,11 @@ impl Drawable for Arrow {
             path.move_to(head_left.x, -head_left.y); // C
             path.line_to(arrow_length, 0.0); // B
             path.line_to(head_left.x, head_left.y); // C (mirrored)
-
-            path.move_to(arrow_start, 0.0); // A
-            path.line_to(arrow_length, 0.0); // B
-
+            if midpoint_x > line_width / 2.0 {
+                let arrow_start = arrow_start + if round_caps { 0.0 } else { line_width / 2.0 };
+                path.move_to(arrow_start, 0.0); // A
+                path.line_to(arrow_length - line_width, 0.0); // B
+            }
             canvas.stroke_path(&path, &self.style.into());
         }
 
