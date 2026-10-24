@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use satty_cli::command_line::{Fullscreen, LogLevel, Resize};
 use tempfile::TempDir;
 
-use crate::logging::{CONFIG_READ, LogSeverity, log, log_with_severity};
+use crate::logging::{CONFIG_READ, LogSeverity, log, log_early_fatal_error, log_with_severity};
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -597,7 +597,7 @@ fn read_css_overrides() -> Option<String> {
     }
 }
 
-fn run_satty() -> Result<()> {
+fn init_gl() -> Result<()> {
     // load OpenGL
     if panic::catch_unwind(|| {
         epoxy::load_epoxy();
@@ -608,7 +608,10 @@ fn run_satty() -> Result<()> {
     }
 
     generate_profile_output!("loaded gl");
+    Ok(())
+}
 
+fn load_image() -> Result<Pixbuf> {
     // load app config
     let config = APP_CONFIG.read();
 
@@ -641,11 +644,16 @@ fn run_satty() -> Result<()> {
             anyhow::bail!("no input provided");
         }
     };
+    generate_profile_output!("image loaded");
+    Ok(image)
+}
 
-    generate_profile_output!("image loaded, starting gui");
+fn run_satty_app(image: Pixbuf) {
+    generate_profile_output!("starting gui");
     // start GUI
     let app = relm4::main_application();
-    let app_id = match config.app_id() {
+    let conf = APP_CONFIG.read();
+    let app_id = match conf.app_id() {
         Some(app_id) if Application::id_is_valid(app_id) => Some(app_id.deref()),
         o => {
             if let Some(app_id) = o {
@@ -669,8 +677,10 @@ fn run_satty() -> Result<()> {
         icons::icon_names::RESOURCE_PREFIX,
     );
 
-    app.run::<App>(image);
+    app.run::<App>(image)
+}
 
+fn cleanup() {
     match TEMP_DIR.write() {
         Ok(mut temp_dir) => {
             // take is sufficient to have the dir deleted when it's dropped.
@@ -707,8 +717,6 @@ fn run_satty() -> Result<()> {
             log(&format!("{}", e), LogLevel::Error);
         }
     }
-
-    Ok(())
 }
 
 fn newest_mtime(dir: &Path) -> Option<SystemTime> {
@@ -745,12 +753,40 @@ fn main() -> Result<()> {
     }
     generate_profile_output!("configuration loaded");
 
-    // run the application
-    match run_satty() {
-        Err(e) => {
-            log_with_severity(&format!("Error: {e}"), LogLevel::Fatal, LogSeverity::Urgent);
-            Err(e)
-        }
-        Ok(v) => Ok(v),
+    let mut fatal_error_message: Option<String> = None;
+
+    if let Err(e) = init_gl() {
+        fatal_error_message = Some(format!("Error: {}", e));
     }
+
+    let pixbuf = if fatal_error_message.is_none() {
+        match load_image() {
+            Ok(image) => Some(image),
+            Err(e) => {
+                fatal_error_message = Some(format!("Error: {}", e));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // run the application, funny enough, this does not have anything result worthy.
+    let r = if let Some(pb) = pixbuf {
+        run_satty_app(pb);
+        Ok(())
+    } else if let Some(msg) = fatal_error_message {
+        // not much else we can do if it isn't
+        if gtk::init().is_ok() {
+            let main_loop = relm4::gtk::glib::MainLoop::new(None, false);
+            log_early_fatal_error(&msg, &main_loop);
+            main_loop.run();
+        }
+        Err(anyhow::anyhow!("{}", msg))
+    } else {
+        Ok(())
+    };
+
+    cleanup();
+    r
 }

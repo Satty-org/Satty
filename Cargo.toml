@@ -20,18 +20,11 @@ include = [
 ]
 
 [features]
-default = ["fatal-error-dialog"]
 ci-release = []
-fatal-error-dialog = []
 
 [[bin]]
 name = "satty"
 path = "src/main.rs"
-
-[[bin]]
-name = "satty-fatal-error-dialog"
-path = "src/bin/satty-fatal-error-dialog.rs"
-required-features = ["fatal-error-dialog"]
 
 [dependencies]
 satty_cli.workspace = true
@@ -61,7 +54,6 @@ libloading = "0.9"
 glow = "0.18.0"
 resource = "0.6.1"  # font emedding
 fontconfig = "0.11.0"  # font loading
-native-dialog.workspace = true
 
 [dependencies.relm4-icons]
 version = "0.11.0"

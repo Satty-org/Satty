@@ -6,16 +6,11 @@ use serde::Deserialize;
 use serde::de::Deserializer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self, Write},
-    path::Path,
-};
+use std::{collections::HashMap, fs, io, path::Path};
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
-use crate::logging::{LogSeverity, log, log_with_severity};
+use crate::logging::log;
 use crate::tools::Highlighters;
 use satty_cli::command_line::{
     Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
@@ -272,18 +267,8 @@ impl Configuration {
         let files = match ConfigurationFile::try_read(&command_line.config) {
             Ok(c) => c,
             Err(e) => {
-                log_with_severity(
-                    &format!("Error reading config file: {e}"),
-                    LogLevel::Fatal,
-                    LogSeverity::Urgent,
-                );
-
-                // swallow broken pipes
-                let _ = std::io::stdout().lock().flush();
-                let _ = std::io::stderr().lock().flush();
-
-                // exit
-                std::process::exit(3);
+                log_config_error(format!("Error reading given config file: {e}"));
+                vec![]
             }
         };
 
