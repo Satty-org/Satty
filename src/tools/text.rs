@@ -985,11 +985,6 @@ impl Tool for TextTool {
                         }
                     }
                 },
-                Key::Escape => {
-                    self.input_enabled = false;
-                    self.text = None;
-                    tool_update_result = ToolUpdateResult::Redraw;
-                }
                 Key::Alt_L | Key::Alt_R => {
                     // Start tracking a potential Alt tap; the text effect is cycled on
                     // release (see handle_key_release_event) if no other key was pressed.
