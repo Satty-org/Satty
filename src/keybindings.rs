@@ -297,6 +297,15 @@ struct KeyBinding {
 }
 
 impl KeyBinding {
+    /// Returns the binding of the typed `key` without the Shift needed to type it,
+    /// or `None` if `key` is the `unshifted_key` or only its uppercase letter.
+    fn typed(key: Key, unshifted_key: Key, modifiers: ModifierType) -> Option<Self> {
+        (key.to_lower() != unshifted_key).then(|| KeyBinding {
+            key,
+            modifiers: modifiers - ModifierType::SHIFT_MASK,
+        })
+    }
+
     fn from_binding_str(key_binding: &str) -> Result<Self, String> {
         if let Some((key, modifiers)) = gtk::accelerator_parse(key_binding) {
             if gtk::accelerator_valid(key, modifiers) {
@@ -362,6 +371,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("<Alt>Up", SC::PanUp);
         registry.add_key_binding("<Alt>Down", SC::PanDown);
         registry.add_key_binding("<Control>plus", SC::Zoom(1));
+        registry.add_key_binding("<Control>equal", SC::Zoom(1));
         registry.add_key_binding("<Control>minus", SC::Zoom(-1));
         registry.add_key_binding("Delete", SC::DeleteSelection);
         registry.add_key_binding("<Shift>Delete", SC::ClearAll);
@@ -460,27 +470,46 @@ impl ShortcutRegistry {
                 | Key::Super_R
         );
 
-        let command = self.command_for_keys(event.shortcut_key, event.fallback_key, event.modifier);
+        let command = self.command_for_keys(
+            event.key,
+            event.shortcut_key,
+            event.fallback_key,
+            event.modifier,
+        );
         if command.is_none() && !modifier_only {
             let key_binding = KeyBinding {
                 key: event.shortcut_key,
                 modifiers: event.modifier,
             };
-            eprintln!("\"{}\" is not bound to a command or tool", key_binding);
+            let bindings = match KeyBinding::typed(event.key, event.shortcut_key, event.modifier) {
+                Some(typed) => {
+                    format!("\"{key_binding}\" (\"{typed}\")")
+                }
+                None => format!("\"{key_binding}\""),
+            };
+
+            eprintln!("{bindings} is not bound to a command or tool")
         }
         command
     }
 
-    /// Looks up `key` first, so that a binding in the active layout wins.
+    /// Looks up the typed `key` first, then the `unshifted_key`, and the `fallback_key` last.
     fn command_for_keys(
         &self,
         key: Key,
+        unshifted_key: Key,
         fallback_key: Option<Key>,
         modifiers: ModifierType,
     ) -> Option<ShortcutCommand> {
-        std::iter::once(key)
-            .chain(fallback_key)
-            .find_map(|key| self.key_bindings.get(&KeyBinding { modifiers, key }))
+        KeyBinding::typed(key, unshifted_key, modifiers)
+            .into_iter()
+            .chain(
+                [unshifted_key]
+                    .into_iter()
+                    .chain(fallback_key)
+                    .map(|key| KeyBinding { modifiers, key }),
+            )
+            .find_map(|key_binding| self.key_bindings.get(&key_binding))
             .copied()
     }
 
@@ -600,7 +629,12 @@ mod tests {
     fn fallback_key_matches_when_active_key_is_unbound() {
         let registry = registry(&[(Key::b, ShortcutCommand::SelectTool(Tools::Brush))]);
         assert_eq!(
-            registry.command_for_keys(Key::Cyrillic_i, Some(Key::b), ModifierType::empty()),
+            registry.command_for_keys(
+                Key::Cyrillic_i,
+                Key::Cyrillic_i,
+                Some(Key::b),
+                ModifierType::empty()
+            ),
             Some(ShortcutCommand::SelectTool(Tools::Brush))
         );
     }
@@ -612,7 +646,12 @@ mod tests {
             (Key::Cyrillic_i, ShortcutCommand::SelectTool(Tools::Text)),
         ]);
         assert_eq!(
-            registry.command_for_keys(Key::Cyrillic_i, Some(Key::b), ModifierType::empty()),
+            registry.command_for_keys(
+                Key::Cyrillic_i,
+                Key::Cyrillic_i,
+                Some(Key::b),
+                ModifierType::empty()
+            ),
             Some(ShortcutCommand::SelectTool(Tools::Text))
         );
     }
@@ -660,7 +699,21 @@ mod tests {
             let (key, fallback_key) = resolve_shortcut_keys(keycode, active, &layouts, |layout| {
                 self.unshifted(keycode, layout)
             })?;
-            registry.command_for_keys(key, fallback_key, modifiers)
+            let typed_key = self.typed(keycode, modifiers, active)?;
+            registry.command_for_keys(typed_key, key, fallback_key, modifiers)
+        }
+
+        /// Returns the key the XKB `keycode` types in `layout`, with Shift if
+        /// `modifiers` holds it. Stands in for the key GTK passes with a key event,
+        /// which tests do not have.
+        fn typed(&self, keycode: u32, modifiers: ModifierType, layout: u32) -> Option<Key> {
+            let level = u32::from(modifiers.contains(ModifierType::SHIFT_MASK));
+            let code = xkb::Keycode::new(keycode);
+            let sym = *self
+                .keymap
+                .key_get_syms_by_level(code, layout, level)
+                .first()?;
+            Key::from_name(xkb::keysym_get_name(sym))
         }
     }
 
@@ -804,10 +857,32 @@ mod tests {
     }
 
     #[test]
+    fn uppercase_letter_is_not_a_typed_key() {
+        let shift = ModifierType::SHIFT_MASK;
+        assert_eq!(KeyBinding::typed(Key::G, Key::g, shift), None);
+        assert_eq!(
+            KeyBinding::typed(Key::Odiaeresis, Key::odiaeresis, shift),
+            None
+        );
+        assert_eq!(
+            KeyBinding::typed(Key::equal, Key::_0, CTRL | shift),
+            Some(KeyBinding {
+                key: Key::equal,
+                modifiers: CTRL
+            })
+        );
+    }
+
+    #[test]
     fn modifiers_must_match() {
         let registry = registry(&[(Key::z, ShortcutCommand::Undo)]);
         assert_eq!(
-            registry.command_for_keys(Key::Cyrillic_ya, Some(Key::z), ModifierType::CONTROL_MASK),
+            registry.command_for_keys(
+                Key::Cyrillic_ya,
+                Key::Cyrillic_ya,
+                Some(Key::z),
+                ModifierType::CONTROL_MASK
+            ),
             None
         );
     }
