@@ -156,7 +156,7 @@ impl Drawable for Image {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, self.size, tolerance, true)
+        hit_test_rectangle(pos, self.top_left, self.size, tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
