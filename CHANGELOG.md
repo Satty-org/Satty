@@ -45,6 +45,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Switching tools also changes tool bar styles to those owned by the tool. [#814]
 - Size in the bottom toolbar is now not a factor, but px, pt, or percent. [#814]
 - `annotation-size-factor` scales sizes once at app start. [#814]
+- <kbd>Esc</kbd> or <kbd>Ctrl+Enter</kbd> exits text tool instead of aborting it. [#823]
 
 ### Deprecated
 
@@ -84,5 +85,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#810]: https://github.com/Satty-org/Satty/pull/810
 [#813]: https://github.com/Satty-org/Satty/pull/813
 [#814]: https://github.com/Satty-org/Satty/pull/814
+[#823]: https://github.com/Satty-org/Satty/pull/823
 
 <!-- --8<-- [end:changelog] -->
