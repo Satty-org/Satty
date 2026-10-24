@@ -195,7 +195,7 @@ Newly created annotations can be autoselected if enabled in the config.
   - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize. <sup>NEXTRELEASE</sup>
   - Hold mutiple to combine them.
 - Grab an annotation - mouse cursor will change to a hand - to move.
-- Scroll up/down with the mouse wheel to change the annotation's layer.
+- <kbd>Alt</kbd>+scroll up/down or <kbd>Alt</kbd>+<kbd>PageUp</kbd>/<kbd>PageDown</kbd> to change the annotation's layer.
 - Nudge (small move) with the cursor keys.
 - Double-click on a text annotation to edit it.
 - Horizontal resizing on a marker changes its number, and vertical resizing changes the extra ring.
@@ -415,5 +415,3 @@ The source code is released under the MPL-2.0 license.
 
 The Font 'Roboto Regular' from Google is released under Apache-2.0 license.
 <!-- --8<-- [end:license] -->
-
-

@@ -29,6 +29,8 @@ pub enum ShortcutCommand {
     PanDown,
     Zoom(i16),
     DeleteSelection,
+    RaiseSelection,
+    LowerSelection,
     RunConfiguredActions(ActionTrigger),
 
     // top toolbar
@@ -63,6 +65,8 @@ impl fmt::Display for ShortcutCommand {
                 return Ok(());
             }
             ShortcutCommand::DeleteSelection => "delete-selection",
+            ShortcutCommand::RaiseSelection => "raise-selection",
+            ShortcutCommand::LowerSelection => "lower-selection",
             ShortcutCommand::RunConfiguredActions(ActionTrigger::Escape) => "run-actions-on-escape",
             ShortcutCommand::RunConfiguredActions(ActionTrigger::Enter) => "run-actions-on-enter",
             ShortcutCommand::ToggleToolbars => "toggle-toolbars",
@@ -130,6 +134,8 @@ impl FromStr for ShortcutCommand {
                 Err(ParseCommandError)
             }
             "delete-selection" => Ok(ShortcutCommand::DeleteSelection),
+            "raise-selection" => Ok(ShortcutCommand::RaiseSelection),
+            "lower-selection" => Ok(ShortcutCommand::LowerSelection),
             "run-actions-on-escape" => {
                 Ok(ShortcutCommand::RunConfiguredActions(ActionTrigger::Escape))
             }
@@ -364,6 +370,8 @@ impl ShortcutRegistry {
         registry.add_key_binding("<Control>plus", SC::Zoom(1));
         registry.add_key_binding("<Control>minus", SC::Zoom(-1));
         registry.add_key_binding("Delete", SC::DeleteSelection);
+        registry.add_key_binding("<Alt>Page_Up", SC::RaiseSelection);
+        registry.add_key_binding("<Alt>Page_Down", SC::LowerSelection);
         registry.add_key_binding("<Shift>Delete", SC::ClearAll);
         registry.add_key_binding("Escape", SC::RunConfiguredActions(ActionTrigger::Escape));
         registry.add_key_binding("Return", SC::RunConfiguredActions(ActionTrigger::Enter));
