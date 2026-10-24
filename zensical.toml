@@ -14,25 +14,28 @@ nav = [
   { "Intro" = "index.md" },
   { "Install" = [
     { "Install" = "install.md" },
-    "build.md",
-    ]
-  },
+    { "Build" = "build.md" },
+  ] },
   { "Usage" = [
     { "Usage" = "usage/index.md" },
-    "usage/shortcuts.md",
-    "usage/tools.md",
-    "usage/config.md",
+    { "Shortcuts" = "usage/shortcuts.md" },
+    { "Tools" = "usage/tools.md" },
+    { "Config" = "usage/config.md" },
     { "CSS" = "usage/css.md" },
-    { "Command line options" = "usage/cli.md" },
+    { "CLI Options" = "usage/cli.md" },
     { "IME" = "usage/ime.md" },
-    "usage/integration.md",
-    ]
-  },
-  "credits.md",
-  "license.md"
+    { "Integration" = "usage/integration.md" },
+  ] },
+  { "Contributing" = [
+    { "Contributing" = "contributing/index.md" },
+    { "AI Policy" = "ai_policy.md" },
+  ] },
+  { "Credits" = "credits.md" },
+  { "License" = "license.md" },
 ]
 
-watch = ["README.md", "USAGE.md"]
+
+watch = ["README.md", "USAGE.md", "CONTRIBUTING.md", "AI_POLICY.md"]
 
 # extra_css = ["stylesheets/extra.css"]
 # extra_javascript = ["javascripts/extra.js"]
@@ -59,16 +62,16 @@ features = [
   "navigation.instant",
   "navigation.instant.prefetch",
   # "navigation.instant.progress",
-  "navigation.path",
+  # "navigation.path",
   # "navigation.prune",
-  "navigation.sections",
+  # "navigation.sections",
   # "navigation.tabs",
   # "navigation.tabs.sticky",
   "navigation.top",
   "navigation.tracking",
   "search.highlight",
-  # "toc.follow",
-  # "toc.integrate",
+  "toc.follow",
+  "toc.integrate",
 ]
 
 logo = "assets/satty.svg"
