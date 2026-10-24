@@ -1,9 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
+use relm4::{Sender, gtk::gdk::ModifierType};
 
 use crate::{
     math::{self, SegmentResizeTarget, Vec2D},
@@ -178,15 +175,6 @@ impl Tool for LineTool {
                 }
             }
             _ => ToolUpdateResult::Unmodified,
-        }
-    }
-
-    fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
-        if event.key == Key::Escape && self.line.is_some() {
-            self.line = None;
-            ToolUpdateResult::Redraw
-        } else {
-            ToolUpdateResult::Unmodified
         }
     }
 
