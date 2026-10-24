@@ -26,8 +26,9 @@ use relm4::{
 };
 use serde_derive::Deserialize;
 
+use crate::math::rect_ensure_positive_size;
 use crate::{
-    math::{SegmentResizeTarget, Vec2D, ensure_bounding_box},
+    math::{Vec2D, ensure_bounding_box},
     sketch_board::{InputEvent, KeyEventMsg, MouseEventMsg, SketchBoardInput, TextEventMsg},
     style::Style,
 };
@@ -195,6 +196,16 @@ impl<T: Any> AsAny for T {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SelectionType {
+    BoundingBox,
+    BoundingBoxAllHandles,
+    MiddleHandles,
+    Line,
+    Rectangle,
+    Ellipse,
+}
+
 impl<T> DrawableClone for T
 where
     T: 'static + Drawable + Clone,
@@ -222,16 +233,26 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_rendering_mode(&self) -> RenderingMode {
         RenderingMode::Default
     }
-
     fn is_renderable(&self) -> bool {
         true
     }
-
-    fn bounds_only_valid_after_redraw(&self) -> bool {
+    fn anchors_only_valid_after_redraw(&self) -> bool {
         false
     }
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    /// The two points that define the shape and that `resize` takes back.
+    /// For line like shapes, these are the start and end points of the line.
+    /// For others, these are the corners of the box the shape was drawn in,
+    /// not necessarily the extent of what is drawn.
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         None
+    }
+    /// The box `(tl, br)` around everything the drawable draws, except its
+    /// shadow. By default the box around the anchors.
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        self.anchors().map(|(a, b)| ensure_bounding_box(a, b))
+    }
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::Rectangle
     }
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
         let _ = (pos, tolerance);
@@ -240,19 +261,11 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn translate(&mut self, delta: Vec2D) {
         let _ = delta;
     }
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, delta: Vec2D, keep_aspect: bool) {
-        let _ = (tl, br, delta, keep_aspect);
-    }
-    fn resize_bounds_with_segment_target(
-        &mut self,
-        tl: Vec2D,
-        br: Vec2D,
-        delta: Vec2D,
-        keep_aspect: bool,
-        target: Option<SegmentResizeTarget>,
-    ) {
-        let _ = target;
-        self.resize_bounds(tl, br, delta, keep_aspect);
+    /// Reshapes the drawable to the anchors `tl` and `br`, the inverse of `anchors`.
+    /// For line like shapes, this sets the start and end points of the line.
+    /// For others, this sets the corners of the box the shape is drawn in.
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, keep_aspect: bool) {
+        let _ = (tl, br, keep_aspect);
     }
     fn get_style(&self) -> Option<&Style> {
         None
@@ -310,6 +323,12 @@ pub fn hit_test_line(pos: Vec2D, start_point: Vec2D, points: &[Vec2D], tolerance
     false
 }
 
+/// Returns the box around `a` and `b`, grown by `margin` on all sides.
+pub fn bounding_box_with_margin(a: Vec2D, b: Vec2D, margin: f32) -> (Vec2D, Vec2D) {
+    let (tl, br) = ensure_bounding_box(a, b);
+    (tl - margin, br + margin)
+}
+
 pub fn calculate_line_bounds(start_point: Vec2D, points: &[Vec2D]) -> (Vec2D, Vec2D) {
     let mut tl = start_point;
     let mut br = start_point;
@@ -354,6 +373,30 @@ fn resize_line_bounds(tl: Vec2D, br: Vec2D, start_point: &mut Vec2D, points: &mu
         if flip_y { br.y } else { tl.y },
     );
     *start_point = origin + (*start_point - current_tl) * scale;
+}
+
+/// Hit test for the ellipse with the bounding box `top_left`, `size`.
+pub fn hit_test_ellipse(
+    pos: Vec2D,
+    top_left: Vec2D,
+    size: Vec2D,
+    tolerance: f32,
+    filled: bool,
+) -> bool {
+    let (top_left, size) = rect_ensure_positive_size(top_left, size);
+    let (center, radii) = (top_left + size / 2.0, size / 2.0);
+
+    let d = (pos - center) / (radii + tolerance);
+    if d.norm2() > 1.0 {
+        return false;
+    }
+
+    if filled {
+        return true;
+    }
+
+    let inner_d = (pos - center) / (radii - tolerance);
+    inner_d.norm2() > 1.0
 }
 
 #[derive(Debug)]

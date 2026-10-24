@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use super::SelectionType;
 use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 
 use crate::{
@@ -51,8 +52,21 @@ impl BrushDrawable {
 }
 
 impl Drawable for BrushDrawable {
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some(super::calculate_line_bounds(self.start_point, &self.points))
+    }
+
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        let (tl, br) = super::calculate_line_bounds(self.start_point, &self.points);
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(super::bounding_box_with_margin(tl, br, line_width / 2.0))
+    }
+
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::BoundingBoxAllHandles
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
@@ -68,7 +82,7 @@ impl Drawable for BrushDrawable {
         self.start_point += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         super::resize_line_bounds(tl, br, &mut self.start_point, &mut self.points);
     }
 

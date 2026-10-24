@@ -41,14 +41,18 @@ impl Marker {
 }
 
 impl Drawable for Marker {
-    fn bounds_only_valid_after_redraw(&self) -> bool {
+    fn anchors_only_valid_after_redraw(&self) -> bool {
         true
     }
 
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 2.0 } else { 0.0 };
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
+        let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 3.0 } else { 2.0 };
         let r = Vec2D::new(r, r);
         Some((self.pos - r, self.pos + r))
+    }
+
+    fn get_selection_type(&self) -> super::SelectionType {
+        super::SelectionType::MiddleHandles
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
@@ -69,8 +73,8 @@ impl Drawable for Marker {
         Some(&mut self.style)
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
-        let Some((old_tl, old_br)) = self.bounds() else {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
+        let Some((old_tl, old_br)) = self.anchors() else {
             return;
         };
 

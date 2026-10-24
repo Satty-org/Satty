@@ -124,6 +124,15 @@ pub fn draw_rect_marker(
     size: Vec2D,
     filled: bool,
 ) {
+    draw_handle_marker(canvas, top_left + size * 0.5, size, filled);
+}
+
+pub fn draw_handle_marker(
+    canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+    center: Vec2D,
+    size: Vec2D,
+    filled: bool,
+) {
     // draw in inverse zoom scale so the visual size stays constant on screen
     let scale = canvas.transform().average_scale().max(f32::EPSILON);
     let line_width = 1.5 / scale;
@@ -131,6 +140,7 @@ pub fn draw_rect_marker(
     let border_paint = inner_color().with_line_width(line_width);
     let mut border_path = Path::new();
 
+    let top_left = center - size * 0.5;
     border_path.rect(top_left.x, top_left.y, size.x, size.y);
     if filled {
         canvas.fill_path(&border_path, &border_paint);
@@ -139,7 +149,7 @@ pub fn draw_rect_marker(
     }
 
     let border_paint = outer_color().with_line_width(line_width);
-    let mut tl = top_left;
+    let mut tl = center - size * 0.5;
     let mut size = size;
 
     // set-out to draw the border outside the original rectangle, e.g. for crop
