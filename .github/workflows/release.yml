@@ -61,7 +61,6 @@ jobs:
         run: |
           mkdir $RELEASE_NAME
           cp target/${{ matrix.target }}/release/satty -t $RELEASE_NAME
-          cp target/${{ matrix.target }}/release/satty-fatal-error-dialog -t $RELEASE_NAME
           cp -r completions -t $RELEASE_NAME
           cp -r man -t $RELEASE_NAME
           cp -r assets -t $RELEASE_NAME

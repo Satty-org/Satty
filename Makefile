@@ -35,7 +35,6 @@ clean:
 
 install: target/release/satty
 	install -s -Dm755 target/release/satty -t $(BINDIR)
-	if [ -e "target/release/satty-fatal-error-dialog" ];then install -s -Dm755 target/release/satty-fatal-error-dialog -t $(BINDIR) ; fi
 	install -Dm644 satty.desktop $(PREFIX)/share/applications/satty.desktop
 	install -Dm644 assets/satty.svg $(PREFIX)/share/icons/hicolor/scalable/apps/satty.svg
 	install -Dm644 LICENSE $(PREFIX)/share/licenses/satty/LICENSE
@@ -49,7 +48,6 @@ install: target/release/satty
 
 uninstall:
 	rm ${BINDIR}/satty
-	-rm ${BINDIR}/satty-fatal-error-dialog
 	rmdir -p ${PREFIX}/bin || true
 
 	rm ${PREFIX}/share/applications/satty.desktop
