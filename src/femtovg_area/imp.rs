@@ -20,16 +20,17 @@ use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::{Sender, gtk};
 use resource::resource;
 
+use super::{font_stack, set_font_stack};
+use crate::logging::{LogSeverity, log_with_severity};
 use crate::{
     APP_CONFIG,
     configuration::Action,
     epoxy,
+    logging::{LogLevel, log},
     math::Vec2D,
     sketch_board::SketchBoardInput,
     tools::{Drawable, RenderingMode, Tool, Tools},
 };
-
-use super::{font_stack, set_font_stack};
 
 const TRANSPARENCY_SQUARE_SIZE: usize = 64;
 
@@ -145,7 +146,10 @@ impl GLAreaImpl for FemtoVGArea {
             // only render if there are actions (save, copy, etc.) to process
             && !a.is_empty()
         {
-            eprintln!("Rendering requested for actions: {:?}", a);
+            log(
+                &format!("Rendering requested for actions: {:?}", a),
+                LogLevel::Debug,
+            );
             // render image
             let image = match self
                 .inner()
@@ -155,7 +159,11 @@ impl GLAreaImpl for FemtoVGArea {
             {
                 Ok(t) => t,
                 Err(e) => {
-                    eprintln!("Error while rendering image: {e}");
+                    log_with_severity(
+                        &format!("Error while rendering image: {e}"),
+                        LogLevel::Error,
+                        LogSeverity::High,
+                    );
                     return glib::Propagation::Stop;
                 }
             };
@@ -176,7 +184,11 @@ impl GLAreaImpl for FemtoVGArea {
             .expect("Did you call init before using FemtoVgArea?")
             .render_framebuffer(canvas, font)
         {
-            eprintln!("Error rendering to framebuffer: {e}");
+            log_with_severity(
+                &format!("Error rendering to framebuffer: {e}"),
+                LogLevel::Error,
+                LogSeverity::High,
+            );
         }
 
         if let Some(index) = self.post_render_refresh_selection.borrow_mut().take() {
@@ -259,9 +271,12 @@ impl FemtoVGArea {
             let face_index = raw_index & 0xffff;
 
             if raw_index >> 16 != 0 {
-                eprintln!(
-                    "Font '{}': variable fonts are not fully supported, only the default variant will be used",
-                    font.name,
+                log(
+                    &format!(
+                        "Font '{}': variable fonts are not fully supported, only the default variant will be used",
+                        font.name,
+                    ),
+                    LogLevel::Info,
                 );
             }
 
@@ -284,7 +299,7 @@ impl FemtoVGArea {
                 loaded_fonts.push(id);
             }
             Err(e) => {
-                eprintln!("Primary font: {}", e);
+                log(&format!("Primary font: {}", e), LogLevel::Error);
             }
         }
 
@@ -301,7 +316,7 @@ impl FemtoVGArea {
                     loaded_fonts.push(id);
                 }
                 Err(e) => {
-                    eprintln!("Fallback font: {}", e);
+                    log(&format!("Fallback font: {}", e), LogLevel::Error);
                 }
             }
         }
@@ -316,7 +331,7 @@ impl FemtoVGArea {
                 loaded_fonts.push(id);
             }
             Err(e) => {
-                eprintln!("Emoji font: {}", e);
+                log(&format!("Emoji font: {}", e), LogLevel::Error);
             }
         }
 
@@ -680,7 +695,10 @@ impl FemtoVgAreaMut {
             return Err(anyhow::anyhow!("Invalid crop"));
         }
 
-        eprintln!("Rendering native resolution with size: {:?}", size);
+        log(
+            &format!("Rendering native resolution with size: {:?}", size),
+            LogLevel::Debug,
+        );
 
         // create render-target
         let image_id = canvas.create_image_empty(
@@ -948,7 +966,10 @@ impl FemtoVgAreaMut {
         ) {
             Ok(id) => Some(id),
             Err(_) => {
-                eprintln!("Could not create transparency background image");
+                log(
+                    "Could not create transparency background image",
+                    LogLevel::Error,
+                );
                 None
             }
         }

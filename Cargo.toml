@@ -1,5 +1,6 @@
 [package]
 name = "satty"
+default-run = "satty"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -20,6 +21,10 @@ include = [
 
 [features]
 ci-release = []
+
+[[bin]]
+name = "satty"
+path = "src/main.rs"
 
 [dependencies]
 satty_cli.workspace = true
