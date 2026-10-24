@@ -141,15 +141,17 @@ impl Drawable for BrushDrawable {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> anyhow::Result<()> {
-        if self.points.is_empty() {
-            return Ok(());
-        }
-
         let mut path = Path::new();
         let start_point = self.start_point;
         path.move_to(start_point.x, start_point.y);
-        for p in self.points.iter() {
-            path.line_to(start_point.x + p.x, start_point.y + p.y);
+        if self.points.iter().all(|p| *p == Vec2D::zero()) {
+            // also before the first move, when there are no points yet
+            // draw a point at start - a little bit hacky :-)
+            path.line_to(start_point.x + 0.01, start_point.y);
+        } else {
+            for p in self.points.iter() {
+                path.line_to(start_point.x + p.x, start_point.y + p.y);
+            }
         }
 
         let mut paint = Paint::from(self.style).with_line_join(LineJoin::Round);
@@ -280,10 +282,12 @@ impl Tool for BrushTool {
             event.key,
             Key::Shift_L | Key::Shift_R | Key::Control_L | Key::Control_R
         ) && let Some(brush) = &mut self.drawable
+            // there are no points yet before the first move
+            && let Some(&last) = brush.points.last()
         {
             // duplicate the last point to maintain the current segment
-            brush.points.push(*brush.points.last().unwrap());
-            brush.smoother.reset(*brush.points.last().unwrap());
+            brush.points.push(last);
+            brush.smoother.reset(last);
         }
         ToolUpdateResult::Unmodified
     }

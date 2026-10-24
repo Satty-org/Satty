@@ -44,6 +44,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 
 - Undo after you edit a text with a double click restores the previous text [#795]
 - After you edit a text with a double click, Enter selects the text with the pointer tool [#795]
+- Draw a line already when start and end are equal [#803]
 
 ### Security
 
@@ -57,5 +58,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#795]: https://github.com/Satty-org/Satty/pull/795
 [#799]: https://github.com/Satty-org/Satty/pull/799
 [#801]: https://github.com/Satty-org/Satty/pull/801
+[#803]: https://github.com/Satty-org/Satty/pull/803
 
 <!-- --8<-- [end:changelog] -->
