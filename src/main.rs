@@ -576,7 +576,7 @@ fn read_css_overrides() -> Option<String> {
                 "CSS overrides file {} does not exist, using builtin CSS only.",
                 path.display()
             ),
-            LogLevel::Warn,
+            LogLevel::Debug,
         );
         return None;
     }
