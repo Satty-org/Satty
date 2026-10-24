@@ -957,39 +957,35 @@ impl Tool for TextTool {
                 _ => event.key,
             };
             match key {
-                Key::Return => match event.modifier {
-                    ModifierType::SHIFT_MASK => {
-                        //delete selection
-                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
-                        t.text_buffer.insert_at_cursor("\n");
+                Key::Return | Key::KP_Enter
+                    if event.modifier.is_empty() || event.modifier == ModifierType::SHIFT_MASK =>
+                {
+                    //delete selection
+                    Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+                    t.text_buffer.insert_at_cursor("\n");
+                    tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                }
+                Key::Escape | Key::Return | Key::KP_Enter
+                    if (key == Key::Escape && event.modifier.is_empty())
+                        || event.modifier == ModifierType::CONTROL_MASK =>
+                {
+                    let content = t.get_text();
+                    if content.is_empty() {
+                        self.text = None;
+                        self.input_enabled = false;
                         tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                    } else {
+                        t.preedit = None;
+                        t.editing = false;
+                        t.im_context = None;
+                        t.text_buffer
+                            .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+                        *t.draw_rect.borrow_mut() = false;
+                        let result = t.clone_box();
+                        self.text = None;
+                        self.input_enabled = false;
+                        tool_update_result = ToolUpdateResult::Commit(result);
                     }
-                    _ => {
-                        let content = t.get_text();
-                        if content.is_empty() {
-                            self.text = None;
-                            self.input_enabled = false;
-                            tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
-                        } else {
-                            t.preedit = None;
-                            t.editing = false;
-                            t.im_context = None;
-                            t.text_buffer.select_range(
-                                &t.text_buffer.start_iter(),
-                                &t.text_buffer.start_iter(),
-                            );
-                            *t.draw_rect.borrow_mut() = false;
-                            let result = t.clone_box();
-                            self.text = None;
-                            self.input_enabled = false;
-                            tool_update_result = ToolUpdateResult::Commit(result);
-                        }
-                    }
-                },
-                Key::Escape => {
-                    self.input_enabled = false;
-                    self.text = None;
-                    tool_update_result = ToolUpdateResult::Redraw;
                 }
                 Key::Alt_L | Key::Alt_R => {
                     // Start tracking a potential Alt tap; the text effect is cycled on

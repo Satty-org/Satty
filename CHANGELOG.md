@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - log output now has level and severity [#711]
 - satty now shows a message dialog for fatal errors [#711]
 - <kbd>Esc</kbd> no longer aborts tools. [#607], [#783]
+- <kbd>Esc</kbd> or <kbd>Ctrl+Enter</kbd> exits text tool instead of aborting it. [#783]
 
 ### Deprecated
 
