@@ -11,7 +11,7 @@ use satty_cli::command_line::LogLevel;
 use crate::configuration::{APP_CONFIG, Action, log_config_error};
 use crate::logging::log;
 use crate::sketch_board::KeyEventMsg;
-use crate::style::Size;
+use crate::style::SizePreset;
 use crate::tools::Tools;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +47,8 @@ pub enum ShortcutCommand {
     // bottom toolbar
     SelectColorIndex(u64),
     CycleSize,
-    SelectSize(Size),
-    FocusAnnotationSizeFactor,
+    SelectSize(SizePreset),
+    FocusSize,
     ToggleFill,
     ToggleRoundCaps,
 }
@@ -101,11 +101,11 @@ impl fmt::Display for ShortcutCommand {
             }
             ShortcutCommand::CycleSize => "cycle-size",
             ShortcutCommand::SelectSize(size) => match size {
-                Size::Small => "select-size:small",
-                Size::Medium => "select-size:medium",
-                Size::Large => "select-size:large",
+                SizePreset::Small => "select-size:small",
+                SizePreset::Medium => "select-size:medium",
+                SizePreset::Large => "select-size:large",
             },
-            ShortcutCommand::FocusAnnotationSizeFactor => "focus-annotation-size-factor",
+            ShortcutCommand::FocusSize => "focus-size",
             ShortcutCommand::ToggleFill => "toggle-fill",
             ShortcutCommand::ToggleRoundCaps => "toggle-round-caps",
         };
@@ -176,10 +176,10 @@ impl FromStr for ShortcutCommand {
                 Err(ParseCommandError)
             }
             "cycle-size" => Ok(ShortcutCommand::CycleSize),
-            "select-size:small" => Ok(ShortcutCommand::SelectSize(Size::Small)),
-            "select-size:medium" => Ok(ShortcutCommand::SelectSize(Size::Medium)),
-            "select-size:large" => Ok(ShortcutCommand::SelectSize(Size::Large)),
-            "focus-annotation-size-factor" => Ok(ShortcutCommand::FocusAnnotationSizeFactor),
+            "select-size:small" => Ok(ShortcutCommand::SelectSize(SizePreset::Small)),
+            "select-size:medium" => Ok(ShortcutCommand::SelectSize(SizePreset::Medium)),
+            "select-size:large" => Ok(ShortcutCommand::SelectSize(SizePreset::Large)),
+            "focus-size" => Ok(ShortcutCommand::FocusSize),
             "toggle-fill" => Ok(ShortcutCommand::ToggleFill),
             "toggle-round-caps" => Ok(ShortcutCommand::ToggleRoundCaps),
             _ => Err(ParseCommandError),
@@ -432,7 +432,7 @@ impl ShortcutRegistry {
         }
 
         registry.add_key_binding("minus", SC::CycleSize);
-        registry.add_key_binding("w", SC::FocusAnnotationSizeFactor);
+        registry.add_key_binding("w", SC::FocusSize);
         registry.add_key_binding("f", SC::ToggleFill);
         registry.add_key_binding("k", SC::ToggleRoundCaps);
 

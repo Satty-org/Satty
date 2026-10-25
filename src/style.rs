@@ -11,13 +11,61 @@ use relm4::gtk::glib::variant::FromVariant;
 
 use crate::configuration::APP_CONFIG;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Style {
     pub color: Color,
     pub size: Size,
     pub fill: bool,
     pub round_caps: bool,
-    pub annotation_size_factor: f32,
+    /// radius of rounded corners in pixels
+    pub corner_radius: f32,
+    /// opacity in percent, multiplied with the alpha of the color
+    pub opacity: f32,
+    /// sizes for small, medium and large, see [`SizePreset`]
+    pub presets: [Size; 3],
+}
+
+/// A part of the style that a tool can have itself or share with the others
+/// through the general style. The size includes the size presets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StyleField {
+    Color,
+    Size,
+    Fill,
+    RoundCaps,
+    CornerRadius,
+    Opacity,
+}
+
+impl StyleField {
+    pub fn name(self) -> &'static str {
+        match self {
+            StyleField::Color => "color",
+            StyleField::Size => "size",
+            StyleField::Fill => "fill",
+            StyleField::RoundCaps => "round caps",
+            StyleField::CornerRadius => "corner radius",
+            StyleField::Opacity => "opacity",
+        }
+    }
+}
+
+/// The fields a tool has itself, the others come from the general style.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StyleFields(u8);
+
+impl StyleFields {
+    pub fn contains(self, field: StyleField) -> bool {
+        self.0 & (1 << field as u8) != 0
+    }
+
+    pub fn set(&mut self, field: StyleField, on: bool) {
+        if on {
+            self.0 |= 1 << field as u8;
+        } else {
+            self.0 &= !(1 << field as u8);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -28,8 +76,13 @@ pub struct Color {
     pub a: u8,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-pub enum Size {
+/// Size of an annotation, its meaning depends on the tool, e.g. line width,
+/// font size, block size or opacity in percent.
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+pub struct Size(f32);
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum SizePreset {
     Small = 0,
     #[default]
     Medium = 1,
@@ -38,13 +91,7 @@ pub enum Size {
 
 impl Default for Style {
     fn default() -> Self {
-        Self {
-            color: Color::default(),
-            size: Size::default(),
-            fill: APP_CONFIG.read().default_fill_shapes(),
-            round_caps: APP_CONFIG.read().default_round_caps(),
-            annotation_size_factor: APP_CONFIG.read().annotation_size_factor(),
-        }
+        APP_CONFIG.read().style()
     }
 }
 
@@ -199,120 +246,153 @@ impl From<Style> for Paint {
     fn from(value: Style) -> Self {
         Paint::default()
             .with_anti_alias(true)
-            .with_font_size(value.size.to_text_size(value.annotation_size_factor) as f32)
-            .with_color(value.color.into())
+            .with_font_size(value.size.at_least(1.0))
+            .with_color(value.paint_color())
             .with_line_cap(if value.round_caps {
                 LineCap::Round
             } else {
                 LineCap::Butt
             })
-            .with_line_width(value.size.to_line_width(value.annotation_size_factor))
-    }
-}
-
-impl StaticVariantType for Size {
-    fn static_variant_type() -> Cow<'static, VariantTy> {
-        Cow::Borrowed(VariantTy::UINT32)
-    }
-}
-
-impl ToVariant for Size {
-    fn to_variant(&self) -> Variant {
-        Variant::from(*self as u32)
-    }
-}
-
-impl FromVariant for Size {
-    fn from_variant(variant: &Variant) -> Option<Self> {
-        variant.get::<u32>().and_then(|v| match v {
-            0 => Some(Size::Small),
-            1 => Some(Size::Medium),
-            2 => Some(Size::Large),
-            _ => None,
-        })
+            .with_line_width(value.size.at_least(0.5))
     }
 }
 
 impl Size {
-    pub fn to_text_size(self, size_factor: f32) -> i32 {
-        match self {
-            Size::Small => (36.0 * size_factor) as i32,
-            Size::Medium => (54.0 * size_factor) as i32,
-            Size::Large => (96.0 * size_factor) as i32,
-        }
+    pub const MAX: f32 = 999.0;
+
+    /// Clamps to 0..=MAX and rounds to one decimal place.
+    pub fn new(value: f32) -> Self {
+        Self((value.clamp(0.0, Self::MAX) * 10.0).round() / 10.0)
     }
 
-    pub fn to_line_width(self, size_factor: f32) -> f32 {
-        match self {
-            Size::Small => 3.0 * size_factor,
-            Size::Medium => 5.0 * size_factor,
-            Size::Large => 7.0 * size_factor,
-        }
+    pub fn value(self) -> f32 {
+        self.0
     }
 
-    pub fn to_arrow_tail_width(self, size_factor: f32) -> f32 {
-        match self {
-            Size::Small => 3.0 * size_factor,
-            Size::Medium => 10.0 * size_factor,
-            Size::Large => 25.0 * size_factor,
-        }
+    /// The size, but at least `min`, for tools that need a lower limit.
+    pub fn at_least(self, min: f32) -> f32 {
+        self.0.max(min)
     }
+}
 
-    pub fn to_arrow_head_length(self, size_factor: f32) -> f32 {
-        match self {
-            Size::Small => 15.0 * size_factor,
-            Size::Medium => 30.0 * size_factor,
-            Size::Large => 60.0 * size_factor,
-        }
-    }
+impl SizePreset {
+    pub const ALL: [SizePreset; 3] = [SizePreset::Small, SizePreset::Medium, SizePreset::Large];
 
-    pub fn to_highlight_width(self, size_factor: f32) -> f32 {
+    /// The preset to switch to with cycle-size.
+    pub fn cycled(self) -> Self {
         match self {
-            Size::Small => 15.0 * size_factor,
-            Size::Medium => 30.0 * size_factor,
-            Size::Large => 45.0 * size_factor,
-        }
-    }
-
-    pub fn to_blocksize(self, size_factor: f32) -> usize {
-        match self {
-            Size::Small => 4 * (size_factor as usize).max(1),
-            Size::Medium => 8 * (size_factor as usize).max(1),
-            Size::Large => 16 * (size_factor as usize).max(1),
+            SizePreset::Small => SizePreset::Large,
+            SizePreset::Medium => SizePreset::Small,
+            SizePreset::Large => SizePreset::Medium,
         }
     }
 }
 
 impl Style {
-    pub fn corner_radius(&self) -> f32 {
+    /// The corner radius, or 0 without round caps.
+    pub fn effective_corner_radius(&self) -> f32 {
         if self.round_caps {
-            APP_CONFIG.read().corner_roundness()
+            self.corner_radius
         } else {
             0.0
         }
     }
 
-    pub fn blur_factor(&self) -> f32 {
-        match self.size {
-            Size::Small => 4.0,
-            Size::Medium => 8.0,
-            Size::Large => 16.0,
+    /// Copies `field` from `other`.
+    pub fn copy_field(&mut self, field: StyleField, other: &Style) {
+        match field {
+            StyleField::Color => self.color = other.color,
+            StyleField::Size => {
+                self.size = other.size;
+                self.presets = other.presets;
+            }
+            StyleField::Fill => self.fill = other.fill,
+            StyleField::RoundCaps => self.round_caps = other.round_caps,
+            StyleField::CornerRadius => self.corner_radius = other.corner_radius,
+            StyleField::Opacity => self.opacity = other.opacity,
         }
     }
 
-    pub fn highlight_alpha(self) -> f32 {
-        match self.size {
-            Size::Small => 0.4,
-            Size::Medium => 0.6,
-            Size::Large => 0.8,
+    /// This style for the fields in `own`, `general` for the others.
+    pub fn merged_with(&self, general: &Style, own: StyleFields) -> Style {
+        let mut style = *general;
+        for field in [
+            StyleField::Color,
+            StyleField::Size,
+            StyleField::Fill,
+            StyleField::RoundCaps,
+            StyleField::CornerRadius,
+            StyleField::Opacity,
+        ] {
+            if own.contains(field) {
+                style.copy_field(field, self);
+            }
+        }
+        style
+    }
+
+    /// The color with the opacity applied.
+    pub fn paint_color(&self) -> femtovg::Color {
+        let mut color: femtovg::Color = self.color.into();
+        color.a *= self.opacity.clamp(0.0, 100.0) / 100.0;
+        color
+    }
+
+    pub fn preset(&self, preset: SizePreset) -> Size {
+        self.presets[preset as usize]
+    }
+
+    /// The preset whose size equals the current size, if any.
+    pub fn matching_preset(&self) -> Option<SizePreset> {
+        SizePreset::ALL
+            .into_iter()
+            .find(|&p| self.preset(p) == self.size)
+    }
+
+    pub fn line_width(&self) -> f32 {
+        self.size.at_least(0.5)
+    }
+
+    pub fn font_size(&self) -> f32 {
+        self.size.at_least(4.0)
+    }
+
+    /// Opacity from the size taken as percent, at least `min_percent`.
+    pub fn size_as_alpha(&self, min_percent: f32) -> f32 {
+        self.size.at_least(min_percent).min(100.0) / 100.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn style(color: Color, size: f32) -> Style {
+        Style {
+            color,
+            size: Size::new(size),
+            fill: false,
+            round_caps: true,
+            corner_radius: 12.0,
+            opacity: 100.0,
+            presets: [Size::new(size); 3],
         }
     }
 
-    pub fn spotlight_alpha(self) -> f32 {
-        match self.size {
-            Size::Small => 0.4,
-            Size::Medium => 0.6,
-            Size::Large => 0.8,
-        }
+    #[test]
+    fn merged_with_takes_own_fields_from_tool() {
+        let general = style(Color::red(), 5.0);
+        let tool = style(Color::blue(), 54.0);
+        let mut own = StyleFields::default();
+        assert_eq!(tool.merged_with(&general, own), general);
+
+        own.set(StyleField::Size, true);
+        let merged = tool.merged_with(&general, own);
+        assert_eq!(merged.color, Color::red());
+        assert_eq!(merged.size, Size::new(54.0));
+        assert_eq!(merged.presets, [Size::new(54.0); 3]);
+
+        own.set(StyleField::Size, false);
+        assert!(!own.contains(StyleField::Size));
     }
 }
