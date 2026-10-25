@@ -31,10 +31,7 @@ impl Drawable for Line {
     }
 
     fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
+        let line_width = self.style.line_width();
         Some(super::bounding_box_with_margin(
             self.start,
             self.end,
@@ -47,10 +44,7 @@ impl Drawable for Line {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
+        let line_width = self.style.line_width();
         pos.distance_to_segment(self.start, self.end) <= tolerance + line_width / 2.0
     }
 

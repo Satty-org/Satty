@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::SelectionType;
-use femtovg::{Color, FontId, LineJoin, Paint, Path};
+use femtovg::{FontId, LineJoin, Paint, Path};
 use serde::Deserialize;
 
 use crate::{
@@ -69,15 +69,6 @@ impl BrushDrawable {
     fn is_line(&self) -> bool {
         self.points.len() == 1
     }
-
-    fn line_width(&self) -> f32 {
-        let size_factor = self.style.annotation_size_factor;
-        if self.mode == BrushMode::Highlighter {
-            self.style.size.to_highlight_width(size_factor)
-        } else {
-            self.style.size.to_line_width(size_factor)
-        }
-    }
 }
 
 impl Drawable for BrushDrawable {
@@ -90,8 +81,7 @@ impl Drawable for BrushDrawable {
 
     fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
         let (tl, br) = super::calculate_line_bounds(self.start_point, &self.points);
-        let line_width = self.line_width();
-        // round and butt caps and the round joins stay within half the width
+        let line_width = self.style.line_width();
         let mut margin = line_width / 2.0;
         if self.mode == BrushMode::Brush {
             // the soft edge, see draw()
@@ -109,7 +99,7 @@ impl Drawable for BrushDrawable {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let tolerance = tolerance + self.line_width() / 2.0;
+        let tolerance = tolerance + self.style.line_width() / 2.0;
         super::hit_test_line(pos, self.start_point, &self.points, tolerance)
     }
 
@@ -156,30 +146,17 @@ impl Drawable for BrushDrawable {
 
         let mut paint = Paint::from(self.style).with_line_join(LineJoin::Round);
 
-        if self.mode == BrushMode::Highlighter {
-            paint.set_color(Color::rgba(
-                self.style.color.r,
-                self.style.color.g,
-                self.style.color.b,
-                (255.0 * self.style.highlight_alpha()) as u8,
-            ));
-            paint.set_line_width(self.line_width());
-        }
-
         canvas.save();
         if self.mode == BrushMode::Brush {
             // soft edge: blurred shadow in the stroke color under the stroke;
             // femtovg's blur is exact only up to 16, larger values get clamped
-            let blur = self.line_width().min(16.0);
-            canvas.set_shadow_color(self.style.color.into());
+            let blur = self.style.line_width().min(16.0);
+            let mut color = self.style.paint_color();
+            canvas.set_shadow_color(color);
             canvas.set_shadow_blur(blur);
             canvas.set_shadow_offset(0.0, 0.0);
-            paint.set_color(Color::rgba(
-                self.style.color.r,
-                self.style.color.g,
-                self.style.color.b,
-                (255.0 * 0.8) as u8,
-            ));
+            color.a *= 0.8;
+            paint.set_color(color);
         }
         canvas.stroke_path(&path, &paint);
         canvas.restore();
