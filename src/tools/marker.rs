@@ -33,9 +33,7 @@ pub struct Marker {
 
 impl Marker {
     fn get_line_width(&self) -> f32 {
-        self.style
-            .size
-            .to_line_width(self.style.annotation_size_factor)
+        self.style.font_size() / 10.0
     }
 }
 
@@ -126,12 +124,7 @@ impl Drawable for Marker {
         let mut paint = Paint::color(text_color);
 
         paint.set_font(&[font]);
-        paint.set_font_size(
-            (self
-                .style
-                .size
-                .to_text_size(self.style.annotation_size_factor)) as f32,
-        );
+        paint.set_font_size(self.style.font_size());
         paint.set_text_align(femtovg::Align::Center);
         paint.set_text_baseline(femtovg::Baseline::Middle);
 
@@ -161,10 +154,9 @@ impl Drawable for Marker {
             );
         }
 
-        let circle_paint = Paint::color(marker_color).with_line_width(line_width);
+        let circle_paint = Paint::color(self.style.paint_color()).with_line_width(line_width);
 
-        self.radius
-            .set(circle_radius + self.style.annotation_size_factor);
+        self.radius.set(circle_radius + 1.0);
 
         canvas.save();
 
@@ -257,10 +249,7 @@ impl Tool for MarkerTool {
         if event.button != MouseButton::Primary {
             return ToolUpdateResult::Unmodified;
         }
-        let font_size = self
-            .style
-            .size
-            .to_text_size(self.style.annotation_size_factor) as f32;
+        let font_size = self.style.font_size();
 
         let mut style = self.style;
         if event.modifier.contains(ModifierType::ALT_MASK) {

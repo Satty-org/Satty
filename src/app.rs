@@ -5,7 +5,7 @@ use crate::math::Vec2D;
 use crate::sketch_board::{
     SketchBoard, SketchBoardInput, SketchBoardOutput, pixbuf_from_drop_value,
 };
-use crate::style::{Color, Size};
+use crate::style::{Color, Size, StyleFields};
 use crate::tools::Tools;
 use crate::ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use crate::{generate_profile_output, icons, ui};
@@ -49,8 +49,9 @@ pub enum AppInput {
     ColorSwitchShortcut(u64),
     SetColor(Color),
     SetSize(Size),
-    SetAnnotationSizeFactor(f32),
-    FocusAnnotationSizeFactorShortcut,
+    SetSizePresets([Size; 3]),
+    SetStyleScope(Tools, StyleFields),
+    FocusSizeShortcut,
     ScaleFactorChanged,
     SetFill(bool),
     SetRoundCaps(bool),
@@ -296,15 +297,20 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetSize(size));
             }
-            AppInput::SetAnnotationSizeFactor(factor) => {
+            AppInput::SetSizePresets(presets) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetAnnotationSizeFactor(factor));
+                    .emit(StyleToolbarInput::SetSizePresets(presets));
             }
-            AppInput::FocusAnnotationSizeFactorShortcut => {
+            AppInput::SetStyleScope(tool, own) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::FocusAnnotationSizeFactor);
+                    .emit(StyleToolbarInput::SetStyleScope(tool, own));
+            }
+            AppInput::FocusSizeShortcut => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::FocusSize);
             }
             AppInput::ScaleFactorChanged => {
                 self.sketch_board
@@ -387,12 +393,11 @@ impl Component for App {
                         AppInput::SetRoundCaps(round_caps_enabled)
                     }
                     SketchBoardOutput::SetSize(size) => AppInput::SetSize(size),
-                    SketchBoardOutput::FocusAnnotationSizeFactorShortcut => {
-                        AppInput::FocusAnnotationSizeFactorShortcut
+                    SketchBoardOutput::FocusSizeShortcut => AppInput::FocusSizeShortcut,
+                    SketchBoardOutput::SetStyleScope(tool, own) => {
+                        AppInput::SetStyleScope(tool, own)
                     }
-                    SketchBoardOutput::SetAnnotationSizeFactor(factor) => {
-                        AppInput::SetAnnotationSizeFactor(factor)
-                    }
+                    SketchBoardOutput::SetSizePresets(presets) => AppInput::SetSizePresets(presets),
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
                     }

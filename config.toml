@@ -60,14 +60,9 @@ auto-select-new = false
 primary-highlighter = "block"
 # Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
 aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
-# Increase or decrease the size of the annotations
-annotation-size-factor = 2
-# Draw corners of rectangles round if the value is greater than 0 (0 disables rounded corners)
-corner-roundness = 12
-# Fill shapes by default (since 0.20.0)
-default-fill-shapes = false
-# Round caps for arrow and line tools
-default-round-caps = true
+# Scale the sizes of the tools using line widths or font sizes (pen, brush, highlighter,
+# line, arrow, rectangle, ellipse, text, marker), applied once at startup (changed in NEXTRELEASE)
+annotation-size-factor = 1
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
 
@@ -98,6 +93,107 @@ text-move-length = 50.0
 # This may be more useful to set via the command line.
 # Note, before 0.21.0 this is ignored with explicit resize.
 input-scale = 1.0
+
+# Styles of the tools (NEXTRELEASE)
+# corner-roundness (now corner-radius), default-fill-shapes and default-round-caps
+# from [general] were replaced by this section.
+# The general style, used for all values not set for a tool
+[style]
+# 1-based index into the color palette or a color in RRGGBBAA format like "#f0932bff"
+color = 1
+# The size is a value from 0 to 999 with one decimal place, its meaning depends on the tool.
+# Here it is the line width of pen, brush, line, arrow, rectangle and ellipse.
+size = 5
+# Sizes of the S, M and L buttons and select-size shortcuts
+small = 3
+medium = 5
+large = 7
+# Fill shapes
+fill = false
+# Round caps for lines and arrows, round corners for rectangles
+round-caps = true
+# Radius of rounded corners in pixels, used with round-caps (0 disables rounded corners)
+corner-radius = 12
+# Opacity in percent, multiplied with the alpha of the color
+opacity = 100
+
+# Styles per tool, tables are named like the tools in [keybinds] and accept the same keys as [style].
+# Tools below come with their own sizes, the general sizes do not apply to them.
+# If size is not set, it is the medium size.
+
+# width
+[style.highlighter]
+small = 15
+medium = 30
+large = 45
+opacity = 40
+
+# font size
+# fill and round-caps select the effect: none (false, true), inverted outline (true, false),
+# contrast outline (true, true), drop shadow (false, false)
+# opacity is the one of a background in the contrast color, 0 means no background
+[style.text]
+small = 36
+medium = 54
+large = 96
+fill = false
+round-caps = true
+opacity = 0
+
+[style.marker]
+small = 36
+medium = 54
+large = 96
+
+# block size
+[style.pixelate]
+small = 4
+medium = 8
+large = 16
+
+[style.fringe-pixelate]
+small = 4
+medium = 8
+large = 16
+
+# blur strength (at least 1)
+# fill draws a rectangle instead of an ellipse
+[style.blur]
+small = 4
+medium = 8
+large = 16
+fill = true
+
+[style.lensblur]
+small = 4
+medium = 8
+large = 16
+fill = false
+
+# opacity in percent, at least 20 for the block highlighter and 25 for the spotlight
+[style.highlight]
+small = 40
+medium = 60
+large = 80
+fill = true
+
+[style.spotlight]
+small = 40
+medium = 60
+large = 80
+fill = false
+
+[style.blackout]
+color = "#000000ff"
+fill = true
+
+# Other tools can be configured as well, e.g.
+# [style.arrow]
+# color = 2
+# size = 7
+#
+# [style.rectangle]
+# corner-radius = 0
 
 # Generic keyboard shortcuts (NEXTRELEASE)
 [keybinds]
@@ -176,7 +272,7 @@ input-scale = 1.0
 "0" = "select-color-index:10"
 "minus" = "cycle-size"
 #"..." = "select-size:(small|medium|large)"
-"w" = "focus-annotation-size-factor"
+"w" = "focus-size"
 "f" = "toggle-fill"
 "k" = "toggle-round-caps"
 

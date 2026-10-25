@@ -23,6 +23,9 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Blackout tool <kbd>Shift+X</kbd>, it blacks out the marked area. [806]
 - Marker tool uses style. [808]
 - Display shortcuts in the tool group menu. [#813]
+- All styles can be configured per tool, i.e. color, S, M, L, size, fill, round_caps, opacity. If not set they inherit from global style. [#814]
+- New opacity style is used by highlighter and text tool. [#814]
+- Text determines style from fill and round_caps and thus it can be configured now. [#814]
 
 ### Changed
 
@@ -38,15 +41,20 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Caps style for lines (several tools) is butt now, instead of round. This avoids drawing issues with lines shorter than linewidth and let's the anchors sit on the edges of the line. [#799]
 - The size input field is focused with <kbd>w</kbd> instead of <kbd>s</kbd>, which selects the spotlight now. [804]
 - Highlight, spotlight and lensblur draw a rectangle with fill (fill the bounding box) or an ellipse without. [804]
+- Switching tools also changes tool bar styles to those owned by the tool. [#814]
+- Size in the bottom toolbar is now not a factor, but px, pt, or percent. [#814]
+- `annotation-size-factor` scales sizes once at app start. [#814]
 
 ### Deprecated
 
 - `--profile-startup` is deprecated in favour of `--log-level debug` [#711]
 - Config `primary-highlighter` and option `--primary-highlighter` are deprecated and ignored, block *highlight* and freehand *highlighter* are separate tools now. [#799]
+- The command line option `--corner-roundness` was renamed to `--corner-radius`, the old name is still accepted. [#814]
 
 ### Removed
 
 - Holding <kbd>Ctrl</kbd> at the start of a highlight no longer switches between block and freehand highlighter. [#799]
+- The configs `corner-roundness`, `default-fill-shapes` and `default-round-caps` were removed from `[general]`, use `[style]` instead, where `corner-roundness` is called `corner-radius`. [#814]
 
 ### Fixed
 
@@ -73,5 +81,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#808]: https://github.com/Satty-org/Satty/pull/808
 [#810]: https://github.com/Satty-org/Satty/pull/810
 [#813]: https://github.com/Satty-org/Satty/pull/813
+[#814]: https://github.com/Satty-org/Satty/pull/814
 
 <!-- --8<-- [end:changelog] -->

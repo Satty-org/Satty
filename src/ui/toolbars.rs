@@ -1,17 +1,19 @@
 use std::borrow::Cow;
+use std::cell::Cell;
+use std::rc::Rc;
 
 use crate::{
     configuration::{APP_CONFIG, Action},
     keybindings::{ShortcutCommand, ShortcutRegistry},
     math::{Vec2D, get_closest_aspect_ratio},
-    style::{Color, Size},
+    style::{Color, Size, SizePreset, StyleField, StyleFields},
     tools::Tools,
 };
 
 use crate::tools::GroupableTool;
 use crate::ui::tool_group_button::{ToolGroupButton, ToolGroupButtonInput, ToolGroupInit};
 use relm4::gtk::{
-    gdk::Key,
+    gdk::{Key, ModifierType},
     gdk_pixbuf::{
         Pixbuf,
         gio::SimpleAction,
@@ -34,8 +36,23 @@ pub struct StyleToolbar {
     custom_color: RGBA,
     custom_color_pixbuf: Pixbuf,
     color_action: SimpleAction,
-    size_action: SimpleAction,
+    size: Size,
+    size_presets: [Size; 3],
+    size_hints: [String; 3],
     size_spin_button: gtk::SpinButton,
+    // set while the size is set from outside, to not report it back as change
+    size_spin_updating: Rc<Cell<bool>>,
+    // the active tool and the style fields it has itself, for the tooltips
+    scope_tool: Tools,
+    scope_own: StyleFields,
+    palette_buttons: Vec<(gtk::ToggleButton, String)>,
+    // the triangles showing whether their field is the tool's own, see
+    // update_own_indicators
+    own_indicators: Vec<(OwnIndicator, gtk::Image)>,
+    selected_color: ColorButtons,
+    size_spin_hint: String,
+    fill_hint: String,
+    round_caps_hint: String,
     fill_enabled: bool,
     round_caps_enabled: bool,
     visible: bool,
@@ -51,7 +68,9 @@ pub enum ToolbarEvent {
     ColorSelected(Color),
     SetFill(bool),
     SizeSelected(Size),
-    AnnotationSizeFactorChanged(f32),
+    SizePresetSelected(SizePreset),
+    /// whether the active tool has the field itself or uses the general one
+    SetStyleFieldOwn(StyleField, bool),
     Redo,
     Undo,
     SaveFile,
@@ -79,7 +98,11 @@ pub enum StyleToolbarInput {
     SetFill(bool),
     SetRoundCaps(bool),
     SetSize(Size),
-    SetAnnotationSizeFactor(f32),
+    SetSizePresets([Size; 3]),
+    SizePresetClicked(SizePreset),
+    SetStyleScope(Tools, StyleFields),
+    /// Ctrl+click on a style button
+    ToggleStyleFieldOwn(StyleField),
     ShowColorDialog,
     ColorDialogFinished(Option<RGBA>),
     SetVisibility(bool),
@@ -87,7 +110,135 @@ pub enum StyleToolbarInput {
     DimensionsChanged(Vec2D),
     LineDimensionsChanged(Vec2D),
     SetToolEditing(bool),
-    FocusAnnotationSizeFactor,
+    FocusSize,
+}
+
+/// The style button a triangle in its top left corner is on. The triangle
+/// shows whether the active tool has the field itself or uses the general one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnIndicator {
+    Color(ColorButtons),
+    /// the size input field
+    Size,
+    Fill,
+    RoundCaps,
+}
+
+impl OwnIndicator {
+    fn field(self) -> StyleField {
+        match self {
+            OwnIndicator::Color(_) => StyleField::Color,
+            OwnIndicator::Size => StyleField::Size,
+            OwnIndicator::Fill => StyleField::Fill,
+            OwnIndicator::RoundCaps => StyleField::RoundCaps,
+        }
+    }
+}
+
+/// size of the corner with the triangle that can be clicked
+const OWN_INDICATOR_CORNER: f64 = 12.0;
+
+/// Puts `button` into an overlay with the triangle of `indicator` in its top
+/// left corner. A click on the triangle or a Ctrl+click on the button switches
+/// the field between the own one of the active tool and the general one.
+fn add_own_indicator(
+    button: &impl IsA<gtk::Widget>,
+    sender: &ComponentSender<StyleToolbar>,
+    indicator: OwnIndicator,
+) -> gtk::Image {
+    let button = button.upcast_ref::<gtk::Widget>();
+    let parent = button
+        .parent()
+        .and_downcast::<gtk::Box>()
+        .expect("style buttons are in a box");
+    let previous = button.prev_sibling();
+    parent.remove(button);
+    let overlay = gtk::Overlay::new();
+    overlay.add_css_class("own-style-overlay");
+    overlay.set_child(Some(button));
+    parent.insert_child_after(&overlay, previous.as_ref());
+
+    let image = gtk::Image::builder()
+        .icon_name("caret-down-right-filled")
+        .pixel_size(8)
+        .halign(Align::Start)
+        .valign(Align::Start)
+        .can_target(false)
+        .build();
+    image.add_css_class("own-style-indicator");
+    overlay.add_overlay(&image);
+
+    let in_corner = {
+        let image = image.clone();
+        move |x: f64, y: f64| {
+            image.is_visible() && x <= OWN_INDICATOR_CORNER && y <= OWN_INDICATOR_CORNER
+        }
+    };
+
+    let motion = gtk::EventControllerMotion::new();
+    let hover = {
+        let image = image.clone();
+        let in_corner = in_corner.clone();
+        move |x: f64, y: f64| {
+            if in_corner(x, y) {
+                image.add_css_class("own-style-indicator-hover");
+            } else {
+                image.remove_css_class("own-style-indicator-hover");
+            }
+        }
+    };
+    let hover_enter = hover.clone();
+    motion.connect_enter(move |_, x, y| hover_enter(x, y));
+    motion.connect_motion(move |_, x, y| hover(x, y));
+    let leave_image = image.clone();
+    motion.connect_leave(move |_| leave_image.remove_css_class("own-style-indicator-hover"));
+    overlay.add_controller(motion);
+
+    let gesture = gtk::GestureClick::builder().button(1).build();
+    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let sender = sender.clone();
+    let overlay_for_pick = overlay.clone();
+    gesture.connect_pressed(move |gesture, _, x, y| {
+        // in the size field Ctrl+click on its + and - buttons steps by 10
+        let on_step_button = indicator == OwnIndicator::Size
+            && overlay_for_pick
+                .pick(x, y, gtk::PickFlags::DEFAULT)
+                .is_some_and(|w| {
+                    w.is::<gtk::Button>() || w.ancestor(gtk::Button::static_type()).is_some()
+                });
+        let ctrl = !on_step_button
+            && gesture
+                .current_event_state()
+                .contains(ModifierType::CONTROL_MASK);
+        if ctrl || in_corner(x, y) {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            sender.input(StyleToolbarInput::ToggleStyleFieldOwn(indicator.field()));
+        }
+    });
+    overlay.add_controller(gesture);
+
+    image
+}
+
+/// Ctrl+click on `button` switches `field` like the triangle, see add_own_indicator.
+fn connect_own_style_toggle(
+    button: &impl IsA<gtk::Widget>,
+    sender: &ComponentSender<StyleToolbar>,
+    field: StyleField,
+) {
+    let gesture = gtk::GestureClick::builder().button(1).build();
+    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let sender = sender.clone();
+    gesture.connect_pressed(move |gesture, _, _, _| {
+        if gesture
+            .current_event_state()
+            .contains(ModifierType::CONTROL_MASK)
+        {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            sender.input(StyleToolbarInput::ToggleStyleFieldOwn(field));
+        }
+    });
+    button.add_controller(gesture);
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -450,13 +601,46 @@ impl SimpleComponent for ToolsToolbar {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ColorButtons {
     Palette(u64),
     Custom,
 }
 
 impl StyleToolbar {
+    /// `hint` with whether `field` is the one of the active tool or the general one.
+    fn scope_tooltip(&self, hint: &str, field: StyleField) -> String {
+        let tool = self.scope_tool;
+        let name = field.name();
+        if self.scope_own.contains(field) {
+            format!("{hint}\n{tool}: own {name}, Ctrl+click: use the general one")
+        } else {
+            format!("{hint}\n{tool}: general {name}, Ctrl+click: own one for {tool}")
+        }
+    }
+
+    /// Shows the triangles of the fields the active tool has itself, the others
+    /// only on hover; for the color only on the selected button.
+    fn update_own_indicators(&self) {
+        for (indicator, image) in &self.own_indicators {
+            image.set_visible(match indicator {
+                OwnIndicator::Color(button) => *button == self.selected_color,
+                OwnIndicator::Size | OwnIndicator::Fill | OwnIndicator::RoundCaps => true,
+            });
+            if self.scope_own.contains(indicator.field()) {
+                image.add_css_class("own");
+            } else {
+                image.remove_css_class("own");
+            }
+        }
+    }
+
+    fn update_palette_tooltips(&self) {
+        for (button, hint) in &self.palette_buttons {
+            button.set_tooltip_text(Some(&self.scope_tooltip(hint, StyleField::Color)));
+        }
+    }
+
     fn show_color_dialog(&self, sender: ComponentSender<StyleToolbar>, root: Option<Window>) {
         let current_color: RGBA = self.custom_color;
         relm4::spawn_local(async move {
@@ -546,6 +730,8 @@ impl Component for StyleToolbar {
                     set_from_pixbuf: Some(&model.custom_color_pixbuf)
                 },
                 ActionablePlus::set_action::<ColorAction>: ColorButtons::Custom,
+                #[watch]
+                set_tooltip: &model.scope_tooltip("custom color", StyleField::Color),
             },
             gtk::Button {
 
@@ -565,8 +751,18 @@ impl Component for StyleToolbar {
                 add_css_class: "size-button",
 
                 set_label: "S",
-                set_tooltip: "Small size",
-                ActionablePlus::set_action::<SizeAction>: Size::Small,
+                #[watch]
+                set_tooltip: &model.scope_tooltip(
+                    &format!("{}: {}", model.size_hints[0], model.size_presets[0].value()),
+                    StyleField::Size,
+                ),
+                #[watch]
+                set_active: model.size == model.size_presets[0],
+                // only the active one has a background
+                #[watch]
+                set_has_frame: model.size == model.size_presets[0],
+                // via input, so the toggle state is restored when the size does not change
+                connect_clicked => StyleToolbarInput::SizePresetClicked(SizePreset::Small),
             },
             #[name(size_medium_button)]
             gtk::ToggleButton {
@@ -575,8 +771,18 @@ impl Component for StyleToolbar {
                 add_css_class: "size-button",
 
                 set_label: "M",
-                set_tooltip: "Medium size",
-                ActionablePlus::set_action::<SizeAction>: Size::Medium,
+                #[watch]
+                set_tooltip: &model.scope_tooltip(
+                    &format!("{}: {}", model.size_hints[1], model.size_presets[1].value()),
+                    StyleField::Size,
+                ),
+                #[watch]
+                set_active: model.size == model.size_presets[1],
+                // only the active one has a background
+                #[watch]
+                set_has_frame: model.size == model.size_presets[1],
+                // via input, so the toggle state is restored when the size does not change
+                connect_clicked => StyleToolbarInput::SizePresetClicked(SizePreset::Medium),
             },
             #[name(size_large_button)]
             gtk::ToggleButton {
@@ -585,34 +791,41 @@ impl Component for StyleToolbar {
                 add_css_class: "size-button",
 
                 set_label: "L",
-                set_tooltip: "Large size",
-                ActionablePlus::set_action::<SizeAction>: Size::Large,
-            },
-            gtk::Label {
-                set_focusable: false,
-                set_hexpand: false,
-
-                set_text: "x",
+                #[watch]
+                set_tooltip: &model.scope_tooltip(
+                    &format!("{}: {}", model.size_hints[2], model.size_presets[2].value()),
+                    StyleField::Size,
+                ),
+                #[watch]
+                set_active: model.size == model.size_presets[2],
+                // only the active one has a background
+                #[watch]
+                set_has_frame: model.size == model.size_presets[2],
+                // via input, so the toggle state is restored when the size does not change
+                connect_clicked => StyleToolbarInput::SizePresetClicked(SizePreset::Large),
             },
             #[name(size_spin_button)]
             gtk::SpinButton {
+                add_css_class: "size-spin",
                 set_focusable: true,
                 set_hexpand: false,
-                set_tooltip: "Edit Annotation Size Factor",
                 set_adjustment: &gtk::Adjustment::new(
-                    APP_CONFIG.read().annotation_size_factor() as f64,
-                    0.1, 99.99, // min, max
-                    0.1, 1.0, // step sizes
+                    model.size.value() as f64,
+                    0.0, Size::MAX as f64, // min, max
+                    1.0, 10.0, // step sizes
                     0.0),
-                set_climb_rate: 0.1,
+                set_climb_rate: 1.0,
                 set_numeric: true,
-                set_digits: 2,
-                set_width_chars: 4,
+                set_digits: 1,
+                set_width_chars: 5,
                 set_alignment: 1.0,
 
-                connect_value_changed[sender] => move |spin_button| {
-                    let new_value = spin_button.value() as f32;
-                    sender.output_sender().emit(ToolbarEvent::AnnotationSizeFactorChanged(new_value));
+                connect_value_changed[sender, updating = model.size_spin_updating.clone()] => move |spin_button| {
+                    if updating.get() {
+                        return;
+                    }
+                    let new_value = Size::new(spin_button.value() as f32);
+                    sender.output_sender().emit(ToolbarEvent::SizeSelected(new_value));
                 },
 
                 add_controller = gtk::EventControllerKey {
@@ -624,9 +837,9 @@ impl Component for StyleToolbar {
                         }
 
                         if matches!(keyval, Key::Shift_L | Key::Shift_R) {
-                            size_spin_button.adjustment().set_step_increment(0.01);
+                            size_spin_button.adjustment().set_step_increment(0.1);
                         } else if matches!(keyval, Key::Control_L | Key::Control_R) {
-                            size_spin_button.adjustment().set_step_increment(1.0);
+                            size_spin_button.adjustment().set_step_increment(10.0);
                         }
 
                         relm4::gtk::glib::Propagation::Proceed
@@ -634,7 +847,7 @@ impl Component for StyleToolbar {
 
                     connect_key_released[size_spin_button] => move |_, keyval, _, _| {
                         if matches!(keyval, Key::Shift_L | Key::Shift_R| Key::Control_L | Key::Control_R) {
-                            size_spin_button.adjustment().set_step_increment(0.1);
+                            size_spin_button.adjustment().set_step_increment(1.0);
                         }
                     },
                 },
@@ -667,6 +880,8 @@ impl Component for StyleToolbar {
                 set_hexpand: false,
 
                 #[watch]
+                set_tooltip: &model.scope_tooltip(&model.fill_hint, StyleField::Fill),
+                #[watch]
                 set_icon_name: if model.fill_enabled {
                     "paint-bucket-filled"
                 } else {
@@ -681,7 +896,8 @@ impl Component for StyleToolbar {
             gtk::Button {
                 set_focusable: false,
                 set_hexpand: false,
-                set_tooltip: "Toggle Round Caps",
+                #[watch]
+                set_tooltip: &model.scope_tooltip(&model.round_caps_hint, StyleField::RoundCaps),
                 #[watch]
                 set_icon_name: if model.round_caps_enabled {
                     "circle-line-filled"
@@ -708,6 +924,8 @@ impl Component for StyleToolbar {
                     // set the custom button active
                     self.color_action
                         .change_state(&ColorButtons::Custom.to_variant());
+                    self.selected_color = ColorButtons::Custom;
+                    self.update_own_indicators();
 
                     // set new color
                     sender
@@ -718,6 +936,8 @@ impl Component for StyleToolbar {
             StyleToolbarInput::ColorButtonSelected(button) => {
                 let color = self.map_button_to_color(button);
                 self.color_action.change_state(&button.to_variant());
+                self.selected_color = button;
+                self.update_own_indicators();
                 sender
                     .output_sender()
                     .emit(ToolbarEvent::ColorSelected(color));
@@ -739,6 +959,8 @@ impl Component for StyleToolbar {
                 }
 
                 self.color_action.change_state(&palette_match.to_variant());
+                self.selected_color = palette_match;
+                self.update_own_indicators();
             }
             StyleToolbarInput::SetFill(fill_enabled) => {
                 self.fill_enabled = fill_enabled;
@@ -747,10 +969,33 @@ impl Component for StyleToolbar {
                 self.round_caps_enabled = round_caps_enabled;
             }
             StyleToolbarInput::SetSize(size) => {
-                self.size_action.change_state(&size.to_variant());
+                self.size = size;
+                self.size_spin_updating.set(true);
+                self.size_spin_button.set_value(size.value() as f64);
+                self.size_spin_updating.set(false);
             }
-            StyleToolbarInput::SetAnnotationSizeFactor(value) => {
-                self.size_spin_button.set_value(value as f64);
+            StyleToolbarInput::SetSizePresets(presets) => {
+                self.size_presets = presets;
+            }
+            StyleToolbarInput::SetStyleScope(tool, own) => {
+                self.scope_tool = tool;
+                self.scope_own = own;
+                self.size_spin_button.set_tooltip_text(Some(
+                    &self.scope_tooltip(&self.size_spin_hint, StyleField::Size),
+                ));
+                self.update_palette_tooltips();
+                self.update_own_indicators();
+            }
+            StyleToolbarInput::ToggleStyleFieldOwn(field) => {
+                sender.output_sender().emit(ToolbarEvent::SetStyleFieldOwn(
+                    field,
+                    !self.scope_own.contains(field),
+                ));
+            }
+            StyleToolbarInput::SizePresetClicked(preset) => {
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::SizePresetSelected(preset));
             }
             StyleToolbarInput::SetVisibility(visible) => self.visible = visible,
             StyleToolbarInput::ToggleVisibility => {
@@ -783,7 +1028,7 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetToolEditing(editing) => {
                 self.editing = editing;
             }
-            StyleToolbarInput::FocusAnnotationSizeFactor => {
+            StyleToolbarInput::FocusSize => {
                 self.size_spin_button.grab_focus();
             }
         }
@@ -796,6 +1041,8 @@ impl Component for StyleToolbar {
     ) -> ComponentParts<Self> {
         let shortcut_registry = ShortcutRegistry::from_config();
 
+        let mut palette_buttons = Vec::new();
+        let mut own_indicators = Vec::new();
         for (i, &color) in APP_CONFIG
             .read()
             .color_palette()
@@ -817,9 +1064,10 @@ impl Component for StyleToolbar {
                 Some(hint) => format!("color {} ({hint})", i + 1),
                 None => format!("color {}", i + 1),
             };
-            btn.set_tooltip_text(Some(&color_tooltip));
-
             root.prepend(&btn);
+            let indicator = OwnIndicator::Color(ColorButtons::Palette(i as u64));
+            own_indicators.push((indicator, add_own_indicator(&btn, &sender, indicator)));
+            palette_buttons.push((btn, color_tooltip));
         }
 
         // Color Action for selecting colors
@@ -832,15 +1080,11 @@ impl Component for StyleToolbar {
             },
         );
 
-        // Size Action for selecting sizes
-        let sender_tmp = sender.clone();
-        let size_action: RelmAction<SizeAction> =
-            RelmAction::new_stateful_with_target_value(&Size::Medium, move |_, state, value| {
-                *state = value;
-                sender_tmp
-                    .output_sender()
-                    .emit(ToolbarEvent::SizeSelected(*state));
-            });
+        let (initial_tool, initial_style, initial_own) = {
+            let config = APP_CONFIG.read();
+            let tool = config.initial_tool();
+            (tool, config.style_for(tool), config.own_style_fields(tool))
+        };
 
         let custom_color = APP_CONFIG
             .read()
@@ -856,10 +1100,22 @@ impl Component for StyleToolbar {
             custom_color: custom_color.into(),
             custom_color_pixbuf,
             color_action: SimpleAction::from(color_action.clone()),
-            size_action: SimpleAction::from(size_action.clone()),
-            size_spin_button: gtk::SpinButton::new(None::<&gtk::Adjustment>, 0.1, 2),
-            fill_enabled: APP_CONFIG.read().default_fill_shapes(),
-            round_caps_enabled: APP_CONFIG.read().default_round_caps(),
+            size: initial_style.size,
+            size_presets: initial_style.presets,
+            size_hints: SizePreset::ALL
+                .map(|p| get_hint(&shortcut_registry, ShortcutCommand::SelectSize(p))),
+            size_spin_button: gtk::SpinButton::new(None::<&gtk::Adjustment>, 1.0, 1),
+            size_spin_updating: Rc::new(Cell::new(false)),
+            scope_tool: initial_tool,
+            scope_own: initial_own,
+            palette_buttons,
+            own_indicators,
+            selected_color: ColorButtons::Palette(0),
+            size_spin_hint: get_hint(&shortcut_registry, ShortcutCommand::FocusSize),
+            fill_hint: get_hint(&shortcut_registry, ShortcutCommand::ToggleFill),
+            round_caps_hint: get_hint(&shortcut_registry, ShortcutCommand::ToggleRoundCaps),
+            fill_enabled: initial_style.fill,
+            round_caps_enabled: initial_style.round_caps,
             visible: !APP_CONFIG.read().default_hide_toolbars(),
             output_dimensions: String::new(),
             aspect_ratio: String::new(),
@@ -870,42 +1126,43 @@ impl Component for StyleToolbar {
         let widgets = view_output!();
         model.size_spin_button = widgets.size_spin_button.clone();
 
-        update_hint(
-            &shortcut_registry,
+        model.update_palette_tooltips();
+        widgets.size_spin_button.set_tooltip_text(Some(
+            &model.scope_tooltip(&model.size_spin_hint, StyleField::Size),
+        ));
+        let buttons: [(&gtk::Widget, OwnIndicator); 4] = [
+            (
+                widgets.custom_color_button.upcast_ref(),
+                OwnIndicator::Color(ColorButtons::Custom),
+            ),
+            (widgets.size_spin_button.upcast_ref(), OwnIndicator::Size),
+            (widgets.fill_button.upcast_ref(), OwnIndicator::Fill),
+            (
+                widgets.round_caps_button.upcast_ref(),
+                OwnIndicator::RoundCaps,
+            ),
+        ];
+        for (button, indicator) in buttons {
+            let image = add_own_indicator(button, &sender, indicator);
+            model.own_indicators.push((indicator, image));
+        }
+        // the size has its triangle on the size field, S, M and L only Ctrl+click
+        for button in [
             &widgets.size_small_button,
-            ShortcutCommand::SelectSize(Size::Small),
-        );
-        update_hint(
-            &shortcut_registry,
             &widgets.size_medium_button,
-            ShortcutCommand::SelectSize(Size::Medium),
-        );
-        update_hint(
-            &shortcut_registry,
             &widgets.size_large_button,
-            ShortcutCommand::SelectSize(Size::Large),
-        );
-        update_hint(
-            &shortcut_registry,
-            &widgets.size_spin_button,
-            ShortcutCommand::FocusAnnotationSizeFactor,
-        );
-        update_hint(
-            &shortcut_registry,
-            &widgets.fill_button,
-            ShortcutCommand::ToggleFill,
-        );
-        update_hint(
-            &shortcut_registry,
-            &widgets.round_caps_button,
-            ShortcutCommand::ToggleRoundCaps,
-        );
+        ] {
+            connect_own_style_toggle(button, &sender, StyleField::Size);
+        }
+        model.update_own_indicators();
 
         let mut group = RelmActionGroup::<StyleToolbarActionGroup>::new();
         group.add_action(color_action);
-        group.add_action(size_action);
 
         group.register_for_widget(&widgets.root);
+
+        // select the button of the initial color, may be a custom one
+        sender.input(StyleToolbarInput::SetColor(initial_style.color));
 
         ComponentParts { model, widgets }
     }
@@ -927,8 +1184,6 @@ impl Clone for ColorAction {
         Self {}
     }
 }
-
-relm4::new_stateful_action!(SizeAction, StyleToolbarActionGroup, "sizes", Size, Size);
 
 impl StaticVariantType for ColorButtons {
     fn static_variant_type() -> Cow<'static, VariantTy> {

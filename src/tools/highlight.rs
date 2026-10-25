@@ -10,6 +10,7 @@ use femtovg::{Color, ImageId, Paint, Path, RenderTarget};
 use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
+    configuration::APP_CONFIG,
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
@@ -22,12 +23,18 @@ use super::{
 };
 
 // Freehand is implemented by the BrushTool, HighlightTool handles the others
+
+/// Lower limit of the spotlight opacity in percent, so the spotlight stays visible.
+const SPOTLIGHT_MIN_ALPHA: f32 = 25.0;
+/// Lower limit of the block highlighter opacity in percent.
+const BLOCK_HIGHLIGHTER_MIN_ALPHA: f32 = 20.0;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Highlighters {
     #[default]
     Block,
     Spotlight,
-    /// opaque black instead of the style color
+    /// covers the area with the style color, black by default
     Blackout,
 }
 
@@ -110,14 +117,14 @@ impl Drawable for BlockHighlight {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let fill_hit_test = self.mode == Highlighters::Blackout;
-        let (tl, size) = (self.top_left, self.size);
-
-        if self.mode == Highlighters::Spotlight && !self.style.fill {
-            return super::hit_test_ellipse(pos, tl, size, tolerance, fill_hit_test);
+        // a blackout covers its whole area, so it is hit anywhere inside
+        let filled = self.mode == Highlighters::Blackout;
+        if matches!(self.mode, Highlighters::Spotlight | Highlighters::Blackout) && !self.style.fill
+        {
+            return super::hit_test_ellipse(pos, self.top_left, self.size, tolerance, filled);
         }
 
-        super::hit_test_rectangle(pos, tl, size, tolerance, fill_hit_test)
+        super::hit_test_rectangle(pos, self.top_left, self.size, tolerance, filled)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -139,7 +146,7 @@ impl Drawable for BlockHighlight {
         if self.mode == Highlighters::Spotlight
             && let Some(alpha) = &self.shared_spotlight_alpha
         {
-            *alpha.lock().unwrap() = self.style.spotlight_alpha();
+            *alpha.lock().unwrap() = self.style.size_as_alpha(SPOTLIGHT_MIN_ALPHA);
         }
     }
 
@@ -169,7 +176,7 @@ impl Drawable for BlockHighlight {
         super::spotlight::draw_spotlight_layer(
             canvas,
             boxes,
-            self.style.corner_radius(),
+            self.style.effective_corner_radius(),
             output_target,
             &self.cached_layer,
             |canvas| {
@@ -192,20 +199,31 @@ impl Drawable for BlockHighlight {
 
         let mut shadow_path = Path::new();
         if self.style.fill {
-            shadow_path.rounded_rect(tl.x, tl.y, size.x, size.y, self.style.corner_radius());
+            shadow_path.rounded_rect(
+                tl.x,
+                tl.y,
+                size.x,
+                size.y,
+                self.style.effective_corner_radius(),
+            );
         } else {
             let (center, radii) = (tl + size / 2.0, size / 2.0);
             shadow_path.ellipse(center.x, center.y, radii.x, radii.y);
         }
 
         let shadow_paint = Paint::color(match self.mode {
-            Highlighters::Blackout => Color::black(),
-            _ => Color::rgba(
-                self.style.color.r,
-                self.style.color.g,
-                self.style.color.b,
-                (255.0 * self.style.highlight_alpha()) as u8,
-            ),
+            Highlighters::Blackout => self.style.paint_color(),
+            _ => {
+                let mut color = self.style.paint_color();
+                color.a *= self
+                    .style
+                    .size_as_alpha(if self.mode == Highlighters::Spotlight {
+                        SPOTLIGHT_MIN_ALPHA
+                    } else {
+                        BLOCK_HIGHLIGHTER_MIN_ALPHA
+                    });
+                color
+            }
         });
 
         canvas.fill_path(&shadow_path, &shadow_paint);
@@ -235,8 +253,14 @@ impl HighlightTool {
     pub fn with_mode(mode: Highlighters) -> Self {
         Self {
             mode,
-            shared_spotlight_alpha: (mode == Highlighters::Spotlight)
-                .then(|| Arc::new(Mutex::new(Style::default().spotlight_alpha()))),
+            shared_spotlight_alpha: (mode == Highlighters::Spotlight).then(|| {
+                Arc::new(Mutex::new(
+                    APP_CONFIG
+                        .read()
+                        .style_for(Tools::HighlightSpotlight)
+                        .size_as_alpha(SPOTLIGHT_MIN_ALPHA),
+                ))
+            }),
             ..Default::default()
         }
     }
@@ -340,7 +364,7 @@ impl Tool for HighlightTool {
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
         self.style = style;
         if let Some(ref shared_spotlight_alpha) = self.shared_spotlight_alpha {
-            *shared_spotlight_alpha.lock().unwrap() = style.spotlight_alpha();
+            *shared_spotlight_alpha.lock().unwrap() = style.size_as_alpha(SPOTLIGHT_MIN_ALPHA);
         }
         ToolUpdateResult::Unmodified
     }
