@@ -1,10 +1,12 @@
-use std::sync::OnceLock;
+use std::collections::VecDeque;
+use std::fmt::Display;
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 use crate::app::{APP_BROKER, AppInput};
 use crate::configuration::APP_CONFIG;
 use crate::notification::{show_notification, show_notification_with_pixbuf};
 use crate::ui::common_dialogs;
-use chrono::Local;
+use chrono::{DateTime, Local};
 use relm4::gtk;
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio;
@@ -14,7 +16,58 @@ pub use satty_cli::command_line::LogLevel;
 
 pub static CONFIG_READ: OnceLock<()> = OnceLock::new();
 
-trait Prefix {
+const LOG_BUFFER_LENGTH: usize = 4096;
+
+static LOG_BUFFER: LazyLock<Mutex<VecDeque<LogEntry>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::with_capacity(LOG_BUFFER_LENGTH)));
+
+pub fn log_buffer_snapshot() -> Vec<LogEntry> {
+    LOG_BUFFER
+        .lock()
+        .map(|buf| buf.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+#[derive(Clone)]
+pub struct LogEntry {
+    pub timestamp: DateTime<Local>,
+    pub level: LogLevel,
+    pub message: String,
+}
+
+impl LogEntry {
+    fn new_with_timestamp(msg: &str, level: LogLevel) -> LogEntry {
+        LogEntry {
+            timestamp: Local::now(),
+            level,
+            message: msg.to_owned(),
+        }
+    }
+
+    pub(crate) fn needs_printing(&self, max_log_level: LogLevel) -> bool {
+        self.level <= max_log_level
+    }
+
+    fn print_level_based(&self, max_log_level: LogLevel) {
+        if self.needs_printing(max_log_level) {
+            eprintln!("{}", self);
+        }
+    }
+}
+
+impl Display for LogEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {} {}",
+            self.timestamp.format("%Y-%m-%dT%H:%M:%S"),
+            self.level.prefix(),
+            self.message
+        )
+    }
+}
+
+pub(crate) trait Prefix {
     fn prefix(&self) -> &'static str;
 }
 
@@ -50,12 +103,22 @@ impl From<LogSeverity> for gio::NotificationPriority {
 }
 
 pub fn log(msg: &str, level: LogLevel) {
+    let log_entry = LogEntry::new_with_timestamp(msg, level);
+
     // avoid blocking before config is read, hopefully ;)
-    if !CONFIG_READ.get().is_some() || level <= APP_CONFIG.read().log_level() {
-        let ts = Local::now().format("%Y-%m-%dT%H:%M:%S");
-        let pfx = level.prefix();
-        let output = format!("{ts} {pfx} {msg}");
-        eprintln!("{output}");
+    let max_level = if !CONFIG_READ.get().is_some() {
+        LogLevel::Warn
+    } else {
+        APP_CONFIG.read().log_level()
+    };
+
+    log_entry.print_level_based(max_level);
+
+    if let Ok(mut buf) = LOG_BUFFER.lock() {
+        if buf.len() >= LOG_BUFFER_LENGTH {
+            buf.pop_front();
+        }
+        buf.push_back(log_entry);
     }
 }
 
