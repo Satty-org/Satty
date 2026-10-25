@@ -1664,6 +1664,10 @@ impl SketchBoard {
                 gtk::Window::set_interactive_debugging(true);
                 ToolUpdateResult::Unmodified
             }
+            ShortcutCommand::ShowLog => {
+                crate::ui::log_dialog::show_log_window();
+                ToolUpdateResult::Unmodified
+            }
             ShortcutCommand::PanLeft
             | ShortcutCommand::PanRight
             | ShortcutCommand::PanUp
@@ -2376,7 +2380,7 @@ impl Component for SketchBoard {
         if error_count > 0 {
             log_with_severity(
             format!(
-                "{} error{} occurred during configuration loading, please start from terminal to retrieve error messages.",
+                "{} error{} occurred during configuration loading, please start from terminal or use log viewer to retrieve error messages.",
                 error_count,
                 if error_count == 1 { "" } else { "s" }
             ).as_str(), LogLevel::Warn, LogSeverity::High);
