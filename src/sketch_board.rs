@@ -967,6 +967,19 @@ impl SketchBoard {
         }
     }
 
+    // moves the selected drawable `offset` layers up (positive) or down
+    fn move_selection_layer(&mut self, offset: isize) -> ToolUpdateResult {
+        let selected_idx = self.pointer_tool.borrow().selected_index();
+        if offset != 0
+            && let Some(selected_idx) = selected_idx
+            && let Some(new_idx) = self.renderer.move_drawable_index(selected_idx, offset)
+        {
+            self.update_pointer_tool_selection(new_idx, false);
+            return ToolUpdateResult::Redraw;
+        }
+        ToolUpdateResult::Unmodified
+    }
+
     fn handle_pointer_tool_click(
         &mut self,
         me: &MouseEventMsg,
@@ -978,22 +991,9 @@ impl SketchBoard {
         }
 
         if self.active_tool_type() == Tools::Pointer {
-            if me.type_ == MouseEventType::Scroll
-                && !me.modifier.contains(ModifierType::CONTROL_MASK)
-            {
-                let selected_idx = self.pointer_tool.borrow().selected_index();
-                if let Some(selected_idx) = selected_idx {
-                    let offset = self.pointer_layer_scroll_offset(me);
-
-                    if offset != 0
-                        && let Some(new_idx) =
-                            self.renderer.move_drawable_index(selected_idx, offset)
-                    {
-                        self.update_pointer_tool_selection(new_idx, false);
-                        return ToolUpdateResult::Redraw;
-                    }
-                }
-                return ToolUpdateResult::Unmodified;
+            if me.type_ == MouseEventType::Scroll && me.modifier.contains(ModifierType::ALT_MASK) {
+                let offset = self.pointer_layer_scroll_offset(me);
+                return self.move_selection_layer(offset);
             }
 
             if me.type_ == MouseEventType::Click && me.n_pressed == 2 {
@@ -1527,6 +1527,8 @@ impl SketchBoard {
                     ToolUpdateResult::Unmodified
                 }
             }
+            ShortcutCommand::RaiseSelection => self.move_selection_layer(1),
+            ShortcutCommand::LowerSelection => self.move_selection_layer(-1),
             ShortcutCommand::ClearAll => self.handle_clear_all(),
             ShortcutCommand::RunConfiguredActions(trigger) => {
                 if let ToolUpdateResult::Unmodified = active_tool_result {
@@ -1787,10 +1789,10 @@ impl Component for SketchBoard {
                     ie.handle_event_mouse_input(&self.renderer);
 
                     let skip_default_mouse_handling = if let InputEvent::Mouse(me) = &ie {
+                        // Alt+Scroll changes the layer of the selection instead of panning
                         me.type_ == MouseEventType::Scroll
                             && self.active_tool_type() == Tools::Pointer
-                            && self.pointer_tool.borrow().selected_index().is_some()
-                            && !me.modifier.contains(ModifierType::CONTROL_MASK)
+                            && me.modifier.contains(ModifierType::ALT_MASK)
                     } else {
                         false
                     };
