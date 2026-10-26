@@ -678,7 +678,7 @@ fn run_satty_app(image: Pixbuf) {
     app.run::<App>(image)
 }
 
-fn cleanup() {
+fn cleanup() -> Result<()> {
     match TEMP_DIR.write() {
         Ok(mut temp_dir) => {
             // take is sufficient to have the dir deleted when it's dropped.
@@ -702,18 +702,11 @@ fn cleanup() {
                     );
                     thread::sleep(sleep_time);
                 }
-
-                if let Err(e) = dir.close() {
-                    log(
-                        &format!("Failed to close temporary directory: {}", e),
-                        LogLevel::Error,
-                    );
-                }
+                dir.close()?;
             }
+            Ok(())
         }
-        Err(e) => {
-            log(&format!("{}", e), LogLevel::Error);
-        }
+        Err(e) => Err(anyhow::anyhow!("{}", e)),
     }
 }
 
@@ -784,6 +777,11 @@ fn main() -> Result<()> {
         Ok(())
     };
 
-    cleanup();
+    if let Err(e) = cleanup() {
+        log(&format!("{}", e), LogLevel::Error);
+        if r.is_ok() {
+            return Err(e);
+        }
+    }
     r
 }
