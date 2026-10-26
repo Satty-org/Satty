@@ -2,7 +2,7 @@
 
 use std assert
 
-export def main [version: string] {   
+export def main [version: string] {
     # make sure the working tree is clean
     assert_repo_is_clean
 
@@ -35,6 +35,7 @@ export def main [version: string] {
     update_next_release config.toml $version
     update_next_release USAGE.md $version
     update_next_release README.md $version
+    update_next_release CHANGELOG.md $version
 
     # show diff so we can review the replacements
     git_diff
@@ -43,7 +44,7 @@ export def main [version: string] {
         exit 1
     }
 
-    # commit 
+    # commit
     git_commit $requested_version_tag
 
     # tag a new git version
@@ -51,7 +52,7 @@ export def main [version: string] {
 
     ## from here on we go online!
     # push
-    git_push 
+    git_push
 
     # the rest is being handled by the github release action
 }
@@ -128,7 +129,7 @@ def is_newer [
     old: list<int>,
     new: list<int>
     ]: nothing -> bool {
-    
+
     let length = [($old | length) ($new | length)] | math min
 
     for i in 0..<($length) {
