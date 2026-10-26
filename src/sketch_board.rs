@@ -918,36 +918,39 @@ impl SketchBoard {
         }
     }
 
-    fn handle_undo(&mut self) -> ToolUpdateResult {
+    fn handle_undo(&mut self, sender: &ComponentSender<Self>) -> ToolUpdateResult {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_undo()
         } else if self.renderer.undo() {
             self.renderer.set_hidden_drawable_index(None);
             self.pointer_tool.borrow_mut().deselect();
+            self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
         }
     }
 
-    fn handle_redo(&mut self) -> ToolUpdateResult {
+    fn handle_redo(&mut self, sender: &ComponentSender<Self>) -> ToolUpdateResult {
         if self.active_tool.borrow().active() {
             self.active_tool.borrow_mut().handle_redo()
         } else if self.renderer.redo() {
             self.renderer.set_hidden_drawable_index(None);
             self.pointer_tool.borrow_mut().deselect();
+            self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
             ToolUpdateResult::Unmodified
         }
     }
 
-    fn handle_clear_all(&mut self) -> ToolUpdateResult {
+    fn handle_clear_all(&mut self, sender: &ComponentSender<Self>) -> ToolUpdateResult {
         // can't use lazy || here
         let did_reset = self.deactivate_active_tool() | self.renderer.clear_all();
 
         self.renderer.set_hidden_drawable_index(None);
         self.pointer_tool.borrow_mut().deselect();
+        self.emit_shape_dimensions(sender, self.current_output_dimensions());
 
         // Reset marker numbering after drawable undo hooks ran.
         self.tools.get(&Tools::Marker).borrow_mut().handle_reset();
@@ -1055,7 +1058,7 @@ impl SketchBoard {
                     .hit_test_handles(me.pos)
                     .is_none()
             {
-                self.emit_shape_dimensions(sender, self.image_bounds.1);
+                self.emit_shape_dimensions(sender, self.current_output_dimensions());
 
                 // switch back to previous tool
                 self.handle_toolbar_event(
@@ -1195,6 +1198,7 @@ impl SketchBoard {
         // Clicked on empty space: deselect
         self.renderer.set_hidden_drawable_index(None);
         self.pointer_tool.borrow_mut().deselect();
+        self.emit_shape_dimensions(sender, self.current_output_dimensions());
         Some(ToolUpdateResult::Redraw)
     }
 
@@ -1241,7 +1245,8 @@ impl SketchBoard {
                 ToolUpdateResult::Unmodified
             }
             ToolbarEvent::ToolSelected(tool) => {
-                self.emit_shape_dimensions(&sender, self.image_bounds.1);
+                // with a crop the output is smaller than the image
+                self.emit_shape_dimensions(&sender, self.current_output_dimensions());
 
                 self.return_to_pointer_after_text_commit = false;
 
@@ -1321,9 +1326,9 @@ impl SketchBoard {
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
             ToolbarEvent::CopyClipboard => self.handle_action(&[Action::SaveToClipboard]),
-            ToolbarEvent::Undo => self.handle_undo(),
-            ToolbarEvent::Redo => self.handle_redo(),
-            ToolbarEvent::ClearAll => self.handle_clear_all(),
+            ToolbarEvent::Undo => self.handle_undo(&sender),
+            ToolbarEvent::Redo => self.handle_redo(&sender),
+            ToolbarEvent::ClearAll => self.handle_clear_all(&sender),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
                 sender
@@ -1516,8 +1521,8 @@ impl SketchBoard {
                 ));
                 ToolUpdateResult::Unmodified
             }
-            ShortcutCommand::Undo => self.handle_undo(),
-            ShortcutCommand::Redo => self.handle_redo(),
+            ShortcutCommand::Undo => self.handle_undo(&sender),
+            ShortcutCommand::Redo => self.handle_redo(&sender),
             ShortcutCommand::ToggleToolbars => self.handle_toggle_toolbars_display(sender),
             ShortcutCommand::RunAction(action) => {
                 self.renderer.request_render(&[action]);
@@ -1563,14 +1568,11 @@ impl SketchBoard {
             ShortcutCommand::DeleteSelection => {
                 let pointer_selection = self.pointer_tool.borrow().selected_index();
                 if let Some(idx) = pointer_selection {
-                    if let Some(drawable) = self.renderer.get_drawable_clone(idx)
-                        && drawable.get_rendering_mode() == RenderingMode::Crop
-                    {
-                        self.emit_shape_dimensions(&sender, self.image_bounds.1);
-                    }
                     self.pointer_tool.borrow_mut().deselect();
                     self.renderer.set_hidden_drawable_index(None);
                     self.renderer.remove_drawable(idx);
+                    // without the drawable, also without a deleted crop
+                    self.emit_shape_dimensions(&sender, self.current_output_dimensions());
                     ToolUpdateResult::Redraw
                 } else {
                     ToolUpdateResult::Unmodified
@@ -1578,7 +1580,7 @@ impl SketchBoard {
             }
             ShortcutCommand::RaiseSelection => self.move_selection_layer(1),
             ShortcutCommand::LowerSelection => self.move_selection_layer(-1),
-            ShortcutCommand::ClearAll => self.handle_clear_all(),
+            ShortcutCommand::ClearAll => self.handle_clear_all(&sender),
             ShortcutCommand::RunConfiguredActions(trigger) => {
                 if let ToolUpdateResult::Unmodified = active_tool_result {
                     let actions = match trigger {
@@ -1854,6 +1856,7 @@ impl Component for SketchBoard {
                     {
                         self.pointer_tool.borrow_mut().deselect();
                         self.renderer.set_hidden_drawable_index(None);
+                        self.emit_shape_dimensions(&sender, self.current_output_dimensions());
                         ToolUpdateResult::Redraw
                     } else {
                         self.active_tool
@@ -2013,15 +2016,17 @@ impl Component for SketchBoard {
                     self.refresh_screen();
                     return;
                 };
-                // Queue this after any live drag update so the final display is authoritative.
-                sender_clone.input(SketchBoardInput::ShapeDimensionsUpdate(
-                    self.current_output_dimensions(),
-                ));
                 let auto_select = APP_CONFIG.read().auto_select();
 
                 // commit first, so the index of the new drawable is the last one
                 let selection = auto_select.then(|| drawable.clone_box());
                 self.renderer.commit(drawable);
+
+                // after the commit, so a new crop is included; queued after any
+                // live drag update so the final display is authoritative
+                sender_clone.input(SketchBoardInput::ShapeDimensionsUpdate(
+                    self.current_output_dimensions(),
+                ));
 
                 if let Some(selection) = selection {
                     if let Some(index) = self.renderer.last_drawable_index() {
