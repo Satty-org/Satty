@@ -155,7 +155,23 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 };
 
-                brush.add_point(event.pos, event.modifier.contains(ModifierType::SHIFT_MASK));
+                let shift_pressed = event.modifier.contains(ModifierType::SHIFT_MASK);
+                brush.add_point(event.pos, shift_pressed);
+
+                // with shift the last segment is straight, show its dimensions;
+                // points are relative to the start point
+                if shift_pressed
+                    && let Some(sender) = &self.sender
+                    && let Some(&last) = brush.points.last()
+                {
+                    let previous = match brush.points.len() {
+                        1 => Vec2D::zero(),
+                        n => brush.points[n - 2],
+                    };
+                    sender
+                        .send(SketchBoardInput::LineDimensionsUpdate(last - previous))
+                        .ok();
+                }
 
                 if event.type_ == MouseEventType::UpdateDrag {
                     return ToolUpdateResult::Redraw;

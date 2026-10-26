@@ -85,6 +85,7 @@ pub enum StyleToolbarInput {
     SetVisibility(bool),
     ToggleVisibility,
     DimensionsChanged(Vec2D),
+    LineDimensionsChanged(Vec2D),
     SetToolEditing(bool),
     FocusAnnotationSizeFactor,
 }
@@ -97,6 +98,19 @@ fn create_icon_pixbuf(color: Color) -> Pixbuf {
 
 fn create_icon(color: Color) -> gtk::Image {
     gtk::Image::from_pixbuf(Some(&create_icon_pixbuf(color)))
+}
+
+/// Length and angle of a line from its start to its end. The angle is
+/// counterclockwise from the right, from -180° to 180°.
+fn format_line_dimensions(delta: Vec2D) -> (String, String) {
+    let length = format!("{:.0}px", delta.norm());
+    if delta.norm() < f32::EPSILON {
+        return (length, String::new());
+    }
+    // y points down on screen; 0.0 - y instead of -y gives no negative zero,
+    // which would turn 180° into -180°, and + 0.0 avoids showing -0
+    let angle = (0.0 - delta.y).atan2(delta.x).to_degrees().round() + 0.0;
+    (length, format!("{angle}°"))
 }
 
 fn get_hint(shortcut_registry: &ShortcutRegistry, command: ShortcutCommand) -> String {
@@ -721,6 +735,9 @@ impl Component for StyleToolbar {
                         closest_ar.1
                     );
                 }
+            }
+            StyleToolbarInput::LineDimensionsChanged(delta) => {
+                (self.output_dimensions, self.aspect_ratio) = format_line_dimensions(delta);
             }
             StyleToolbarInput::SetToolEditing(editing) => {
                 self.editing = editing;

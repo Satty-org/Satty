@@ -151,6 +151,13 @@ impl Tool for LineTool {
                     } else {
                         line.end = line.start + event.pos;
                     }
+                    if let Some(sender) = &self.sender {
+                        sender
+                            .send(SketchBoardInput::LineDimensionsUpdate(
+                                line.end - line.start,
+                            ))
+                            .ok();
+                    }
                     ToolUpdateResult::Redraw
                 } else {
                     ToolUpdateResult::Unmodified

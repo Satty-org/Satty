@@ -722,10 +722,14 @@ impl PointerTool {
         if let Some(sender) = &self.sender
             && let Some((tl, br)) = drawable.anchors()
         {
-            // get it from drawable as it represents the most up-to-date anchors
-            sender
-                .send(SketchBoardInput::ShapeDimensionsUpdate(br - tl))
-                .ok();
+            // get it from drawable as it represents the most up-to-date anchors;
+            // for lines these are start and end
+            let message = if drawable.get_selection_type() == SelectionType::Line {
+                SketchBoardInput::LineDimensionsUpdate(br - tl)
+            } else {
+                SketchBoardInput::ShapeDimensionsUpdate(br - tl)
+            };
+            sender.send(message).ok();
         }
     }
 

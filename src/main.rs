@@ -104,6 +104,7 @@ pub enum AppInput {
     SetRoundCaps(bool),
     FullscreenChanged(bool),
     DimensionsUpdate(Vec2D),
+    LineDimensionsUpdate(Vec2D),
     ToolEditingChanged(bool),
     ShowToast(String),
 }
@@ -378,6 +379,11 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::DimensionsChanged(dimensions));
             }
+            AppInput::LineDimensionsUpdate(delta) => {
+                self.style_toolbar
+                    .sender()
+                    .emit(StyleToolbarInput::LineDimensionsChanged(delta));
+            }
             AppInput::ToolEditingChanged(editing) => {
                 self.tools_toolbar
                     .sender()
@@ -437,6 +443,9 @@ impl Component for App {
                     }
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)
+                    }
+                    SketchBoardOutput::LineDimensionsUpdate(delta) => {
+                        AppInput::LineDimensionsUpdate(delta)
                     }
                     SketchBoardOutput::ToolEditingChanged(editing) => {
                         AppInput::ToolEditingChanged(editing)

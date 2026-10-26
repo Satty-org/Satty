@@ -58,6 +58,8 @@ pub enum SketchBoardInput {
     Exit,
     ScaleFactorChanged,
     ShapeDimensionsUpdate(Vec2D),
+    /// delta from the start to the end of a line, shown as length and angle
+    LineDimensionsUpdate(Vec2D),
     Output(SketchBoardOutput),
 }
 
@@ -73,6 +75,7 @@ pub enum SketchBoardOutput {
     SetFill(bool),
     SetRoundCaps(bool),
     DimensionsUpdate(Vec2D),
+    LineDimensionsUpdate(Vec2D),
     ToolEditingChanged(bool),
 }
 
@@ -1982,6 +1985,12 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::ShapeDimensionsUpdate(size) => {
                 self.emit_shape_dimensions(&sender, size);
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::LineDimensionsUpdate(delta) => {
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::LineDimensionsUpdate(delta));
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::Output(output) => {

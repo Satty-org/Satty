@@ -97,6 +97,11 @@ impl Tool for ArrowTool {
                     } else {
                         a.end = a.start + event.pos;
                     }
+                    if let Some(sender) = &self.sender {
+                        sender
+                            .send(SketchBoardInput::LineDimensionsUpdate(a.end - a.start))
+                            .ok();
+                    }
 
                     ToolUpdateResult::Redraw
                 } else {
