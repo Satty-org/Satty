@@ -102,9 +102,6 @@ Modern Screenshot Annotation.
 `--disable-notifications`
 :   Disable notifications
 
-`--profile-startup`
-:   Print profiling
-
 `--no-window-decoration`
 :   Disable the window decoration (title bar, borders, etc.) Please note that the compositor has the final say in this. Requires xdg-decoration-unstable-v1
 
@@ -133,6 +130,9 @@ Modern Screenshot Annotation.
 :   Experimental feature (0.22.0): use preview thumbnail in notifications where available
 
     Possible values: `screenshot`, `app-icon`
+
+`--profile-startup`
+:   Print profiling, deprecated since NEXTRELEASE Preferably use `log-level` option with at least `debug` instead
 
 `--primary-highlighter <PRIMARY_HIGHLIGHTER>`
 :   The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE

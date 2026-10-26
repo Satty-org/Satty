@@ -127,10 +127,6 @@ pub struct CommandLine {
     #[arg(long)]
     pub disable_notifications: bool,
 
-    /// Print profiling
-    #[arg(long)]
-    pub profile_startup: bool,
-
     /// Disable the window decoration (title bar, borders, etc.)
     /// Please note that the compositor has the final say in this.
     /// Requires xdg-decoration-unstable-v1
@@ -177,6 +173,11 @@ pub struct CommandLine {
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
     // --- deprecated options ---
+    /// Print profiling, deprecated since NEXTRELEASE
+    /// Preferably use `log-level` option with at least `debug` instead
+    #[arg(long)]
+    pub profile_startup: bool,
+
     /// The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE
     #[arg(long)]
     pub primary_highlighter: Option<Highlighters>,

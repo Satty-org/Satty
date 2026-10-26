@@ -66,16 +66,14 @@ pub static APP_BROKER: relm4::MessageBroker<AppInput> = relm4::MessageBroker::ne
 
 macro_rules! generate_profile_output {
     ($e: expr) => {
-        if (APP_CONFIG.read().profile_startup()) {
-            log(
-                &format!(
-                    "{:5} ms time elapsed: {}",
-                    (chrono::Local::now() - *START_TIME).num_milliseconds(),
-                    $e
-                ),
-                LogLevel::Debug,
-            );
-        }
+        log(
+            &format!(
+                "{:5} ms time elapsed: {}",
+                (chrono::Local::now() - *START_TIME).num_milliseconds(),
+                $e
+            ),
+            LogLevel::Debug,
+        );
     };
 }
 
@@ -742,15 +740,14 @@ fn main() -> Result<()> {
         print!(include_str!("../LICENSE"));
         exit(0);
     }
-    if APP_CONFIG.read().profile_startup() {
-        log(
-            &format!(
-                "startup timestamp was {}",
-                START_TIME.format("%s.%f %Y-%m-%d %H:%M:%S")
-            ),
-            LogLevel::Debug,
-        );
-    }
+
+    log(
+        &format!(
+            "startup timestamp was {}",
+            START_TIME.format("%s.%f %Y-%m-%d %H:%M:%S")
+        ),
+        LogLevel::Debug,
+    );
     generate_profile_output!("configuration loaded");
 
     let mut fatal_error_message: Option<String> = None;

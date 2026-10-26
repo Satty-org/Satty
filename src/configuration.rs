@@ -77,7 +77,6 @@ pub struct Configuration {
     font: FontConfiguration,
     aspect_ratios: Vec<(f32, f32)>,
     disable_notifications: bool,
-    profile_startup: bool,
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
     keybinds: HashMap<String, String>, // key_binding -> tool_or_command
@@ -492,8 +491,8 @@ impl Configuration {
         if command_line.disable_notifications {
             self.disable_notifications = command_line.disable_notifications;
         }
-        if command_line.profile_startup {
-            self.profile_startup = command_line.profile_startup;
+        if command_line.profile_startup && self.log_level < LogLevel::Debug {
+            self.log_level = LogLevel::Debug;
         }
         if command_line.no_window_decoration {
             self.no_window_decoration = command_line.no_window_decoration;
@@ -656,10 +655,6 @@ impl Configuration {
         self.disable_notifications
     }
 
-    pub fn profile_startup(&self) -> bool {
-        self.profile_startup
-    }
-
     pub fn no_window_decoration(&self) -> bool {
         self.no_window_decoration
     }
@@ -746,7 +741,6 @@ impl Default for Configuration {
                 (16.0, 9.0),
             ],
             disable_notifications: false,
-            profile_startup: false,
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: HashMap::new(),
