@@ -1,13 +1,14 @@
 use crate::logging::{LogSeverity, log_with_severity};
+use anyhow::{Error, anyhow};
 use libloading::Library;
 use satty_cli::command_line::LogLevel;
 use std::ffi::c_void;
+use std::ptr;
 use std::sync::OnceLock;
-use std::{panic, ptr};
 
-static EPOXY: OnceLock<Library> = OnceLock::new();
+static EPOXY: OnceLock<Result<Library, Error>> = OnceLock::new();
 
-pub fn load_epoxy() -> &'static Library {
+pub fn load_epoxy() -> &'static Result<Library, Error> {
     // TODO: rework with get_or_try_init once
     // https://github.com/rust-lang/rust/issues/109737
     // becomes stable
@@ -24,16 +25,18 @@ pub fn load_epoxy() -> &'static Library {
         #[cfg(windows)]
         let library = library.or_else(|_| unsafe { Library::new("epoxy-0.dll") });
 
-        // if this fails, we can't start anyway so ok for now.
-        library.unwrap()
+        match library {
+            Ok(library) => Ok(library),
+            Err(e) => Err(anyhow!("failed to load {}: {}", filename, e)),
+        }
     })
 }
 
 pub fn get_proc_addr(name: &str) -> *const c_void {
-    let library = match panic::catch_unwind(load_epoxy) {
+    let library = match load_epoxy() {
         Ok(library) => library,
-        Err(_) => {
-            log_with_severity("failed to load epoxy", LogLevel::Error, LogSeverity::Urgent);
+        Err(e) => {
+            log_with_severity(&format!("{e}"), LogLevel::Error, LogSeverity::Urgent);
             return ptr::null();
         }
     };

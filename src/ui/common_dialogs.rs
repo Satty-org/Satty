@@ -6,7 +6,7 @@ pub fn build_fatal_error_dialog(msg: &str, window: Option<Window>) -> MessageDia
         b = b.transient_for(&w);
     }
 
-    b.title("Fatal error")
+    b.title("Fatal error in Satty")
         .message_type(MessageType::Error)
         .buttons(ButtonsType::Ok)
         .secondary_text(msg)

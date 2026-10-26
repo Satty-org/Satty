@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Command, Stdio, exit};
 use std::sync::{LazyLock, RwLock};
 use std::time::SystemTime;
-use std::{fs, panic, thread};
+use std::{fs, thread};
 use std::{io, time::Duration};
 
 use relm4::{
@@ -595,20 +595,6 @@ fn read_css_overrides() -> Option<String> {
     }
 }
 
-fn init_gl() -> Result<()> {
-    // load OpenGL
-    if panic::catch_unwind(|| {
-        epoxy::load_epoxy();
-    })
-    .is_err()
-    {
-        return Err(anyhow::anyhow!("failed to load epoxy"));
-    }
-
-    generate_profile_output!("loaded gl");
-    Ok(())
-}
-
 fn load_image() -> Result<Pixbuf> {
     // load app config
     let config = APP_CONFIG.read();
@@ -745,9 +731,10 @@ fn main() -> Result<()> {
 
     let mut fatal_error_message: Option<String> = None;
 
-    if let Err(e) = init_gl() {
+    if let Err(e) = epoxy::load_epoxy() {
         fatal_error_message = Some(format!("Error: {}", e));
     }
+    generate_profile_output!("loaded gl");
 
     let pixbuf = if fatal_error_message.is_none() {
         match load_image() {
@@ -769,7 +756,8 @@ fn main() -> Result<()> {
         // not much else we can do if it isn't
         if gtk::init().is_ok() {
             let main_loop = relm4::gtk::glib::MainLoop::new(None, false);
-            log_early_fatal_error(&msg, &main_loop);
+            let parent = gtk::Window::new();
+            log_early_fatal_error(&msg, &main_loop, parent);
             main_loop.run();
         }
         Err(anyhow::anyhow!("{}", msg))
