@@ -15,6 +15,8 @@ Satty has been created to provide the following improvements over existing scree
 - be a playground for new features (post window selection, post paint editing, ...)
 <!-- --8<-- [end:intro] -->
 
+See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
+
 ## Install
 <!-- --8<-- [start:install] -->
 

@@ -30,12 +30,13 @@ nav = [
     { "Contributing" = "contributing/index.md" },
     { "AI Policy" = "ai_policy.md" },
   ] },
+  { "Changelog" = "changelog.md" },
   { "Credits" = "credits.md" },
   { "License" = "license.md" },
 ]
 
 
-watch = ["README.md", "USAGE.md", "CONTRIBUTING.md", "AI_POLICY.md"]
+watch = ["README.md", "USAGE.md", "CONTRIBUTING.md", "AI_POLICY.md", "CHANGELOG.md"]
 
 # extra_css = ["stylesheets/extra.css"]
 # extra_javascript = ["javascripts/extra.js"]
