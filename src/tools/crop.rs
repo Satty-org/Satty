@@ -408,7 +408,9 @@ impl Tool for CropTool {
                 }
                 crop.editing = false;
                 crop.calculate_shape(self.sender.as_ref().unwrap(), &event);
-                ToolUpdateResult::Commit(crop.clone_box())
+                let result = crop.clone_box();
+                self.crop = None;
+                ToolUpdateResult::Commit(result)
             }
             MouseEventType::UpdateDrag if event.button == MouseButton::Primary => {
                 if event.pos == Vec2D::zero() {
