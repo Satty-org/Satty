@@ -4,6 +4,7 @@ use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio::{Application, ApplicationFlags};
 use relm4::gtk::prelude::*;
 use std::io::Read;
+use std::io::Write;
 use std::ops::Deref;
 use std::path::Path;
 use std::process::{Command, Stdio, exit};
@@ -665,6 +666,9 @@ fn run_satty_app(image: Pixbuf) {
 }
 
 fn cleanup() -> Result<()> {
+    let _ = std::io::stdout().lock().flush();
+    let _ = std::io::stderr().lock().flush();
+
     match TEMP_DIR.write() {
         Ok(mut temp_dir) => {
             // take is sufficient to have the dir deleted when it's dropped.
