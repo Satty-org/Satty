@@ -4,23 +4,25 @@ use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gio::{Application, ApplicationFlags};
 use relm4::gtk::prelude::*;
 use std::io::Read;
+use std::io::Write;
 use std::ops::Deref;
 use std::path::Path;
 use std::process::{Command, Stdio, exit};
 use std::sync::{LazyLock, RwLock};
 use std::time::SystemTime;
-use std::{fs, panic, thread};
+use std::{fs, thread};
 use std::{io, time::Duration};
 
 use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp, adw,
     gtk::{self, CssProvider, Window, gdk::DisplayManager, gdk::FullscreenMode, gdk::Toplevel},
 };
 
 use anyhow::{Context, Result};
-use satty_cli::command_line::{Fullscreen, Resize};
+use satty_cli::command_line::{Fullscreen, LogLevel, Resize};
 use tempfile::TempDir;
 
+use crate::logging::{CONFIG_READ, LogSeverity, log, log_early_fatal_error, log_with_severity};
 use sketch_board::SketchBoardOutput;
 use ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use xdg::BaseDirectories;
@@ -32,6 +34,7 @@ mod icons;
 mod image_loading;
 mod ime;
 mod keybindings;
+mod logging;
 mod math;
 mod notification;
 mod sketch_board;
@@ -51,20 +54,27 @@ pub static TEMP_DIR: LazyLock<RwLock<Option<TempDir>>> =
     LazyLock::new(|| match tempfile::TempDir::new() {
         Ok(dir) => RwLock::new(Some(dir)),
         Err(e) => {
-            eprintln!("Failed to create temporary directory: {}", e);
+            log_with_severity(
+                &format!("Failed to create temporary directory: {e}"),
+                LogLevel::Error,
+                LogSeverity::High,
+            );
             RwLock::new(None)
         }
     });
 
+pub static APP_BROKER: relm4::MessageBroker<AppInput> = relm4::MessageBroker::new();
+
 macro_rules! generate_profile_output {
     ($e: expr) => {
-        if (APP_CONFIG.read().profile_startup()) {
-            eprintln!(
+        log(
+            &format!(
                 "{:5} ms time elapsed: {}",
                 (chrono::Local::now() - *START_TIME).num_milliseconds(),
                 $e
-            );
-        }
+            ),
+            LogLevel::Debug,
+        );
     };
 }
 
@@ -75,10 +85,11 @@ struct App {
     style_toolbar: Controller<StyleToolbar>,
     outer_box: gtk::Box,
     overlay: gtk::Overlay,
+    toast_overlay: adw::ToastOverlay,
 }
 
 #[derive(Debug)]
-enum AppInput {
+pub enum AppInput {
     Realized,
     SetToolbarsDisplay(bool),
     ToggleToolbarsDisplay,
@@ -94,6 +105,7 @@ enum AppInput {
     FullscreenChanged(bool),
     DimensionsUpdate(Vec2D),
     ToolEditingChanged(bool),
+    ShowToast(String),
 }
 
 #[derive(Debug)]
@@ -124,9 +136,12 @@ impl App {
         let image_height = (self.image_dimensions.1 as f32 * scale) as f64;
 
         #[cfg(debug_assertions)]
-        eprintln!(
-            "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
-            fullscreen, resize, floating_hack
+        log(
+            &format!(
+                "Fullscreen {:?} | Resize {:?} | Floatinghack {:?}",
+                fullscreen, resize, floating_hack
+            ),
+            LogLevel::Debug,
         );
 
         if fullscreen == Some(Fullscreen::All)
@@ -225,7 +240,11 @@ impl App {
                     );
                 }
             }
-            None => eprintln!("Cannot apply style"),
+            None => log_with_severity(
+                "Cannot apply style to display",
+                LogLevel::Error,
+                LogSeverity::High,
+            ),
         }
     }
 }
@@ -248,16 +267,19 @@ impl Component for App {
             },
 
             #[local_ref]
-            outer_box_clone -> gtk::Box {
-                add_css_class: "outer_box",
-                append = model.tools_toolbar.widget(),
+            toast_overlay_clone -> adw::ToastOverlay {
                 #[local_ref]
-                overlay_clone -> gtk::Overlay {
-                    add_css_class: "overlay",
-                    model.sketch_board.widget(),
+                outer_box_clone -> gtk::Box {
+                    add_css_class: "outer_box",
+                    append = model.tools_toolbar.widget(),
+                    #[local_ref]
+                    overlay_clone -> gtk::Overlay {
+                        add_css_class: "overlay",
+                        model.sketch_board.widget(),
+                    },
+                    append = model.style_toolbar.widget(),
                 },
-                append = model.style_toolbar.widget(),
-            },
+           },
 
             connect_show[sender] => move |_| {
                 generate_profile_output!("gui show event");
@@ -364,6 +386,9 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetToolEditing(editing));
             }
+            AppInput::ShowToast(msg) => {
+                self.toast_overlay.add_toast(adw::Toast::new(&msg));
+            }
         }
     }
 
@@ -431,6 +456,8 @@ impl Component for App {
         let outer_box_clone = outer_box.clone();
         let overlay = gtk::Overlay::new();
         let overlay_clone = overlay.clone();
+        let toast_overlay = adw::ToastOverlay::new();
+        let toast_overlay_clone = toast_overlay.clone();
 
         // Model
         let model = App {
@@ -440,6 +467,7 @@ impl Component for App {
             image_dimensions,
             outer_box,
             overlay,
+            toast_overlay,
         };
 
         // Initialize style toolbar with full image dimensions
@@ -542,9 +570,12 @@ fn read_css_overrides() -> Option<String> {
     let path = dirs.get_config_file("overrides.css")?;
 
     if !path.exists() {
-        eprintln!(
-            "CSS overrides file {} does not exist, using builtin CSS only.",
-            path.display()
+        log(
+            &format!(
+                "CSS overrides file {} does not exist, using builtin CSS only.",
+                path.display()
+            ),
+            LogLevel::Debug,
         );
         return None;
     }
@@ -552,28 +583,20 @@ fn read_css_overrides() -> Option<String> {
     match fs::read_to_string(&path) {
         Ok(content) => Some(content),
         Err(e) => {
-            eprintln!(
-                "failed to read CSS overrides from {} with error: {}",
-                path.display(),
-                e
+            log(
+                &format!(
+                    "failed to read CSS overrides from {} with error: {}",
+                    path.display(),
+                    e
+                ),
+                LogLevel::Error,
             );
             None
         }
     }
 }
 
-fn run_satty() -> Result<()> {
-    // load OpenGL
-    if panic::catch_unwind(|| {
-        epoxy::load_epoxy();
-    })
-    .is_err()
-    {
-        return Err(anyhow::anyhow!("failed to load epoxy"));
-    }
-
-    generate_profile_output!("loaded gl");
-
+fn load_image() -> Result<Pixbuf> {
     // load app config
     let config = APP_CONFIG.read();
 
@@ -606,15 +629,23 @@ fn run_satty() -> Result<()> {
             anyhow::bail!("no input provided");
         }
     };
+    generate_profile_output!("image loaded");
+    Ok(image)
+}
 
-    generate_profile_output!("image loaded, starting gui");
+fn run_satty_app(image: Pixbuf) {
+    generate_profile_output!("starting gui");
     // start GUI
     let app = relm4::main_application();
-    let app_id = match config.app_id() {
+    let conf = APP_CONFIG.read();
+    let app_id = match conf.app_id() {
         Some(app_id) if Application::id_is_valid(app_id) => Some(app_id.deref()),
         o => {
             if let Some(app_id) = o {
-                eprintln!("Invalid app id: {}, using fallback", app_id);
+                log(
+                    &format!("Invalid app id: {}, using fallback", app_id),
+                    LogLevel::Error,
+                );
             }
             Some("com.gabm.satty")
         }
@@ -623,13 +654,20 @@ fn run_satty() -> Result<()> {
     // set flag to allow to run multiple instances
     app.set_flags(ApplicationFlags::NON_UNIQUE);
     // create relm app and run
-    let app = RelmApp::from_app(app).with_args(vec![]);
+    let app = RelmApp::from_app(app)
+        .with_args(vec![])
+        .with_broker(&APP_BROKER);
     relm4_icons::initialize_icons(
         icons::icon_names::GRESOURCE_BYTES,
         icons::icon_names::RESOURCE_PREFIX,
     );
 
-    app.run::<App>(image);
+    app.run::<App>(image)
+}
+
+fn cleanup() -> Result<()> {
+    let _ = std::io::stdout().lock().flush();
+    let _ = std::io::stderr().lock().flush();
 
     match TEMP_DIR.write() {
         Ok(mut temp_dir) => {
@@ -645,24 +683,21 @@ fn run_satty() -> Result<()> {
                     && elapsed < grace_period
                 {
                     let sleep_time = grace_period - elapsed;
-                    eprintln!(
-                        "last notification sent {:?} ago, sleeping additional {:?}.",
-                        elapsed, sleep_time
+                    log(
+                        &format!(
+                            "last notification sent {:?} ago, sleeping additional {:?}.",
+                            elapsed, sleep_time
+                        ),
+                        LogLevel::Debug,
                     );
                     thread::sleep(sleep_time);
                 }
-
-                if let Err(e) = dir.close() {
-                    eprintln!("Failed to close temporary directory: {}", e);
-                }
+                dir.close()?;
             }
+            Ok(())
         }
-        Err(e) => {
-            eprintln!("{}", e);
-        }
+        Err(e) => Err(anyhow::anyhow!("{}", e)),
     }
-
-    Ok(())
 }
 
 fn newest_mtime(dir: &Path) -> Option<SystemTime> {
@@ -679,6 +714,7 @@ fn main() -> Result<()> {
     // populate the APP_CONFIG from commandline and
     // config file. this might exit, if an error occurred.
     Configuration::load();
+    _ = CONFIG_READ.set(());
     if APP_CONFIG.read().man() {
         print!(include_str!(concat!(env!("OUT_DIR"), "/satty.1")));
         exit(0);
@@ -687,20 +723,57 @@ fn main() -> Result<()> {
         print!(include_str!("../LICENSE"));
         exit(0);
     }
-    if APP_CONFIG.read().profile_startup() {
-        eprintln!(
+
+    log(
+        &format!(
             "startup timestamp was {}",
             START_TIME.format("%s.%f %Y-%m-%d %H:%M:%S")
-        );
-    }
+        ),
+        LogLevel::Debug,
+    );
     generate_profile_output!("configuration loaded");
 
-    // run the application
-    match run_satty() {
-        Err(e) => {
-            eprintln!("Error: {e}");
-            Err(e)
-        }
-        Ok(v) => Ok(v),
+    let mut fatal_error_message: Option<String> = None;
+
+    if let Err(e) = epoxy::load_epoxy() {
+        fatal_error_message = Some(format!("Error: {}", e));
     }
+    generate_profile_output!("loaded gl");
+
+    let pixbuf = if fatal_error_message.is_none() {
+        match load_image() {
+            Ok(image) => Some(image),
+            Err(e) => {
+                fatal_error_message = Some(format!("Error: {}", e));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // run the application, funny enough, this does not have anything result worthy.
+    let r = if let Some(pb) = pixbuf {
+        run_satty_app(pb);
+        Ok(())
+    } else if let Some(msg) = fatal_error_message {
+        // not much else we can do if it isn't
+        if gtk::init().is_ok() {
+            let main_loop = relm4::gtk::glib::MainLoop::new(None, false);
+            let parent = gtk::Window::new();
+            log_early_fatal_error(&msg, &main_loop, parent);
+            main_loop.run();
+        }
+        Err(anyhow::anyhow!("errors occurred"))
+    } else {
+        Ok(())
+    };
+
+    if let Err(e) = cleanup() {
+        log(&format!("{}", e), LogLevel::Error);
+        if r.is_ok() {
+            return Err(anyhow::anyhow!("errors occurred"));
+        }
+    }
+    r
 }

@@ -23,6 +23,11 @@ Modern Screenshot Annotation.
 `--from-clipboard <CLIPBOARD_COMMAND>`
 :   Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE) If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided
 
+`--log-level <LOG_LEVEL>`
+:   set log level, note that this is not effective before config has been read (NEXTRELEASE)
+
+    Possible values: `fatal`, `error`, `warn`, `info`, `debug`, `trace`
+
 `--fullscreen <FULLSCREEN>`
 :   Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter. --fullscreen without parameter is equivalent to --fullscreen current. Mileage may vary depending on compositor
 
@@ -97,9 +102,6 @@ Modern Screenshot Annotation.
 `--disable-notifications`
 :   Disable notifications
 
-`--profile-startup`
-:   Print profiling
-
 `--no-window-decoration`
 :   Disable the window decoration (title bar, borders, etc.) Please note that the compositor has the final say in this. Requires xdg-decoration-unstable-v1
 
@@ -128,6 +130,9 @@ Modern Screenshot Annotation.
 :   Experimental feature (0.22.0): use preview thumbnail in notifications where available
 
     Possible values: `screenshot`, `app-icon`
+
+`--profile-startup`
+:   Print profiling, deprecated since NEXTRELEASE Preferably use `log-level` option with at least `debug` instead
 
 `--primary-highlighter <PRIMARY_HIGHLIGHTER>`
 :   The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE

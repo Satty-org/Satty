@@ -1,28 +1,14 @@
-use relm4::gtk::gio::{FileIcon, Icon};
-use relm4::gtk::gio::{Notification, prelude::ApplicationExt};
-
 use crate::TEMP_DIR;
 use crate::configuration::APP_CONFIG;
+use relm4::adw::gio::{FileIcon, Icon, Notification, NotificationPriority};
+use relm4::adw::prelude::ApplicationExt;
 use relm4::gtk::gdk_pixbuf::{InterpType, Pixbuf};
 use relm4::gtk::prelude::Cast;
 use relm4::gtk::{IconLookupFlags, IconTheme, TextDirection, gio};
 use satty_cli::command_line::NotificationThumbnail;
 use tempfile::NamedTempFile;
 
-pub fn log_result(msg: &str, notify: bool) {
-    eprintln!("{msg}");
-    if notify && !APP_CONFIG.read().disable_notifications() {
-        show_notification(msg, None);
-    }
-}
-
-pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
-    eprintln!("{msg}");
-
-    if APP_CONFIG.read().disable_notifications() {
-        return;
-    }
-
+pub fn show_notification_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
     let notification_icon_kind = APP_CONFIG.read().notification_thumbnail();
 
     let pixbuf = match notification_icon_kind {
@@ -82,10 +68,10 @@ pub fn log_result_with_pixbuf(msg: &str, pixbuf: Pixbuf) {
         _ => None,
     };
 
-    show_notification(msg, icon);
+    show_notification(msg, icon, NotificationPriority::Normal);
 }
 
-fn show_notification(msg: &str, icon: Option<Icon>) {
+pub fn show_notification(msg: &str, icon: Option<Icon>, priority: NotificationPriority) {
     // construct
     let notification = Notification::new("Satty");
     notification.set_body(Some(msg));
@@ -108,6 +94,7 @@ fn show_notification(msg: &str, icon: Option<Icon>) {
                 .file()
         {
             notification.set_icon(&FileIcon::new(&icon_file));
+            notification.set_priority(priority);
         }
     }
 

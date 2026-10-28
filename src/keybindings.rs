@@ -1,13 +1,15 @@
+use relm4::gtk;
+use relm4::gtk::gdk::prelude::DisplayExtManual;
+use relm4::gtk::gdk::{Key, ModifierType};
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use relm4::gtk;
-use relm4::gtk::gdk::prelude::DisplayExtManual;
-use relm4::gtk::gdk::{Key, ModifierType};
+use satty_cli::command_line::LogLevel;
 
 use crate::configuration::{APP_CONFIG, Action, log_config_error};
+use crate::logging::log;
 use crate::sketch_board::KeyEventMsg;
 use crate::style::Size;
 use crate::tools::Tools;
@@ -429,7 +431,10 @@ impl ShortcutRegistry {
                 log_config_error(format!(
                     "Deprecated syntax for key binding: {kb_str} = \"{tool_or_cmd}\""
                 ));
-                eprintln!("   Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\"");
+                log(
+                    &format!("Please update the config to: \"{tool_or_cmd}\" = \"{kb_str}\""),
+                    LogLevel::Warn,
+                );
             } else if let Ok(command) = SC::from_str(tool_or_cmd.as_str()) {
                 registry.add_key_binding(kb_str, command);
             } else if tool_or_cmd == "none" {
@@ -475,7 +480,10 @@ impl ShortcutRegistry {
                 key: event.shortcut_key,
                 modifiers: event.modifier,
             };
-            eprintln!("\"{}\" is not bound to a command or tool", key_binding);
+            log(
+                &format!("\"{}\" is not bound to a command or tool", key_binding),
+                LogLevel::Warn,
+            );
         }
         command
     }

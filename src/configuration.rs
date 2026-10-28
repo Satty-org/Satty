@@ -1,26 +1,20 @@
+use crate::{style::Color, tools::Tools};
 use clap::Parser;
 use hex_color::HexColor;
 use relm4::SharedState;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self, Write},
-    path::Path,
-};
-
 use serde::Deserialize;
 use serde::de::Deserializer;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+use std::{collections::HashMap, fs, io, path::Path};
 use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
-use crate::{style::Color, tools::Tools};
-
+use crate::logging::log;
 use crate::tools::Highlighters;
 use satty_cli::command_line::{
-    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, NotificationThumbnail,
-    Resize,
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
+    NotificationThumbnail, Resize,
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();
@@ -30,7 +24,7 @@ static CONFIG_ERROR_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub fn log_config_error(message: impl std::fmt::Display) {
     CONFIG_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
-    eprintln!("⚠️ {message}");
+    log(&format!("{message}"), LogLevel::Warn);
 }
 
 pub fn config_error_count() -> usize {
@@ -60,6 +54,7 @@ pub struct Configuration {
     license: bool,
     input: Option<Input>,
     output_filename: Option<String>,
+    log_level: LogLevel,
     fullscreen: Option<Fullscreen>,
     resize: Option<Resize>,
     floating_hack: bool,
@@ -82,7 +77,6 @@ pub struct Configuration {
     font: FontConfiguration,
     aspect_ratios: Vec<(f32, f32)>,
     disable_notifications: bool,
-    profile_startup: bool,
     no_window_decoration: bool,
     brush_smooth_history_size: usize,
     keybinds: HashMap<String, String>, // key_binding -> tool_or_command
@@ -272,14 +266,8 @@ impl Configuration {
         let files = match ConfigurationFile::try_read(&command_line.config) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Error reading config file: {e}");
-
-                // swallow broken pipes
-                let _ = std::io::stdout().lock().flush();
-                let _ = std::io::stderr().lock().flush();
-
-                // exit
-                std::process::exit(3);
+                log_config_error(format!("Error reading given config file: {e}"));
+                vec![]
             }
         };
 
@@ -310,6 +298,9 @@ impl Configuration {
         }
         if let Some(v) = general.output_filename {
             self.output_filename = Some(v);
+        }
+        if let Some(v) = general.log_level {
+            self.log_level = v
         }
         if let Some(v) = general.annotation_size_factor {
             self.annotation_size_factor = v;
@@ -396,7 +387,7 @@ impl Configuration {
         }
         if let Some(v) = general.action_on_enter {
             log_config_error(
-                "Deprecated config option: action-on-enter, use action-on-enter instead",
+                "Deprecated config option: action-on-enter, use actions-on-enter instead",
             );
             self.actions_on_enter.insert(0, v);
         }
@@ -470,6 +461,9 @@ impl Configuration {
         if let Some(v) = command_line.output_filename {
             self.output_filename = Some(v);
         }
+        if let Some(v) = command_line.log_level {
+            self.log_level = v;
+        }
         if let Some(v) = command_line.annotation_size_factor {
             self.annotation_size_factor = v;
         }
@@ -497,8 +491,8 @@ impl Configuration {
         if command_line.disable_notifications {
             self.disable_notifications = command_line.disable_notifications;
         }
-        if command_line.profile_startup {
-            self.profile_startup = command_line.profile_startup;
+        if command_line.profile_startup && self.log_level < LogLevel::Debug {
+            self.log_level = LogLevel::Debug;
         }
         if command_line.no_window_decoration {
             self.no_window_decoration = command_line.no_window_decoration;
@@ -597,6 +591,10 @@ impl Configuration {
         self.output_filename.as_ref()
     }
 
+    pub fn log_level(&self) -> LogLevel {
+        self.log_level
+    }
+
     pub fn input(&self) -> Option<&Input> {
         self.input.as_ref()
     }
@@ -657,10 +655,6 @@ impl Configuration {
         self.disable_notifications
     }
 
-    pub fn profile_startup(&self) -> bool {
-        self.profile_startup
-    }
-
     pub fn no_window_decoration(&self) -> bool {
         self.no_window_decoration
     }
@@ -717,6 +711,7 @@ impl Default for Configuration {
             license: false,
             input: None,
             output_filename: None,
+            log_level: LogLevel::Info,
             fullscreen: None,
             resize: None,
             floating_hack: false,
@@ -746,7 +741,6 @@ impl Default for Configuration {
                 (16.0, 9.0),
             ],
             disable_notifications: false,
-            profile_startup: false,
             no_window_decoration: false,
             brush_smooth_history_size: 0, // default to 0, no history
             keybinds: HashMap::new(),
@@ -815,6 +809,7 @@ struct ConfigurationFileGeneral {
     auto_copy: Option<bool>,
     auto_select_new: Option<bool>,
     output_filename: Option<String>,
+    log_level: Option<LogLevel>,
     actions_on_enter: Option<Vec<Action>>,
     actions_on_escape: Option<Vec<Action>>,
     actions_on_right_click: Option<Vec<Action>>,
@@ -893,7 +888,10 @@ impl ConfigurationFile {
         path: P,
     ) -> Result<Option<ConfigurationFile>, ConfigurationFileError> {
         let path = path.as_ref();
-        eprintln!("Reading configuration file: {:?}", path);
+        log(
+            &format!("Reading configuration file: {:?}", path),
+            LogLevel::Info,
+        );
         let config = toml::from_str::<ConfigurationFile>(&fs::read_to_string(path)?)?;
 
         if !config.unknown_fields.is_empty() {

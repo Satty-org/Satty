@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use serde::Deserialize;
+use std::fmt::Display;
 use std::str::FromStr;
 
 #[derive(Parser, Debug)]
@@ -32,6 +33,10 @@ pub struct CommandLine {
     /// If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided.
     #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste -t image")]
     pub from_clipboard: Option<String>,
+
+    /// set log level, note that this is not effective before config has been read (NEXTRELEASE)
+    #[arg(long, value_enum)]
+    pub log_level: Option<LogLevel>,
 
     /// Start Satty in fullscreen mode. Since 0.20.1, takes optional parameter.
     /// --fullscreen without parameter is equivalent to --fullscreen current.
@@ -122,10 +127,6 @@ pub struct CommandLine {
     #[arg(long)]
     pub disable_notifications: bool,
 
-    /// Print profiling
-    #[arg(long)]
-    pub profile_startup: bool,
-
     /// Disable the window decoration (title bar, borders, etc.)
     /// Please note that the compositor has the final say in this.
     /// Requires xdg-decoration-unstable-v1
@@ -172,6 +173,11 @@ pub struct CommandLine {
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
     // --- deprecated options ---
+    /// Print profiling, deprecated since NEXTRELEASE
+    /// Preferably use `log-level` option with at least `debug` instead
+    #[arg(long)]
+    pub profile_startup: bool,
+
     /// The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE
     #[arg(long)]
     pub primary_highlighter: Option<Highlighters>,
@@ -185,6 +191,31 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',')]
     pub action_on_enter: Option<Action>,
     // ---
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq, Eq, PartialOrd, Ord)]
+#[value(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum LogLevel {
+    Fatal,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLevel::Fatal => write!(f, "FATAL ERROR"),
+            LogLevel::Error => write!(f, "ERROR"),
+            LogLevel::Warn => write!(f, "WARNING"),
+            LogLevel::Info => write!(f, "INFO"),
+            LogLevel::Debug => write!(f, "DEBUG"),
+            LogLevel::Trace => write!(f, "TRACE"),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]

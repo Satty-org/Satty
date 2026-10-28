@@ -389,6 +389,7 @@ Dependencies, depending of each distributions are:
 - libadwaita
 - libepoxy
 - fontconfig
+
 <!-- --8<-- [end:build] -->
 
 ## Credits
