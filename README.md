@@ -107,6 +107,9 @@ The search order for configuration files is:
 - <kbd>Ctrl+Y</kbd>: Redo
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
+- <kbd>Ctrl++</kbd> or <kbd>Ctrl+=</kbd>: Zoom in, <kbd>Ctrl+-</kbd>: Zoom out <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+1</kbd>: Fit to window, <kbd>Alt+1</kbd>: 100% <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+2</kbd>/<kbd>Ctrl+3</kbd>/<kbd>Ctrl+4</kbd>: 200%/300%/400%, <kbd>Alt+2</kbd>/<kbd>Alt+3</kbd>/<kbd>Alt+4</kbd>: 50%/33%/25% <sup>NEXTRELEASE</sup>
 
 Mouse:
 
@@ -116,8 +119,8 @@ Mouse:
 Touchpad: <sup>0.22.0</sup>
 
 - <kbd>Pinch</kbd>: Zoom (two finger)
-- <kbd>Ctrl+Scroll</kbd>: Zoom in/out  (two finger scroll)
-- <kbd>Scroll</kbd>: Pan  (two finger scroll)
+- <kbd>Ctrl+Scroll</kbd>: Zoom in/out (two finger scroll)
+- <kbd>Scroll</kbd>: Pan (two finger scroll)
 
 #### Color Selection Shortcuts <sup>0.20.1</sup>
 
@@ -138,10 +141,16 @@ The bindings are:
 - Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 1.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
 - <kbd>s</kbd> focuses the annotation size factor input field
+- <kbd>-</kbd> cycles through the sizes small, medium and large <sup>NEXTRELEASE</sup>
+
+#### Fill and Round Caps <sup>NEXTRELEASE</sup>
+
+- <kbd>f</kbd>: Toggle fill
+- <kbd>k</kbd>: Toggle round caps
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 
-Default single-key shortcuts:
+Default shortcuts:
 
 - <kbd>p</kbd>: Pointer tool
 - <kbd>c</kbd>: Crop tool
@@ -155,18 +164,19 @@ Default single-key shortcuts:
 - <kbd>u</kbd>: Blur tool
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool
 - <kbd>g</kbd>: Block Highlight tool
-- <kbd>G</kbd>: Freehand Highlight tool
+- <kbd>Shift+G</kbd>: Freehand Highlight tool
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
 
-Shortcuts can be overwritten in the config by 
+Shortcuts can be overwritten in the config by
+
 ```toml
 [keybinds]
 "BINDING" = "TOOL-OR-COMMAND"
 ```
 
-Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`). 
+Where `BINDING` follows the GTK syntax. This means modifiers are enclosed in angle brackets (e.g., `<mod>`) and keys are specified by name (for example, `-` must be written as `minus`).
 
 Pressing any unbound key will print its name to the console.
 
@@ -233,7 +243,7 @@ Text:
 - Press <kbd>Enter</kbd> or switch to another tool to accept input, press <kbd>Escape</kbd> to discard entered text.
 - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
 - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
-- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor,  <kbd>Shift+Left</kbd> to select characters before cursor,  <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
+- Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor, <kbd>Shift+Left</kbd> to select characters before cursor, <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
 - <kbd>Double-click </kbd> to select word under cursor.Triple-click to select all text. <sup>0.20.1</sup>
 - <kbd>Ctrl+A</kbd> to select all text. <sup>0.20.1</sup>
 - <kbd>Ctrl+C</kbd> to copy selected text to clipboard. <sup>0.20.1</sup>

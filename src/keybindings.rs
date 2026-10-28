@@ -418,6 +418,7 @@ impl ShortcutRegistry {
         registry.add_key_binding("minus", SC::CycleSize);
         registry.add_key_binding("s", SC::FocusAnnotationSizeFactor);
         registry.add_key_binding("f", SC::ToggleFill);
+        registry.add_key_binding("k", SC::ToggleRoundCaps);
 
         // merge with config keybinds, allowing config to override defaults
         for (kb_str, tool_or_cmd) in APP_CONFIG.read().keybinds() {

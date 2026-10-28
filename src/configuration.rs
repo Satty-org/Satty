@@ -728,7 +728,7 @@ impl Default for Configuration {
             save_after_copy: false,
             auto_copy: false,
             auto_select: false,
-            actions_on_enter: vec![],
+            actions_on_enter: vec![Action::SaveToClipboard],
             actions_on_escape: vec![Action::Exit],
             actions_on_right_click: vec![],
             color_palette: ColorPalette::default(),
