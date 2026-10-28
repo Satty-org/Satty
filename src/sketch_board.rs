@@ -1222,16 +1222,18 @@ impl SketchBoard {
 
         // Pre-populate the text tool and switch to it
         self.text_tool.borrow_mut().load_for_editing(text);
-        self.return_to_pointer_after_text_commit = true;
 
         sender
             .output_sender()
             .emit(SketchBoardOutput::ToolSwitchShortcut(Tools::Text));
 
-        Some(self.handle_toolbar_event(
+        let result = self.handle_toolbar_event(
             crate::ui::toolbars::ToolbarEvent::ToolSelected(Tools::Text),
             sender.clone(),
-        ))
+        );
+        // Set after the switch, because every tool selection clears it.
+        self.return_to_pointer_after_text_commit = true;
+        Some(result)
     }
 
     fn handle_toolbar_event(
@@ -2005,6 +2007,18 @@ impl Component for SketchBoard {
         let editing = self.active_tool.borrow().active();
         if editing != self.tool_edit_mode {
             self.tool_edit_mode = editing;
+            // An edit that ends without a commit, such as an emptied text, also returns to
+            // the pointer. The commit case is handled below, after the drawable is committed.
+            if !editing
+                && self.return_to_pointer_after_text_commit
+                && !matches!(result, ToolUpdateResult::Commit(_))
+            {
+                self.return_to_pointer_after_text_commit = false;
+                let _ = self.handle_toolbar_event(
+                    ToolbarEvent::ToolSelected(Tools::Pointer),
+                    sender_clone.clone(),
+                );
+            }
             sender_clone
                 .output_sender()
                 .emit(SketchBoardOutput::ToolEditingChanged(editing));
@@ -2062,6 +2076,9 @@ impl Component for SketchBoard {
                         ToolbarEvent::ToolSelected(Tools::Pointer),
                         sender_for_post_commit,
                     );
+                    if let Some(index) = committed_index {
+                        self.update_pointer_tool_selection(index, true);
+                    }
                 }
 
                 self.refresh_screen();

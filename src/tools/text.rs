@@ -1298,6 +1298,10 @@ impl Tool for TextTool {
         } else {
             tool_update_result = ToolUpdateResult::Unmodified;
         }
+        // Enter and Escape end the edit, so the next click starts a new text.
+        if self.text.is_none() {
+            self.editing_existing = false;
+        }
         tool_update_result
     }
 
@@ -2031,6 +2035,41 @@ mod tests {
 
     fn edited_text(tool: &TextTool) -> &Text {
         tool.text.as_ref().unwrap()
+    }
+
+    fn key_press(key: Key) -> KeyEventMsg {
+        KeyEventMsg {
+            key,
+            code: 0,
+            modifier: ModifierType::empty(),
+            shortcut_key: key,
+            fallback_key: None,
+        }
+    }
+
+    fn click(pos: Vec2D) -> MouseEventMsg {
+        MouseEventMsg {
+            type_: MouseEventType::Click,
+            button: MouseButton::Primary,
+            modifier: ModifierType::empty(),
+            screen_pos: pos,
+            is_touchpad: false,
+            pos,
+            n_pressed: 1,
+            release: false,
+        }
+    }
+
+    #[test]
+    fn click_after_erasing_edited_text_starts_new_text() {
+        let mut tool = edit_copy_of(&typed_text("before"));
+        edited_text(&tool).text_buffer.set_text("");
+
+        tool.handle_key_event(key_press(Key::Return));
+        assert!(tool.text.is_none());
+
+        tool.handle_mouse_event(click(Vec2D::new(10.0, 10.0)));
+        assert!(tool.text.is_some());
     }
 
     #[test]

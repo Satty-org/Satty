@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 ### Fixed
 
 - Undo after you edit a text with a double click restores the previous text
+- After you edit a text with a double click, Enter selects the text with the pointer tool
 
 ### Security
 
