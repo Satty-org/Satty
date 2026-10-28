@@ -1393,6 +1393,7 @@ dependencies = [
  "femtovg",
  "fontconfig",
  "glow",
+ "gtk4",
  "hex_color",
  "image",
  "libloading 0.9.0",

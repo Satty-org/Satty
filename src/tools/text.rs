@@ -90,7 +90,7 @@ impl TextEffect {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Text {
     pos: Vec2D,
     editing: bool,
@@ -105,6 +105,28 @@ pub struct Text {
     draw_rect: RefCell<bool>,
     effect: TextEffect,
     font_ids: Vec<FontId>,
+}
+
+// A derived clone would share the reference-counted TextBuffer, so an edit or an undo
+// in one copy would also change the copies kept in the undo history.
+impl Clone for Text {
+    fn clone(&self) -> Self {
+        Self {
+            pos: self.pos,
+            editing: self.editing,
+            text_buffer: Self::copy_text_buffer(&self.text_buffer),
+            style: self.style,
+            preedit: self.preedit.clone(),
+            im_context: self.im_context.clone(),
+            rect: self.rect.clone(),
+            glyphs: self.glyphs.clone(),
+            line_ranges: self.line_ranges.clone(),
+            cursor_visible: self.cursor_visible.clone(),
+            draw_rect: self.draw_rect.clone(),
+            effect: self.effect,
+            font_ids: self.font_ids.clone(),
+        }
+    }
 }
 
 struct DisplayContent<'a> {
@@ -150,6 +172,21 @@ impl Text {
             effect: TextEffect::default(),
             font_ids: femtovg_area::font_stack().to_vec(),
         }
+    }
+
+    // set_text is irreversible, so undo in the copy cannot go back past its initial text.
+    fn copy_text_buffer(source: &TextBuffer) -> TextBuffer {
+        let buffer = TextBuffer::new(None);
+        buffer.set_enable_undo(true);
+        buffer.set_text(&source.text(&source.start_iter(), &source.end_iter(), false));
+
+        let insert = source.iter_at_mark(&source.get_insert()).offset();
+        let bound = source.iter_at_mark(&source.selection_bound()).offset();
+        buffer.select_range(
+            &buffer.iter_at_offset(insert),
+            &buffer.iter_at_offset(bound),
+        );
+        buffer
     }
 
     fn byte_index_from_char_index(text: &str, char_index: usize) -> usize {
@@ -1965,5 +2002,66 @@ impl TextTool {
         self.text = Some(text);
         self.set_input_enabled(true);
         self.editing_existing = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn typed_text(content: &str) -> Text {
+        let text = Text::new(Vec2D::default(), Style::default(), None);
+        text.text_buffer.insert_at_cursor(content);
+        text
+    }
+
+    fn content(text: &Text) -> String {
+        text.get_text().to_string()
+    }
+
+    // Mirrors the double-click path: the canvas hands out a clone of the committed text,
+    // and the original stays in the undo history.
+    fn edit_copy_of(original: &Text) -> TextTool {
+        let copy = original.clone_box();
+        let copy = copy.as_any().downcast_ref::<Text>().unwrap().clone();
+        let mut tool = TextTool::default();
+        tool.load_for_editing(copy);
+        tool
+    }
+
+    fn edited_text(tool: &TextTool) -> &Text {
+        tool.text.as_ref().unwrap()
+    }
+
+    #[test]
+    fn edit_of_copy_leaves_original_text() {
+        let original = typed_text("before");
+        let mut tool = edit_copy_of(&original);
+        edited_text(&tool).text_buffer.insert_at_cursor(" after");
+
+        let ToolUpdateResult::Commit(committed) = tool.handle_deactivated() else {
+            panic!("editing a non-empty text must commit it");
+        };
+
+        assert_eq!(content(&original), "before");
+        let committed = committed.as_any().downcast_ref::<Text>().unwrap();
+        assert_eq!(content(committed), "before after");
+    }
+
+    #[test]
+    fn undo_while_editing_copy_stops_at_loaded_text() {
+        let original = typed_text("before");
+        let mut tool = edit_copy_of(&original);
+        edited_text(&tool).text_buffer.insert_at_cursor(" after");
+
+        tool.handle_undo();
+        assert_eq!(content(edited_text(&tool)), "before");
+        tool.handle_undo();
+        assert_eq!(content(edited_text(&tool)), "before");
+        assert_eq!(content(&original), "before");
+
+        tool.handle_redo();
+        assert_eq!(content(edited_text(&tool)), "before after");
+        assert_eq!(content(&original), "before");
     }
 }

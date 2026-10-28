@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Undo after you edit a text with a double click restores the previous text
+
 ### Security
 
 +<!-- link targets of the [#N] references above, not rendered -->
