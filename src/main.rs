@@ -764,7 +764,7 @@ fn main() -> Result<()> {
             log_early_fatal_error(&msg, &main_loop, parent);
             main_loop.run();
         }
-        Err(anyhow::anyhow!("{}", msg))
+        Err(anyhow::anyhow!("errors occurred"))
     } else {
         Ok(())
     };
@@ -772,7 +772,7 @@ fn main() -> Result<()> {
     if let Err(e) = cleanup() {
         log(&format!("{}", e), LogLevel::Error);
         if r.is_ok() {
-            return Err(e);
+            return Err(anyhow::anyhow!("errors occurred"));
         }
     }
     r

@@ -75,6 +75,7 @@ pub fn show_fatal_error_dialog(msg: &str) {
 }
 
 pub fn log_early_fatal_error(msg: &str, main_loop: &MainLoop, parent: gtk::Window) {
+    log(msg, LogLevel::Fatal);
     let message_dialog = common_dialogs::build_fatal_error_dialog(msg, Some(parent));
 
     let ml_clone = main_loop.clone();
