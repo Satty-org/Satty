@@ -36,6 +36,7 @@ fn gdk_pixbuf_from_bytes(bytes: &[u8]) -> Result<Pixbuf> {
     loader
         .pixbuf()
         .ok_or(anyhow!("Conversion to Pixbuf failed"))
+        .map(|pixbuf| pixbuf.apply_embedded_orientation().unwrap_or(pixbuf))
 }
 
 fn pixbuf_from_rgba_image(image: image::RgbaImage) -> Pixbuf {
