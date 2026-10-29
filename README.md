@@ -203,12 +203,14 @@ Newly created annotations can be autoselected if enabled in the config.
 
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
 - <kbd>Delete</kbd> deletes the selected annotation.
-- Drag the resize handles - mouse cursor will change - to change the size. 
-  - Hold <kbd>Alt</kbd> for centered resize
-  - Hold <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
-  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize. <sup>NEXTRELEASE</sup>
+- Drag the resize handles - mouse cursor will change - to change the size.
+  - Hold <kbd>Alt</kbd> for centered resize.
+  - Hold <kbd>Shift</kbd> to snap.
+  - Hold <kbd>Control</kbd> at corners for aspect ratio preserving resize.
   - Hold mutiple to combine them.
 - Grab an annotation - mouse cursor will change to a hand - to move.
+  - Hold <kbd>Alt</kbd> for horizontal move.
+  - Hold <kbd>Shift</kbd> to vertical move.
 - <kbd>Alt</kbd>+scroll up/down or <kbd>Alt</kbd>+<kbd>PageUp</kbd>/<kbd>PageDown</kbd> to change the annotation's layer.
 - Nudge (small move) with the cursor keys.
 - Double-click on a text annotation to edit it.

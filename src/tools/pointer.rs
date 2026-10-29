@@ -12,11 +12,11 @@ use std::cell::Cell;
 
 use crate::{
     configuration::APP_CONFIG,
-    math::{SegmentResizeTarget, Vec2D, ensure_bounding_box, get_closest_aspect_ratio},
+    math::{Vec2D, ellipse_around_rectangle, get_closest_aspect_ratio, rectangle_in_ellipse},
     sketch_board::{KeyEventMsg, MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     tools::{
-        RenderingMode,
-        drag_box::{draw_center_marker, draw_rect_marker},
+        RenderingMode, SelectionType,
+        drag_box::{draw_center_marker, draw_handle_marker, draw_rect_marker},
     },
 };
 
@@ -24,8 +24,6 @@ use super::{Drawable, InputContext, Tool, ToolUpdateResult, Tools};
 
 // Desired on-screen size (in device pixels) for each resize handle.
 const HANDLE_SIZE: f32 = 11.0;
-const HANDLE_HALF: f32 = HANDLE_SIZE / 2.0;
-const SELECTION_BORDER_OUTSET: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ResizeHandle {
@@ -53,6 +51,52 @@ impl ResizeHandle {
         ]
     }
 
+    pub fn corners() -> [ResizeHandle; 4] {
+        [
+            ResizeHandle::TopLeft,
+            ResizeHandle::TopRight,
+            ResizeHandle::BottomLeft,
+            ResizeHandle::BottomRight,
+        ]
+    }
+
+    pub fn middles() -> [ResizeHandle; 4] {
+        [
+            ResizeHandle::TopCenter,
+            ResizeHandle::MiddleLeft,
+            ResizeHandle::MiddleRight,
+            ResizeHandle::BottomCenter,
+        ]
+    }
+
+    pub fn is_start(&self) -> bool {
+        matches!(self, ResizeHandle::TopLeft)
+    }
+
+    pub fn is_end(&self) -> bool {
+        matches!(self, ResizeHandle::BottomRight)
+    }
+
+    pub fn is_corner(&self) -> bool {
+        matches!(
+            self,
+            ResizeHandle::TopLeft
+                | ResizeHandle::TopRight
+                | ResizeHandle::BottomLeft
+                | ResizeHandle::BottomRight
+        )
+    }
+
+    pub fn is_middle(&self) -> bool {
+        matches!(
+            self,
+            ResizeHandle::TopCenter
+                | ResizeHandle::MiddleLeft
+                | ResizeHandle::MiddleRight
+                | ResizeHandle::BottomCenter
+        )
+    }
+
     pub fn center(&self, tl: Vec2D, br: Vec2D) -> Vec2D {
         let mx = (tl.x + br.x) / 2.0;
         let my = (tl.y + br.y) / 2.0;
@@ -68,49 +112,51 @@ impl ResizeHandle {
         }
     }
 
-    fn segment_target(&self, tl: Vec2D, br: Vec2D) -> Option<SegmentResizeTarget> {
-        if tl.y == br.y && tl.x != br.x {
-            // horizontal segment
-            match self {
-                Self::TopLeft | Self::MiddleLeft | Self::BottomLeft => {
-                    Some(SegmentResizeTarget::Low)
-                }
-                Self::TopRight | Self::MiddleRight | Self::BottomRight => {
-                    Some(SegmentResizeTarget::High)
-                }
-                Self::TopCenter | Self::BottomCenter => Some(SegmentResizeTarget::MiddleY),
-            }
-        } else if tl.x == br.x && tl.y != br.y {
-            // vertical segment
-            match self {
-                Self::TopLeft | Self::TopCenter | Self::TopRight => Some(SegmentResizeTarget::Low),
-                Self::BottomLeft | Self::BottomCenter | Self::BottomRight => {
-                    Some(SegmentResizeTarget::High)
-                }
-                Self::MiddleLeft | Self::MiddleRight => Some(SegmentResizeTarget::MiddleX),
-            }
-        } else {
-            // diagonal segment: only the edge-center handles move the whole segment
-            match self {
-                Self::TopCenter | Self::BottomCenter => Some(SegmentResizeTarget::MiddleY),
-                Self::MiddleLeft | Self::MiddleRight => Some(SegmentResizeTarget::MiddleX),
-                _ => None,
-            }
-        }
-    }
-
     // Compute new (tl, br) after dragging this handle by `delta`.
     //
     // This intentionally preserves axis inversion (tl may become > br) so tools like
     // line/arrow can keep endpoint intent when crossing over an axis.
-    pub fn resize(&self, event: MouseEventMsg, tl: Vec2D, br: Vec2D) -> (Vec2D, Vec2D) {
-        let mut new_tl = tl;
-        let mut new_br = br;
-        let mut delta = event.pos;
-
+    pub fn resize(
+        &self,
+        event: MouseEventMsg,
+        tl: Vec2D,
+        br: Vec2D,
+        selection_type: SelectionType,
+    ) -> (Vec2D, Vec2D) {
         let aspect = event.modifier.intersects(ModifierType::SHIFT_MASK);
         let keep_aspect = event.modifier.intersects(ModifierType::CONTROL_MASK);
         let centered = event.modifier.intersects(ModifierType::ALT_MASK);
+
+        if selection_type == SelectionType::Line {
+            let mut tl = tl;
+            let mut br = br;
+            if self.is_start() {
+                tl += event.pos;
+                if aspect {
+                    tl = br + (tl - br).snapped_vector_15deg();
+                }
+            }
+            if self.is_end() {
+                br += event.pos;
+                if aspect {
+                    br = tl + (br - tl).snapped_vector_15deg();
+                }
+            }
+            return (tl, br);
+        }
+
+        // the corner handles of an ellipse resize the rectangle whose corners lie on it
+        let ellipse_corner = selection_type == SelectionType::Ellipse && self.is_corner();
+        let (tl, br) = if ellipse_corner {
+            rectangle_in_ellipse(tl, br)
+        } else {
+            (tl, br)
+        };
+
+        let mut new_tl = tl;
+        let mut new_br = br;
+
+        let mut delta = event.pos;
 
         type RH = ResizeHandle;
 
@@ -310,22 +356,51 @@ impl ResizeHandle {
             }
         }
 
-        (new_tl, new_br)
+        if ellipse_corner {
+            ellipse_around_rectangle(new_tl, new_br)
+        } else {
+            (new_tl, new_br)
+        }
     }
 }
 
-// Returns the handle under `pos`, if any, given bounds `(tl, br)`.
-pub fn hit_handle(
+// Returns the handle under `pos`, if any, given the anchors `(tl, br)`.
+fn hit_handle(
     scaled_handle_size: f32,
     pos: Vec2D,
-    tl: Vec2D,
-    br: Vec2D,
+    overlay: &SelectionOverlay,
 ) -> Option<ResizeHandle> {
     for h in ResizeHandle::all() {
         let handle_half = scaled_handle_size / 2.0;
 
-        let c = h.center(tl, br);
-        if (pos.x - c.x).abs() <= handle_half && (pos.y - c.y).abs() <= handle_half {
+        let (mut tl, mut br) = (overlay.tl, overlay.br);
+
+        match overlay.selection_type {
+            SelectionType::BoundingBox => {
+                // no handles for plain bounding box
+                continue;
+            }
+            SelectionType::MiddleHandles => {
+                if !h.is_middle() {
+                    continue;
+                }
+            }
+            SelectionType::Line => {
+                if !h.is_start() && !h.is_end() {
+                    continue;
+                }
+            }
+            SelectionType::BoundingBoxAllHandles | SelectionType::Rectangle => {
+                // all handles are valid
+            }
+            SelectionType::Ellipse => {
+                if h.is_corner() {
+                    (tl, br) = rectangle_in_ellipse(tl, br);
+                }
+            }
+        }
+        let center = h.center(tl, br);
+        if (pos.x - center.x).abs() <= handle_half && (pos.y - center.y).abs() <= handle_half {
             return Some(h);
         }
     }
@@ -335,6 +410,7 @@ pub fn hit_handle(
 // Draws a selection rectangle with 8 resize handles on top of the selected drawable.
 #[derive(Clone, Debug)]
 struct SelectionOverlay {
+    selection_type: SelectionType,
     tl: Vec2D,
     br: Vec2D,
     scale: Cell<f32>,
@@ -357,18 +433,52 @@ impl Drawable for SelectionOverlay {
         self.scale.set(scale);
 
         // Selection rectangle
-        let out_set = SELECTION_BORDER_OUTSET / scale;
-        let tl = self.tl - out_set;
-        let size = (self.br - self.tl) + out_set * 2.0;
-        draw_rect_marker(canvas, tl, size, false);
+        let tl = self.tl;
+        let br = self.br;
+        let size = self.br - self.tl;
 
         // Resize handles
         // draw handles in inverse zoom scale so the visual size stays constant on screen.
-        let handle_half = HANDLE_HALF / scale;
-        let handle_size = HANDLE_SIZE / scale;
-        for handle in ResizeHandle::all() {
-            let tl = handle.center(self.tl, self.br) - handle_half;
-            draw_rect_marker(canvas, tl, Vec2D::new(handle_size, handle_size), true);
+        let handle_size = Vec2D::new(HANDLE_SIZE / scale, HANDLE_SIZE / scale);
+        match self.selection_type {
+            SelectionType::BoundingBox => {
+                draw_rect_marker(canvas, tl, size, false);
+            }
+            SelectionType::MiddleHandles => {
+                for handle in ResizeHandle::middles() {
+                    let pos = handle.center(tl, br);
+                    draw_handle_marker(canvas, pos, handle_size, true);
+                }
+            }
+            SelectionType::BoundingBoxAllHandles => {
+                draw_rect_marker(canvas, tl, size, false);
+                for handle in ResizeHandle::all() {
+                    let pos = handle.center(tl, br);
+                    draw_handle_marker(canvas, pos, handle_size, true);
+                }
+            }
+            SelectionType::Line => {
+                draw_handle_marker(canvas, tl, handle_size, true);
+                draw_handle_marker(canvas, br, handle_size, true);
+            }
+            SelectionType::Rectangle => {
+                for handle in ResizeHandle::all() {
+                    let pos = handle.center(tl, br);
+                    draw_handle_marker(canvas, pos, handle_size, true);
+                }
+            }
+            SelectionType::Ellipse => {
+                // corner handles on the ellipse, middle handles on its bounding box
+                let (inner_tl, inner_br) = rectangle_in_ellipse(tl, br);
+                for handle in ResizeHandle::corners() {
+                    let pos = handle.center(inner_tl, inner_br);
+                    draw_handle_marker(canvas, pos, handle_size, true);
+                }
+                for handle in ResizeHandle::middles() {
+                    let pos = handle.center(tl, br);
+                    draw_handle_marker(canvas, pos, handle_size, true);
+                }
+            }
         }
 
         if self.centered {
@@ -385,13 +495,12 @@ enum DragState {
     Moving {
         index: usize,
         original: Box<dyn Drawable>,
-        orig_bounds: (Vec2D, Vec2D),
     },
     Resizing {
         index: usize,
         original: Box<dyn Drawable>,
         handle: ResizeHandle,
-        orig_bounds: (Vec2D, Vec2D),
+        orig_anchors: (Vec2D, Vec2D),
     },
 }
 
@@ -400,7 +509,7 @@ pub struct PointerTool {
     sender: Option<Sender<SketchBoardInput>>,
     cursor_widget: Option<gtk::Widget>,
     selected_index: Option<usize>,
-    selected_bounds: Option<(Vec2D, Vec2D)>,
+    selected_anchors: Option<(Vec2D, Vec2D)>,
     drag_state: DragState,
     last_drag_state: bool,
     // Shown as the active-tool drawable: either a moved/resized preview, or a selection overlay.
@@ -427,7 +536,7 @@ impl Default for PointerTool {
             sender: None,
             cursor_widget: None,
             selected_index: None,
-            selected_bounds: None,
+            selected_anchors: None,
             drag_state: DragState::None,
             last_drag_state: false,
             preview: None,
@@ -518,15 +627,11 @@ impl PointerTool {
         self.selected_index
     }
 
-    pub fn selected_bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        self.selected_bounds
-    }
-
-    // Returns the handle under `pos` given the current selection bounds.
+    // Returns the handle under `pos` given the current selection anchors.
     pub fn hit_test_handles(&self, pos: Vec2D) -> Option<ResizeHandle> {
         let overlay = self.selection_overlay.as_ref()?;
         let scaled_handle_size = HANDLE_SIZE / overlay.scale.get();
-        hit_handle(scaled_handle_size, pos, overlay.tl, overlay.br)
+        hit_handle(scaled_handle_size, pos, overlay)
     }
 
     // Called by SketchBoard before delivering a BeginDrag event: sets up a move drag.
@@ -534,11 +639,11 @@ impl PointerTool {
         &mut self,
         index: usize,
         drawable: Box<dyn Drawable>,
-        orig_bounds: (Vec2D, Vec2D),
+        orig_anchors: (Vec2D, Vec2D),
         start_pos: Vec2D,
     ) {
         self.selected_index = Some(index);
-        self.selected_bounds = Some(orig_bounds);
+        self.selected_anchors = Some(orig_anchors);
         self.selection_overlay = None;
         let drawable_clone = drawable.clone_box();
         self.preview = Some(drawable_clone);
@@ -551,10 +656,9 @@ impl PointerTool {
         self.drag_state = DragState::Moving {
             index,
             original: drawable,
-            orig_bounds,
         };
         self.drag_start_pos = Some(start_pos);
-        self.set_hover_cursor(orig_bounds.0);
+        self.set_hover_cursor(orig_anchors.0);
     }
 
     // Called by SketchBoard before delivering a BeginDrag event: sets up a resize drag.
@@ -563,11 +667,11 @@ impl PointerTool {
         index: usize,
         drawable: Box<dyn Drawable>,
         handle: ResizeHandle,
-        orig_bounds: (Vec2D, Vec2D),
+        orig_anchors: (Vec2D, Vec2D),
         start_pos: Vec2D,
     ) {
         self.selected_index = Some(index);
-        self.selected_bounds = Some(orig_bounds);
+        self.selected_anchors = Some(orig_anchors);
         self.selection_overlay = None;
         self.preview = Some(drawable.clone_box());
         self.last_resize_event = None;
@@ -575,7 +679,7 @@ impl PointerTool {
             index,
             original: drawable,
             handle,
-            orig_bounds,
+            orig_anchors,
         };
         self.drag_start_pos = Some(start_pos);
     }
@@ -588,60 +692,73 @@ impl PointerTool {
         let DragState::Resizing {
             original,
             handle,
-            orig_bounds,
+            orig_anchors,
             ..
         } = &self.drag_state
         else {
             return;
         };
 
-        let (new_tl, new_br) = handle.resize(event, orig_bounds.0, orig_bounds.1);
         let mut preview = original.clone_box();
+        let (new_tl, new_br) = handle.resize(
+            event,
+            orig_anchors.0,
+            orig_anchors.1,
+            preview.get_selection_type(),
+        );
         let keep_aspect = event
             .modifier
             .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
-        preview.resize_bounds_with_segment_target(
-            new_tl,
-            new_br,
-            event.pos,
-            keep_aspect,
-            handle.segment_target(orig_bounds.0, orig_bounds.1),
-        );
+        preview.resize(new_tl, new_br, keep_aspect);
         self.centered = event.modifier.intersects(ModifierType::ALT_MASK);
         preview.set_centered(self.centered);
         preview.set_editing(true);
         self.emit_dimensions_update(preview.as_ref());
-        self.update_selection_bounds(new_tl, new_br);
+        self.update_selection_anchors(preview.as_ref());
         self.preview = Some(preview);
     }
 
     fn emit_dimensions_update(&self, drawable: &dyn Drawable) {
         if let Some(sender) = &self.sender
-            && let Some((tl, br)) = drawable.bounds()
+            && let Some((tl, br)) = drawable.anchors()
         {
-            // get it from drawable as it represents the most up-to-date bounds
-            sender
-                .send(SketchBoardInput::ShapeDimensionsUpdate(br - tl))
-                .ok();
+            // get it from drawable as it represents the most up-to-date anchors;
+            // for lines these are start and end
+            let message = if drawable.get_selection_type() == SelectionType::Line {
+                SketchBoardInput::LineDimensionsUpdate(br - tl)
+            } else {
+                SketchBoardInput::ShapeDimensionsUpdate(br - tl)
+            };
+            sender.send(message).ok();
         }
     }
 
-    fn update_selection_bounds(&mut self, tl: Vec2D, br: Vec2D) {
-        let (tl, br) = ensure_bounding_box(tl, br);
-        self.selected_bounds = Some((tl, br));
-        self.selection_overlay = Some(SelectionOverlay {
-            tl,
-            br,
-            // is updated in draw() to maintain constant on-screen size regardless of zoom level
-            scale: Cell::new(1.0),
-            centered: self.centered,
-        });
+    fn update_selection_anchors(&mut self, drawable: &dyn Drawable) {
+        let Some((tl, br)) = drawable.anchors() else {
+            return;
+        };
+        self.selected_anchors = Some((tl, br));
+        let selection_type = drawable.get_selection_type();
+        if let Some(selection_overlay) = &mut self.selection_overlay {
+            selection_overlay.tl = tl;
+            selection_overlay.br = br;
+            selection_overlay.selection_type = selection_type;
+            selection_overlay.centered = self.centered;
+        } else {
+            self.selection_overlay = Some(SelectionOverlay {
+                tl,
+                br,
+                selection_type,
+                // is updated in draw() to maintain constant on-screen size regardless of zoom level
+                scale: Cell::new(1.0),
+                centered: self.centered,
+            });
+        }
     }
 
-    // Select a drawable without starting a drag (e.g. after a commit/replace).
-    pub fn set_selection(&mut self, index: usize, bounds: (Vec2D, Vec2D)) {
+    pub fn set_selection(&mut self, index: usize, drawable: &dyn Drawable) {
         self.selected_index = Some(index);
-        self.update_selection_bounds(bounds.0, bounds.1);
+        self.update_selection_anchors(drawable);
         self.drag_state = DragState::None;
         self.preview = None;
         self.last_resize_event = None;
@@ -649,7 +766,7 @@ impl PointerTool {
 
     pub fn deselect(&mut self) {
         self.selected_index = None;
-        self.selected_bounds = None;
+        self.selected_anchors = None;
         self.selection_overlay = None;
         self.drag_state = DragState::None;
         self.preview = None;
@@ -693,6 +810,16 @@ impl PointerTool {
         // Return the object at current cycle index
         hit_indices.get(self.current_cycle_index).copied()
     }
+
+    fn handle_move_modifiers(&self, event: &MouseEventMsg) -> Vec2D {
+        let mut delta = event.pos;
+        if event.modifier.intersects(ModifierType::SHIFT_MASK) {
+            delta.x = 0.0;
+        } else if event.modifier.intersects(ModifierType::ALT_MASK) {
+            delta.y = 0.0;
+        }
+        delta
+    }
 }
 
 impl Tool for PointerTool {
@@ -702,8 +829,10 @@ impl Tool for PointerTool {
 
     fn get_drawable(&self) -> Option<&dyn Drawable> {
         if let Some(p) = &self.preview {
+            // during move or resize we show the preview if available
             Some(p.as_ref())
         } else if let Some(s) = &self.selection_overlay {
+            // otherwise show the selection overlay if available
             Some(s)
         } else {
             None
@@ -808,17 +937,12 @@ impl Tool for PointerTool {
             }
 
             MouseEventType::UpdateDrag => match &self.drag_state {
-                DragState::Moving {
-                    original,
-                    orig_bounds,
-                    ..
-                } => {
-                    let delta = event.pos;
+                DragState::Moving { original, .. } => {
+                    let delta = self.handle_move_modifiers(&event);
                     let mut preview = original.clone_box();
                     preview.translate(delta);
                     self.emit_dimensions_update(preview.as_ref());
-                    let (tl, br) = *orig_bounds;
-                    self.update_selection_bounds(tl + delta, br + delta);
+                    self.update_selection_anchors(preview.as_ref());
                     self.preview = Some(preview);
                     ToolUpdateResult::Redraw
                 }
@@ -834,28 +958,21 @@ impl Tool for PointerTool {
                 self.last_resize_event = None;
                 let current_pos = self.current_drag_pos(event.pos);
                 match std::mem::replace(&mut self.drag_state, DragState::None) {
-                    DragState::Moving {
-                        index,
-                        original,
-                        orig_bounds,
-                    } => {
-                        let delta = event.pos;
+                    DragState::Moving { index, original } => {
+                        let delta = self.handle_move_modifiers(&event);
                         let not_renderable =
                             self.preview.as_ref().is_some_and(|p| !p.is_renderable());
                         let result = if delta.is_zero() || not_renderable {
                             // Click with no movement: just show selection overlay
-                            self.update_selection_bounds(orig_bounds.0, orig_bounds.1);
-                            self.preview = None;
+                            self.set_selection(index, original.as_ref());
                             ToolUpdateResult::Redraw
                         } else {
                             let mut final_drawable = original;
                             final_drawable.translate(delta);
-                            let (tl, br) = orig_bounds;
-                            let new_bounds = (tl + delta, br + delta);
-                            self.update_selection_bounds(new_bounds.0, new_bounds.1);
-                            self.preview = None;
+                            self.set_selection(index, final_drawable.as_ref());
                             ToolUpdateResult::ReplaceDrawable(index, final_drawable)
                         };
+                        self.preview = None;
                         self.drag_start_pos = None;
                         self.set_hover_cursor(current_pos);
                         result
@@ -864,35 +981,32 @@ impl Tool for PointerTool {
                         index,
                         original,
                         handle,
-                        orig_bounds,
+                        orig_anchors,
                     } => {
                         let delta = event.pos;
                         let not_renderable =
                             self.preview.as_ref().is_some_and(|p| !p.is_renderable());
                         let result = if delta.is_zero() || not_renderable {
-                            self.update_selection_bounds(orig_bounds.0, orig_bounds.1);
-                            self.preview = None;
+                            self.set_selection(index, original.as_ref());
                             ToolUpdateResult::Redraw
                         } else {
-                            let (new_tl, new_br) =
-                                handle.resize(event, orig_bounds.0, orig_bounds.1);
+                            let (new_tl, new_br) = handle.resize(
+                                event,
+                                orig_anchors.0,
+                                orig_anchors.1,
+                                original.get_selection_type(),
+                            );
                             let mut final_drawable = original;
                             let keep_aspect = event
                                 .modifier
                                 .intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK);
-                            final_drawable.resize_bounds_with_segment_target(
-                                new_tl,
-                                new_br,
-                                event.pos,
-                                keep_aspect,
-                                handle.segment_target(orig_bounds.0, orig_bounds.1),
-                            );
+                            final_drawable.resize(new_tl, new_br, keep_aspect);
                             final_drawable.set_centered(false);
                             final_drawable.set_editing(false);
-                            self.update_selection_bounds(new_tl, new_br);
-                            self.preview = None;
+                            self.set_selection(index, final_drawable.as_ref());
                             ToolUpdateResult::ReplaceDrawable(index, final_drawable)
                         };
+                        self.preview = None;
                         self.drag_start_pos = None;
                         self.set_hover_cursor(current_pos);
                         result

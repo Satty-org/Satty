@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use super::SelectionType;
 use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
 
 use crate::{
@@ -51,8 +52,21 @@ impl BrushDrawable {
 }
 
 impl Drawable for BrushDrawable {
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some(super::calculate_line_bounds(self.start_point, &self.points))
+    }
+
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        let (tl, br) = super::calculate_line_bounds(self.start_point, &self.points);
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(super::bounding_box_with_margin(tl, br, line_width / 2.0))
+    }
+
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::BoundingBoxAllHandles
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
@@ -68,7 +82,7 @@ impl Drawable for BrushDrawable {
         self.start_point += delta;
     }
 
-    fn resize_bounds(&mut self, tl: Vec2D, br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
         super::resize_line_bounds(tl, br, &mut self.start_point, &mut self.points);
     }
 
@@ -141,7 +155,23 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 };
 
-                brush.add_point(event.pos, event.modifier.contains(ModifierType::SHIFT_MASK));
+                let shift_pressed = event.modifier.contains(ModifierType::SHIFT_MASK);
+                brush.add_point(event.pos, shift_pressed);
+
+                // with shift the last segment is straight, show its dimensions;
+                // points are relative to the start point
+                if shift_pressed
+                    && let Some(sender) = &self.sender
+                    && let Some(&last) = brush.points.last()
+                {
+                    let previous = match brush.points.len() {
+                        1 => Vec2D::zero(),
+                        n => brush.points[n - 2],
+                    };
+                    sender
+                        .send(SketchBoardInput::LineDimensionsUpdate(last - previous))
+                        .ok();
+                }
 
                 if event.type_ == MouseEventType::UpdateDrag {
                     return ToolUpdateResult::Redraw;

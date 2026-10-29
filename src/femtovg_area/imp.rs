@@ -449,8 +449,8 @@ impl FemtoVgAreaMut {
         results
     }
 
-    pub fn get_drawable_bounds(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
-        self.drawables.get(index).and_then(|d| d.bounds())
+    pub fn get_drawable_anchors(&self, index: usize) -> Option<(Vec2D, Vec2D)> {
+        self.drawables.get(index).and_then(|d| d.anchors())
     }
 
     pub fn get_drawable_clone(&self, index: usize) -> Option<Box<dyn Drawable>> {
@@ -671,7 +671,7 @@ impl FemtoVgAreaMut {
             .iter()
             .find(|d| d.get_rendering_mode() == RenderingMode::Crop)
         {
-            Some(d) => d.bounds().map(|(tl, br)| (tl, br - tl)).unwrap_or(bounds),
+            Some(d) => d.anchors().map(|(tl, br)| (tl, br - tl)).unwrap_or(bounds),
             None => {
                 // no crop: include all annotations, even outside the image
                 let (mut tl, mut br) = bounds;
@@ -680,9 +680,9 @@ impl FemtoVgAreaMut {
                     .iter()
                     .filter(|d| d.get_rendering_mode() != RenderingMode::Crop)
                 {
-                    if let Some((a, b)) = d.bounds() {
-                        tl = Vec2D::new(tl.x.min(a.x.min(b.x)), tl.y.min(a.y.min(b.y)));
-                        br = Vec2D::new(br.x.max(a.x.max(b.x)), br.y.max(a.y.max(b.y)));
+                    if let Some((a, b)) = d.get_bounding_box() {
+                        tl = tl.min(a);
+                        br = br.max(b);
                     }
                 }
                 let tl = Vec2D::new(tl.x.floor(), tl.y.floor());

@@ -3,7 +3,7 @@ use femtovg::{FontId, Path};
 use relm4::{Sender, gtk::gdk::ModifierType};
 
 use crate::{
-    math::{self, SegmentResizeTarget, Vec2D},
+    math::Vec2D,
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
 };
@@ -21,54 +21,43 @@ pub struct LineTool {
 #[derive(Clone, Copy, Debug)]
 pub struct Line {
     start: Vec2D,
-    direction: Option<Vec2D>,
+    end: Vec2D,
     style: Style,
 }
 
 impl Drawable for Line {
-    fn bounds(&self) -> Option<(Vec2D, Vec2D)> {
-        let dir = self.direction?;
-        let end = self.start + dir;
-        Some(math::ensure_bounding_box(self.start, end))
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
+        Some((self.start, self.end))
+    }
+
+    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
+        let line_width = self
+            .style
+            .size
+            .to_line_width(self.style.annotation_size_factor);
+        Some(super::bounding_box_with_margin(
+            self.start,
+            self.end,
+            line_width / 2.0,
+        ))
+    }
+
+    fn get_selection_type(&self) -> super::SelectionType {
+        super::SelectionType::Line
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let Some(dir) = self.direction else {
-            return false;
-        };
-        let end = self.start + dir;
-        pos.distance_to_segment(self.start, end) <= tolerance
+        pos.distance_to_segment(self.start, self.end) <= tolerance
     }
 
     fn translate(&mut self, delta: Vec2D) {
         self.start += delta;
+        self.end += delta;
     }
 
-    fn resize_bounds(&mut self, _tl: Vec2D, _br: Vec2D, _delta: Vec2D, _keep_aspect: bool) {
-        panic!("should never be called");
-    }
-
-    fn resize_bounds_with_segment_target(
-        &mut self,
-        tl: Vec2D,
-        br: Vec2D,
-        delta: Vec2D,
-        keep_aspect: bool,
-        target: Option<SegmentResizeTarget>,
-    ) {
-        if let Some(direction) = self.direction {
-            let end = self.start + direction;
-            let segment = (self.start, end);
-            let bounding_box = (tl, br);
-            let (new_start, new_end) =
-                math::resize_segment(segment, bounding_box, delta, keep_aspect, target);
-
-            self.start = new_start;
-            self.direction = Some(new_end - new_start);
-        } else {
-            self.start = tl;
-            self.direction = Some(br - tl);
-        }
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
+        self.start = tl;
+        self.end = br;
     }
 
     fn get_style(&self) -> Option<&Style> {
@@ -85,20 +74,10 @@ impl Drawable for Line {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let direction = match self.direction {
-            Some(d) => d,
-            None => return Ok(()), // exit early if no direction
-        };
-
-        canvas.save();
-
         let mut path = Path::new();
         path.move_to(self.start.x, self.start.y);
-        path.line_to(self.start.x + direction.x, self.start.y + direction.y);
-
+        path.line_to(self.end.x, self.end.y);
         canvas.stroke_path(&path, &self.style.into());
-
-        canvas.restore();
 
         Ok(())
     }
@@ -127,7 +106,7 @@ impl Tool for LineTool {
                 // start new
                 self.line = Some(Line {
                     start: event.pos,
-                    direction: None,
+                    end: event.pos,
                     style: self.style,
                 });
 
@@ -138,18 +117,18 @@ impl Tool for LineTool {
                     return ToolUpdateResult::Unmodified;
                 }
 
-                if let Some(a) = &mut self.line {
+                if let Some(line) = &mut self.line {
                     if event.pos == Vec2D::zero() {
                         self.line = None;
 
                         ToolUpdateResult::Redraw
                     } else {
                         if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                            a.direction = Some(event.pos.snapped_vector_15deg());
+                            line.end = line.start + event.pos.snapped_vector_15deg();
                         } else {
-                            a.direction = Some(event.pos);
+                            line.end = line.start + event.pos;
                         }
-                        let result = a.clone_box();
+                        let result = line.clone_box();
                         self.line = None;
 
                         ToolUpdateResult::Commit(result)
@@ -163,11 +142,18 @@ impl Tool for LineTool {
                     return ToolUpdateResult::Unmodified;
                 }
 
-                if let Some(r) = &mut self.line {
+                if let Some(line) = &mut self.line {
                     if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                        r.direction = Some(event.pos.snapped_vector_15deg());
+                        line.end = line.start + event.pos.snapped_vector_15deg();
                     } else {
-                        r.direction = Some(event.pos);
+                        line.end = line.start + event.pos;
+                    }
+                    if let Some(sender) = &self.sender {
+                        sender
+                            .send(SketchBoardInput::LineDimensionsUpdate(
+                                line.end - line.start,
+                            ))
+                            .ok();
                     }
                     ToolUpdateResult::Redraw
                 } else {
