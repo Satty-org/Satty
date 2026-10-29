@@ -55,6 +55,8 @@ version = "0.11.0"
 
 [dev-dependencies]
 xkbcommon = { version = "0.9.0", default-features = false }  # real keyboard layouts in keybinding tests
+# Lets tests create display-independent GTK objects, such as TextBuffer, without gtk::init and a display
+gtk = { package = "gtk4", version = "0.11", features = ["unsafe-assume-initialized"] }
 
 
 [build-dependencies]

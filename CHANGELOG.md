@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Undo after you edit a text with a double click restores the previous text [#795]
+- After you edit a text with a double click, Enter selects the text with the pointer tool [#795]
+
 ### Security
 
 +<!-- link targets of the [#N] references above, not rendered -->
@@ -39,5 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 [#771]: https://github.com/Satty-org/Satty/pull/771
 [#772]: https://github.com/Satty-org/Satty/pull/772
 [#783]: https://github.com/Satty-org/Satty/pull/783
+[#795]: https://github.com/Satty-org/Satty/pull/795
 
 <!-- --8<-- [end:changelog] -->
