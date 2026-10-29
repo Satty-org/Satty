@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 - Improved support for international keyboard layouts. Fallbackk to US
   layout if no match in current keyboard layout. Match unshifed keys also,
-  i.e. new <kbb>Ctrl+equal</kbb> shortcut works on all layouts. [#771], [772]
+  i.e. new <kbb>Ctrl+equal</kbb> shortcut works on all layouts. [#771], [#772]
 
 ### Changed
 
@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 <!-- link targets of the [#N] references above, not rendered -->
 
 [#711]: https://github.com/Satty-org/Satty/pull/711
-[#711]: https://github.com/Satty-org/Satty/pull/771
-[#711]: https://github.com/Satty-org/Satty/pull/772
+[#771]: https://github.com/Satty-org/Satty/pull/771
+[#772]: https://github.com/Satty-org/Satty/pull/772
 
 <!-- --8<-- [end:changelog] -->
