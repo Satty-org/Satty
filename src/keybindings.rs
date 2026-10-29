@@ -750,6 +750,8 @@ mod tests {
     }
 
     // evdev keycodes, named by the US QWERTY key at their position
+    const QWERTY_0: u32 = 11;
+    const QWERTY_EQUAL: u32 = 13;
     const QWERTY_E: u32 = 18;
     const QWERTY_Y: u32 = 21;
     const QWERTY_J: u32 = 36;
@@ -761,6 +763,7 @@ mod tests {
 
     const NONE: ModifierType = ModifierType::empty();
     const CTRL: ModifierType = ModifierType::CONTROL_MASK;
+    const SHIFT: ModifierType = ModifierType::SHIFT_MASK;
     const BRUSH: Option<ShortcutCommand> = Some(ShortcutCommand::SelectTool(Tools::Brush));
     const PIXELATE: Option<ShortcutCommand> =
         Some(ShortcutCommand::SelectTool(Tools::FringePixelate));
@@ -871,6 +874,29 @@ mod tests {
             assert_eq!(dvorak_ru.command(&r, NONE, QWERTY_B, active), PIXELATE);
             assert_eq!(dvorak_ru.command(&r, CTRL, QWERTY_SLASH, active), UNDO);
         }
+    }
+
+    #[test]
+    fn german_shift_0_matches_ctrl_equal() {
+        // German types "=" with Shift on the "0" key, so Ctrl+Shift+0 is Ctrl+=
+        let zoom_in = Some(ShortcutCommand::Zoom(1));
+        let mut r = default_registry();
+        r.key_bindings.insert(
+            KeyBinding {
+                modifiers: CTRL,
+                key: Key::equal,
+            },
+            ShortcutCommand::Zoom(1),
+        );
+        let de = Keyboard::new("de", "");
+        assert_eq!(de.command(&r, CTRL | SHIFT, QWERTY_0, 0), zoom_in);
+        // without Shift it is Ctrl+0
+        assert_eq!(de.command(&r, CTRL, QWERTY_0, 0), None);
+
+        // US has "=" on its own key and ")" on Shift+0
+        let us = Keyboard::new("us", "");
+        assert_eq!(us.command(&r, CTRL, QWERTY_EQUAL, 0), zoom_in);
+        assert_eq!(us.command(&r, CTRL | SHIFT, QWERTY_0, 0), None);
     }
 
     #[test]
