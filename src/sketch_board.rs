@@ -2076,7 +2076,7 @@ impl Component for SketchBoard {
                         ToolbarEvent::ToolSelected(Tools::Pointer),
                         sender_for_post_commit,
                     );
-                    if let Some(index) = committed_index {
+                    if let Some(index) = self.renderer.last_drawable_index() {
                         self.update_pointer_tool_selection(index, true);
                     }
                 }
