@@ -11,9 +11,9 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, Straight, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;
-use relm4::gtk::gdk::{Key, ModifierType};
+use relm4::gtk::gdk::Key;
 
 #[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -54,21 +54,15 @@ pub struct BrushDrawable {
 }
 
 impl BrushDrawable {
-    fn add_point(&mut self, point: Vec2D, shift_pressed: bool) {
-        if !shift_pressed {
+    fn add_point(&mut self, point: Vec2D, straight: Option<Straight>) {
+        let Some(straight) = straight else {
             self.points.push(self.smoother.update(point));
             return;
-        }
-        if shift_pressed && !self.points.is_empty() {
-            self.points.pop();
-        }
-        let anchor = if self.points.is_empty() {
-            Vec2D::zero()
-        } else {
-            *self.points.last().unwrap()
         };
-        self.points
-            .push(anchor + (point - anchor).snapped_vector_15deg());
+        // the straight segment replaces its end point while it is drawn
+        self.points.pop();
+        let anchor = self.points.last().copied().unwrap_or_else(Vec2D::zero);
+        self.points.push(anchor + straight.snap(point - anchor));
     }
 
     // a single segment is handled like a line: its bounds are start and end
@@ -230,12 +224,12 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 };
 
-                let shift_pressed = event.modifier.contains(ModifierType::SHIFT_MASK);
-                brush.add_point(event.pos, shift_pressed);
+                let straight = Straight::from_modifier(event.modifier);
+                brush.add_point(event.pos, straight);
 
-                // with shift the last segment is straight, show its dimensions;
+                // with Shift or Ctrl the last segment is straight, show its dimensions;
                 // points are relative to the start point
-                if shift_pressed
+                if straight.is_some()
                     && let Some(sender) = &self.sender
                     && let Some(&last) = brush.points.last()
                 {
@@ -282,8 +276,10 @@ impl Tool for BrushTool {
     }
 
     fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if (event.key == Key::Shift_L || event.key == Key::Shift_R)
-            && let Some(brush) = &mut self.drawable
+        if matches!(
+            event.key,
+            Key::Shift_L | Key::Shift_R | Key::Control_L | Key::Control_R
+        ) && let Some(brush) = &mut self.drawable
         {
             // duplicate the last point to maintain the current segment
             brush.points.push(*brush.points.last().unwrap());
