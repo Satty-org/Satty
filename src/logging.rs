@@ -1,9 +1,9 @@
 use std::sync::OnceLock;
 
+use crate::app::{APP_BROKER, AppInput};
 use crate::configuration::APP_CONFIG;
 use crate::notification::{show_notification, show_notification_with_pixbuf};
 use crate::ui::common_dialogs;
-use crate::{APP_BROKER, AppInput};
 use chrono::Local;
 use relm4::gtk;
 use relm4::gtk::gdk_pixbuf::Pixbuf;

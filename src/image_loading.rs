@@ -1,13 +1,18 @@
 //! Decodes images through gdk-pixbuf, falling back to the `image` crate
 //! for formats the system has no gdk-pixbuf loader for (e.g. webp).
 
-use std::fs;
-use std::path::Path;
-
+use crate::START_TIME;
+use crate::configuration::{APP_CONFIG, Input};
+use crate::logging::{LogLevel, log};
+use crate::{generate_profile_output, image_loading};
 use anyhow::{Context, Result, anyhow};
 use relm4::gtk::gdk_pixbuf::{Colorspace, Pixbuf, PixbufLoader};
 use relm4::gtk::glib::Bytes;
 use relm4::gtk::prelude::*;
+use std::io::Read;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::{fs, io};
 
 /// Mime types the fallback decoder supports on top of the gdk-pixbuf formats.
 pub const FALLBACK_MIME_TYPES: &[&str] = &["image/webp"];
@@ -49,6 +54,43 @@ fn pixbuf_from_rgba_image(image: image::RgbaImage) -> Pixbuf {
         height as i32,
         width as i32 * 4,
     )
+}
+
+pub(crate) fn load_image() -> Result<Pixbuf> {
+    // load app config
+    let config = APP_CONFIG.read();
+
+    generate_profile_output!("loading image");
+    // load input image
+    let image = match config.input() {
+        Some(Input::Stdin) => {
+            let mut buf = Vec::<u8>::new();
+            io::stdin().lock().read_to_end(&mut buf)?;
+            image_loading::pixbuf_from_bytes(&buf).context("couldn't load image from stdin")?
+        }
+        Some(Input::ClipboardCommand(paste_command)) => {
+            let mut buf = Vec::<u8>::new();
+            let mut child = Command::new("sh")
+                .arg("-c")
+                .arg(paste_command)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .spawn()?;
+
+            child.stdout.take().unwrap().read_to_end(&mut buf)?;
+            image_loading::pixbuf_from_bytes(&buf)
+                .context(format!("couldn't load image from {:?}", paste_command))?
+        }
+        Some(Input::File(input_filename)) => {
+            image_loading::pixbuf_from_file(Path::new(input_filename))
+                .context("couldn't load image")?
+        }
+        None => {
+            anyhow::bail!("no input provided");
+        }
+    };
+    generate_profile_output!("image loaded");
+    Ok(image)
 }
 
 #[cfg(test)]
