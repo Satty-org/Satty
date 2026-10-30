@@ -110,7 +110,7 @@ impl Pixelate {
             Img::new(b.into_owned(), width, height)
         };
 
-        let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
+        let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::NEAREST)?;
         let paint_pos = Vec2D::new(pos_x as f32, pos_y as f32);
         let paint_size = Vec2D::new(width as f32, height as f32);
         Ok(Some((dst_image_id, paint_pos, paint_size)))
@@ -269,7 +269,7 @@ impl Drawable for Pixelate {
     }
 
     fn get_rendering_mode(&self) -> RenderingMode {
-        RenderingMode::Blur
+        RenderingMode::BlurOrPixelate
     }
 
     fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
@@ -300,9 +300,9 @@ impl Drawable for Pixelate {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
+    fn set_style(&mut self, style: Style) {
         *self.cached_image.borrow_mut() = None;
-        Some(&mut self.style)
+        self.style = style;
     }
 
     fn draw(
@@ -318,6 +318,7 @@ impl Drawable for Pixelate {
         &self,
         canvas: &mut Canvas<OpenGl>,
         image: &ImgVec<RGBA8>,
+        _background_image_id: femtovg::ImageId,
         _font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
