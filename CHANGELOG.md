@@ -36,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ### Security
 
-+<!-- link targets of the [#N] references above, not rendered -->
+<!-- link targets of the [#N] references above, not rendered -->
+
 [#607]: https://github.com/Satty-org/Satty/pull/607
 [#711]: https://github.com/Satty-org/Satty/pull/711
 [#771]: https://github.com/Satty-org/Satty/pull/771
