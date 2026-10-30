@@ -25,6 +25,7 @@ pub enum ShortcutCommand {
     // generic
     ToggleToolbars,
     OpenGtkInspector,
+    ShowLog,
     PanLeft,
     PanRight,
     PanUp,
@@ -58,6 +59,7 @@ impl fmt::Display for ShortcutCommand {
         let name = match self {
             // generic
             ShortcutCommand::OpenGtkInspector => "open-gtk-inspector",
+            ShortcutCommand::ShowLog => "show-log",
             ShortcutCommand::PanLeft => "pan-left",
             ShortcutCommand::PanRight => "pan-right",
             ShortcutCommand::PanUp => "pan-up",
@@ -123,6 +125,7 @@ impl FromStr for ShortcutCommand {
         match s {
             // generic
             "open-gtk-inspector" => Ok(ShortcutCommand::OpenGtkInspector),
+            "show-log" => Ok(ShortcutCommand::ShowLog),
             "toggle-toolbars" => Ok(ShortcutCommand::ToggleToolbars),
             "pan-left" => Ok(ShortcutCommand::PanLeft),
             "pan-right" => Ok(ShortcutCommand::PanRight),
@@ -373,6 +376,7 @@ impl ShortcutRegistry {
         // generic
         registry.add_key_binding("<Shift><Control>d", SC::OpenGtkInspector);
         registry.add_key_binding("<Shift><Control>i", SC::OpenGtkInspector);
+        registry.add_key_binding("<Shift><Control>l", SC::ShowLog);
         registry.add_key_binding("<Control>t", SC::ToggleToolbars);
         registry.add_key_binding("<Alt>Left", SC::PanLeft);
         registry.add_key_binding("<Alt>Right", SC::PanRight);

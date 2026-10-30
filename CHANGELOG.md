@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - Improved support for international keyboard layouts. Fallbackk to US
   layout if no match in current keyboard layout. Match unshifed keys also,
   i.e. new <kbb>Ctrl+equal</kbb> shortcut works on all layouts. [#771], [#772]
+- added log viewer, default shortcut <kbd>Ctrl+Shift+L</kbd> [#785]
 - Editing of annotations. [#607]
 
 ### Changed
@@ -43,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 [#771]: https://github.com/Satty-org/Satty/pull/771
 [#772]: https://github.com/Satty-org/Satty/pull/772
 [#783]: https://github.com/Satty-org/Satty/pull/783
+[#785]: https://github.com/Satty-org/Satty/pull/785
 [#795]: https://github.com/Satty-org/Satty/pull/795
 
 <!-- --8<-- [end:changelog] -->

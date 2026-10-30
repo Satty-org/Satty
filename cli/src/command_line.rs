@@ -218,6 +218,25 @@ impl Display for LogLevel {
     }
 }
 
+impl LogLevel {
+    const ALL: [LogLevel; 6] = [
+        LogLevel::Fatal,
+        LogLevel::Error,
+        LogLevel::Warn,
+        LogLevel::Info,
+        LogLevel::Debug,
+        LogLevel::Trace,
+    ];
+
+    pub fn index(&self) -> u32 {
+        Self::ALL.iter().position(|l| l == self).unwrap() as u32
+    }
+
+    pub fn from_index(i: u32) -> Option<Self> {
+        Self::ALL.get(i as usize).copied()
+    }
+}
+
 #[derive(Debug, Deserialize, Clone, Copy, ValueEnum, PartialEq)]
 #[value(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
