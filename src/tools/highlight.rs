@@ -1,13 +1,7 @@
-use std::ops::{Add, Sub};
-
 use anyhow::Result;
 use femtovg::{Paint, Path};
 
-use relm4::{
-    Sender,
-    gtk::gdk::{Key, ModifierType},
-};
-use serde_derive::Deserialize;
+use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
     math::{self, Vec2D},
@@ -23,14 +17,6 @@ use super::{
 
 const HIGHLIGHT_OPACITY: f64 = 0.4;
 
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Highlighters {
-    #[default]
-    Block = 0,
-    Freehand = 1,
-}
-
 #[derive(Clone, Debug)]
 struct BlockHighlight {
     origin: Vec2D,
@@ -38,59 +24,68 @@ struct BlockHighlight {
     size: Vec2D,
     centered: bool,
     editing: bool,
-}
-
-#[derive(Clone, Debug)]
-struct FreehandHighlight {
-    start_point: Vec2D,
-    points: Vec<Vec2D>,
-}
-
-#[derive(Clone, Debug)]
-struct Highlighter<T> {
-    data: T,
     style: Style,
 }
 
-trait Highlight {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()>;
-}
-
-impl Highlight for Highlighter<FreehandHighlight> {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
-        canvas.save();
-
-        let mut path = Path::new();
-        let start_point = self.data.start_point;
-
-        path.move_to(start_point.x, start_point.y);
-        for p in self.data.points.iter() {
-            path.line_to(start_point.x + p.x, start_point.y + p.y);
-        }
-
-        let mut paint = Paint::color(femtovg::Color::rgba(
-            self.style.color.r,
-            self.style.color.g,
-            self.style.color.b,
-            (255.0 * HIGHLIGHT_OPACITY) as u8,
-        ));
-        paint.set_line_width(
-            self.style
-                .size
-                .to_highlight_width(self.style.annotation_size_factor),
-        );
-        paint.set_line_join(femtovg::LineJoin::Round);
-        paint.set_line_cap(femtovg::LineCap::Square);
-
-        canvas.stroke_path(&path, &paint);
-        canvas.restore();
-        Ok(())
+impl BlockHighlight {
+    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
+        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
+        self.centered = drag_box.centered;
+        self.top_left = drag_box.top_left;
+        self.size = drag_box.size;
     }
 }
 
-impl Highlight for Highlighter<BlockHighlight> {
-    fn highlight(&self, canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>) -> Result<()> {
-        let (pos, size) = math::rect_ensure_positive_size(self.data.top_left, self.data.size);
+#[derive(Default, Clone, Debug)]
+pub struct HighlightTool {
+    highlighter: Option<BlockHighlight>,
+    style: Style,
+    input_enabled: bool,
+    sender: Option<Sender<SketchBoardInput>>,
+}
+
+impl Drawable for BlockHighlight {
+    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
+        Some(math::ensure_bounding_box(
+            self.top_left,
+            self.top_left + self.size,
+        ))
+    }
+
+    fn get_selection_type(&self) -> SelectionType {
+        SelectionType::Rectangle
+    }
+
+    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let (tl, br) = math::ensure_bounding_box(self.top_left, self.top_left + self.size);
+        super::hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+    }
+
+    fn translate(&mut self, delta: Vec2D) {
+        self.top_left += delta;
+    }
+
+    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
+        let (tl, br) = math::ensure_bounding_box(tl, br);
+        self.top_left = tl;
+        self.size = br - tl;
+    }
+
+    fn get_style(&self) -> Option<&Style> {
+        Some(&self.style)
+    }
+
+    fn get_style_mut(&mut self) -> Option<&mut Style> {
+        Some(&mut self.style)
+    }
+
+    fn draw(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        _font: femtovg::FontId,
+        _bounds: (Vec2D, Vec2D),
+    ) -> Result<()> {
+        let (pos, size) = math::rect_ensure_positive_size(self.top_left, self.size);
 
         let mut shadow_path = Path::new();
         shadow_path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
@@ -104,164 +99,20 @@ impl Highlight for Highlighter<BlockHighlight> {
 
         canvas.fill_path(&shadow_path, &shadow_paint);
 
-        if self.data.editing && self.data.centered {
-            draw_center_marker(canvas, self.data.origin);
+        if self.editing && self.centered {
+            draw_center_marker(canvas, self.origin);
         }
 
         Ok(())
     }
-}
-
-impl BlockHighlight {
-    fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
-        self.centered = drag_box.centered;
-        self.top_left = drag_box.top_left;
-        self.size = drag_box.size;
-    }
-}
-
-#[derive(Clone, Debug)]
-enum HighlightKind {
-    Block(Highlighter<BlockHighlight>),
-    Freehand(Highlighter<FreehandHighlight>),
-}
-
-#[derive(Default, Clone, Debug)]
-pub struct HighlightTool {
-    mode: Highlighters,
-    highlighter: Option<HighlightKind>,
-    style: Style,
-    input_enabled: bool,
-    sender: Option<Sender<SketchBoardInput>>,
-}
-
-impl Drawable for HighlightKind {
-    fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
-        match self {
-            HighlightKind::Block(h) => Some(math::ensure_bounding_box(
-                h.data.top_left,
-                h.data.top_left + h.data.size,
-            )),
-            HighlightKind::Freehand(h) => Some(super::calculate_line_bounds(
-                h.data.start_point,
-                &h.data.points,
-            )),
-        }
-    }
-
-    fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
-        match self {
-            HighlightKind::Block(_) => self.anchors(),
-            HighlightKind::Freehand(h) => {
-                let (tl, br) = super::calculate_line_bounds(h.data.start_point, &h.data.points);
-                let width = h
-                    .style
-                    .size
-                    .to_highlight_width(h.style.annotation_size_factor);
-                // the square caps reach out half the width diagonally
-                let margin = width / 2.0 * std::f32::consts::SQRT_2;
-                Some(super::bounding_box_with_margin(tl, br, margin))
-            }
-        }
-    }
-
-    fn get_selection_type(&self) -> SelectionType {
-        match self {
-            HighlightKind::Block(_) => SelectionType::Rectangle,
-            HighlightKind::Freehand(_) => SelectionType::BoundingBoxAllHandles,
-        }
-    }
-
-    fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        match self {
-            HighlightKind::Block(_) => {
-                let (tl, br) = match self.anchors() {
-                    Some(anchors) => anchors,
-                    None => return false,
-                };
-                super::hit_test_rectangle(pos, tl, br - tl, tolerance, true)
-            }
-            HighlightKind::Freehand(h) => {
-                let line_width = h
-                    .style
-                    .size
-                    .to_highlight_width(h.style.annotation_size_factor);
-                let tolerance = tolerance + line_width / 2.0;
-                super::hit_test_line(pos, h.data.start_point, &h.data.points, tolerance)
-            }
-        }
-    }
-
-    fn translate(&mut self, delta: Vec2D) {
-        match self {
-            HighlightKind::Block(h) => {
-                h.data.top_left += delta;
-            }
-            HighlightKind::Freehand(h) => {
-                h.data.start_point += delta;
-            }
-        }
-    }
-
-    fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
-        match self {
-            HighlightKind::Block(h) => {
-                let (tl, br) = math::ensure_bounding_box(tl, br);
-                h.data.top_left = tl;
-                h.data.size = br - tl;
-            }
-            HighlightKind::Freehand(h) => {
-                super::resize_line_bounds(tl, br, &mut h.data.start_point, &mut h.data.points);
-            }
-        }
-    }
-
-    fn get_style(&self) -> Option<&Style> {
-        match self {
-            HighlightKind::Block(highlighter) => Some(&highlighter.style),
-            HighlightKind::Freehand(highlighter) => Some(&highlighter.style),
-        }
-    }
-
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        match self {
-            HighlightKind::Block(highlighter) => Some(&mut highlighter.style),
-            HighlightKind::Freehand(highlighter) => Some(&mut highlighter.style),
-        }
-    }
-
-    fn draw(
-        &self,
-        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
-        _font: femtovg::FontId,
-        _bounds: (Vec2D, Vec2D),
-    ) -> Result<()> {
-        match self {
-            HighlightKind::Block(highlighter) => highlighter.highlight(canvas),
-            HighlightKind::Freehand(highlighter) => highlighter.highlight(canvas),
-        }
-    }
 
     fn set_centered(&mut self, centered: bool) {
-        if let HighlightKind::Block(highlighter) = self {
-            highlighter.data.centered = centered;
-            highlighter.data.origin = highlighter.data.top_left + highlighter.data.size / 2.0;
-        }
+        self.centered = centered;
+        self.origin = self.top_left + self.size / 2.0;
     }
-    fn set_editing(&mut self, editing: bool) {
-        if let HighlightKind::Block(highlighter) = self {
-            highlighter.data.editing = editing;
-        }
-    }
-}
 
-impl HighlightTool {
-    pub fn with_mode(mode: Highlighters) -> Self {
-        Self {
-            mode,
-            ..Default::default()
-        }
+    fn set_editing(&mut self, editing: bool) {
+        self.editing = editing;
     }
 }
 
@@ -279,14 +130,10 @@ impl Tool for HighlightTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        match self.mode {
-            Highlighters::Block => Tools::Highlight,
-            Highlighters::Freehand => Tools::HighlightFreehand,
-        }
+        Tools::BlockHighlighter
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
-        let shift_pressed = event.modifier.intersects(ModifierType::SHIFT_MASK);
         match event.type_ {
             MouseEventType::BeginDrag => {
                 if event.button == MouseButton::Middle {
@@ -294,31 +141,14 @@ impl Tool for HighlightTool {
                 }
 
                 //set origin
-                match self.mode {
-                    Highlighters::Block => {
-                        self.highlighter =
-                            Some(HighlightKind::Block(Highlighter::<BlockHighlight> {
-                                data: BlockHighlight {
-                                    origin: event.pos,
-                                    top_left: event.pos,
-                                    size: Vec2D::zero(),
-                                    centered: false,
-                                    editing: true,
-                                },
-                                style: self.style,
-                            }))
-                    }
-                    Highlighters::Freehand => {
-                        self.highlighter =
-                            Some(HighlightKind::Freehand(Highlighter::<FreehandHighlight> {
-                                data: FreehandHighlight {
-                                    start_point: event.pos,
-                                    points: vec![],
-                                },
-                                style: self.style,
-                            }))
-                    }
-                }
+                self.highlighter = Some(BlockHighlight {
+                    origin: event.pos,
+                    top_left: event.pos,
+                    size: Vec2D::zero(),
+                    centered: false,
+                    editing: true,
+                    style: self.style,
+                });
                 ToolUpdateResult::Redraw
             }
             MouseEventType::UpdateDrag | MouseEventType::EndDrag => {
@@ -326,63 +156,17 @@ impl Tool for HighlightTool {
                     return ToolUpdateResult::Unmodified;
                 }
 
-                if self.highlighter.is_none() {
+                let Some(highlighter) = &mut self.highlighter else {
                     return ToolUpdateResult::Unmodified;
-                }
-                let mut highlighter_kind = self.highlighter.as_mut().unwrap();
-                let update: ToolUpdateResult = match &mut highlighter_kind {
-                    HighlightKind::Block(highlighter) => {
-                        highlighter
-                            .data
-                            .calculate_shape(self.sender.as_ref().unwrap(), &event);
-                        ToolUpdateResult::Redraw
-                    }
-                    HighlightKind::Freehand(highlighter) => {
-                        if event.pos == Vec2D::zero() {
-                            return ToolUpdateResult::Unmodified;
-                        };
-
-                        // The freehand highlighter has a more complex shift model:
-                        // when pressing shift it begins a straight line, which is aligned
-                        // from the point after shift was pressed, to any 15*n degree rotation.
-                        //
-                        // After releasing shift, it creates an extra point, this is useful since
-                        // it means that users do not need to move their mouse to achieve perfectly
-                        // aligned turns, since they can release, then hold shift again to continue
-                        // another aligned line.
-                        // This extra point can be removed by releasing shift again (if the cursor
-                        // hasn't moved)
-                        let points = &mut highlighter.data.points;
-                        if shift_pressed {
-                            // use the last point to position the snapping guide, or 0 if the point
-                            // is the first one.
-                            if !points.is_empty() {
-                                points.pop();
-                            }
-                            let last = if points.is_empty() {
-                                Vec2D::zero()
-                            } else {
-                                *points.last().unwrap()
-                            };
-                            let snapped_pos = event.pos.sub(last).snapped_vector_15deg().add(last);
-                            points.push(snapped_pos);
-                        } else {
-                            points.push(event.pos);
-                        }
-
-                        ToolUpdateResult::Redraw
-                    }
                 };
+                highlighter.calculate_shape(self.sender.as_ref().unwrap(), &event);
 
                 if event.type_ == MouseEventType::UpdateDrag {
-                    return update;
+                    return ToolUpdateResult::Redraw;
                 }
 
-                if let HighlightKind::Block(highlighter) = &mut *highlighter_kind {
-                    highlighter.data.editing = false;
-                }
-
-                let result = highlighter_kind.clone_box();
+                highlighter.editing = false;
+                let result = highlighter.clone_box();
                 self.highlighter = None;
                 ToolUpdateResult::Commit(result)
             }
@@ -393,11 +177,11 @@ impl Tool for HighlightTool {
 
     fn handle_key_event(&mut self, event: crate::sketch_board::KeyEventMsg) -> ToolUpdateResult {
         if matches!(event.key, Key::Alt_L | Key::Alt_R)
-            && let Some(HighlightKind::Block(hb)) = &mut self.highlighter
+            && let Some(hb) = &mut self.highlighter
         {
-            hb.data.centered = true;
-            hb.data.top_left = hb.data.origin - hb.data.size;
-            hb.data.size *= 2.0;
+            hb.centered = true;
+            hb.top_left = hb.origin - hb.size;
+            hb.size *= 2.0;
 
             return ToolUpdateResult::Redraw;
         }
@@ -409,28 +193,14 @@ impl Tool for HighlightTool {
         event: crate::sketch_board::KeyEventMsg,
     ) -> ToolUpdateResult {
         if matches!(event.key, Key::Alt_L | Key::Alt_R)
-            && let Some(HighlightKind::Block(hb)) = &mut self.highlighter
+            && let Some(hb) = &mut self.highlighter
         {
-            hb.data.centered = false;
-            hb.data.top_left = hb.data.origin;
-            hb.data.size /= 2.0;
+            hb.centered = false;
+            hb.top_left = hb.origin;
+            hb.size /= 2.0;
 
             return ToolUpdateResult::Redraw;
         }
-
-        // Adds an extra point when shift is released in the freehand mode, this
-        // allows for users to make sharper turns. Release shift a second time
-        // to remove the added point (only if the cursor has not moved).
-        if (event.key == Key::Shift_L || event.key == Key::Shift_R)
-            && let Some(HighlightKind::Freehand(highlighter)) = &mut self.highlighter
-        {
-            // duplicate the last point to maintain the current segment
-            let points = &mut highlighter.data.points;
-            if !points.is_empty() {
-                points.push(*points.last().unwrap());
-                return ToolUpdateResult::Redraw;
-            };
-        };
         ToolUpdateResult::Unmodified
     }
 
