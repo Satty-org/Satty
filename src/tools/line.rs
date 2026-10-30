@@ -1,6 +1,6 @@
 use anyhow::Result;
-use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::ModifierType};
+use femtovg::{FontId, Paint, Path};
+use relm4::Sender;
 
 use crate::{
     math::Vec2D,
@@ -8,7 +8,7 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, Straight, Tool, ToolUpdateResult, Tools};
 
 #[derive(Default)]
 pub struct LineTool {
@@ -76,8 +76,16 @@ impl Drawable for Line {
     ) -> Result<()> {
         let mut path = Path::new();
         path.move_to(self.start.x, self.start.y);
-        path.line_to(self.end.x, self.end.y);
-        canvas.stroke_path(&path, &self.style.into());
+        let end = if self.start == self.end {
+            // also before the first move, when there are no points yet
+            // draw a point at start - a little bit hacky :-)
+            self.end + Vec2D::new(0.01, 0.0)
+        } else {
+            self.end
+        };
+        path.line_to(end.x, end.y);
+        let paint: Paint = self.style.into();
+        canvas.stroke_path(&path, &paint);
 
         Ok(())
     }
@@ -123,11 +131,7 @@ impl Tool for LineTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                            line.end = line.start + event.pos.snapped_vector_15deg();
-                        } else {
-                            line.end = line.start + event.pos;
-                        }
+                        line.end = line.start + Straight::apply(event.modifier, event.pos);
                         let result = line.clone_box();
                         self.line = None;
 
@@ -143,11 +147,7 @@ impl Tool for LineTool {
                 }
 
                 if let Some(line) = &mut self.line {
-                    if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                        line.end = line.start + event.pos.snapped_vector_15deg();
-                    } else {
-                        line.end = line.start + event.pos;
-                    }
+                    line.end = line.start + Straight::apply(event.modifier, event.pos);
                     if let Some(sender) = &self.sender {
                         sender
                             .send(SketchBoardInput::LineDimensionsUpdate(

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, LineJoin, Paint, Path};
-use relm4::{Sender, gtk::gdk::ModifierType};
+use relm4::Sender;
 
 use crate::{
     math::{Angle, Vec2D},
@@ -8,7 +8,7 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, Straight, Tool, ToolUpdateResult, Tools};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Arrow {
@@ -69,11 +69,7 @@ impl Tool for ArrowTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                            a.end = a.start + event.pos.snapped_vector_15deg();
-                        } else {
-                            a.end = a.start + event.pos;
-                        }
+                        a.end = a.start + Straight::apply(event.modifier, event.pos);
                         let result = a.clone_box();
                         self.arrow = None;
 
@@ -92,11 +88,7 @@ impl Tool for ArrowTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                        a.end = a.start + event.pos.snapped_vector_15deg();
-                    } else {
-                        a.end = a.start + event.pos;
-                    }
+                    a.end = a.start + Straight::apply(event.modifier, event.pos);
                     if let Some(sender) = &self.sender {
                         sender
                             .send(SketchBoardInput::LineDimensionsUpdate(a.end - a.start))
