@@ -283,21 +283,32 @@ pub enum Tools {
     #[default]
     Pointer,
     Crop,
+    Pen,
+    Highlighter,
+    Brush,
     Line,
     Arrow,
     Rectangle,
     Ellipse,
     Text,
     Marker,
-    Blur,
-    Pixelate,
     FringePixelate,
+    Pixelate,
     Fringe,
+    Blur,
+    Lensblur,
     Highlight,
-    Brush,
-    // NEXTRELEASE
+    Spotlight,
     Image,
-    HighlightFreehand,
+}
+
+// DEPRECATED, kept for compatibility with old command lines and config files
+#[derive(Debug, Deserialize, Clone, Copy, Default, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum Highlighters {
+    #[default]
+    Block,
+    Freehand,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -309,33 +320,29 @@ pub enum Action {
     Exit,
 }
 
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum Highlighters {
-    #[default]
-    Block,
-    Freehand,
-}
-
 impl std::fmt::Display for Tools {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Tools::*;
         let s = match self {
             Pointer => "pointer",
             Crop => "crop",
+            Pen => "pen",
+            Highlighter => "highlighter",
+            Brush => "brush",
             Line => "line",
             Arrow => "arrow",
             Rectangle => "rectangle",
             Ellipse => "ellipse",
             Text => "text",
             Marker => "marker",
-            Blur => "blur",
-            Pixelate => "pixelate",
             FringePixelate => "fringe-pixelate",
+            Pixelate => "pixelate",
             Fringe => "fringe",
+            Blur => "blur",
+            Lensblur => "lensblur",
             Highlight => "highlight",
-            Brush => "brush",
+            Spotlight => "spotlight",
             Image => "image",
-            HighlightFreehand => "freehand-highlight",
         };
         f.write_str(s)
     }

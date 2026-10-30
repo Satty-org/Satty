@@ -55,7 +55,7 @@ Modern Screenshot Annotation.
 `--initial-tool <TOOL>`
 :   Select the tool on startup
 
-    Possible values: `pointer`, `crop`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `blur`, `pixelate`, `fringe-pixelate`, `fringe`, `highlight`, `brush`, `image`, `highlight-freehand`
+    Possible values: `pointer`, `crop`, `pen`, `highlighter`, `brush`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `fringe-pixelate`, `pixelate`, `fringe`, `blur`, `lensblur`, `highlight`, `spotlight`, `image`
 
 `--copy-command <COPY_COMMAND>`
 :   Configure the command to be called on copy, for example `wl-copy`
