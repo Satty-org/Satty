@@ -1,6 +1,6 @@
 use anyhow::Result;
 use femtovg::{FontId, Path};
-use relm4::{Sender, gtk::gdk::ModifierType};
+use relm4::Sender;
 
 use crate::{
     math::Vec2D,
@@ -8,7 +8,7 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, Straight, Tool, ToolUpdateResult, Tools};
 
 #[derive(Default)]
 pub struct LineTool {
@@ -123,11 +123,7 @@ impl Tool for LineTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                            line.end = line.start + event.pos.snapped_vector_15deg();
-                        } else {
-                            line.end = line.start + event.pos;
-                        }
+                        line.end = line.start + Straight::apply(event.modifier, event.pos);
                         let result = line.clone_box();
                         self.line = None;
 
@@ -143,11 +139,7 @@ impl Tool for LineTool {
                 }
 
                 if let Some(line) = &mut self.line {
-                    if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                        line.end = line.start + event.pos.snapped_vector_15deg();
-                    } else {
-                        line.end = line.start + event.pos;
-                    }
+                    line.end = line.start + Straight::apply(event.modifier, event.pos);
                     if let Some(sender) = &self.sender {
                         sender
                             .send(SketchBoardInput::LineDimensionsUpdate(

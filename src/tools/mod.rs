@@ -19,6 +19,7 @@ use relm4::gtk::gdk_pixbuf::{
     prelude::{StaticVariantType, ToVariant},
 };
 
+use relm4::gtk::gdk::ModifierType;
 use relm4::gtk::glib::variant::FromVariant;
 use relm4::{
     Sender,
@@ -372,6 +373,39 @@ fn resize_line_bounds(tl: Vec2D, br: Vec2D, start_point: &mut Vec2D, points: &mu
         if flip_y { br.y } else { tl.y },
     );
     *start_point = origin + (*start_point - current_tl) * scale;
+}
+
+/// How a line or a segment is kept straight while a modifier is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Straight {
+    /// Shift: in steps of 15°
+    Angle15,
+    /// Ctrl: only horizontal
+    Horizontal,
+}
+
+impl Straight {
+    pub fn from_modifier(modifier: ModifierType) -> Option<Self> {
+        if modifier.contains(ModifierType::CONTROL_MASK) {
+            Some(Straight::Horizontal)
+        } else if modifier.contains(ModifierType::SHIFT_MASK) {
+            Some(Straight::Angle15)
+        } else {
+            None
+        }
+    }
+
+    pub fn snap(self, v: Vec2D) -> Vec2D {
+        match self {
+            Straight::Angle15 => v.snapped_vector_15deg(),
+            Straight::Horizontal => Vec2D::new(v.x, 0.0),
+        }
+    }
+
+    /// `v` kept straight as the modifiers in `modifier` ask for, else unchanged.
+    pub fn apply(modifier: ModifierType, v: Vec2D) -> Vec2D {
+        Self::from_modifier(modifier).map_or(v, |straight| straight.snap(v))
+    }
 }
 
 /// Hit test for the ellipse with the bounding box `top_left`, `size`.
