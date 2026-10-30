@@ -69,12 +69,7 @@ impl Pixelate {
         pos: Vec2D,
         size: Vec2D,
     ) -> Result<Option<(ImageId, Vec2D, Vec2D)>> {
-        let blocksize = self
-            .style
-            .size
-            .to_blocksize(self.style.annotation_size_factor);
-        // for testing
-        // let blocksize = self.style.annotation_size_factor.max(2.0) as usize;
+        let blocksize = self.style.size.at_least(2.0).round() as usize;
 
         // pos/size are pre-clamped in float space, but rounding pos and size
         // independently can push pos+size one pixel past the image edge, so
@@ -110,7 +105,7 @@ impl Pixelate {
             Img::new(b.into_owned(), width, height)
         };
 
-        let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::empty())?;
+        let dst_image_id = canvas.create_image(dest_img.as_ref(), ImageFlags::NEAREST)?;
         let paint_pos = Vec2D::new(pos_x as f32, pos_y as f32);
         let paint_size = Vec2D::new(width as f32, height as f32);
         Ok(Some((dst_image_id, paint_pos, paint_size)))
@@ -269,7 +264,7 @@ impl Drawable for Pixelate {
     }
 
     fn get_rendering_mode(&self) -> RenderingMode {
-        RenderingMode::Blur
+        RenderingMode::BlurOrPixelate
     }
 
     fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
@@ -300,9 +295,9 @@ impl Drawable for Pixelate {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
+    fn set_style(&mut self, style: Style) {
         *self.cached_image.borrow_mut() = None;
-        Some(&mut self.style)
+        self.style = style;
     }
 
     fn draw(
@@ -318,6 +313,7 @@ impl Drawable for Pixelate {
         &self,
         canvas: &mut Canvas<OpenGl>,
         image: &ImgVec<RGBA8>,
+        _background_image_id: femtovg::ImageId,
         _font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
@@ -339,7 +335,7 @@ impl Drawable for Pixelate {
                 paint_pos.y,
                 paint_size.x,
                 paint_size.y,
-                self.style.corner_radius(),
+                self.style.effective_corner_radius(),
             );
             canvas.fill_path(
                 &path,

@@ -25,7 +25,6 @@ pub struct MarkerTool {
 pub struct Marker {
     pos: Vec2D,
     number: u16,
-    extra_ring: bool,
     style: Style,
     // for bounding box cache circle radius from the last draw
     radius: Cell<f32>,
@@ -34,9 +33,7 @@ pub struct Marker {
 
 impl Marker {
     fn get_line_width(&self) -> f32 {
-        self.style
-            .size
-            .to_line_width(self.style.annotation_size_factor)
+        self.style.font_size() / 10.0
     }
 }
 
@@ -46,7 +43,8 @@ impl Drawable for Marker {
     }
 
     fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
-        let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 3.0 } else { 2.0 };
+        let r =
+            self.radius.get() + self.get_line_width() * if !self.style.fill { 3.0 } else { 2.0 };
         let r = Vec2D::new(r, r);
         Some((self.pos - r, self.pos + r))
     }
@@ -56,7 +54,8 @@ impl Drawable for Marker {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let r = self.radius.get() + self.get_line_width() * if self.extra_ring { 2.0 } else { 0.0 };
+        let r =
+            self.radius.get() + self.get_line_width() * if !self.style.fill { 2.0 } else { 0.0 };
         let d = (pos - self.pos) / (r + tolerance);
         d.norm2() <= 1.0
     }
@@ -69,8 +68,8 @@ impl Drawable for Marker {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
@@ -99,9 +98,9 @@ impl Drawable for Marker {
         let ring_offset = self.get_line_width();
 
         if delta_top <= -ring_offset || delta_bottom >= ring_offset {
-            self.extra_ring = true;
+            self.style.fill = false;
         } else if delta_top > ring_offset || delta_bottom < -ring_offset {
-            self.extra_ring = false;
+            self.style.fill = true;
         }
     }
 
@@ -125,12 +124,7 @@ impl Drawable for Marker {
         let mut paint = Paint::color(text_color);
 
         paint.set_font(&[font]);
-        paint.set_font_size(
-            (self
-                .style
-                .size
-                .to_text_size(self.style.annotation_size_factor)) as f32,
-        );
+        paint.set_font_size(self.style.font_size());
         paint.set_text_align(femtovg::Align::Center);
         paint.set_text_baseline(femtovg::Baseline::Middle);
 
@@ -142,36 +136,53 @@ impl Drawable for Marker {
         let circle_radius = text_metrics.width() * 0.5 + line_width * 1.5;
 
         let mut inner_circle_path = Path::new();
-        inner_circle_path.arc(
-            pos.x,
-            pos.y,
-            circle_radius,
-            0.0,
-            2.0 * PI as f32,
-            femtovg::Solidity::Solid,
-        );
+        if self.style.round_caps {
+            inner_circle_path.arc(
+                pos.x,
+                pos.y,
+                circle_radius,
+                0.0,
+                2.0 * PI as f32,
+                femtovg::Solidity::Solid,
+            );
+        } else {
+            inner_circle_path.rect(
+                pos.x - circle_radius,
+                pos.y - circle_radius,
+                circle_radius * 2.0,
+                circle_radius * 2.0,
+            );
+        }
 
-        let circle_paint = Paint::color(marker_color).with_line_width(line_width);
+        let circle_paint = Paint::color(self.style.paint_color()).with_line_width(line_width);
 
-        self.radius
-            .set(circle_radius + self.style.annotation_size_factor);
+        self.radius.set(circle_radius + 1.0);
 
         canvas.save();
 
         canvas.fill_path(&inner_circle_path, &circle_paint);
         canvas.stroke_path(&inner_circle_path, &circle_paint);
 
-        if self.extra_ring {
+        if !self.style.fill {
             let mut outer_ring_path = Path::new();
-            outer_ring_path.arc(
-                pos.x,
-                pos.y,
-                circle_radius + line_width * 2.0,
-                0.0,
-                2.0 * PI as f32,
-                femtovg::Solidity::Solid,
-            );
 
+            if self.style.round_caps {
+                outer_ring_path.arc(
+                    pos.x,
+                    pos.y,
+                    circle_radius + line_width * 2.0,
+                    0.0,
+                    2.0 * PI as f32,
+                    femtovg::Solidity::Solid,
+                );
+            } else {
+                outer_ring_path.rect(
+                    pos.x - (circle_radius + line_width * 2.0),
+                    pos.y - (circle_radius + line_width * 2.0),
+                    (circle_radius + line_width * 2.0) * 2.0,
+                    (circle_radius + line_width * 2.0) * 2.0,
+                );
+            }
             canvas.stroke_path(&outer_ring_path, &circle_paint);
         }
 
@@ -194,7 +205,7 @@ impl MarkerTool {
         if let Some(marker) = &mut self.marker
             && (event.key == Key::Alt_L || event.key == Key::Alt_R)
         {
-            marker.extra_ring = pressed;
+            marker.style.fill = !pressed;
             return ToolUpdateResult::RedrawAndStopPropagation;
         }
         ToolUpdateResult::Unmodified
@@ -238,11 +249,12 @@ impl Tool for MarkerTool {
         if event.button != MouseButton::Primary {
             return ToolUpdateResult::Unmodified;
         }
-        let font_size = self
-            .style
-            .size
-            .to_text_size(self.style.annotation_size_factor) as f32;
-        let extra_ring = event.modifier.contains(ModifierType::ALT_MASK);
+        let font_size = self.style.font_size();
+
+        let mut style = self.style;
+        if event.modifier.contains(ModifierType::ALT_MASK) {
+            style.fill = !style.fill;
+        }
 
         match event.type_ {
             MouseEventType::Click => {
@@ -250,10 +262,9 @@ impl Tool for MarkerTool {
                 self.marker = Some(Marker {
                     pos: event.pos,
                     number: *self.next_number.borrow(),
-                    style: self.style,
+                    style,
                     radius: Cell::new(font_size),
                     tool_next_number: self.next_number.clone(),
-                    extra_ring,
                 });
                 ToolUpdateResult::Redraw
             }

@@ -11,7 +11,7 @@ use satty_cli::command_line::LogLevel;
 use crate::configuration::{APP_CONFIG, Action, log_config_error};
 use crate::logging::log;
 use crate::sketch_board::KeyEventMsg;
-use crate::style::Size;
+use crate::style::SizePreset;
 use crate::tools::Tools;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +47,8 @@ pub enum ShortcutCommand {
     // bottom toolbar
     SelectColorIndex(u64),
     CycleSize,
-    SelectSize(Size),
-    FocusAnnotationSizeFactor,
+    SelectSize(SizePreset),
+    FocusSize,
     ToggleFill,
     ToggleRoundCaps,
 }
@@ -101,11 +101,11 @@ impl fmt::Display for ShortcutCommand {
             }
             ShortcutCommand::CycleSize => "cycle-size",
             ShortcutCommand::SelectSize(size) => match size {
-                Size::Small => "select-size:small",
-                Size::Medium => "select-size:medium",
-                Size::Large => "select-size:large",
+                SizePreset::Small => "select-size:small",
+                SizePreset::Medium => "select-size:medium",
+                SizePreset::Large => "select-size:large",
             },
-            ShortcutCommand::FocusAnnotationSizeFactor => "focus-annotation-size-factor",
+            ShortcutCommand::FocusSize => "focus-size",
             ShortcutCommand::ToggleFill => "toggle-fill",
             ShortcutCommand::ToggleRoundCaps => "toggle-round-caps",
         };
@@ -176,10 +176,10 @@ impl FromStr for ShortcutCommand {
                 Err(ParseCommandError)
             }
             "cycle-size" => Ok(ShortcutCommand::CycleSize),
-            "select-size:small" => Ok(ShortcutCommand::SelectSize(Size::Small)),
-            "select-size:medium" => Ok(ShortcutCommand::SelectSize(Size::Medium)),
-            "select-size:large" => Ok(ShortcutCommand::SelectSize(Size::Large)),
-            "focus-annotation-size-factor" => Ok(ShortcutCommand::FocusAnnotationSizeFactor),
+            "select-size:small" => Ok(ShortcutCommand::SelectSize(SizePreset::Small)),
+            "select-size:medium" => Ok(ShortcutCommand::SelectSize(SizePreset::Medium)),
+            "select-size:large" => Ok(ShortcutCommand::SelectSize(SizePreset::Large)),
+            "focus-size" => Ok(ShortcutCommand::FocusSize),
             "toggle-fill" => Ok(ShortcutCommand::ToggleFill),
             "toggle-round-caps" => Ok(ShortcutCommand::ToggleRoundCaps),
             _ => Err(ParseCommandError),
@@ -401,8 +401,10 @@ impl ShortcutRegistry {
         registry.add_key_binding("<Control>1", SC::Scale(0)); // fit to window
         registry.add_key_binding("<Control>z", SC::Undo);
         registry.add_key_binding("<Control>y", SC::Redo);
-        registry.add_key_binding("p", SC::SelectTool(Tools::Pointer));
+        registry.add_key_binding("v", SC::SelectTool(Tools::Pointer));
         registry.add_key_binding("c", SC::SelectTool(Tools::Crop));
+        registry.add_key_binding("p", SC::SelectTool(Tools::Pen));
+        registry.add_key_binding("h", SC::SelectTool(Tools::Highlighter));
         registry.add_key_binding("b", SC::SelectTool(Tools::Brush));
         registry.add_key_binding("i", SC::SelectTool(Tools::Line));
         registry.add_key_binding("z", SC::SelectTool(Tools::Arrow));
@@ -410,10 +412,12 @@ impl ShortcutRegistry {
         registry.add_key_binding("e", SC::SelectTool(Tools::Ellipse));
         registry.add_key_binding("t", SC::SelectTool(Tools::Text));
         registry.add_key_binding("m", SC::SelectTool(Tools::Marker));
-        registry.add_key_binding("u", SC::SelectTool(Tools::Blur));
-        registry.add_key_binding("g", SC::SelectTool(Tools::Highlight));
-        registry.add_key_binding("<Shift>g", SC::SelectTool(Tools::HighlightFreehand));
         registry.add_key_binding("x", SC::SelectTool(Tools::FringePixelate));
+        registry.add_key_binding("<Shift>x", SC::SelectTool(Tools::Blackout));
+        registry.add_key_binding("u", SC::SelectTool(Tools::Blur));
+        registry.add_key_binding("<Shift>u", SC::SelectTool(Tools::Lensblur));
+        registry.add_key_binding("g", SC::SelectTool(Tools::BlockHighlighter));
+        registry.add_key_binding("s", SC::SelectTool(Tools::HighlightSpotlight));
         registry.add_key_binding("o", SC::SelectTool(Tools::Image));
         registry.add_key_binding("<Control>c", SC::RunAction(A::SaveToClipboard));
         registry.add_key_binding("<Control><Alt>c", SC::RunAction(A::CopyFilepathToClipboard));
@@ -428,7 +432,7 @@ impl ShortcutRegistry {
         }
 
         registry.add_key_binding("minus", SC::CycleSize);
-        registry.add_key_binding("s", SC::FocusAnnotationSizeFactor);
+        registry.add_key_binding("w", SC::FocusSize);
         registry.add_key_binding("f", SC::ToggleFill);
         registry.add_key_binding("k", SC::ToggleRoundCaps);
 
