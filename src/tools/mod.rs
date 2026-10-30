@@ -174,6 +174,7 @@ pub struct GroupableTool {
     pub tool: Tools,
     pub icon_name: String,
     pub tooltip: Option<String>, // should be fine as long as there is no runtime shortcut editing
+    pub shortcut: Option<String>,
 }
 
 #[derive(Clone, Debug)]

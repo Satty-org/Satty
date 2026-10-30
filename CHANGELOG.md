@@ -22,6 +22,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - The size sets the opacity of the block highlighter, the darkness of the spotlight resp. the blur factor of lensblur. [804]
 - Blackout tool <kbd>Shift+X</kbd>, it blacks out the marked area. [806]
 - Marker tool uses style. [808]
+- Display shortcuts in the tool group menu. [#813]
 
 ### Changed
 
@@ -71,5 +72,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#806]: https://github.com/Satty-org/Satty/pull/806
 [#808]: https://github.com/Satty-org/Satty/pull/808
 [#810]: https://github.com/Satty-org/Satty/pull/810
+[#813]: https://github.com/Satty-org/Satty/pull/813
 
 <!-- --8<-- [end:changelog] -->
