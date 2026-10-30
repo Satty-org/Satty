@@ -69,8 +69,8 @@ impl Drawable for Marker {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {

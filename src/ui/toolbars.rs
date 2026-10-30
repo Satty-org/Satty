@@ -270,11 +270,23 @@ impl SimpleComponent for ToolsToolbar {
                 icon_name: "crop-filled".into(),
                 tooltip: None,
             }],
-            vec![GroupableTool {
-                tool: Tools::Brush,
-                icon_name: "pen-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::Pen,
+                    icon_name: "pen-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Highlighter,
+                    icon_name: "format-ink-highlighter".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Brush,
+                    icon_name: "brush-fill".into(),
+                    tooltip: None,
+                },
+            ],
             vec![
                 GroupableTool {
                     tool: Tools::Line,
@@ -330,16 +342,26 @@ impl SimpleComponent for ToolsToolbar {
                     icon_name: "drop-regular".into(),
                     tooltip: None,
                 },
-            ],
-            vec![
                 GroupableTool {
-                    tool: Tools::Highlight,
+                    tool: Tools::Blackout,
                     icon_name: "rectangle-landscape-filled".into(),
                     tooltip: None,
                 },
+            ],
+            vec![
                 GroupableTool {
-                    tool: Tools::HighlightFreehand,
+                    tool: Tools::BlockHighlighter,
                     icon_name: "highlight-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::HighlightSpotlight,
+                    icon_name: "flashlight-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Lensblur,
+                    icon_name: "lens-blur".into(),
                     tooltip: None,
                 },
             ],
