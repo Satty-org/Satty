@@ -1,5 +1,5 @@
 use anyhow::Result;
-use femtovg::{FontId, Path};
+use femtovg::{FontId, Paint, Path};
 use relm4::{Sender, gtk::gdk::Key};
 
 use crate::{
@@ -34,10 +34,7 @@ impl Drawable for Rectangle {
 
     fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
         // the border is always stroked, half of it outside
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
+        let line_width = self.style.line_width();
         Some(super::bounding_box_with_margin(
             self.top_left,
             self.top_left + self.size,
@@ -46,7 +43,14 @@ impl Drawable for Rectangle {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        hit_test_rectangle(pos, self.top_left, self.size, tolerance, self.style.fill)
+        let line_width = self.style.line_width();
+        hit_test_rectangle(
+            pos,
+            self.top_left,
+            self.size,
+            line_width / 2.0 + tolerance,
+            self.style.fill,
+        )
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -67,8 +71,8 @@ impl Drawable for Rectangle {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn draw(
@@ -83,13 +87,14 @@ impl Drawable for Rectangle {
             self.top_left.y,
             self.size.x,
             self.size.y,
-            self.style.corner_radius(),
+            self.style.effective_corner_radius(),
         );
 
+        let paint = Paint::from(self.style);
         if self.style.fill {
-            canvas.fill_path(&path, &self.style.into());
+            canvas.fill_path(&path, &paint);
         }
-        canvas.stroke_path(&path, &self.style.into());
+        canvas.stroke_path(&path, &paint);
 
         if self.editing && self.centered {
             draw_center_marker(canvas, self.origin);

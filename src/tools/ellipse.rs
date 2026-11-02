@@ -32,10 +32,7 @@ impl Drawable for Ellipse {
 
     fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
         // the border is always stroked, half of it outside
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
+        let line_width = self.style.line_width();
         Some(super::bounding_box_with_margin(
             self.top_left,
             self.top_left + self.size,
@@ -48,6 +45,8 @@ impl Drawable for Ellipse {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
+        let line_width = self.style.line_width();
+        let tolerance = tolerance + line_width / 2.0;
         hit_test_ellipse(pos, self.top_left, self.size, tolerance, self.style.fill)
     }
 
@@ -68,8 +67,8 @@ impl Drawable for Ellipse {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn draw(

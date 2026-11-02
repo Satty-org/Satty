@@ -1,6 +1,6 @@
 use anyhow::Result;
-use femtovg::{FontId, LineJoin, Paint, Path};
-use relm4::{Sender, gtk::gdk::ModifierType};
+use femtovg::{FontId, Paint, Path};
+use relm4::Sender;
 
 use crate::{
     math::{Angle, Vec2D},
@@ -8,7 +8,7 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, Straight, Tool, ToolUpdateResult, Tools};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Arrow {
@@ -69,11 +69,7 @@ impl Tool for ArrowTool {
 
                         ToolUpdateResult::Redraw
                     } else {
-                        if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                            a.end = a.start + event.pos.snapped_vector_15deg();
-                        } else {
-                            a.end = a.start + event.pos;
-                        }
+                        a.end = a.start + Straight::apply(event.modifier, event.pos);
                         let result = a.clone_box();
                         self.arrow = None;
 
@@ -92,11 +88,7 @@ impl Tool for ArrowTool {
                     if event.pos == Vec2D::zero() {
                         return ToolUpdateResult::Unmodified;
                     }
-                    if event.modifier.intersects(ModifierType::SHIFT_MASK) {
-                        a.end = a.start + event.pos.snapped_vector_15deg();
-                    } else {
-                        a.end = a.start + event.pos;
-                    }
+                    a.end = a.start + Straight::apply(event.modifier, event.pos);
                     if let Some(sender) = &self.sender {
                         sender
                             .send(SketchBoardInput::LineDimensionsUpdate(a.end - a.start))
@@ -129,6 +121,17 @@ impl Tool for ArrowTool {
     }
 }
 
+impl Arrow {
+    /// The length of the sloped side of the head.
+    fn head_length(&self) -> f32 {
+        self.style.line_width() * 6.0
+    }
+
+    fn tail_width(&self) -> f32 {
+        self.style.line_width() * 2.0
+    }
+}
+
 impl Drawable for Arrow {
     fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some((self.start, self.end))
@@ -138,13 +141,9 @@ impl Drawable for Arrow {
         // A conservative box, see draw() for the geometry: head and tail are at
         // most half of their width away from the line from start to end, and
         // the head of a short arrow reaches back behind start.
-        let size_factor = self.style.annotation_size_factor;
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
-        let head_length = self.style.size.to_arrow_head_length(size_factor);
-        let tail_width = self.style.size.to_arrow_tail_width(size_factor);
+        let line_width = self.style.line_width();
+        let head_length = self.head_length();
+        let tail_width = self.tail_width();
         let offset = self.end - self.start;
         let length = offset.norm();
         let head_depth = head_length * Angle::from_degrees(30.0).radians.cos();
@@ -163,7 +162,8 @@ impl Drawable for Arrow {
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        pos.distance_to_segment(self.start, self.end) <= tolerance
+        let line_width = self.style.line_width();
+        pos.distance_to_segment(self.start, self.end) <= tolerance + line_width / 2.0
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -180,8 +180,8 @@ impl Drawable for Arrow {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn draw(
@@ -225,9 +225,7 @@ impl Drawable for Arrow {
         let round_caps = self.style.round_caps;
 
         let line_width = if round_caps || !self.style.fill {
-            self.style
-                .size
-                .to_line_width(self.style.annotation_size_factor)
+            self.style.line_width()
         } else {
             0.0
         };
@@ -243,18 +241,10 @@ impl Drawable for Arrow {
         canvas.rotate(arrow_direction.angle().radians);
 
         // The width of the tail (double distance from start to head side)
-        let tail_width = self
-            .style
-            .size
-            .to_arrow_tail_width(self.style.annotation_size_factor)
-            - line_width;
+        let tail_width = self.tail_width() - line_width;
 
         // The length of the (sloped) side of the arrow head (distance from end to head side).
-        let head_side_length = self
-            .style
-            .size
-            .to_arrow_head_length(self.style.annotation_size_factor)
-            - line_width;
+        let head_side_length = self.head_length() - line_width;
 
         // The offset of the midpoint is the distance the midpoint moves toward the end of the arrow.
         // A offset of 0 will place the midpoint right below the head side.
@@ -293,7 +283,7 @@ impl Drawable for Arrow {
 
             if round_caps {
                 let mut paint: Paint = self.style.into();
-                paint.set_line_join(LineJoin::Round);
+                paint.set_line_join(femtovg::LineJoin::Round);
                 // paint.set_color(femtovg::Color::white()); // to debug
                 canvas.stroke_path(&path, &paint);
                 canvas.fill_path(&path, &self.style.into());

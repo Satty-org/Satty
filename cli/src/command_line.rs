@@ -66,10 +66,11 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',', num_args=0.., default_missing_value = "all")]
     pub early_exit: Option<Vec<EarlyExitTriggers>>,
 
-    /// Draw corners of rectangles round if the value is greater than 0
+    /// Radius of the rounded corners of rectangles in pixels
     /// (Defaults to 12) (0 disables rounded corners)
-    #[arg(long)]
-    pub corner_roundness: Option<f32>,
+    /// (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
+    #[arg(long, visible_alias = "corner-roundness")]
+    pub corner_radius: Option<f32>,
 
     /// Select the tool on startup
     #[arg(long, value_name = "TOOL", visible_alias = "init-tool")]
@@ -79,7 +80,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub copy_command: Option<String>,
 
-    /// Increase or decrease the size of the annotations
+    /// Scale style size of tools using line width
     #[arg(long)]
     pub annotation_size_factor: Option<f32>,
 
@@ -283,21 +284,33 @@ pub enum Tools {
     #[default]
     Pointer,
     Crop,
+    Pen,
+    Highlighter,
+    Brush,
     Line,
     Arrow,
     Rectangle,
     Ellipse,
     Text,
     Marker,
-    Blur,
-    Pixelate,
     FringePixelate,
+    Pixelate,
     Fringe,
+    Blur,
+    Blackout,
     Highlight,
-    Brush,
-    // NEXTRELEASE
+    Spotlight,
+    Lensblur,
     Image,
-    HighlightFreehand,
+}
+
+// DEPRECATED, kept for compatibility with old command lines and config files
+#[derive(Debug, Deserialize, Clone, Copy, Default, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum Highlighters {
+    #[default]
+    Block,
+    Freehand,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -309,33 +322,30 @@ pub enum Action {
     Exit,
 }
 
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum Highlighters {
-    #[default]
-    Block,
-    Freehand,
-}
-
 impl std::fmt::Display for Tools {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Tools::*;
         let s = match self {
             Pointer => "pointer",
             Crop => "crop",
+            Pen => "pen",
+            Highlighter => "highlighter",
+            Brush => "brush",
             Line => "line",
             Arrow => "arrow",
             Rectangle => "rectangle",
             Ellipse => "ellipse",
             Text => "text",
             Marker => "marker",
-            Blur => "blur",
-            Pixelate => "pixelate",
             FringePixelate => "fringe-pixelate",
+            Pixelate => "pixelate",
             Fringe => "fringe",
+            Blur => "blur",
+            Blackout => "blackout",
             Highlight => "highlight",
-            Brush => "brush",
+            Spotlight => "spotlight",
+            Lensblur => "lensblur",
             Image => "image",
-            HighlightFreehand => "freehand-highlight",
         };
         f.write_str(s)
     }

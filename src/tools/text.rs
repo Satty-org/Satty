@@ -23,6 +23,7 @@ use crate::{
 
 use super::{Drawable, DrawableClone, InputContext, Tool, ToolUpdateResult, Tools};
 use crate::sketch_board::SketchBoardInput;
+use crate::ui::toolbars::ToolbarEvent;
 use relm4::Sender;
 use relm4::gtk::gdk::DisplayManager;
 use std::cell::RefCell;
@@ -43,10 +44,10 @@ enum DecorationKind {
     Shadow { offset: Vec2D },
 }
 
-/// Decorative text effect, cycled through with the Alt key.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Decorative text effect, cycled through with the Alt key. It is stored in
+/// the fill and round caps of the style, see `from_style`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TextEffect {
-    #[default]
     None,
     Inverted,
     Contrast,
@@ -54,6 +55,25 @@ enum TextEffect {
 }
 
 impl TextEffect {
+    fn from_style(style: &Style) -> Self {
+        match (style.fill, style.round_caps) {
+            (false, true) => Self::None,
+            (true, false) => Self::Inverted,
+            (true, true) => Self::Contrast,
+            (false, false) => Self::Shadow,
+        }
+    }
+
+    /// fill and round caps of the style for this effect
+    fn style_flags(self) -> (bool, bool) {
+        match self {
+            Self::None => (false, true),
+            Self::Inverted => (true, false),
+            Self::Contrast => (true, true),
+            Self::Shadow => (false, false),
+        }
+    }
+
     fn next(self) -> Self {
         match self {
             Self::None => Self::Inverted,
@@ -103,7 +123,6 @@ pub struct Text {
     line_ranges: RefCell<Vec<Range<usize>>>,
     cursor_visible: RefCell<bool>,
     draw_rect: RefCell<bool>,
-    effect: TextEffect,
     font_ids: Vec<FontId>,
 }
 
@@ -123,7 +142,6 @@ impl Clone for Text {
             line_ranges: self.line_ranges.clone(),
             cursor_visible: self.cursor_visible.clone(),
             draw_rect: self.draw_rect.clone(),
-            effect: self.effect,
             font_ids: self.font_ids.clone(),
         }
     }
@@ -153,6 +171,13 @@ struct CursorMetrics {
 }
 
 impl Text {
+    /// The paint for the glyphs, the opacity is used for the background.
+    fn text_paint(&self) -> Paint {
+        let mut paint = Paint::from(self.style);
+        paint.set_color(self.style.color.into());
+        paint
+    }
+
     fn new(pos: Vec2D, style: Style, im_context: Option<InputContext>) -> Self {
         let text_buffer = TextBuffer::new(None);
         text_buffer.set_enable_undo(true);
@@ -169,7 +194,6 @@ impl Text {
             line_ranges: RefCell::new(Vec::new()),
             cursor_visible: RefCell::new(true),
             draw_rect: RefCell::new(true),
-            effect: TextEffect::default(),
             font_ids: femtovg_area::font_stack().to_vec(),
         }
     }
@@ -309,8 +333,8 @@ impl Drawable for Text {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn draw(
@@ -324,7 +348,7 @@ impl Drawable for Text {
         let display = self.display_text(base_text);
         let text = display.text.as_ref();
 
-        let mut base_paint: Paint = self.style.into();
+        let mut base_paint = self.text_paint();
         base_paint.set_font(&[font]);
 
         if self.font_ids.is_empty() {
@@ -492,12 +516,27 @@ impl Drawable for Text {
             canvas.stroke_path(&rect_paint, &paint);
         }
 
+        // background in the contrast color, its opacity is the one of the style
+        if self.style.opacity > 0.0 && wh.x > 0.0 && wh.y > 0.0 {
+            let padding = self.style.font_size() * 0.15;
+            let mut background = Path::new();
+            background.rounded_rect(
+                tl.x - padding,
+                tl.y - padding,
+                wh.x + 2.0 * padding,
+                wh.y + 2.0 * padding,
+                self.style.corner_radius,
+            );
+            let mut color: Color = self.style.color.contrast().into();
+            color.a *= self.style.opacity / 100.0;
+            canvas.fill_path(&background, &Paint::color(color));
+        }
+
         // Decoration drawn behind the fill: an outline strokes each line (widened
         // because the stroke is centered and half-hidden by the fill), a shadow fills
         // an offset duplicate.
-        let decoration_paint = self
-            .effect
-            .decoration(self.style.color, base_paint.line_width())
+        let decoration_paint = TextEffect::from_style(&self.style)
+            .decoration(self.style.color, self.style.font_size() / 10.0)
             .map(|dec| {
                 let mut paint = base_paint.clone();
                 paint.set_color(dec.color.into());
@@ -639,7 +678,7 @@ impl Text {
                 }
 
                 if let Some(color) = span.foreground {
-                    let mut overlay_paint: Paint = self.style.into();
+                    let mut overlay_paint = self.text_paint();
                     overlay_paint.set_font(&[font]);
                     overlay_paint.set_color(color.into());
                     for (start_x, end_x) in &segments {
@@ -842,7 +881,7 @@ impl Text {
         let (cursor_x, cursor_top) = self.caret_top_left(canvas, context, cursor_byte_pos, cursor);
         let caret_height = cursor.line_height;
 
-        let mut caret_paint: Paint = self.style.into();
+        let mut caret_paint = self.text_paint();
         caret_paint.set_font(&[font]);
 
         let extra_height = caret_height * 0.1;
@@ -1311,9 +1350,20 @@ impl Tool for TextTool {
             && event.modifier == ModifierType::ALT_MASK
         {
             self.alt_tap = false;
-            if let Some(t) = &mut self.text {
-                t.effect = t.effect.next();
-                return ToolUpdateResult::RedrawAndStopPropagation;
+            if let Some(t) = &self.text {
+                // toggle like the toolbar does, so it shows the new style
+                let (fill, round_caps) = TextEffect::from_style(&t.style).next().style_flags();
+                if let Some(sender) = &self.sender {
+                    if fill != t.style.fill {
+                        sender.emit(SketchBoardInput::ToolbarEvent(ToolbarEvent::ToggleFill));
+                    }
+                    if round_caps != t.style.round_caps {
+                        sender.emit(SketchBoardInput::ToolbarEvent(
+                            ToolbarEvent::ToggleRoundCaps,
+                        ));
+                    }
+                }
+                return ToolUpdateResult::StopPropagation;
             }
         }
         ToolUpdateResult::Unmodified
@@ -2102,5 +2152,17 @@ mod tests {
         tool.handle_redo();
         assert_eq!(content(edited_text(&tool)), "before after");
         assert_eq!(content(&original), "before");
+    }
+
+    #[test]
+    fn text_effect_round_trips_through_style() {
+        let mut style = Style::default();
+        let mut effect = TextEffect::None;
+        for _ in 0..4 {
+            (style.fill, style.round_caps) = effect.style_flags();
+            assert_eq!(TextEffect::from_style(&style), effect);
+            effect = effect.next();
+        }
+        assert_eq!(effect, TextEffect::None);
     }
 }

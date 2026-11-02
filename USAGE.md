@@ -49,19 +49,19 @@ Modern Screenshot Annotation.
 
     Possible values: `all`, `copy`, `save`, `save-as`
 
-`--corner-roundness <CORNER_ROUNDNESS>`
-:   Draw corners of rectangles round if the value is greater than 0 (Defaults to 12) (0 disables rounded corners)
+`--corner-radius <CORNER_RADIUS>`
+:   Radius of the rounded corners of rectangles in pixels (Defaults to 12) (0 disables rounded corners) (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
 
 `--initial-tool <TOOL>`
 :   Select the tool on startup
 
-    Possible values: `pointer`, `crop`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `blur`, `pixelate`, `fringe-pixelate`, `fringe`, `highlight`, `brush`, `image`, `highlight-freehand`
+    Possible values: `pointer`, `crop`, `pen`, `highlighter`, `brush`, `line`, `arrow`, `rectangle`, `ellipse`, `text`, `marker`, `fringe-pixelate`, `pixelate`, `fringe`, `blur`, `blackout`, `highlight`, `spotlight`, `lensblur`, `image`
 
 `--copy-command <COPY_COMMAND>`
 :   Configure the command to be called on copy, for example `wl-copy`
 
 `--annotation-size-factor <ANNOTATION_SIZE_FACTOR>`
-:   Increase or decrease the size of the annotations
+:   Scale style size of tools using line width
 
 `--save-after-copy`
 :   After copying the screenshot, save it to a file as well
