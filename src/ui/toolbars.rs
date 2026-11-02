@@ -264,27 +264,46 @@ impl SimpleComponent for ToolsToolbar {
                 tool: Tools::Pointer,
                 icon_name: "cursor-regular".into(),
                 tooltip: None,
+                shortcut: None,
             }],
             vec![GroupableTool {
                 tool: Tools::Crop,
                 icon_name: "crop-filled".into(),
                 tooltip: None,
+                shortcut: None,
             }],
-            vec![GroupableTool {
-                tool: Tools::Brush,
-                icon_name: "pen-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::Pen,
+                    icon_name: "pen-regular".into(),
+                    tooltip: None,
+                    shortcut: None,
+                },
+                GroupableTool {
+                    tool: Tools::Highlighter,
+                    icon_name: "format-ink-highlighter".into(),
+                    tooltip: None,
+                    shortcut: None,
+                },
+                GroupableTool {
+                    tool: Tools::Brush,
+                    icon_name: "brush-fill".into(),
+                    tooltip: None,
+                    shortcut: None,
+                },
+            ],
             vec![
                 GroupableTool {
                     tool: Tools::Line,
                     icon_name: "minus-large".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
                 GroupableTool {
                     tool: Tools::Arrow,
                     icon_name: "arrow-up-right-filled".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
             ],
             vec![
@@ -292,61 +311,84 @@ impl SimpleComponent for ToolsToolbar {
                     tool: Tools::Rectangle,
                     icon_name: "checkbox-unchecked-regular".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
                 GroupableTool {
                     tool: Tools::Ellipse,
                     icon_name: "circle-regular".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
             ],
             vec![GroupableTool {
                 tool: Tools::Text,
                 icon_name: "text-case-title-regular".into(),
                 tooltip: None,
+                shortcut: None,
             }],
             vec![GroupableTool {
                 tool: Tools::Marker,
                 icon_name: "number-circle-1-regular".into(),
                 tooltip: None,
+                shortcut: None,
             }],
             vec![
                 GroupableTool {
                     tool: Tools::FringePixelate,
                     icon_name: "eye-off-regular".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
                 GroupableTool {
                     tool: Tools::Pixelate,
                     icon_name: "checkerboard".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
                 GroupableTool {
                     tool: Tools::Fringe,
                     icon_name: "tetris-app-regular".into(),
                     tooltip: None,
+                    shortcut: None,
                 },
                 GroupableTool {
                     tool: Tools::Blur,
                     icon_name: "drop-regular".into(),
                     tooltip: None,
+                    shortcut: None,
+                },
+                GroupableTool {
+                    tool: Tools::Blackout,
+                    icon_name: "rectangle-landscape-filled".into(),
+                    tooltip: None,
+                    shortcut: None,
                 },
             ],
             vec![
                 GroupableTool {
-                    tool: Tools::Highlight,
-                    icon_name: "rectangle-landscape-filled".into(),
-                    tooltip: None,
-                },
-                GroupableTool {
-                    tool: Tools::HighlightFreehand,
+                    tool: Tools::BlockHighlighter,
                     icon_name: "highlight-regular".into(),
                     tooltip: None,
+                    shortcut: None,
+                },
+                GroupableTool {
+                    tool: Tools::HighlightSpotlight,
+                    icon_name: "flashlight-regular".into(),
+                    tooltip: None,
+                    shortcut: None,
+                },
+                GroupableTool {
+                    tool: Tools::Lensblur,
+                    icon_name: "lens-blur".into(),
+                    tooltip: None,
+                    shortcut: None,
                 },
             ],
             vec![GroupableTool {
                 tool: Tools::Image,
                 icon_name: "image-regular".into(),
                 tooltip: None,
+                shortcut: None,
             }],
         ];
 
@@ -359,10 +401,9 @@ impl SimpleComponent for ToolsToolbar {
         let mut guard = tool_buttons.guard();
         for mut tg in tools {
             for g in &mut tg {
-                g.tooltip = Some(get_hint(
-                    &shortcut_registry,
-                    ShortcutCommand::SelectTool(g.tool),
-                ));
+                let command = ShortcutCommand::SelectTool(g.tool);
+                g.tooltip = Some(get_hint(&shortcut_registry, command));
+                g.shortcut = shortcut_registry.get_binding_for_command(command);
             }
             let init = ToolGroupInit {
                 group: tg,

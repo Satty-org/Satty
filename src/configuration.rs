@@ -11,10 +11,9 @@ use thiserror::Error;
 use xdg::{BaseDirectories, BaseDirectoriesError};
 
 use crate::logging::log;
-use crate::tools::Highlighters;
 use satty_cli::command_line::{
-    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, LogLevel,
-    NotificationThumbnail, Resize,
+    Action as CommandLineAction, CommandLine, EarlyExitTriggers, Fullscreen, Highlighters,
+    LogLevel, NotificationThumbnail, Resize,
 };
 
 pub static APP_CONFIG: SharedState<Configuration> = SharedState::new();

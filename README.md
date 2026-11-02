@@ -140,7 +140,7 @@ The bindings are:
 - Holding <kbd>Ctrl</kbd> will switch to 1.0 step size
 - Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 1.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
-- <kbd>s</kbd> focuses the annotation size factor input field
+- <kbd>w</kbd> focuses the annotation size factor input field <sup>NEXTRELEASE</sup>
 - <kbd>-</kbd> cycles through the sizes small, medium and large <sup>NEXTRELEASE</sup>
 
 #### Fill and Round Caps <sup>NEXTRELEASE</sup>
@@ -152,19 +152,23 @@ The bindings are:
 
 Default shortcuts:
 
-- <kbd>p</kbd>: Pointer tool
+- <kbd>v</kbd>: Pointer tool <sup>NEXTRELEASE</sup>
 - <kbd>c</kbd>: Crop tool
-- <kbd>b</kbd>: Brush tool
+- <kbd>p</kbd>: Pen tool (hard edges = old brush) <sup>NEXTRELEASE</sup>
+- <kbd>h</kbd>: Highlighter tool <sup>NEXTRELEASE</sup>
+- <kbd>b</kbd>: Brush tool (soft edges) <sup>NEXTRELEASE</sup>
 - <kbd>i</kbd>: Line tool
 - <kbd>z</kbd>: Arrow tool
 - <kbd>r</kbd>: Rectangle tool
 - <kbd>e</kbd>: Ellipse tool
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
+- <kbd>x</kbd>: Fringe inpaint+Pixelate tool <sup>NEXTRELEASE</sup>
 - <kbd>u</kbd>: Blur tool
-- <kbd>x</kbd>: Fringe inpaint+Pixelate tool
+- <kbd>Shift+X</kbd>: Blackout tool <sup>NEXTRELEASE</sup>
 - <kbd>g</kbd>: Block Highlight tool
-- <kbd>Shift+G</kbd>: Freehand Highlight tool
+- <kbd>s</kbd>: Spotlight tool <sup>NEXTRELEASE</sup>
+- <kbd>Shift+U</kbd>: Lensblur tool <sup>NEXTRELEASE</sup>
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
@@ -229,16 +233,17 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 
 ### Tool Modifiers and Keys
 
-Arrow and line:
+Pen, Brush, Highlighter, Line and Arrow:
 
-- <kbd>Shift</kbd> to make tool snap to 15° steps.
+- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. (for Pen, Brush and Highlighter in <sup>NEXTRELEASE</sup>)
+- <kbd>Ctrl</kbd> for a horizontal line. <sup>NEXTRELEASE</sup>
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
+Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, blur <sup>0.22.0</sup>, lensblur <sup>NEXTRELASE</sup>, highlight block<sup>0.22.0</sup>, spotlight<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
 
 - <kbd>Alt</kbd> to center the tool around origin.
 - <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
 - Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>NEXTRELEASE</sup>
-- Hold mutiple to combine them.
+- Hold multiple to combine them.
 
 Text:
 
@@ -260,10 +265,6 @@ Marker:
 
 - Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
 
-Brush:
-
-- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. <sup>NEXTRELEASE</sup>
-
 Highlight:
 
 - Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below). Removed in favour of distinct tool variants <sup>NEXTRELEASE</sup>
@@ -271,7 +272,7 @@ Highlight:
 
 Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <sup>NEXTRELEASE</sup>:
 
-- **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead.
+- **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead, e.g. the blackout tool.
 - **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
 <!-- --8<-- [end:tools] -->
 
