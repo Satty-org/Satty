@@ -1,7 +1,8 @@
 use std::time::Instant;
 
 use super::SelectionType;
-use femtovg::{FontId, LineCap, LineJoin, Paint, Path};
+use femtovg::{Color, FontId, LineJoin, Paint, Path};
+use serde::Deserialize;
 
 use crate::{
     configuration::APP_CONFIG,
@@ -10,20 +11,40 @@ use crate::{
     style::Style,
 };
 
-use super::{Drawable, DrawableClone, Tool, ToolUpdateResult, Tools};
+use super::{Drawable, DrawableClone, Straight, Tool, ToolUpdateResult, Tools};
 use relm4::Sender;
-use relm4::gtk::gdk::{Key, ModifierType};
+use relm4::gtk::gdk::Key;
+
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BrushMode {
+    #[default]
+    Pen,
+    Highlighter,
+    Brush,
+}
 
 #[derive(Default)]
 pub struct BrushTool {
+    mode: BrushMode,
     drawable: Option<BrushDrawable>,
     style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
 }
 
+impl BrushTool {
+    pub fn with_mode(mode: BrushMode) -> Self {
+        Self {
+            mode,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BrushDrawable {
+    mode: BrushMode,
     // The start point of the brush stroke this is relative to canvas
     // after this the points are relative to the start point
     start_point: Vec2D,
@@ -33,48 +54,62 @@ pub struct BrushDrawable {
 }
 
 impl BrushDrawable {
-    fn add_point(&mut self, point: Vec2D, shift_pressed: bool) {
-        if !shift_pressed {
+    fn add_point(&mut self, point: Vec2D, straight: Option<Straight>) {
+        let Some(straight) = straight else {
             self.points.push(self.smoother.update(point));
             return;
-        }
-        if shift_pressed && !self.points.is_empty() {
-            self.points.pop();
-        }
-        let anchor = if self.points.is_empty() {
-            Vec2D::zero()
-        } else {
-            *self.points.last().unwrap()
         };
-        self.points
-            .push(anchor + (point - anchor).snapped_vector_15deg());
+        // the straight segment replaces its end point while it is drawn
+        self.points.pop();
+        let anchor = self.points.last().copied().unwrap_or_else(Vec2D::zero);
+        self.points.push(anchor + straight.snap(point - anchor));
+    }
+
+    // a single segment is handled like a line: its bounds are start and end
+    fn is_line(&self) -> bool {
+        self.points.len() == 1
+    }
+
+    fn line_width(&self) -> f32 {
+        let size_factor = self.style.annotation_size_factor;
+        if self.mode == BrushMode::Highlighter {
+            self.style.size.to_highlight_width(size_factor)
+        } else {
+            self.style.size.to_line_width(size_factor)
+        }
     }
 }
 
 impl Drawable for BrushDrawable {
     fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
+        if self.is_line() {
+            return Some((self.start_point, self.start_point + self.points[0]));
+        }
         Some(super::calculate_line_bounds(self.start_point, &self.points))
     }
 
     fn get_bounding_box(&self) -> Option<(Vec2D, Vec2D)> {
         let (tl, br) = super::calculate_line_bounds(self.start_point, &self.points);
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
-        Some(super::bounding_box_with_margin(tl, br, line_width / 2.0))
+        let line_width = self.line_width();
+        // round and butt caps and the round joins stay within half the width
+        let mut margin = line_width / 2.0;
+        if self.mode == BrushMode::Brush {
+            // the soft edge, see draw()
+            margin += line_width.min(16.0);
+        }
+        Some(super::bounding_box_with_margin(tl, br, margin))
     }
 
     fn get_selection_type(&self) -> SelectionType {
-        SelectionType::BoundingBoxAllHandles
+        if self.is_line() {
+            SelectionType::Line
+        } else {
+            SelectionType::BoundingBoxAllHandles
+        }
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let line_width = self
-            .style
-            .size
-            .to_line_width(self.style.annotation_size_factor);
-        let tolerance = tolerance + line_width / 2.0;
+        let tolerance = tolerance + self.line_width() / 2.0;
         super::hit_test_line(pos, self.start_point, &self.points, tolerance)
     }
 
@@ -83,6 +118,12 @@ impl Drawable for BrushDrawable {
     }
 
     fn resize(&mut self, tl: Vec2D, br: Vec2D, _keep_aspect: bool) {
+        if self.is_line() {
+            // points are relative to the start point
+            self.start_point = tl;
+            self.points[0] = br - tl;
+            return;
+        }
         super::resize_line_bounds(tl, br, &mut self.start_point, &mut self.points);
     }
 
@@ -90,8 +131,8 @@ impl Drawable for BrushDrawable {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
     }
 
     fn draw(
@@ -100,23 +141,49 @@ impl Drawable for BrushDrawable {
         _font: FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> anyhow::Result<()> {
-        if self.points.is_empty() {
-            return Ok(());
-        }
-
         let mut path = Path::new();
         let start_point = self.start_point;
         path.move_to(start_point.x, start_point.y);
-        for p in self.points.iter() {
-            path.line_to(start_point.x + p.x, start_point.y + p.y);
+        if self.points.iter().all(|p| *p == Vec2D::zero()) {
+            // also before the first move, when there are no points yet
+            // draw a point at start - a little bit hacky :-)
+            path.line_to(start_point.x + 0.01, start_point.y);
+        } else {
+            for p in self.points.iter() {
+                path.line_to(start_point.x + p.x, start_point.y + p.y);
+            }
         }
 
-        canvas.stroke_path(
-            &path,
-            &Paint::from(self.style)
-                .with_line_cap(LineCap::Round)
-                .with_line_join(LineJoin::Round),
-        );
+        let mut paint = Paint::from(self.style).with_line_join(LineJoin::Round);
+
+        if self.mode == BrushMode::Highlighter {
+            paint.set_color(Color::rgba(
+                self.style.color.r,
+                self.style.color.g,
+                self.style.color.b,
+                (255.0 * self.style.highlight_alpha()) as u8,
+            ));
+            paint.set_line_width(self.line_width());
+        }
+
+        canvas.save();
+        if self.mode == BrushMode::Brush {
+            // soft edge: blurred shadow in the stroke color under the stroke;
+            // femtovg's blur is exact only up to 16, larger values get clamped
+            let blur = self.line_width().min(16.0);
+            canvas.set_shadow_color(self.style.color.into());
+            canvas.set_shadow_blur(blur);
+            canvas.set_shadow_offset(0.0, 0.0);
+            paint.set_color(Color::rgba(
+                self.style.color.r,
+                self.style.color.g,
+                self.style.color.b,
+                (255.0 * 0.8) as u8,
+            ));
+        }
+        canvas.stroke_path(&path, &paint);
+        canvas.restore();
+
         Ok(())
     }
 }
@@ -131,7 +198,11 @@ impl Tool for BrushTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        Tools::Brush
+        match self.mode {
+            BrushMode::Pen => Tools::Pen,
+            BrushMode::Highlighter => Tools::Highlighter,
+            BrushMode::Brush => Tools::Brush,
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
@@ -155,12 +226,12 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 };
 
-                let shift_pressed = event.modifier.contains(ModifierType::SHIFT_MASK);
-                brush.add_point(event.pos, shift_pressed);
+                let straight = Straight::from_modifier(event.modifier);
+                brush.add_point(event.pos, straight);
 
-                // with shift the last segment is straight, show its dimensions;
+                // with Shift or Ctrl the last segment is straight, show its dimensions;
                 // points are relative to the start point
-                if shift_pressed
+                if straight.is_some()
                     && let Some(sender) = &self.sender
                     && let Some(&last) = brush.points.last()
                 {
@@ -187,6 +258,7 @@ impl Tool for BrushTool {
                     return ToolUpdateResult::Unmodified;
                 }
                 self.drawable = Some(BrushDrawable {
+                    mode: self.mode,
                     start_point: event.pos,
                     smoother: Smoother::new(APP_CONFIG.read().brush_smooth_history_size()),
                     points: vec![],
@@ -206,12 +278,16 @@ impl Tool for BrushTool {
     }
 
     fn handle_key_release_event(&mut self, event: KeyEventMsg) -> ToolUpdateResult {
-        if (event.key == Key::Shift_L || event.key == Key::Shift_R)
-            && let Some(brush) = &mut self.drawable
+        if matches!(
+            event.key,
+            Key::Shift_L | Key::Shift_R | Key::Control_L | Key::Control_R
+        ) && let Some(brush) = &mut self.drawable
+            // there are no points yet before the first move
+            && let Some(&last) = brush.points.last()
         {
             // duplicate the last point to maintain the current segment
-            brush.points.push(*brush.points.last().unwrap());
-            brush.smoother.reset(*brush.points.last().unwrap());
+            brush.points.push(last);
+            brush.smoother.reset(last);
         }
         ToolUpdateResult::Unmodified
     }

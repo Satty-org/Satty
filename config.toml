@@ -137,8 +137,11 @@ input-scale = 1.0
 "<Shift>Delete" = "clear-all"
 "<Control>z" = "undo"
 "<Control>y" = "redo"
-"p" = "pointer"
+
+"v" = "pointer"
 "c" = "crop"
+"p" = "pen"
+"h" = "highlighter"
 "b" = "brush"
 "i" = "line"
 "z" = "arrow"
@@ -146,11 +149,13 @@ input-scale = 1.0
 "e" = "ellipse"
 "t" = "text"
 "m" = "marker"
+"x" = "fringe-pixelate"
 "u" = "blur"
 "g" = "highlight"
-"<Shift>g" = "highlight-freehand"
-"x" = "fringe-pixelate"
+"s" = "spotlight"
+"<Shift>u" = "lensblur"
 "o" = "image"
+
 "<Control>s" = "save-to-file"
 "<Shift><Control>s" = "save-to-file-as"
 "<Control>c" = "save-to-clipboard"
@@ -170,7 +175,7 @@ input-scale = 1.0
 "0" = "select-color-index:10"
 "minus" = "cycle-size"
 #"..." = "select-size:(small|medium|large)"
-"s" = "focus-annotation-size-factor"
+"w" = "focus-annotation-size-factor"
 "f" = "toggle-fill"
 "k" = "toggle-round-caps"
 
@@ -200,7 +205,7 @@ fallback = [
 [color-palette]
 # These will be shown in the toolbar for quick selection
 palette = [
-    # RRGGBBAA format, where AA is the alpha channel 
+    # RRGGBBAA format, where AA is the alpha channel
     # (00 is fully transparent, ff is fully opaque)
     "#f0932bff",
     "#eb4d4bff",
