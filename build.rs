@@ -50,6 +50,7 @@ fn main() -> Result<(), io::Error> {
         None::<&str>,
         [
             "pen-regular",
+            "brush-fill",
             "color-regular",
             "cursor-regular",
             "number-circle-1-regular",
@@ -83,6 +84,7 @@ fn main() -> Result<(), io::Error> {
             "tetris-app-regular",
             "image-regular",
             "rectangle-landscape-filled",
+            "format-ink-highlighter",
         ],
     );
 

@@ -204,7 +204,7 @@ impl From<Style> for Paint {
             .with_line_cap(if value.round_caps {
                 LineCap::Round
             } else {
-                LineCap::Square
+                LineCap::Butt
             })
             .with_line_width(value.size.to_line_width(value.annotation_size_factor))
     }

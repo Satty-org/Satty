@@ -152,9 +152,10 @@ The bindings are:
 
 Default shortcuts:
 
-- <kbd>p</kbd>: Pointer tool
+- <kbd>v</kbd>: Pointer tool <sup>NEXTRELEASE</sup>
 - <kbd>c</kbd>: Crop tool
-- <kbd>b</kbd>: Brush tool
+- <kbd>p</kbd>: Pen tool (hard edges = old brush) <sup>NEXTRELEASE</sup>
+- <kbd>b</kbd>: Brush tool (soft edges) <sup>NEXTRELEASE</sup>
 - <kbd>i</kbd>: Line tool
 - <kbd>z</kbd>: Arrow tool
 - <kbd>r</kbd>: Rectangle tool
@@ -162,9 +163,9 @@ Default shortcuts:
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>u</kbd>: Blur tool
-- <kbd>x</kbd>: Fringe inpaint+Pixelate tool
+- <kbd>x</kbd>: Fringe inpaint+Pixelate tool <sup>NEXTRELEASE</sup>
 - <kbd>g</kbd>: Block Highlight tool
-- <kbd>Shift+G</kbd>: Freehand Highlight tool
+- <kbd>h</kbd>: Highlighter tool
 - <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
 
 #### Overwriting Keybindings <sup>NEXTRELEASE</sup>
@@ -229,9 +230,10 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 
 ### Tool Modifiers and Keys
 
-Arrow and line:
+Pen, Brush, Highlighter, Line and Arrow:
 
 - <kbd>Shift</kbd> to make tool snap to 15° steps.
+- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. <sup>NEXTRELEASE</sup>
 
 Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
 
@@ -259,10 +261,6 @@ Text:
 Marker:
 
 - Hold <kbd>Alt</kbd> to get extra ring. <sup>0.22.0</sup>
-
-Brush:
-
-- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. <sup>NEXTRELEASE</sup>
 
 Highlight:
 

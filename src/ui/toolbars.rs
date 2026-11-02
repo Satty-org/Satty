@@ -270,11 +270,23 @@ impl SimpleComponent for ToolsToolbar {
                 icon_name: "crop-filled".into(),
                 tooltip: None,
             }],
-            vec![GroupableTool {
-                tool: Tools::Brush,
-                icon_name: "pen-regular".into(),
-                tooltip: None,
-            }],
+            vec![
+                GroupableTool {
+                    tool: Tools::Pen,
+                    icon_name: "pen-regular".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Highlighter,
+                    icon_name: "format-ink-highlighter".into(),
+                    tooltip: None,
+                },
+                GroupableTool {
+                    tool: Tools::Brush,
+                    icon_name: "brush-fill".into(),
+                    tooltip: None,
+                },
+            ],
             vec![
                 GroupableTool {
                     tool: Tools::Line,
@@ -331,18 +343,11 @@ impl SimpleComponent for ToolsToolbar {
                     tooltip: None,
                 },
             ],
-            vec![
-                GroupableTool {
-                    tool: Tools::Highlight,
-                    icon_name: "rectangle-landscape-filled".into(),
-                    tooltip: None,
-                },
-                GroupableTool {
-                    tool: Tools::HighlightFreehand,
-                    icon_name: "highlight-regular".into(),
-                    tooltip: None,
-                },
-            ],
+            vec![GroupableTool {
+                tool: Tools::BlockHighlighter,
+                icon_name: "highlight-regular".into(),
+                tooltip: None,
+            }],
             vec![GroupableTool {
                 tool: Tools::Image,
                 icon_name: "image-regular".into(),
