@@ -10,10 +10,11 @@
 
 ## Checklist
 
-- [x] I've read CONTRIBUTING.md and AI_POLICY.md
+- [x] I've read [CONTRIBUTING.md] and [AI_POLICY.md]
 - [ ] all commits compile
-- [ ] PR title uses (conventional commit message)[https://www.conventionalcommits.org/]
-- [ ] includes breaking changes - please try to avoid if possible
+- [ ] PR title uses [conventional commit message](https://www.conventionalcommits.org/)
+- [ ] [CHANGELOG.md] is updated
+- [ ] includes breaking changes - please try to avoid if possible!
   - [ ] I added "!" for attention in the PR title
   - [ ] I filled out "Breaking change" section above
 - [ ] any merge conflicts were resolved via rebase rather than merge
@@ -22,3 +23,7 @@
   - [ ] I vouch for the code
 
 <!-- In case of any questions, ask. We're happy to help. -->
+
+[CONTRIBUTING.md]: https://github.com/Satty-org/Satty/blob/main/CONTRIBUTING.md
+[AI_POLICY.md]:    https://github.com/Satty-org/Satty/blob/main/AI_POLICY.md
+[CHANGELOG.md]:    https://github.com/Satty-org/Satty/blob/main/CHANGELOG.md
