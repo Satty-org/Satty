@@ -12,19 +12,19 @@ use std::{
 use anyhow::Result;
 use femtovg::imgref::ImgVec;
 use femtovg::rgb::RGBA8;
-use femtovg::{Canvas, FontId, renderer::OpenGl};
+use femtovg::{Canvas, FontId, RenderTarget, renderer::OpenGl};
 use relm4::gtk::gdk_pixbuf::{
     Pixbuf,
     glib::{Variant, VariantTy},
     prelude::{StaticVariantType, ToVariant},
 };
 
+use relm4::gtk::gdk::ModifierType;
 use relm4::gtk::glib::variant::FromVariant;
 use relm4::{
     Sender,
     gtk::{self, IMMulticontext},
 };
-use serde_derive::Deserialize;
 
 use crate::math::rect_ensure_positive_size;
 use crate::{
@@ -48,6 +48,7 @@ mod marker;
 mod pixelate;
 mod pointer;
 mod rectangle;
+pub mod spotlight;
 mod text;
 
 pub const HIT_BORDER_TOLERANCE: f32 = 7.0;
@@ -64,10 +65,16 @@ pub enum ToolEvent {
 // The rendering mode of a drawable. This is used to determine drawables
 // which should be taken out of the stack order to draw them earlier or later.
 pub enum RenderingMode {
-    Default,          // Render in stack order
-    Blur,             // Rendered below everything else, but above the background
-    Crop,             // Rendered above everything else, but below the SelectionOverlay
-    SelectionOverlay, // Render above everything else
+    // Rendered below everything else, but above the background
+    BlurOrPixelate,
+    SpotlightBlur,
+    SpotlightHighlight,
+    // Render in stack order
+    Default,
+    // Rendered above everything else, but below the SelectionOverlay
+    Crop,
+    // Render above everything else
+    SelectionOverlay,
 }
 
 pub trait Tool {
@@ -215,19 +222,47 @@ where
     }
 }
 
+pub struct SpotlightData {
+    pub tl: Vec2D,
+    pub br: Vec2D,
+    pub filled: bool,
+    pub editing: bool,
+    pub centered: bool,
+}
+
 pub trait Drawable: DrawableClone + Debug + AsAny {
-    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
-    -> Result<()>;
     fn draw_baselayer(
         &self,
         canvas: &mut Canvas<OpenGl>,
         image: &ImgVec<RGBA8>,
+        background_image_id: femtovg::ImageId,
         font: FontId,
         bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
         let _ = image;
+        let _ = background_image_id;
         self.draw(canvas, font, bounds)
     }
+    fn draw_spotlight(
+        &self,
+        canvas: &mut Canvas<OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<SpotlightData>,
+        spotlight_preview: bool,
+        background_image_id: femtovg::ImageId,
+        output_target: RenderTarget,
+    ) {
+        let _ = (
+            canvas,
+            bounds,
+            boxes,
+            spotlight_preview,
+            background_image_id,
+            output_target,
+        );
+    }
+    fn draw(&self, canvas: &mut Canvas<OpenGl>, font: FontId, bounds: (Vec2D, Vec2D))
+    -> Result<()>;
     fn handle_undo(&mut self) {}
     fn handle_redo(&mut self) {}
     fn get_rendering_mode(&self) -> RenderingMode {
@@ -270,8 +305,12 @@ pub trait Drawable: DrawableClone + Debug + AsAny {
     fn get_style(&self) -> Option<&Style> {
         None
     }
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        None
+    fn set_style(&mut self, style: Style) {
+        let _ = style;
+    }
+    fn get_centered(&self) -> bool {
+        let _ = self;
+        false
     }
     fn set_centered(&mut self, centered: bool) {
         let _ = centered;
@@ -375,6 +414,39 @@ fn resize_line_bounds(tl: Vec2D, br: Vec2D, start_point: &mut Vec2D, points: &mu
     *start_point = origin + (*start_point - current_tl) * scale;
 }
 
+/// How a line or a segment is kept straight while a modifier is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Straight {
+    /// Shift: in steps of 15°
+    Angle15,
+    /// Ctrl: only horizontal
+    Horizontal,
+}
+
+impl Straight {
+    pub fn from_modifier(modifier: ModifierType) -> Option<Self> {
+        if modifier.contains(ModifierType::CONTROL_MASK) {
+            Some(Straight::Horizontal)
+        } else if modifier.contains(ModifierType::SHIFT_MASK) {
+            Some(Straight::Angle15)
+        } else {
+            None
+        }
+    }
+
+    pub fn snap(self, v: Vec2D) -> Vec2D {
+        match self {
+            Straight::Angle15 => v.snapped_vector_15deg(),
+            Straight::Horizontal => Vec2D::new(v.x, 0.0),
+        }
+    }
+
+    /// `v` kept straight as the modifiers in `modifier` ask for, else unchanged.
+    pub fn apply(modifier: ModifierType, v: Vec2D) -> Vec2D {
+        Self::from_modifier(modifier).map_or(v, |straight| straight.snap(v))
+    }
+}
+
 /// Hit test for the ellipse with the bounding box `top_left`, `size`.
 pub fn hit_test_ellipse(
     pos: Vec2D,
@@ -434,25 +506,28 @@ fn shared_crop_tool() -> Rc<RefCell<CropTool>> {
     })
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum Tools {
-    Pointer = 0,
-    Crop = 1,
-    Line = 2,
-    Arrow = 3,
-    Rectangle = 4,
-    Ellipse = 5,
-    Text = 6,
-    Marker = 7,
-    Blur = 8,
-    Highlight = 9,
-    Brush = 10,
-    Pixelate = 11,
-    FringePixelate = 12,
-    Fringe = 13,
-    Image = 14,
-    HighlightFreehand = 15,
+    Pointer,
+    Crop,
+    Pen,
+    Highlighter,
+    Brush,
+    Line,
+    Arrow,
+    Rectangle,
+    Ellipse,
+    Text,
+    Marker,
+    FringePixelate,
+    Pixelate,
+    Fringe,
+    Blur,
+    Blackout,
+    BlockHighlighter,
+    HighlightSpotlight,
+    Lensblur,
+    Image,
 }
 
 impl fmt::Display for Tools {
@@ -460,6 +535,8 @@ impl fmt::Display for Tools {
         let name = match self {
             Tools::Pointer => "Pointer",
             Tools::Crop => "Crop",
+            Tools::Pen => "Pen",
+            Tools::Highlighter => "Highlighter",
             Tools::Brush => "Brush",
             Tools::Line => "Line",
             Tools::Arrow => "Arrow",
@@ -467,13 +544,15 @@ impl fmt::Display for Tools {
             Tools::Ellipse => "Ellipse",
             Tools::Text => "Text",
             Tools::Marker => "Marker",
-            Tools::Blur => "Blur",
-            Tools::Highlight => "Block Highlight",
+            Tools::FringePixelate => "Fringe Pixelate",
             Tools::Pixelate => "Pixelate",
-            Tools::FringePixelate => "Fringe inpaint+Pixelate",
-            Tools::Fringe => "Fringe inpaint",
+            Tools::Fringe => "Fringe Inpaint",
+            Tools::Blur => "Blur",
+            Tools::Blackout => "Blackout",
+            Tools::Lensblur => "Lensblur",
+            Tools::BlockHighlighter => "Block Highlighter",
+            Tools::HighlightSpotlight => "Spotlight",
             Tools::Image => "Image",
-            Tools::HighlightFreehand => "Freehand Highlight",
         };
         write!(f, "{}", name)
     }
@@ -482,30 +561,54 @@ impl fmt::Display for Tools {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseCommandError;
 
+/// The names of the tools in the config, the keybinds and on the command line.
+const TOOL_NAMES: [(&str, Tools); 20] = [
+    ("pointer", Tools::Pointer),
+    ("crop", Tools::Crop),
+    ("pen", Tools::Pen),
+    ("highlighter", Tools::Highlighter),
+    ("brush", Tools::Brush),
+    ("line", Tools::Line),
+    ("arrow", Tools::Arrow),
+    ("rectangle", Tools::Rectangle),
+    ("ellipse", Tools::Ellipse),
+    ("text", Tools::Text),
+    ("marker", Tools::Marker),
+    ("fringe-pixelate", Tools::FringePixelate),
+    ("pixelate", Tools::Pixelate),
+    ("fringe", Tools::Fringe),
+    ("blur", Tools::Blur),
+    ("blackout", Tools::Blackout),
+    ("highlight", Tools::BlockHighlighter),
+    ("spotlight", Tools::HighlightSpotlight),
+    ("lensblur", Tools::Lensblur),
+    ("image", Tools::Image),
+];
+
 impl FromStr for Tools {
     type Err = ParseCommandError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let lower_name = s.to_lowercase();
-        match lower_name.as_str() {
-            "pointer" => Ok(Self::Pointer),
-            "crop" => Ok(Self::Crop),
-            "line" => Ok(Self::Line),
-            "arrow" => Ok(Self::Arrow),
-            "rectangle" => Ok(Self::Rectangle),
-            "ellipse" => Ok(Self::Ellipse),
-            "text" => Ok(Self::Text),
-            "marker" => Ok(Self::Marker),
-            "blur" => Ok(Self::Blur),
-            "highlight" => Ok(Self::Highlight),
-            "brush" => Ok(Self::Brush),
-            "pixelate" => Ok(Self::Pixelate),
-            "fringe-pixelate" => Ok(Self::FringePixelate),
-            "fringe" => Ok(Self::Fringe),
-            "image" => Ok(Self::Image),
-            "highlight-freehand" => Ok(Self::HighlightFreehand),
-            _ => Err(ParseCommandError),
-        }
+        TOOL_NAMES
+            .iter()
+            .find(|(name, _)| *name == lower_name)
+            .map(|(_, tool)| *tool)
+            .ok_or(ParseCommandError)
+    }
+}
+
+// With the same names as the keybinds, e.g. "highlight", not the variant names.
+impl<'de> serde::Deserialize<'de> for Tools {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = <String as serde::Deserialize>::deserialize(deserializer)?;
+        name.parse().map_err(|_| {
+            let names: Vec<&str> = TOOL_NAMES.iter().map(|(name, _)| *name).collect();
+            serde::de::Error::custom(format!(
+                "unknown tool `{name}`, expected one of {}",
+                names.join(", ")
+            ))
+        })
     }
 }
 
@@ -519,7 +622,20 @@ pub struct ToolsManager {
 impl ToolsManager {
     pub fn new() -> Self {
         let mut tools: HashMap<Tools, Rc<RefCell<dyn Tool>>> = HashMap::new();
-        //tools.insert(Tools::Crop, Rc::new(RefCell::new(CropTool::default())));
+        tools.insert(
+            Tools::Pen,
+            Rc::new(RefCell::new(BrushTool::with_mode(brush::BrushMode::Pen))),
+        );
+        tools.insert(
+            Tools::Highlighter,
+            Rc::new(RefCell::new(BrushTool::with_mode(
+                brush::BrushMode::Highlighter,
+            ))),
+        );
+        tools.insert(
+            Tools::Brush,
+            Rc::new(RefCell::new(BrushTool::with_mode(brush::BrushMode::Brush))),
+        );
         tools.insert(Tools::Line, Rc::new(RefCell::new(LineTool::default())));
         tools.insert(Tools::Arrow, Rc::new(RefCell::new(ArrowTool::default())));
         tools.insert(
@@ -532,13 +648,7 @@ impl ToolsManager {
         );
         let text_tool = Rc::new(RefCell::new(TextTool::default()));
         tools.insert(Tools::Text, text_tool.clone());
-        tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
-        tools.insert(
-            Tools::Pixelate,
-            Rc::new(RefCell::new(PixelateTool::with_mode(
-                PixelateMode::Pixelate,
-            ))),
-        );
+        tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
         tools.insert(
             Tools::FringePixelate,
             Rc::new(RefCell::new(PixelateTool::with_mode(
@@ -546,21 +656,36 @@ impl ToolsManager {
             ))),
         );
         tools.insert(
+            Tools::Pixelate,
+            Rc::new(RefCell::new(PixelateTool::with_mode(
+                PixelateMode::Pixelate,
+            ))),
+        );
+        tools.insert(
             Tools::Fringe,
             Rc::new(RefCell::new(PixelateTool::with_mode(PixelateMode::Fringe))),
         );
+        tools.insert(Tools::Blur, Rc::new(RefCell::new(BlurTool::default())));
         tools.insert(
-            Tools::Highlight,
+            Tools::Blackout,
+            Rc::new(RefCell::new(HighlightTool::with_mode(
+                Highlighters::Blackout,
+            ))),
+        );
+        tools.insert(
+            Tools::Lensblur,
+            Rc::new(RefCell::new(BlurTool::spotlight())),
+        );
+        tools.insert(
+            Tools::BlockHighlighter,
             Rc::new(RefCell::new(HighlightTool::with_mode(Highlighters::Block))),
         );
         tools.insert(
-            Tools::HighlightFreehand,
+            Tools::HighlightSpotlight,
             Rc::new(RefCell::new(HighlightTool::with_mode(
-                Highlighters::Freehand,
+                Highlighters::Spotlight,
             ))),
         );
-        tools.insert(Tools::Marker, Rc::new(RefCell::new(MarkerTool::default())));
-        tools.insert(Tools::Brush, Rc::new(RefCell::new(BrushTool::default())));
         tools.insert(Tools::Image, Rc::new(RefCell::new(ImageTool::default())));
 
         let crop_tool = shared_crop_tool();
@@ -576,9 +701,9 @@ impl ToolsManager {
 
     pub fn get(&self, tool: &Tools) -> Rc<RefCell<dyn Tool>> {
         match tool {
+            Tools::Pointer => self.pointer_tool.clone(),
             Tools::Crop => self.crop_tool.clone(),
             Tools::Text => self.text_tool.clone(),
-            Tools::Pointer => self.pointer_tool.clone(),
             _ => self
                 .tools
                 .get(tool)
@@ -613,22 +738,26 @@ impl ToVariant for Tools {
 impl FromVariant for Tools {
     fn from_variant(variant: &Variant) -> Option<Self> {
         variant.get::<u32>().and_then(|v| match v {
-            0 => Some(Tools::Pointer),
-            1 => Some(Tools::Crop),
-            2 => Some(Tools::Line),
-            3 => Some(Tools::Arrow),
-            4 => Some(Tools::Rectangle),
-            5 => Some(Tools::Ellipse),
-            6 => Some(Tools::Text),
-            7 => Some(Tools::Marker),
-            8 => Some(Tools::Blur),
-            9 => Some(Tools::Highlight),
-            10 => Some(Tools::Brush),
-            11 => Some(Tools::Pixelate),
-            12 => Some(Tools::FringePixelate),
-            13 => Some(Tools::Fringe),
-            14 => Some(Tools::Image),
-            15 => Some(Tools::HighlightFreehand),
+            v if v == Tools::Pointer as u32 => Some(Tools::Pointer),
+            v if v == Tools::Crop as u32 => Some(Tools::Crop),
+            v if v == Tools::Pen as u32 => Some(Tools::Pen),
+            v if v == Tools::Highlighter as u32 => Some(Tools::Highlighter),
+            v if v == Tools::Brush as u32 => Some(Tools::Brush),
+            v if v == Tools::Line as u32 => Some(Tools::Line),
+            v if v == Tools::Arrow as u32 => Some(Tools::Arrow),
+            v if v == Tools::Rectangle as u32 => Some(Tools::Rectangle),
+            v if v == Tools::Ellipse as u32 => Some(Tools::Ellipse),
+            v if v == Tools::Text as u32 => Some(Tools::Text),
+            v if v == Tools::Marker as u32 => Some(Tools::Marker),
+            v if v == Tools::FringePixelate as u32 => Some(Tools::FringePixelate),
+            v if v == Tools::Pixelate as u32 => Some(Tools::Pixelate),
+            v if v == Tools::Fringe as u32 => Some(Tools::Fringe),
+            v if v == Tools::Blur as u32 => Some(Tools::Blur),
+            v if v == Tools::Blackout as u32 => Some(Tools::Blackout),
+            v if v == Tools::BlockHighlighter as u32 => Some(Tools::BlockHighlighter),
+            v if v == Tools::HighlightSpotlight as u32 => Some(Tools::HighlightSpotlight),
+            v if v == Tools::Lensblur as u32 => Some(Tools::Lensblur),
+            v if v == Tools::Image as u32 => Some(Tools::Image),
             _ => None,
         })
     }
@@ -639,20 +768,24 @@ impl From<command_line::Tools> for Tools {
         match tool {
             command_line::Tools::Pointer => Self::Pointer,
             command_line::Tools::Crop => Self::Crop,
+            command_line::Tools::Pen => Self::Pen,
+            command_line::Tools::Highlighter => Self::Highlighter,
+            command_line::Tools::Brush => Self::Brush,
             command_line::Tools::Line => Self::Line,
             command_line::Tools::Arrow => Self::Arrow,
             command_line::Tools::Rectangle => Self::Rectangle,
             command_line::Tools::Ellipse => Self::Ellipse,
             command_line::Tools::Text => Self::Text,
             command_line::Tools::Marker => Self::Marker,
-            command_line::Tools::Blur => Self::Blur,
-            command_line::Tools::Pixelate => Self::Pixelate,
             command_line::Tools::FringePixelate => Self::FringePixelate,
+            command_line::Tools::Pixelate => Self::Pixelate,
             command_line::Tools::Fringe => Self::Fringe,
-            command_line::Tools::Highlight => Self::Highlight,
-            command_line::Tools::Brush => Self::Brush,
+            command_line::Tools::Blur => Self::Blur,
+            command_line::Tools::Blackout => Self::Blackout,
+            command_line::Tools::Highlight => Self::BlockHighlighter,
+            command_line::Tools::Spotlight => Self::HighlightSpotlight,
+            command_line::Tools::Lensblur => Self::Lensblur,
             command_line::Tools::Image => Self::Image,
-            command_line::Tools::HighlightFreehand => Self::HighlightFreehand,
         }
     }
 }
