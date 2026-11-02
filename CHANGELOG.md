@@ -7,14 +7,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link target at the end of the changelog of the next release.
+
 ## NEXTRELEASE
 
 ### Added
 
-- Improved support for international keyboard layouts. Fallbackk to US
-  layout if no match in current keyboard layout. Match unshifed keys also,
-  i.e. new <kbb>Ctrl+equal</kbb> shortcut works on all layouts. [#771], [#772]
+- Improved support for international keyboard layouts. Fallback to US layout if no match in current keyboard layout. Match unshifted keys also, i.e. new <kbd>Ctrl+equal</kbd> shortcut works on all layouts. [#771], [#772]
 - Editing of annotations. [#607]
+- Brush <kbd>b</kbd> now paints with a soft edge and slightly transparent, the former brush is the new pen tool. [799]
+- Line, arrow, pen, brush and highlighter draw a horizontal line while <kbd>Ctrl</kbd> is held. [#801]
+- Spotlight tool <kbd>s</kbd>, it dims all but the marked area. [804]
+- Lensblur tool <kbd>Shift+U</kbd>, it blurs all but the marked area. [804]
+- The size sets the opacity of the block highlighter, the darkness of the spotlight resp. the blur factor of lensblur. [804]
+- Blackout tool <kbd>Shift+X</kbd>, it blacks out the marked area. [806]
+- Marker tool uses style. [808]
 
 ### Changed
 
@@ -22,27 +29,45 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - log output now has level and severity [#711]
 - satty now shows a message dialog for fatal errors [#711]
 - <kbd>Esc</kbd> no longer aborts tools. [#607], [#783]
+- Pen tool <kbd>p</kbd>, it draws like the brush did before. [#799]
+- Pen, freehand highlighter and brush are grouped under one toolbar button, the freehand highlighter is no longer grouped with the block highlighter. [#799]
+- Pointer tool is on <kbd>v</kbd> instead of <kbd>p</kbd>, which selects the pen now. [#799]
+- Freehand highlighter is on <kbd>h</kbd> instead of <kbd>Shift+G</kbd>. [#799]
+- Freehand highlighter tool name for the config and `--initial-tool` is `highlighter` instead of `highlight-freehand`. [#799]
+- Caps style for lines (several tools) is butt now, instead of round. This avoids drawing issues with lines shorter than linewidth and let's the anchors sit on the edges of the line. [#799]
+- The size input field is focused with <kbd>w</kbd> instead of <kbd>s</kbd>, which selects the spotlight now. [804]
+- Highlight, spotlight and lensblur draw a rectangle with fill (fill the bounding box) or an ellipse without. [804]
 
 ### Deprecated
 
 - `--profile-startup` is deprecated in favour of `--log-level debug` [#711]
+- Config `primary-highlighter` and option `--primary-highlighter` are deprecated and ignored, block *highlight* and freehand *highlighter* are separate tools now. [#799]
 
 ### Removed
+
+- Holding <kbd>Ctrl</kbd> at the start of a highlight no longer switches between block and freehand highlighter. [#799]
 
 ### Fixed
 
 - Undo after you edit a text with a double click restores the previous text [#795]
 - After you edit a text with a double click, Enter selects the text with the pointer tool [#795]
+- Draw a line already when start and end are equal [#803]
+- Blur no longer depends on the zoom of the canvas. [804]
 
 ### Security
 
 <!-- link targets of the [#N] references above, not rendered -->
-
 [#607]: https://github.com/Satty-org/Satty/pull/607
 [#711]: https://github.com/Satty-org/Satty/pull/711
 [#771]: https://github.com/Satty-org/Satty/pull/771
 [#772]: https://github.com/Satty-org/Satty/pull/772
 [#783]: https://github.com/Satty-org/Satty/pull/783
 [#795]: https://github.com/Satty-org/Satty/pull/795
+[#799]: https://github.com/Satty-org/Satty/pull/799
+[#801]: https://github.com/Satty-org/Satty/pull/801
+[#803]: https://github.com/Satty-org/Satty/pull/803
+[#804]: https://github.com/Satty-org/Satty/pull/804
+[#806]: https://github.com/Satty-org/Satty/pull/806
+[#808]: https://github.com/Satty-org/Satty/pull/808
 
 <!-- --8<-- [end:changelog] -->
