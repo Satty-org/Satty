@@ -16,6 +16,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Improved support for international keyboard layouts. Fallback to US layout if no match in current keyboard layout. Match unshifted keys also, i.e. new <kbd>Ctrl+equal</kbd> shortcut works on all layouts. [#771], [#772]
 - Editing of annotations. [#607]
 - Brush <kbd>b</kbd> now paints with a soft edge and slightly transparent, the former brush is the new pen tool. [799]
+- Line, arrow, pen, brush and highlighter draw a horizontal line while <kbd>Ctrl</kbd> is held. [#801]
 
 ### Changed
 
@@ -55,5 +56,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#783]: https://github.com/Satty-org/Satty/pull/783
 [#795]: https://github.com/Satty-org/Satty/pull/795
 [#799]: https://github.com/Satty-org/Satty/pull/799
+[#801]: https://github.com/Satty-org/Satty/pull/801
 
 <!-- --8<-- [end:changelog] -->

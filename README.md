@@ -232,8 +232,8 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 
 Pen, Brush, Highlighter, Line and Arrow:
 
-- <kbd>Shift</kbd> to make tool snap to 15° steps.
-- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. <sup>NEXTRELEASE</sup>
+- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. (for Pen, Brush and Highlighter in <sup>NEXTRELEASE</sup>)
+- <kbd>Ctrl</kbd> for a horizontal line. <sup>NEXTRELEASE</sup>
 
 Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, blur <sup>0.22.0</sup>, highlight block mode<sup>0.22.0</sup>, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
 
