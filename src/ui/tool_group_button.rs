@@ -28,6 +28,13 @@ pub fn close_active_tool_popover_if_outside(target: Option<&relm4::gtk::Widget>)
     });
 }
 
+fn menu_label(name: &str, shortcut: Option<&str>) -> String {
+    match shortcut {
+        Some(shortcut) => format!("{name} ({shortcut})"),
+        None => name.to_string(),
+    }
+}
+
 fn update_menu_indicator_hover(
     indicator: &relm4::gtk::Image,
     button: &ToggleButton,
@@ -227,7 +234,10 @@ impl FactoryComponent for ToolGroupButton {
                 let button = ToggleButton::builder().focusable(false).build();
                 let inner_box = relm4::gtk::Box::new(relm4::gtk::Orientation::Horizontal, 2);
                 let icon = relm4::gtk::Image::from_icon_name(&tool.icon_name);
-                let label = relm4::gtk::Label::new(Some(&format!("{}", tool.tool)));
+                let label = relm4::gtk::Label::new(Some(&menu_label(
+                    &tool.tool.to_string(),
+                    tool.shortcut.as_deref(),
+                )));
                 inner_box.append(&icon);
                 inner_box.append(&label);
                 button.set_child(Some(&inner_box));
