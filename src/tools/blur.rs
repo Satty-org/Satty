@@ -92,7 +92,10 @@ impl Blur {
 
         canvas.filter_image(
             dst_image_id,
-            ImageFilter::GaussianBlur { sigma },
+            ImageFilter::GaussianBlur {
+                sigma_x: sigma,
+                sigma_y: sigma,
+            },
             source_image,
         );
 
