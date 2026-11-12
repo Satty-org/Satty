@@ -17,6 +17,9 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Editing of annotations. [#607]
 - Brush <kbd>b</kbd> now paints with a soft edge and slightly transparent, the former brush is the new pen tool. [799]
 - Line, arrow, pen, brush and highlighter draw a horizontal line while <kbd>Ctrl</kbd> is held. [#801]
+- Spotlight tool <kbd>s</kbd>, it dims all but the marked area. [804]
+- Lensblur tool <kbd>Shift+U</kbd>, it blurs all but the marked area. [804]
+- The size sets the opacity of the block highlighter, the darkness of the spotlight resp. the blur factor of lensblur. [804]
 
 ### Changed
 
@@ -30,6 +33,8 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Freehand highlighter is on <kbd>h</kbd> instead of <kbd>Shift+G</kbd>. [#799]
 - Freehand highlighter tool name for the config and `--initial-tool` is `highlighter` instead of `highlight-freehand`. [#799]
 - Caps style for lines (several tools) is butt now, instead of round. This avoids drawing issues with lines shorter than linewidth and let's the anchors sit on the edges of the line. [#799]
+- The size input field is focused with <kbd>w</kbd> instead of <kbd>s</kbd>, which selects the spotlight now. [804]
+- Highlight, spotlight and lensblur draw a rectangle with fill (fill the bounding box) or an ellipse without. [804]
 
 ### Deprecated
 
@@ -45,11 +50,11 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Undo after you edit a text with a double click restores the previous text [#795]
 - After you edit a text with a double click, Enter selects the text with the pointer tool [#795]
 - Draw a line already when start and end are equal [#803]
+- Blur no longer depends on the zoom of the canvas. [804]
 
 ### Security
 
 <!-- link targets of the [#N] references above, not rendered -->
-
 [#607]: https://github.com/Satty-org/Satty/pull/607
 [#711]: https://github.com/Satty-org/Satty/pull/711
 [#771]: https://github.com/Satty-org/Satty/pull/771
@@ -59,5 +64,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#799]: https://github.com/Satty-org/Satty/pull/799
 [#801]: https://github.com/Satty-org/Satty/pull/801
 [#803]: https://github.com/Satty-org/Satty/pull/803
+[#804]: https://github.com/Satty-org/Satty/pull/804
 
 <!-- --8<-- [end:changelog] -->

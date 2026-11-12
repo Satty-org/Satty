@@ -1,5 +1,11 @@
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+
 use anyhow::Result;
-use femtovg::{Paint, Path};
+use femtovg::{Color, ImageId, Paint, Path, RenderTarget};
 
 use relm4::{Sender, gtk::gdk::Key};
 
@@ -7,7 +13,7 @@ use crate::{
     math::{self, Vec2D},
     sketch_board::{MouseButton, MouseEventMsg, MouseEventType, SketchBoardInput},
     style::Style,
-    tools::{DrawableClone, SelectionType},
+    tools::{DrawableClone, RenderingMode, SelectionType, SpotlightData},
 };
 
 use super::{
@@ -15,36 +21,77 @@ use super::{
     drag_box::{DragBox, draw_center_marker},
 };
 
-const HIGHLIGHT_OPACITY: f64 = 0.4;
+// Freehand is implemented by the BrushTool, HighlightTool handles Block and Spotlight
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Highlighters {
+    Block = 0,
+    Spotlight = 2,
+}
 
 #[derive(Clone, Debug)]
 struct BlockHighlight {
+    is_spotlight: bool,
+    shared_spotlight_alpha: Option<Arc<Mutex<f32>>>,
     origin: Vec2D,
     top_left: Vec2D,
     size: Vec2D,
     centered: bool,
     editing: bool,
+    cached_layer: Rc<RefCell<Option<(u32, u32, ImageId)>>>,
     style: Style,
 }
 
 impl BlockHighlight {
+    // For an ellipse, the dragged box is the rectangle whose corners lie on the
+    // ellipse, like for the Ellipse tool. Otherwise it is the box itself.
+    fn dragged_box(&self) -> (Vec2D, Vec2D) {
+        if self.style.fill {
+            return (self.top_left, self.size);
+        }
+        let (tl, br) = math::rectangle_in_ellipse(self.top_left, self.top_left + self.size);
+        (tl, br - tl)
+    }
+
+    fn set_dragged_box(&mut self, top_left: Vec2D, size: Vec2D) {
+        let (tl, br) = if self.style.fill {
+            (top_left, top_left + size)
+        } else {
+            math::ellipse_around_rectangle(top_left, top_left + size)
+        };
+        self.top_left = tl;
+        self.size = br - tl;
+    }
+
     fn calculate_shape(&mut self, sender: &Sender<SketchBoardInput>, event: &MouseEventMsg) {
-        let drag_box = DragBox::from_origin_delta(self.origin, self.size, event, sender);
+        let (_, dragged_size) = self.dragged_box();
+        let drag_box = DragBox::from_delta(self.origin, dragged_size, event.pos, event.modifier);
         self.centered = drag_box.centered;
-        self.top_left = drag_box.top_left;
-        self.size = drag_box.size;
+        self.set_dragged_box(drag_box.top_left, drag_box.size);
+        sender
+            .send(SketchBoardInput::ShapeDimensionsUpdate(self.size))
+            .ok();
     }
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct HighlightTool {
+    is_spotlight: bool,
     highlighter: Option<BlockHighlight>,
     style: Style,
     input_enabled: bool,
     sender: Option<Sender<SketchBoardInput>>,
+    shared_spotlight_alpha: Option<Arc<Mutex<f32>>>,
 }
 
 impl Drawable for BlockHighlight {
+    fn get_rendering_mode(&self) -> super::RenderingMode {
+        if self.is_spotlight {
+            RenderingMode::SpotlightHighlight
+        } else {
+            RenderingMode::Default
+        }
+    }
+
     fn anchors(&self) -> Option<(Vec2D, Vec2D)> {
         Some(math::ensure_bounding_box(
             self.top_left,
@@ -53,12 +100,18 @@ impl Drawable for BlockHighlight {
     }
 
     fn get_selection_type(&self) -> SelectionType {
-        SelectionType::Rectangle
+        match self.style.fill {
+            false => SelectionType::Ellipse,
+            true => SelectionType::Rectangle,
+        }
     }
 
     fn hit_test(&self, pos: Vec2D, tolerance: f32) -> bool {
-        let (tl, br) = math::ensure_bounding_box(self.top_left, self.top_left + self.size);
-        super::hit_test_rectangle(pos, tl, br - tl, tolerance, true)
+        if self.is_spotlight && !self.style.fill {
+            return super::hit_test_ellipse(pos, self.top_left, self.size, tolerance, false);
+        }
+
+        super::hit_test_rectangle(pos, self.top_left, self.size, tolerance, false)
     }
 
     fn translate(&mut self, delta: Vec2D) {
@@ -75,8 +128,52 @@ impl Drawable for BlockHighlight {
         Some(&self.style)
     }
 
-    fn get_style_mut(&mut self) -> Option<&mut Style> {
-        Some(&mut self.style)
+    fn set_style(&mut self, style: Style) {
+        self.style = style;
+        if self.is_spotlight
+            && let Some(alpha) = &self.shared_spotlight_alpha
+        {
+            *alpha.lock().unwrap() = self.style.spotlight_alpha();
+        }
+    }
+
+    fn draw_spotlight(
+        &self,
+        canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>,
+        bounds: (Vec2D, Vec2D),
+        boxes: &Vec<SpotlightData>,
+        spotlight_preview: bool,
+        _background_image_id: femtovg::ImageId,
+        output_target: RenderTarget,
+    ) {
+        assert!(
+            self.is_spotlight,
+            "draw_spotlight called on non-spotlight highlight"
+        );
+        let alpha: f32 = *self
+            .shared_spotlight_alpha
+            .as_ref()
+            .expect("Shared spotlight alpha should be set for spotlight highlights")
+            .lock()
+            .unwrap();
+
+        let alpha = if spotlight_preview { 0.4 } else { alpha };
+        let canvas_tl = bounds.0;
+        let canvas_size = bounds.1 - bounds.0;
+        super::spotlight::draw_spotlight_layer(
+            canvas,
+            boxes,
+            self.style.corner_radius(),
+            output_target,
+            &self.cached_layer,
+            |canvas| {
+                let mut dim = Path::new();
+                dim.rect(canvas_tl.x, canvas_tl.y, canvas_size.x, canvas_size.y);
+                let mut color = Color::black();
+                color.set_alphaf(alpha);
+                canvas.fill_path(&dim, &Paint::color(color));
+            },
+        );
     }
 
     fn draw(
@@ -85,16 +182,21 @@ impl Drawable for BlockHighlight {
         _font: femtovg::FontId,
         _bounds: (Vec2D, Vec2D),
     ) -> Result<()> {
-        let (pos, size) = math::rect_ensure_positive_size(self.top_left, self.size);
+        let (tl, size) = math::rect_ensure_positive_size(self.top_left, self.size);
 
         let mut shadow_path = Path::new();
-        shadow_path.rounded_rect(pos.x, pos.y, size.x, size.y, self.style.corner_radius());
+        if self.style.fill {
+            shadow_path.rounded_rect(tl.x, tl.y, size.x, size.y, self.style.corner_radius());
+        } else {
+            let (center, radii) = (tl + size / 2.0, size / 2.0);
+            shadow_path.ellipse(center.x, center.y, radii.x, radii.y);
+        }
 
         let shadow_paint = Paint::color(femtovg::Color::rgba(
             self.style.color.r,
             self.style.color.g,
             self.style.color.b,
-            (255.0 * HIGHLIGHT_OPACITY) as u8,
+            (255.0 * self.style.highlight_alpha()) as u8,
         ));
 
         canvas.fill_path(&shadow_path, &shadow_paint);
@@ -106,6 +208,10 @@ impl Drawable for BlockHighlight {
         Ok(())
     }
 
+    fn get_centered(&self) -> bool {
+        self.centered
+    }
+
     fn set_centered(&mut self, centered: bool) {
         self.centered = centered;
         self.origin = self.top_left + self.size / 2.0;
@@ -113,6 +219,18 @@ impl Drawable for BlockHighlight {
 
     fn set_editing(&mut self, editing: bool) {
         self.editing = editing;
+    }
+}
+
+impl HighlightTool {
+    pub fn with_mode(mode: Highlighters) -> Self {
+        let is_spotlight = mode == Highlighters::Spotlight;
+        Self {
+            is_spotlight,
+            shared_spotlight_alpha: is_spotlight
+                .then(|| Arc::new(Mutex::new(Style::default().spotlight_alpha()))),
+            ..Default::default()
+        }
     }
 }
 
@@ -130,7 +248,11 @@ impl Tool for HighlightTool {
     }
 
     fn get_tool_type(&self) -> super::Tools {
-        Tools::BlockHighlighter
+        if self.is_spotlight {
+            Tools::HighlightSpotlight
+        } else {
+            Tools::BlockHighlighter
+        }
     }
 
     fn handle_mouse_event(&mut self, event: MouseEventMsg) -> ToolUpdateResult {
@@ -142,11 +264,14 @@ impl Tool for HighlightTool {
 
                 //set origin
                 self.highlighter = Some(BlockHighlight {
+                    is_spotlight: self.is_spotlight,
+                    shared_spotlight_alpha: self.shared_spotlight_alpha.clone(),
                     origin: event.pos,
                     top_left: event.pos,
                     size: Vec2D::zero(),
                     centered: false,
                     editing: true,
+                    cached_layer: Rc::new(RefCell::new(None)),
                     style: self.style,
                 });
                 ToolUpdateResult::Redraw
@@ -180,8 +305,8 @@ impl Tool for HighlightTool {
             && let Some(hb) = &mut self.highlighter
         {
             hb.centered = true;
-            hb.top_left = hb.origin - hb.size;
-            hb.size *= 2.0;
+            let (_, size) = hb.dragged_box();
+            hb.set_dragged_box(hb.origin - size, size * 2.0);
 
             return ToolUpdateResult::Redraw;
         }
@@ -196,8 +321,8 @@ impl Tool for HighlightTool {
             && let Some(hb) = &mut self.highlighter
         {
             hb.centered = false;
-            hb.top_left = hb.origin;
-            hb.size /= 2.0;
+            let (_, size) = hb.dragged_box();
+            hb.set_dragged_box(hb.origin, size / 2.0);
 
             return ToolUpdateResult::Redraw;
         }
@@ -206,6 +331,9 @@ impl Tool for HighlightTool {
 
     fn handle_style_event(&mut self, style: Style) -> ToolUpdateResult {
         self.style = style;
+        if let Some(ref shared_spotlight_alpha) = self.shared_spotlight_alpha {
+            *shared_spotlight_alpha.lock().unwrap() = style.spotlight_alpha();
+        }
         ToolUpdateResult::Unmodified
     }
 

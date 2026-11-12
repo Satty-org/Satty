@@ -398,9 +398,9 @@ impl SketchBoard {
             let selected_index = self.pointer_tool.borrow().selected_index();
             if let Some(index) = selected_index
                 && let Some(mut drawable) = self.renderer.get_drawable_clone(index)
-                && let Some(style) = drawable.get_style_mut()
+                && drawable.get_style().is_some()
             {
-                *style = self.style;
+                drawable.set_style(self.style);
                 self.renderer.replace_drawable(index, drawable);
                 self.update_pointer_tool_selection(index, true);
             }
