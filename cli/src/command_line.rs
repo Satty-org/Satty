@@ -296,9 +296,10 @@ pub enum Tools {
     Pixelate,
     Fringe,
     Blur,
-    Lensblur,
+    Blackout,
     Highlight,
     Spotlight,
+    Lensblur,
     Image,
 }
 
@@ -339,9 +340,10 @@ impl std::fmt::Display for Tools {
             Pixelate => "pixelate",
             Fringe => "fringe",
             Blur => "blur",
-            Lensblur => "lensblur",
+            Blackout => "blackout",
             Highlight => "highlight",
             Spotlight => "spotlight",
+            Lensblur => "lensblur",
             Image => "image",
         };
         f.write_str(s)

@@ -165,6 +165,7 @@ Default shortcuts:
 - <kbd>m</kbd>: Numbered Marker tool
 - <kbd>x</kbd>: Fringe inpaint+Pixelate tool <sup>NEXTRELEASE</sup>
 - <kbd>u</kbd>: Blur tool
+- <kbd>Shift+X</kbd>: Blackout tool <sup>NEXTRELEASE</sup>
 - <kbd>g</kbd>: Block Highlight tool
 - <kbd>s</kbd>: Spotlight tool <sup>NEXTRELEASE</sup>
 - <kbd>Shift+U</kbd>: Lensblur tool <sup>NEXTRELEASE</sup>
@@ -271,7 +272,7 @@ Highlight:
 
 Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <sup>NEXTRELEASE</sup>:
 
-- **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead.
+- **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead, e.g. the blackout tool.
 - **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
 <!-- --8<-- [end:tools] -->
 
