@@ -107,9 +107,9 @@ The size means:
 - text, marker: font size (at least 4), by default 36/54/96
 - pixelate, fringe-pixelate: block size (at least 2), by default 4/8/16
 - blur, lensblur: blur strength (at least 1), by default 4/8/16
-- highlight block, spotlight: opacity in percent (block at least 20, spotlight at least 25), by default 40/60/80
+- highlight block, spotlight: opacity in percent (block at least 20, spotlight at least 25), by default 40/60/80 <sup>experimental</sup>
 
-Blur, highlight block and blackout are filled by default, i.e. drawn as rectangle instead of ellipse.
+Blur, highlight block and blackout are filled by default, i.e. drawn as rectangle instead of ellipse. <sup>experimental</sup>
 
 `annotation-size-factor` in `[general]` or on the command line scales the sizes of the tools using line widths or font sizes once at startup: pen, brush, highlighter, line, arrow, rectangle, ellipse, text and marker.
 Other sizes, like block size, blur strength or opacity, are not scaled.
@@ -300,7 +300,7 @@ Text:
 - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
 - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 - Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>0.22.0</sup>
-  The effect is set by (fill, round caps) <sup>NEXTRELEASE</sup>: none (false, true), inverted outline (true, false), contrast outline (true, true), drop shadow (false, false).
+  The effect is set by (fill, round caps) <sup>NEXTRELEASE</sup>: none (false, true), inverted outline (true, false), contrast outline (true, true), drop shadow (false, false). <sup>experimental</sup>
 - The opacity of the style is the one of a background in the contrast color (black/white) behind the text, by default 0, i.e. no background. <sup>NEXTRELEASE</sup>
 
 Marker:
