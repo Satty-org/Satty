@@ -403,6 +403,17 @@ impl SketchBoard {
         }
     }
 
+    /// Clears the pointer selection; with the pointer active the toolbar then
+    /// shows the general style again instead of the one of the drawable.
+    fn deselect(&mut self, sender: &ComponentSender<Self>) {
+        let had_selection = self.pointer_tool.borrow().selected_index().is_some();
+        self.pointer_tool.borrow_mut().deselect();
+        if had_selection && self.active_tool_type() == Tools::Pointer {
+            self.style = self.effective_style(Tools::Pointer);
+            self.emit_style_to_toolbar(sender);
+        }
+    }
+
     fn emit_style_scope(&mut self, sender: &ComponentSender<Self>) {
         let tool = self.active_tool_type();
         let own = self.tool_style(tool).own;
@@ -989,7 +1000,7 @@ impl SketchBoard {
             self.active_tool.borrow_mut().handle_undo()
         } else if self.renderer.undo() {
             self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+            self.deselect(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -1002,7 +1013,7 @@ impl SketchBoard {
             self.active_tool.borrow_mut().handle_redo()
         } else if self.renderer.redo() {
             self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+            self.deselect(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -1015,7 +1026,7 @@ impl SketchBoard {
         let did_reset = self.deactivate_active_tool() | self.renderer.clear_all();
 
         self.renderer.set_hidden_drawable_index(None);
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.emit_shape_dimensions(sender, self.current_output_dimensions());
 
         // Reset marker numbering after drawable undo hooks ran.
@@ -1263,7 +1274,7 @@ impl SketchBoard {
 
         // Clicked on empty space: deselect
         self.renderer.set_hidden_drawable_index(None);
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.emit_shape_dimensions(sender, self.current_output_dimensions());
         Some(ToolUpdateResult::Redraw)
     }
@@ -1282,7 +1293,7 @@ impl SketchBoard {
             .clone();
 
         // Remove the committed drawable and clear selection
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.renderer.set_hidden_drawable_index(None);
         self.renderer.remove_drawable(idx);
 
@@ -1433,7 +1444,8 @@ impl SketchBoard {
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SetStyleFieldOwn(field, own) => {
-                if self.styling_selection() {
+                // edit the general style if the tool cannot have an own style
+                if !self.active_tool_type().has_own_style() {
                     return ToolUpdateResult::Unmodified;
                 }
                 // the tool takes the current value, or gets the general one again
@@ -1669,7 +1681,7 @@ impl SketchBoard {
             ShortcutCommand::DeleteSelection => {
                 let pointer_selection = self.pointer_tool.borrow().selected_index();
                 if let Some(idx) = pointer_selection {
-                    self.pointer_tool.borrow_mut().deselect();
+                    self.deselect(&sender);
                     self.renderer.set_hidden_drawable_index(None);
                     self.renderer.remove_drawable(idx);
                     // without the drawable, also without a deleted crop
@@ -1955,7 +1967,7 @@ impl Component for SketchBoard {
                         && self.active_tool_type() == Tools::Pointer
                         && self.pointer_tool.borrow().selected_index().is_some()
                     {
-                        self.pointer_tool.borrow_mut().deselect();
+                        self.deselect(&sender);
                         self.renderer.set_hidden_drawable_index(None);
                         self.emit_shape_dimensions(&sender, self.current_output_dimensions());
                         ToolUpdateResult::Redraw
@@ -2160,7 +2172,7 @@ impl Component for SketchBoard {
                         self.temporary_pointer_previous_tool = Some(previous_tool);
                     }
                 } else {
-                    self.pointer_tool.borrow_mut().deselect();
+                    self.deselect(&sender_for_post_commit);
                 }
 
                 if APP_CONFIG.read().auto_copy() {

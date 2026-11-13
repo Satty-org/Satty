@@ -391,8 +391,9 @@ impl Configuration {
         for (key, value) in std::mem::take(&mut style.tools) {
             // the names of the tools as in the keybinds, like spotlight
             let tool = match key.parse::<Tools>() {
-                Ok(tool) => tool,
-                Err(_) => {
+                Ok(tool) if tool.has_own_style() => tool,
+                // disallow own style for tools that cannot have one
+                _ => {
                     log_config_error(format!("Unknown field in config [style]: {key}"));
                     continue;
                 }
