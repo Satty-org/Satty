@@ -612,6 +612,10 @@ impl StyleToolbar {
     fn scope_tooltip(&self, hint: &str, field: StyleField) -> String {
         let tool = self.scope_tool;
         let name = field.name();
+        // no own style hint if tool cannot have own style
+        if !tool.has_own_style() {
+            return hint.to_string();
+        }
         if self.scope_own.contains(field) {
             format!("{hint}\n{tool}: own {name}, Ctrl+click: use the general one")
         } else {
@@ -623,10 +627,14 @@ impl StyleToolbar {
     /// only on hover; for the color only on the selected button.
     fn update_own_indicators(&self) {
         for (indicator, image) in &self.own_indicators {
-            image.set_visible(match indicator {
-                OwnIndicator::Color(button) => *button == self.selected_color,
-                OwnIndicator::Size | OwnIndicator::Fill | OwnIndicator::RoundCaps => true,
-            });
+            image.set_visible(
+                // display own style switcher only if tool can have own style
+                self.scope_tool.has_own_style()
+                    && match indicator {
+                        OwnIndicator::Color(button) => *button == self.selected_color,
+                        OwnIndicator::Size | OwnIndicator::Fill | OwnIndicator::RoundCaps => true,
+                    },
+            );
             if self.scope_own.contains(indicator.field()) {
                 image.add_css_class("own");
             } else {
@@ -987,6 +995,10 @@ impl Component for StyleToolbar {
                 self.update_own_indicators();
             }
             StyleToolbarInput::ToggleStyleFieldOwn(field) => {
+                // switch own style only if tool can have own style
+                if !self.scope_tool.has_own_style() {
+                    return;
+                }
                 sender.output_sender().emit(ToolbarEvent::SetStyleFieldOwn(
                     field,
                     !self.scope_own.contains(field),
