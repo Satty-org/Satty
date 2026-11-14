@@ -114,6 +114,12 @@ Blur, highlight block and blackout are filled by default, i.e. drawn as rectangl
 `annotation-size-factor` in `[general]` or on the command line scales the sizes of the tools using line widths or font sizes once at startup: pen, brush, highlighter, line, arrow, rectangle, ellipse, text and marker.
 Other sizes, like block size, blur strength or opacity, are not scaled.
 
+The buttons S, M and L in the toolbar are presets: they set the size to the small, medium or large size of the active tool.
+The size itself can be any value, e.g. typed into the size field; the button of the preset matching the current size is shown pressed.
+The presets are configured with `small`, `medium` and `large` in `[style]` or a tool's table, each one falls back like the other values.
+A tool setting any of them, or `size`, has its own size and presets.
+The shortcut <kbd>-</kbd> cycles through the presets, `select-size:small`, `select-size:medium` and `select-size:large` select one.
+
 Examples:
 
 ```toml
@@ -170,7 +176,7 @@ If out of range select custom color <sup>0.21.0</sup>
 In the bottom toolbar the size can be edited directly or by + and - buttons.
 The size is a value from 0 to 999 with one decimal place <sup>NEXTRELEASE</sup>.
 Its meaning depends on the tool, see [Styles](#styles).
-The buttons S, M and L set the small, medium and large size configured for the active tool <sup>NEXTRELEASE</sup>.
+The buttons S, M and L are presets for the small, medium and large size of the active tool, see [Styles](#styles) <sup>NEXTRELEASE</sup>.
 
 The bindings are:
 
@@ -179,7 +185,7 @@ The bindings are:
 - Holding <kbd>Ctrl</kbd> will switch to 10.0 step size
 - Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 10.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
-- <kbd>w</kbd> focuses the annotation size factor input field <sup>NEXTRELEASE</sup>
+- <kbd>w</kbd> focuses the size input field <sup>NEXTRELEASE</sup>
 - <kbd>-</kbd> cycles through the sizes small, medium and large <sup>NEXTRELEASE</sup>
 
 #### Fill and Round Caps <sup>NEXTRELEASE</sup>
