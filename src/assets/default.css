@@ -5,6 +5,7 @@
 
 .outer_box {
     background-color: @headerbar_bg_color;
+    background-color: var(--headerbar-bg-color);
 }
 
 .inner_box {
@@ -14,10 +15,13 @@
 .toolbar {
     color: @headerbar_fg_color;
     background-color: @headerbar_bg_color;
+    color: var(--headerbar-fg-color);
+    background-color: var(--headerbar-bg-color);
 }
 
 image.grouped-tools-menu-indicator-hover {
     color: @accent_color;
+    color: var(--accent-color);
 }
 
 .toast {
@@ -42,6 +46,7 @@ image.grouped-tools-menu-indicator-hover {
 
 button.editing {
     color: @accent_color;
+    color: var(--accent-color);
 }
 
 .size-button {
@@ -77,4 +82,5 @@ spinbutton.size-spin {
 
 .toolbar-bottom.styling-selection {
     border-top-color: @accent_bg_color;
+    border-top-color: var(--accent-bg-color);
 }
