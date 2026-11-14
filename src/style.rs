@@ -26,7 +26,7 @@ pub struct Style {
 }
 
 /// A part of the style that a tool can have itself or share with the others
-/// through the general style. The size includes the size presets.
+/// through the shared style. The size includes the size presets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StyleField {
     Color,
@@ -50,7 +50,7 @@ impl StyleField {
     }
 }
 
-/// The fields a tool has itself, the others come from the general style.
+/// The fields a tool has itself, the others come from the shared style.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StyleFields(u8);
 
@@ -313,9 +313,9 @@ impl Style {
         }
     }
 
-    /// This style for the fields in `own`, `general` for the others.
-    pub fn merged_with(&self, general: &Style, own: StyleFields) -> Style {
-        let mut style = *general;
+    /// This style for the fields in `own`, `shared` for the others.
+    pub fn merged_with(&self, shared: &Style, own: StyleFields) -> Style {
+        let mut style = *shared;
         for field in [
             StyleField::Color,
             StyleField::Size,
@@ -381,13 +381,13 @@ mod tests {
 
     #[test]
     fn merged_with_takes_own_fields_from_tool() {
-        let general = style(Color::red(), 5.0);
+        let shared = style(Color::red(), 5.0);
         let tool = style(Color::blue(), 54.0);
         let mut own = StyleFields::default();
-        assert_eq!(tool.merged_with(&general, own), general);
+        assert_eq!(tool.merged_with(&shared, own), shared);
 
         own.set(StyleField::Size, true);
-        let merged = tool.merged_with(&general, own);
+        let merged = tool.merged_with(&shared, own);
         assert_eq!(merged.color, Color::red());
         assert_eq!(merged.size, Size::new(54.0));
         assert_eq!(merged.presets, [Size::new(54.0); 3]);

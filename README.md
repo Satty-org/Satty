@@ -95,14 +95,14 @@ The search order for configuration files is:
 Each tool has a style: color, size, fill, round caps, corner radius and opacity.
 The opacity is given in percent and multiplied with the alpha of the color, by default 100 and 40 for the highlighter, text uses it for its background, see below.
 It is configured in the `[style]` section of the [config.toml](config.toml), with a table per tool like `[style.arrow]`.
-Values missing for a tool are taken from the general `[style]`.
-Values set for a tool, or built in like the sizes of text or pixelate, belong to the tool; the others are shared through the general style.
+Values missing for a tool are taken from the shared `[style]`.
+Values set for a tool, or built in like the sizes of text or pixelate, belong to the tool; the others are shared by all tools.
 Changing a shared value, e.g. the color, changes it for all tools sharing it; changing an own value only for the tool.
 A triangle in the top left corner of a style button in the toolbar shows that the value is the tool's own, the tooltips tell which applies.
 
 The size means:
 
-- pen, brush, line, arrow, rectangle, ellipse: line width (at least 0.5), sizes from the general style, by default 3/5/7
+- pen, brush, line, arrow, rectangle, ellipse: line width (at least 0.5), sizes from the shared style, by default 3/5/7
 - highlighter: width, by default 15/30/45
 - text, marker: font size (at least 4), by default 36/54/96
 - pixelate, fringe-pixelate: block size (at least 2), by default 4/8/16

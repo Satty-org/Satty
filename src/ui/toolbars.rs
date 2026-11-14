@@ -112,7 +112,7 @@ pub enum StyleToolbarInput {
 }
 
 /// The style button a triangle in its top left corner is on. The triangle
-/// shows whether the active tool has the field itself or uses the general one.
+/// shows whether the active tool has the field itself or uses the shared one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OwnIndicator {
     Color(ColorButtons),
@@ -526,18 +526,17 @@ pub enum ColorButtons {
 }
 
 impl StyleToolbar {
-    /// `hint` with whether `field` is the one of the active tool or the general one.
+    /// `hint` with whether `field` is the one of the active tool or the shared one.
     fn scope_tooltip(&self, hint: &str, field: StyleField) -> String {
-        let tool = self.scope_tool;
         let name = field.name();
         // no own style hint if tool cannot have own style
-        if !tool.has_own_style() {
+        if !self.scope_tool.has_own_style() {
             return hint.to_string();
         }
         if self.scope_own.contains(field) {
-            format!("{hint}\n{tool}: own {name}")
+            format!("{hint}\nown {name}")
         } else {
-            format!("{hint}\n{tool}: general {name}")
+            format!("{hint}\nshared {name}")
         }
     }
 

@@ -97,7 +97,7 @@ input-scale = 1.0
 # Styles of the tools (NEXTRELEASE)
 # corner-roundness (now corner-radius), default-fill-shapes and default-round-caps
 # from [general] were replaced by this section.
-# The general style, used for all values not set for a tool
+# The shared style, used for all values not set for a tool
 [style]
 # 1-based index into the color palette or a color in RRGGBBAA format like "#f0932bff"
 color = 1
@@ -118,7 +118,7 @@ corner-radius = 12
 opacity = 100
 
 # Styles per tool, tables are named like the tools in [keybinds] and accept the same keys as [style].
-# Tools below come with their own sizes, the general sizes do not apply to them.
+# Tools below come with their own sizes, the shared sizes do not apply to them.
 # If size is not set, it is the medium size.
 
 # width

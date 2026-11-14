@@ -443,7 +443,7 @@ impl Configuration {
             }
         }
 
-        let styles = std::iter::once(("general".to_string(), &self.style)).chain(
+        let styles = std::iter::once(("shared".to_string(), &self.style)).chain(
             self.tool_styles
                 .iter()
                 .map(|(tool, style)| (tool.to_string(), style)),
@@ -657,19 +657,19 @@ impl Configuration {
         self.actions_on_right_click.clone()
     }
 
-    /// The general style, used for tools without their own style.
+    /// The shared style, used for the values the tools do not have themselves.
     pub fn style(&self) -> Style {
         self.resolve_style(None)
     }
 
     /// The style of `tool`, falling back per field to the built-in defaults of
-    /// the tool and then to the general style.
+    /// the tool and then to the shared style.
     pub fn style_for(&self, tool: Tools) -> Style {
         self.resolve_style(Some(tool))
     }
 
     /// The fields `tool` has itself, set in its [style.TOOL] or built in;
-    /// the others it shares with the other tools through the general style.
+    /// the others it shares with the other tools through the shared style.
     pub fn own_style_fields(&self, tool: Tools) -> StyleFields {
         let tool_style = self.tool_styles.get(&tool);
         let has = |field: fn(&StyleFile) -> bool| tool_style.is_some_and(field);
@@ -702,18 +702,18 @@ impl Configuration {
     }
 
     fn resolve_style(&self, tool: Option<Tools>) -> Style {
-        let general = &self.style;
+        let shared = &self.style;
         let tool_style = tool.and_then(|t| self.tool_styles.get(&t));
         let builtin = tool.and_then(builtin_size_presets);
         let pick = |field: fn(&StyleFile) -> Option<f32>, builtin: Option<f32>| {
             tool_style
                 .and_then(field)
                 .or(builtin)
-                .or_else(|| field(general))
+                .or_else(|| field(shared))
         };
 
         // the annotation size factor scales only line widths and font sizes
-        // the general size is used only by tools with line widths
+        // the shared size is used only by tools with line widths
         let factor = if tool.is_none_or(scales_with_annotation_size_factor) {
             self.annotation_size_factor
         } else {
@@ -725,10 +725,10 @@ impl Configuration {
             pick(|s| s.large, builtin.map(|b| b[2])).unwrap_or(7.0),
         ]
         .map(|v| Size::new(v * factor));
-        // tools with built-in sizes ignore the general size
+        // tools with built-in sizes ignore the shared size
         let size = tool_style
             .and_then(|s| s.size)
-            .or_else(|| builtin.is_none().then_some(general.size).flatten())
+            .or_else(|| builtin.is_none().then_some(shared.size).flatten())
             .map(|v| Size::new(v * factor))
             .unwrap_or(presets[1]);
 
@@ -740,7 +740,7 @@ impl Configuration {
         let color = tool_style
             .and_then(resolve)
             .or(tool.and_then(builtin_color))
-            .or_else(|| resolve(general))
+            .or_else(|| resolve(shared))
             // not Color::default(), it would lock APP_CONFIG again
             .or_else(|| self.color_palette.palette().first().copied())
             .unwrap_or(Color::red());
@@ -751,21 +751,21 @@ impl Configuration {
             fill: tool_style
                 .and_then(|s| s.fill)
                 .or(tool.and_then(builtin_fill))
-                .or(general.fill)
+                .or(shared.fill)
                 .unwrap_or(false),
             round_caps: tool_style
                 .and_then(|s| s.round_caps)
                 .or(tool.and_then(builtin_round_caps))
-                .or(general.round_caps)
+                .or(shared.round_caps)
                 .unwrap_or(true),
             corner_radius: tool_style
                 .and_then(|s| s.corner_radius)
-                .or(general.corner_radius)
+                .or(shared.corner_radius)
                 .unwrap_or(12.0),
             opacity: tool_style
                 .and_then(|s| s.opacity)
                 .or(tool.and_then(builtin_opacity))
-                .or(general.opacity)
+                .or(shared.opacity)
                 .unwrap_or(100.0)
                 .clamp(0.0, 100.0),
             presets,
@@ -922,7 +922,7 @@ struct ConfigurationFile {
 }
 
 /// Built-in small, medium and large sizes for tools where the size does not
-/// mean a line width; all others use the general style.
+/// mean a line width; all others use the shared style.
 fn builtin_size_presets(tool: Tools) -> Option<[f32; 3]> {
     match tool {
         Tools::Highlighter => Some([15.0, 30.0, 45.0]),
@@ -1206,7 +1206,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_overrides_general() {
+    fn tool_overrides_shared() {
         let config = config_with_style(
             r##"
             color = 2
@@ -1238,12 +1238,12 @@ mod tests {
         assert_eq!(line.corner_radius, 8.0);
         assert_eq!(config.style_for(Tools::Rectangle).corner_radius, 20.0);
         assert_eq!(line.opacity, 50.0);
-        // built-in opacity of the tool wins over the general one
+        // built-in opacity of the tool wins over the shared one
         assert_eq!(config.style_for(Tools::Highlighter).opacity, 40.0);
         assert_eq!(config.style_for(Tools::Text).opacity, 0.0);
         assert_eq!(config.style_for(Tools::Rectangle).opacity, 75.0);
 
-        // built-in sizes of the tool win over the general ones
+        // built-in sizes of the tool win over the shared ones
         let highlighter = config.style_for(Tools::Highlighter);
         assert_eq!(highlighter.size.value(), 40.0);
         assert_eq!(highlighter.presets.map(Size::value), [15.0, 30.0, 45.0]);

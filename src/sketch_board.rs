@@ -352,7 +352,7 @@ pub struct SketchBoard {
     // the style shown in the toolbar, of the active tool or the selected drawable
     style: Style,
     // shared by the tools for the fields they do not have themselves
-    general_style: Style,
+    shared_style: Style,
     tool_styles: HashMap<Tools, ToolStyle>,
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
@@ -361,7 +361,7 @@ pub struct SketchBoard {
     last_pointer_pos: Option<Vec2D>,
 }
 
-/// The own fields of a tool, the others are taken from the general style.
+/// The own fields of a tool, the others are taken from the shared style.
 struct ToolStyle {
     style: Style,
     own: StyleFields,
@@ -379,9 +379,9 @@ impl SketchBoard {
     }
 
     fn effective_style(&mut self, tool: Tools) -> Style {
-        let general = self.general_style;
+        let shared = self.shared_style;
         let tool_style = self.tool_style(tool);
-        tool_style.style.merged_with(&general, tool_style.own)
+        tool_style.style.merged_with(&shared, tool_style.own)
     }
 
     /// Whether style changes go to the drawable selected with the pointer.
@@ -391,7 +391,7 @@ impl SketchBoard {
     }
 
     /// Stores the changed `field` of the toolbar style for the active tool if
-    /// it has the field itself, else in the general style for all tools.
+    /// it has the field itself, else in the shared style for all tools.
     fn store_style_field(&mut self, field: StyleField) {
         if self.styling_selection() {
             return;
@@ -401,12 +401,12 @@ impl SketchBoard {
         if tool_style.own.contains(field) {
             tool_style.style.copy_field(field, &style);
         } else {
-            self.general_style.copy_field(field, &style);
+            self.shared_style.copy_field(field, &style);
         }
     }
 
     /// Clears the pointer selection; with the pointer active the toolbar then
-    /// shows the general style again instead of the one of the drawable.
+    /// shows the shared style again instead of the one of the drawable.
     fn deselect(&mut self, sender: &ComponentSender<Self>) {
         let had_selection = self.pointer_tool.borrow().selected_index().is_some();
         self.pointer_tool.borrow_mut().deselect();
@@ -2229,7 +2229,7 @@ impl Component for SketchBoard {
             active_tool: tools.get(&config.initial_tool()),
             tool_edit_mode: false,
             style: config.style_for(config.initial_tool()),
-            general_style: config.style(),
+            shared_style: config.style(),
             tool_styles: HashMap::new(),
             pointer_layer_scroll_accumulator: 0.0,
             pinch_last_scale: 1.0,
