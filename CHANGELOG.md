@@ -97,6 +97,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - `--help` no longer refers to the nonexistent option `action_on_copy`. [#693]
 - Fonts that are named instances of a variable font are loaded; variable font styles are not supported and a warning is logged. [#618]
 - The canvas has the focus at start, not the size field. [#824]
+- Add CSS variables for compatibility with newer GTK and Adawait. [#826]
 - The text cursor and the box of an empty text are visible again while editing. [#827]
 
 ### Contributors
@@ -186,6 +187,7 @@ Thanks to everyone who contributed to this release:
 [#817]: https://github.com/Satty-org/Satty/pull/817
 [#823]: https://github.com/Satty-org/Satty/pull/823
 [#824]: https://github.com/Satty-org/Satty/pull/824
+[#826]: https://github.com/Satty-org/Satty/pull/826
 [#827]: https://github.com/Satty-org/Satty/pull/827
 
 <!-- --8<-- [end:changelog] -->
