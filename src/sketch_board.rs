@@ -1400,15 +1400,14 @@ impl SketchBoard {
                 self.store_style_field(StyleField::Color);
                 self.set_drawable_style_from_toolbar_style()
             }
+            // from the size field, which already shows it: sending it back could
+            // arrive after further changes and set the field back to an old value
             ToolbarEvent::SizeSelected(size) => {
                 if self.style.size == size {
                     return ToolUpdateResult::Unmodified;
                 }
                 self.style.size = size;
                 self.store_style_field(StyleField::Size);
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetSize(size));
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
@@ -1433,10 +1432,11 @@ impl SketchBoard {
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SizePresetSelected(preset) => {
-                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
-                    self.style.preset(preset),
-                )));
-                ToolUpdateResult::Unmodified
+                let size = self.style.preset(preset);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetSize(size));
+                self.handle_toolbar_event(ToolbarEvent::SizeSelected(size), sender)
             }
             ToolbarEvent::SetFill(fill_enabled) => {
                 self.style.fill = fill_enabled;

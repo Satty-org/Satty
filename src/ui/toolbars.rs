@@ -98,6 +98,8 @@ pub enum StyleToolbarInput {
     SetFill(bool),
     SetRoundCaps(bool),
     SetSize(Size),
+    /// edited in the size field, which already shows it
+    SizeFieldChanged(Size),
     SetSizePresets([Size; 3]),
     SizePresetClicked(SizePreset),
     SetStyleScope(Tools, StyleFields),
@@ -833,7 +835,7 @@ impl Component for StyleToolbar {
                         return;
                     }
                     let new_value = Size::new(spin_button.value() as f32);
-                    sender.output_sender().emit(ToolbarEvent::SizeSelected(new_value));
+                    sender.input(StyleToolbarInput::SizeFieldChanged(new_value));
                 },
 
                 add_controller = gtk::EventControllerKey {
@@ -981,6 +983,12 @@ impl Component for StyleToolbar {
                 self.size_spin_updating.set(true);
                 self.size_spin_button.set_value(size.value() as f64);
                 self.size_spin_updating.set(false);
+            }
+            StyleToolbarInput::SizeFieldChanged(size) => {
+                self.size = size;
+                sender
+                    .output_sender()
+                    .emit(ToolbarEvent::SizeSelected(size));
             }
             StyleToolbarInput::SetSizePresets(presets) => {
                 self.size_presets = presets;
