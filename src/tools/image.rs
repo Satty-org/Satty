@@ -259,13 +259,20 @@ impl ImageTool {
         dialog.add_filter(&filter);
 
         dialog.connect_response(move |dialog, response| {
-            if response == gtk::ResponseType::Accept
+            let pixbuf = if response == gtk::ResponseType::Accept
                 && let Some(path) = dialog.file().and_then(|file| file.path())
             {
-                match image_loading::pixbuf_from_file(&path) {
-                    Ok(pixbuf) => sender.emit(SketchBoardInput::ImagePlaced(pixbuf, placement)),
-                    Err(e) => log(&format!("Error loading image: {e}"), LogLevel::Error),
-                }
+                image_loading::pixbuf_from_file(&path)
+                    .inspect_err(|e| log(&format!("Error loading image: {e}"), LogLevel::Error))
+                    .ok()
+            } else {
+                None
+            };
+            match pixbuf {
+                Some(pixbuf) => sender.emit(SketchBoardInput::ImagePlaced(pixbuf, placement)),
+                // the dragged box showed its size, without an image show the
+                // size of the output again
+                None => sender.emit(SketchBoardInput::OutputDimensionsUpdate),
             }
             dialog.destroy();
         });
