@@ -98,7 +98,7 @@ It is configured in the `[style]` section of the [config.toml](config.toml), wit
 Values missing for a tool are taken from the general `[style]`.
 Values set for a tool, or built in like the sizes of text or pixelate, belong to the tool; the others are shared through the general style.
 Changing a shared value, e.g. the color, changes it for all tools sharing it; changing an own value only for the tool.
-A triangle in the top left corner of a style button in the toolbar shows that the value is the tool's own; on hover it is shown faintly for shared values. A click on the triangle or Ctrl+click on the button switches between the tool's own value and the general one, e.g. to give the arrow another size than the rectangle; the tooltips tell which applies.
+A triangle in the top left corner of a style button in the toolbar shows that the value is the tool's own, the tooltips tell which applies.
 
 The size means:
 

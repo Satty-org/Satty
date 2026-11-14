@@ -67,21 +67,3 @@ spinbutton.size-spin {
     border-color: transparent;
 }
 
-/* triangle on style buttons, shown when the active tool has the value itself,
-   else only on hover */
-image.own-style-indicator {
-    opacity: 0;
-}
-
-.own-style-overlay:hover image.own-style-indicator {
-    opacity: 0.4;
-}
-
-image.own-style-indicator.own {
-    opacity: 1;
-}
-
-image.own-style-indicator.own-style-indicator-hover {
-    opacity: 1;
-    color: @accent_color;
-}

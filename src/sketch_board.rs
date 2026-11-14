@@ -1445,27 +1445,6 @@ impl SketchBoard {
                 self.store_style_field(StyleField::Fill);
                 self.set_drawable_style_from_toolbar_style()
             }
-            ToolbarEvent::SetStyleFieldOwn(field, own) => {
-                // edit the general style if the tool cannot have an own style
-                if !self.active_tool_type().has_own_style() {
-                    return ToolUpdateResult::Unmodified;
-                }
-                // the tool takes the current value, or gets the general one again
-                let tool = self.active_tool_type();
-                let style = self.style;
-                let tool_style = self.tool_style(tool);
-                tool_style.own.set(field, own);
-                if own {
-                    tool_style.style.copy_field(field, &style);
-                }
-                self.style = self.effective_style(tool);
-                self.emit_style_to_toolbar(&sender);
-                self.emit_style_scope(&sender);
-                self.active_tool
-                    .borrow_mut()
-                    .handle_event(ToolEvent::StyleChanged(self.style));
-                ToolUpdateResult::Redraw
-            }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
             ToolbarEvent::ScaleFitToWindow => self.handle_scale(0),
             ToolbarEvent::ScaleOriginal => self.handle_scale(100),

@@ -13,7 +13,7 @@ use crate::{
 use crate::tools::GroupableTool;
 use crate::ui::tool_group_button::{ToolGroupButton, ToolGroupButtonInput, ToolGroupInit};
 use relm4::gtk::{
-    gdk::{Key, ModifierType},
+    gdk::Key,
     gdk_pixbuf::{
         Pixbuf,
         gio::SimpleAction,
@@ -69,8 +69,6 @@ pub enum ToolbarEvent {
     SetFill(bool),
     SizeSelected(Size),
     SizePresetSelected(SizePreset),
-    /// whether the active tool has the field itself or uses the general one
-    SetStyleFieldOwn(StyleField, bool),
     Redo,
     Undo,
     SaveFile,
@@ -103,8 +101,6 @@ pub enum StyleToolbarInput {
     SetSizePresets([Size; 3]),
     SizePresetClicked(SizePreset),
     SetStyleScope(Tools, StyleFields),
-    /// Ctrl+click on a style button
-    ToggleStyleFieldOwn(StyleField),
     ShowColorDialog,
     ColorDialogFinished(Option<RGBA>),
     SetVisibility(bool),
@@ -137,17 +133,9 @@ impl OwnIndicator {
     }
 }
 
-/// size of the corner with the triangle that can be clicked
-const OWN_INDICATOR_CORNER: f64 = 12.0;
-
 /// Puts `button` into an overlay with the triangle of `indicator` in its top
-/// left corner. A click on the triangle or a Ctrl+click on the button switches
-/// the field between the own one of the active tool and the general one.
-fn add_own_indicator(
-    button: &impl IsA<gtk::Widget>,
-    sender: &ComponentSender<StyleToolbar>,
-    indicator: OwnIndicator,
-) -> gtk::Image {
+/// left corner, shown when the active tool has the field itself.
+fn add_own_indicator(button: &impl IsA<gtk::Widget>) -> gtk::Image {
     let button = button.upcast_ref::<gtk::Widget>();
     let parent = button
         .parent()
@@ -156,7 +144,6 @@ fn add_own_indicator(
     let previous = button.prev_sibling();
     parent.remove(button);
     let overlay = gtk::Overlay::new();
-    overlay.add_css_class("own-style-overlay");
     overlay.set_child(Some(button));
     parent.insert_child_after(&overlay, previous.as_ref());
 
@@ -169,78 +156,7 @@ fn add_own_indicator(
         .build();
     image.add_css_class("own-style-indicator");
     overlay.add_overlay(&image);
-
-    let in_corner = {
-        let image = image.clone();
-        move |x: f64, y: f64| {
-            image.is_visible() && x <= OWN_INDICATOR_CORNER && y <= OWN_INDICATOR_CORNER
-        }
-    };
-
-    let motion = gtk::EventControllerMotion::new();
-    let hover = {
-        let image = image.clone();
-        let in_corner = in_corner.clone();
-        move |x: f64, y: f64| {
-            if in_corner(x, y) {
-                image.add_css_class("own-style-indicator-hover");
-            } else {
-                image.remove_css_class("own-style-indicator-hover");
-            }
-        }
-    };
-    let hover_enter = hover.clone();
-    motion.connect_enter(move |_, x, y| hover_enter(x, y));
-    motion.connect_motion(move |_, x, y| hover(x, y));
-    let leave_image = image.clone();
-    motion.connect_leave(move |_| leave_image.remove_css_class("own-style-indicator-hover"));
-    overlay.add_controller(motion);
-
-    let gesture = gtk::GestureClick::builder().button(1).build();
-    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let sender = sender.clone();
-    let overlay_for_pick = overlay.clone();
-    gesture.connect_pressed(move |gesture, _, x, y| {
-        // in the size field Ctrl+click on its + and - buttons steps by 10
-        let on_step_button = indicator == OwnIndicator::Size
-            && overlay_for_pick
-                .pick(x, y, gtk::PickFlags::DEFAULT)
-                .is_some_and(|w| {
-                    w.is::<gtk::Button>() || w.ancestor(gtk::Button::static_type()).is_some()
-                });
-        let ctrl = !on_step_button
-            && gesture
-                .current_event_state()
-                .contains(ModifierType::CONTROL_MASK);
-        if ctrl || in_corner(x, y) {
-            gesture.set_state(gtk::EventSequenceState::Claimed);
-            sender.input(StyleToolbarInput::ToggleStyleFieldOwn(indicator.field()));
-        }
-    });
-    overlay.add_controller(gesture);
-
     image
-}
-
-/// Ctrl+click on `button` switches `field` like the triangle, see add_own_indicator.
-fn connect_own_style_toggle(
-    button: &impl IsA<gtk::Widget>,
-    sender: &ComponentSender<StyleToolbar>,
-    field: StyleField,
-) {
-    let gesture = gtk::GestureClick::builder().button(1).build();
-    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let sender = sender.clone();
-    gesture.connect_pressed(move |gesture, _, _, _| {
-        if gesture
-            .current_event_state()
-            .contains(ModifierType::CONTROL_MASK)
-        {
-            gesture.set_state(gtk::EventSequenceState::Claimed);
-            sender.input(StyleToolbarInput::ToggleStyleFieldOwn(field));
-        }
-    });
-    button.add_controller(gesture);
 }
 
 fn create_icon_pixbuf(color: Color) -> Pixbuf {
@@ -619,29 +535,24 @@ impl StyleToolbar {
             return hint.to_string();
         }
         if self.scope_own.contains(field) {
-            format!("{hint}\n{tool}: own {name}, Ctrl+click: use the general one")
+            format!("{hint}\n{tool}: own {name}")
         } else {
-            format!("{hint}\n{tool}: general {name}, Ctrl+click: own one for {tool}")
+            format!("{hint}\n{tool}: general {name}")
         }
     }
 
-    /// Shows the triangles of the fields the active tool has itself, the others
-    /// only on hover; for the color only on the selected button.
+    /// Shows the triangles of the fields the active tool has itself; for the
+    /// color only on the selected button.
     fn update_own_indicators(&self) {
         for (indicator, image) in &self.own_indicators {
             image.set_visible(
-                // display own style switcher only if tool can have own style
                 self.scope_tool.has_own_style()
+                    && self.scope_own.contains(indicator.field())
                     && match indicator {
                         OwnIndicator::Color(button) => *button == self.selected_color,
                         OwnIndicator::Size | OwnIndicator::Fill | OwnIndicator::RoundCaps => true,
                     },
             );
-            if self.scope_own.contains(indicator.field()) {
-                image.add_css_class("own");
-            } else {
-                image.remove_css_class("own");
-            }
         }
     }
 
@@ -1002,16 +913,6 @@ impl Component for StyleToolbar {
                 self.update_palette_tooltips();
                 self.update_own_indicators();
             }
-            StyleToolbarInput::ToggleStyleFieldOwn(field) => {
-                // switch own style only if tool can have own style
-                if !self.scope_tool.has_own_style() {
-                    return;
-                }
-                sender.output_sender().emit(ToolbarEvent::SetStyleFieldOwn(
-                    field,
-                    !self.scope_own.contains(field),
-                ));
-            }
             StyleToolbarInput::SizePresetClicked(preset) => {
                 sender
                     .output_sender()
@@ -1086,7 +987,7 @@ impl Component for StyleToolbar {
             };
             root.prepend(&btn);
             let indicator = OwnIndicator::Color(ColorButtons::Palette(i as u64));
-            own_indicators.push((indicator, add_own_indicator(&btn, &sender, indicator)));
+            own_indicators.push((indicator, add_own_indicator(&btn)));
             palette_buttons.push((btn, color_tooltip));
         }
 
@@ -1163,16 +1064,9 @@ impl Component for StyleToolbar {
             ),
         ];
         for (button, indicator) in buttons {
-            let image = add_own_indicator(button, &sender, indicator);
-            model.own_indicators.push((indicator, image));
-        }
-        // the size has its triangle on the size field, S, M and L only Ctrl+click
-        for button in [
-            &widgets.size_small_button,
-            &widgets.size_medium_button,
-            &widgets.size_large_button,
-        ] {
-            connect_own_style_toggle(button, &sender, StyleField::Size);
+            model
+                .own_indicators
+                .push((indicator, add_own_indicator(button)));
         }
         model.update_own_indicators();
 
