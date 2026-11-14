@@ -58,6 +58,8 @@ pub enum SketchBoardInput {
     Exit,
     ScaleFactorChanged,
     ShapeDimensionsUpdate(Vec2D),
+    /// show the size a save would produce again, e.g. after a shape was not created
+    OutputDimensionsUpdate,
     /// delta from the start to the end of a line, shown as length and angle
     LineDimensionsUpdate(Vec2D),
     Output(SketchBoardOutput),
@@ -1990,6 +1992,10 @@ impl Component for SketchBoard {
             }
             SketchBoardInput::ShapeDimensionsUpdate(size) => {
                 self.emit_shape_dimensions(&sender, size);
+                ToolUpdateResult::Unmodified
+            }
+            SketchBoardInput::OutputDimensionsUpdate => {
+                self.emit_shape_dimensions(&sender, self.current_output_dimensions());
                 ToolUpdateResult::Unmodified
             }
             SketchBoardInput::LineDimensionsUpdate(delta) => {
