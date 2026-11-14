@@ -153,6 +153,7 @@ fill = true
 - <kbd>Ctrl++</kbd> or <kbd>Ctrl+=</kbd>: Zoom in, <kbd>Ctrl+-</kbd>: Zoom out <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+1</kbd>: Fit to window, <kbd>Alt+1</kbd>: 100% <sup>NEXTRELEASE</sup>
 - <kbd>Ctrl+2</kbd>/<kbd>Ctrl+3</kbd>/<kbd>Ctrl+4</kbd>: 200%/300%/400%, <kbd>Alt+2</kbd>/<kbd>Alt+3</kbd>/<kbd>Alt+4</kbd>: 50%/33%/25% <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+Shift+l</kbd> show log messages viewer <sup>NEXTRELEASE</sup>
 
 Mouse:
 
