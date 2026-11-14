@@ -67,7 +67,8 @@ impl Component for LogDialog {
                     },
 
                     gtk::Button {
-                        set_label: "Refresh",
+                        set_icon_name: "arrow-sync-regular",
+                        set_tooltip: "Refresh",
                         connect_clicked => LogDialogInput::Refresh
                     }
                 },

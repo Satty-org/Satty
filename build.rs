@@ -87,6 +87,7 @@ fn main() -> Result<(), io::Error> {
             "format-ink-highlighter",
             "flashlight-regular",
             "lens-blur",
+            "arrow-sync-regular",
         ],
     );
 
