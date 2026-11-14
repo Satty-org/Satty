@@ -2378,11 +2378,19 @@ impl Component for SketchBoard {
 
         let error_count = crate::configuration::config_error_count();
         if error_count > 0 {
+            let sc = if let Some(s) = keybindings::ShortcutRegistry::from_config()
+                .get_binding_for_command(ShortcutCommand::ShowLog)
+            {
+                format!(" ({})", s)
+            } else {
+                "".into()
+            };
             log_with_severity(
             format!(
-                "{} error{} occurred during configuration loading, please start from terminal or use log viewer to retrieve error messages.",
+                "{} error{} occurred during configuration loading, please start from terminal or use log viewer{} to retrieve error messages.",
                 error_count,
-                if error_count == 1 { "" } else { "s" }
+                if error_count == 1 { "" } else { "s" },
+                sc
             ).as_str(), LogLevel::Warn, LogSeverity::High);
         }
         ComponentParts { model, widgets }
