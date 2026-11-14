@@ -1,4 +1,4 @@
-use crate::logging::{LogEntry, log_buffer_snapshot};
+use crate::logging::{LogEntry, Prefix, log_buffer_snapshot};
 use relm4::gtk::prelude::{
     BoxExt, ButtonExt, GtkApplicationExt, GtkWindowExt, OrientableExt, TextBufferExt, TextViewExt,
     WidgetExt,
@@ -8,13 +8,15 @@ use relm4::{
 };
 use satty_cli::command_line::LogLevel;
 use std::cell::RefCell;
+use std::sync::LazyLock;
 
 pub struct LogDialog {
     entries: Vec<LogEntry>,
     max_displayed_level: LogLevel,
 }
 
-const LEVELS: [&str; 6] = ["Fatal", "Error", "Warn", "Info", "Debug", "Trace"];
+static LEVELS: LazyLock<[String; LogLevel::ALL.len()]> =
+    LazyLock::new(|| LogLevel::ALL.map(|l| format!("{} {}", l.prefix(), l)));
 
 impl LogDialog {
     fn get_log_text(&self) -> String {
@@ -57,7 +59,7 @@ impl Component for LogDialog {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 6,
 
-                    gtk::DropDown::from_strings(&LEVELS) {
+                    gtk::DropDown::from_strings(&loglevels) {
                         set_selected: model.max_displayed_level.index(),
                         connect_selected_notify[sender] => move |dd| {
                             sender.input(LogDialogInput::ToggleLevel(dd.selected()))
@@ -101,6 +103,8 @@ impl Component for LogDialog {
             entries: log_buffer_snapshot(),
             max_displayed_level: LogLevel::Warn,
         };
+
+        let loglevels: Vec<&str> = LEVELS.iter().map(String::as_str).collect();
 
         let widgets = view_output!();
         ComponentParts { model, widgets }

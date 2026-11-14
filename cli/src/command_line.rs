@@ -220,7 +220,7 @@ impl Display for LogLevel {
 }
 
 impl LogLevel {
-    const ALL: [LogLevel; 6] = [
+    pub const ALL: [LogLevel; 6] = [
         LogLevel::Fatal,
         LogLevel::Error,
         LogLevel::Warn,
