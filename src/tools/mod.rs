@@ -531,6 +531,13 @@ pub enum Tools {
     Image,
 }
 
+impl Tools {
+    /// Whether the tool can have a style of its own.
+    pub fn has_own_style(self) -> bool {
+        !matches!(self, Tools::Pointer | Tools::Crop)
+    }
+}
+
 impl fmt::Display for Tools {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {

@@ -66,10 +66,11 @@ pub struct CommandLine {
     #[arg(long, value_delimiter = ',', num_args=0.., default_missing_value = "all")]
     pub early_exit: Option<Vec<EarlyExitTriggers>>,
 
-    /// Draw corners of rectangles round if the value is greater than 0
+    /// Radius of the rounded corners of rectangles in pixels
     /// (Defaults to 12) (0 disables rounded corners)
-    #[arg(long)]
-    pub corner_roundness: Option<f32>,
+    /// (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
+    #[arg(long, visible_alias = "corner-roundness")]
+    pub corner_radius: Option<f32>,
 
     /// Select the tool on startup
     #[arg(long, value_name = "TOOL", visible_alias = "init-tool")]
@@ -79,7 +80,7 @@ pub struct CommandLine {
     #[arg(long)]
     pub copy_command: Option<String>,
 
-    /// Increase or decrease the size of the annotations
+    /// Scale style size of tools using line width
     #[arg(long)]
     pub annotation_size_factor: Option<f32>,
 
