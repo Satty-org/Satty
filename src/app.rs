@@ -5,7 +5,7 @@ use crate::math::Vec2D;
 use crate::sketch_board::{
     SketchBoard, SketchBoardInput, SketchBoardOutput, pixbuf_from_drop_value,
 };
-use crate::style::{Color, Size, StyleFields};
+use crate::style::{Color, Size, StyleScope};
 use crate::tools::Tools;
 use crate::ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
 use crate::{generate_profile_output, icons, ui};
@@ -50,7 +50,7 @@ pub enum AppInput {
     SetColor(Color),
     SetSize(Size),
     SetSizePresets([Size; 3]),
-    SetStyleScope(Tools, StyleFields),
+    SetStyleScope(StyleScope),
     FocusSizeShortcut,
     ScaleFactorChanged,
     SetFill(bool),
@@ -302,10 +302,10 @@ impl Component for App {
                     .sender()
                     .emit(StyleToolbarInput::SetSizePresets(presets));
             }
-            AppInput::SetStyleScope(tool, own) => {
+            AppInput::SetStyleScope(scope) => {
                 self.style_toolbar
                     .sender()
-                    .emit(StyleToolbarInput::SetStyleScope(tool, own));
+                    .emit(StyleToolbarInput::SetStyleScope(scope));
             }
             AppInput::FocusSizeShortcut => {
                 self.style_toolbar
@@ -394,9 +394,7 @@ impl Component for App {
                     }
                     SketchBoardOutput::SetSize(size) => AppInput::SetSize(size),
                     SketchBoardOutput::FocusSizeShortcut => AppInput::FocusSizeShortcut,
-                    SketchBoardOutput::SetStyleScope(tool, own) => {
-                        AppInput::SetStyleScope(tool, own)
-                    }
+                    SketchBoardOutput::SetStyleScope(scope) => AppInput::SetStyleScope(scope),
                     SketchBoardOutput::SetSizePresets(presets) => AppInput::SetSizePresets(presets),
                     SketchBoardOutput::DimensionsUpdate(dimensions) => {
                         AppInput::DimensionsUpdate(dimensions)

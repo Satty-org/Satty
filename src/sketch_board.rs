@@ -25,7 +25,7 @@ use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{self, ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::logging::{LogLevel, LogSeverity, log, log_result_with_pixbuf, log_with_severity};
 use crate::math::{Vec2D, crop_rect_in_bounds};
-use crate::style::{Color, Size, SizePreset, Style, StyleField, StyleFields};
+use crate::style::{Color, Size, SizePreset, Style, StyleField, StyleFields, StyleScope};
 
 use crate::tools::{
     ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
@@ -76,7 +76,7 @@ pub enum SketchBoardOutput {
     SetSize(Size),
     SetSizePresets([Size; 3]),
     /// the active tool and the style fields it has itself
-    SetStyleScope(Tools, StyleFields),
+    SetStyleScope(StyleScope),
     FocusSizeShortcut,
     SetFill(bool),
     SetRoundCaps(bool),
@@ -353,6 +353,8 @@ pub struct SketchBoard {
     style: Style,
     // shared by the tools for the fields they do not have themselves
     shared_style: Style,
+    // what the style toolbar was last told its changes apply to
+    style_scope: Option<StyleScope>,
     tool_styles: HashMap<Tools, ToolStyle>,
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
@@ -413,15 +415,43 @@ impl SketchBoard {
         if had_selection && self.active_tool_type() == Tools::Pointer {
             self.style = self.effective_style(Tools::Pointer);
             self.emit_style_to_toolbar(sender);
+            self.emit_style_scope(sender);
         }
     }
 
+    /// The style of the drawable selected with the pointer, if it has one.
+    fn selection_style(&self) -> Option<Style> {
+        if !self.styling_selection() {
+            return None;
+        }
+        let index = self.pointer_tool.borrow().selected_index()?;
+        let drawable = self.renderer.get_drawable_clone(index)?;
+        drawable.get_style().copied()
+    }
+
+    /// Tells the style toolbar what its changes apply to, if that changed; a
+    /// new selection also brings its style to the toolbar.
     fn emit_style_scope(&mut self, sender: &ComponentSender<Self>) {
-        let tool = self.active_tool_type();
-        let own = self.tool_style(tool).own;
+        let selection_style = self.selection_style();
+        let scope = if selection_style.is_some() {
+            StyleScope::Selection
+        } else {
+            let tool = self.active_tool_type();
+            StyleScope::Tool(tool, self.tool_style(tool).own)
+        };
+        if self.style_scope == Some(scope) {
+            return;
+        }
+        if let Some(style) = selection_style
+            && style != self.style
+        {
+            self.style = style;
+            self.emit_style_to_toolbar(sender);
+        }
+        self.style_scope = Some(scope);
         sender
             .output_sender()
-            .emit(SketchBoardOutput::SetStyleScope(tool, own));
+            .emit(SketchBoardOutput::SetStyleScope(scope));
     }
 
     fn sync_toolbar_style_from_drawable(
@@ -1223,6 +1253,8 @@ impl SketchBoard {
                 self.pointer_tool
                     .borrow_mut()
                     .begin_resize(idx, drawable, handle, anchors, me.pos);
+                // after the selection is set
+                self.emit_style_scope(sender);
                 return Some(ToolUpdateResult::Redraw);
             }
         }
@@ -1271,6 +1303,8 @@ impl SketchBoard {
             self.pointer_tool
                 .borrow_mut()
                 .begin_move(sel_idx, drawable, anchors, me.pos);
+            // after the selection is set
+            self.emit_style_scope(sender);
             return Some(ToolUpdateResult::Redraw);
         }
 
@@ -1383,8 +1417,11 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_sender(sender.input_sender().clone());
 
-                // switch to the style of the new tool
-                self.style = self.effective_style(target_tool);
+                // switch to the style of the new tool, or of the drawable that
+                // stays selected with the pointer, e.g. after an auto select
+                self.style = self
+                    .selection_style()
+                    .unwrap_or_else(|| self.effective_style(target_tool));
                 self.emit_style_to_toolbar(&sender);
                 self.emit_style_scope(&sender);
                 self.active_tool
@@ -2195,6 +2232,9 @@ impl Component for SketchBoard {
                 self.refresh_screen()
             }
         };
+
+        // a selection can start or end in many ways, e.g. by an auto select
+        self.emit_style_scope(&sender_clone);
     }
 
     fn init(
@@ -2230,6 +2270,7 @@ impl Component for SketchBoard {
             tool_edit_mode: false,
             style: config.style_for(config.initial_tool()),
             shared_style: config.style(),
+            style_scope: None,
             tool_styles: HashMap::new(),
             pointer_layer_scroll_accumulator: 0.0,
             pinch_last_scale: 1.0,

@@ -6,7 +6,7 @@ use crate::{
     configuration::{APP_CONFIG, Action},
     keybindings::{ShortcutCommand, ShortcutRegistry},
     math::{Vec2D, get_closest_aspect_ratio},
-    style::{Color, Size, SizePreset, StyleField, StyleFields},
+    style::{Color, Size, SizePreset, StyleField, StyleScope},
     tools::Tools,
 };
 
@@ -43,8 +43,7 @@ pub struct StyleToolbar {
     // set while the size is set from outside, to not report it back as change
     size_spin_updating: Rc<Cell<bool>>,
     // the active tool and the style fields it has itself, for the tooltips
-    scope_tool: Tools,
-    scope_own: StyleFields,
+    scope: StyleScope,
     palette_buttons: Vec<(gtk::ToggleButton, String)>,
     // the triangles showing whether their field is the tool's own, see
     // update_own_indicators
@@ -100,7 +99,7 @@ pub enum StyleToolbarInput {
     SizeFieldChanged(Size),
     SetSizePresets([Size; 3]),
     SizePresetClicked(SizePreset),
-    SetStyleScope(Tools, StyleFields),
+    SetStyleScope(StyleScope),
     ShowColorDialog,
     ColorDialogFinished(Option<RGBA>),
     SetVisibility(bool),
@@ -529,14 +528,12 @@ impl StyleToolbar {
     /// `hint` with whether `field` is the one of the active tool or the shared one.
     fn scope_tooltip(&self, hint: &str, field: StyleField) -> String {
         let name = field.name();
-        // no own style hint if tool cannot have own style
-        if !self.scope_tool.has_own_style() {
-            return hint.to_string();
-        }
-        if self.scope_own.contains(field) {
-            format!("{hint}\nown {name}")
-        } else {
-            format!("{hint}\nshared {name}")
+        match self.scope {
+            StyleScope::Selection => format!("{hint}\nselected annotation"),
+            // no own style hint if tool cannot have own style
+            StyleScope::Tool(tool, _) if !tool.has_own_style() => hint.to_string(),
+            StyleScope::Tool(_, own) if own.contains(field) => format!("{hint}\nown {name}"),
+            StyleScope::Tool(..) => format!("{hint}\nshared {name}"),
         }
     }
 
@@ -544,13 +541,17 @@ impl StyleToolbar {
     /// color only on the selected button.
     fn update_own_indicators(&self) {
         for (indicator, image) in &self.own_indicators {
+            let own = match self.scope {
+                StyleScope::Tool(tool, own) => {
+                    tool.has_own_style() && own.contains(indicator.field())
+                }
+                StyleScope::Selection => false,
+            };
             image.set_visible(
-                self.scope_tool.has_own_style()
-                    && self.scope_own.contains(indicator.field())
-                    && match indicator {
-                        OwnIndicator::Color(button) => *button == self.selected_color,
-                        OwnIndicator::Size | OwnIndicator::Fill | OwnIndicator::RoundCaps => true,
-                    },
+                own && match indicator {
+                    OwnIndicator::Color(button) => *button == self.selected_color,
+                    OwnIndicator::Size | OwnIndicator::Fill | OwnIndicator::RoundCaps => true,
+                },
             );
         }
     }
@@ -635,6 +636,9 @@ impl Component for StyleToolbar {
             set_halign: Align::Center,
             add_css_class: "toolbar",
             add_css_class: "toolbar-bottom",
+            // changes apply to the drawable selected with the pointer only
+            #[watch]
+            set_class_active: ("styling-selection", model.scope == StyleScope::Selection),
 
             #[watch]
             set_visible: model.visible,
@@ -903,9 +907,8 @@ impl Component for StyleToolbar {
             StyleToolbarInput::SetSizePresets(presets) => {
                 self.size_presets = presets;
             }
-            StyleToolbarInput::SetStyleScope(tool, own) => {
-                self.scope_tool = tool;
-                self.scope_own = own;
+            StyleToolbarInput::SetStyleScope(scope) => {
+                self.scope = scope;
                 self.size_spin_button.set_tooltip_text(Some(
                     &self.scope_tooltip(&self.size_spin_hint, StyleField::Size),
                 ));
@@ -1026,8 +1029,7 @@ impl Component for StyleToolbar {
                 .map(|p| get_hint(&shortcut_registry, ShortcutCommand::SelectSize(p))),
             size_spin_button: gtk::SpinButton::new(None::<&gtk::Adjustment>, 1.0, 1),
             size_spin_updating: Rc::new(Cell::new(false)),
-            scope_tool: initial_tool,
-            scope_own: initial_own,
+            scope: StyleScope::Tool(initial_tool, initial_own),
             palette_buttons,
             own_indicators,
             selected_color: ColorButtons::Palette(0),

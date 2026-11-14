@@ -67,3 +67,14 @@ spinbutton.size-spin {
     border-color: transparent;
 }
 
+/* style toolbar while its changes apply to the annotation selected with the
+   pointer, in the accent color like the selection handles */
+.toolbar-bottom {
+    border-top: 1px solid transparent;
+    /* the background also under the transparent border */
+    background-clip: border-box;
+}
+
+.toolbar-bottom.styling-selection {
+    border-top-color: @accent_bg_color;
+}

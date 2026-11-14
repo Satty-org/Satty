@@ -249,6 +249,7 @@ The defaults are listed in the [config.toml](config.toml).
 
 Annotations can be selected by click.
 This will update the toolbar to the annotation's style and allow style changes.
+Style changes then apply only to the selected annotation, not to the style of a tool, the style toolbar is marked by a line on top. Undo reverts them.
 Newly created annotations can be autoselected if enabled in the config.
 
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.

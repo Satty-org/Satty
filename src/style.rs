@@ -10,6 +10,7 @@ use relm4::gtk::gdk_pixbuf::{
 use relm4::gtk::glib::variant::FromVariant;
 
 use crate::configuration::APP_CONFIG;
+use crate::tools::Tools;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Style {
@@ -48,6 +49,15 @@ impl StyleField {
             StyleField::Opacity => "opacity",
         }
     }
+}
+
+/// What a change in the style toolbar applies to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StyleScope {
+    /// the active tool, with the fields it has itself
+    Tool(Tools, StyleFields),
+    /// the drawable selected with the pointer
+    Selection,
 }
 
 /// The fields a tool has itself, the others come from the shared style.
