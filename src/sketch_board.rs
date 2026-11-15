@@ -1790,7 +1790,6 @@ impl Component for SketchBoard {
                 set_hexpand: true,
                 set_can_focus: true,
                 set_focusable: true,
-                grab_focus: (),
 
                 add_controller = gtk::GestureDrag {
                         set_button: 0,

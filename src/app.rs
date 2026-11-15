@@ -7,7 +7,9 @@ use crate::sketch_board::{
 };
 use crate::style::{Color, Size, StyleScope};
 use crate::tools::Tools;
-use crate::ui::toolbars::{StyleToolbar, StyleToolbarInput, ToolsToolbar, ToolsToolbarInput};
+use crate::ui::toolbars::{
+    StyleToolbar, StyleToolbarInput, ToolbarEvent, ToolsToolbar, ToolsToolbarInput,
+};
 use crate::{generate_profile_output, icons, ui};
 use relm4::adw::gdk;
 use relm4::adw::gdk::{DisplayManager, FullscreenMode, Rectangle, Toplevel};
@@ -244,7 +246,15 @@ impl Component for App {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            AppInput::Realized => self.resize_window_initial(root, sender),
+            AppInput::Realized => {
+                // the canvas, not the first focusable widget, e.g. the size field;
+                // grabbing the focus while building it has no effect, it is not
+                // in the window yet
+                self.sketch_board
+                    .sender()
+                    .emit(SketchBoardInput::ToolbarEvent(ToolbarEvent::FocusCanvas));
+                self.resize_window_initial(root, sender)
+            }
             AppInput::SetToolbarsDisplay(visible) => {
                 self.tools_toolbar
                     .sender()

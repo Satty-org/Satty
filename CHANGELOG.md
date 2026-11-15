@@ -65,6 +65,7 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 - Draw a line already when start and end are equal [#803]
 - Blur no longer depends on the zoom of the canvas. [804]
 - Selecting lines, arrows, rectangles and ellipses with the pointer tool takes their line width into account, so thick strokes can be grabbed anywhere on the stroke. [#810]
+- The canvas has the focus at start, not the size field. [#824]
 
 ### Security
 
@@ -86,5 +87,6 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 [#813]: https://github.com/Satty-org/Satty/pull/813
 [#814]: https://github.com/Satty-org/Satty/pull/814
 [#823]: https://github.com/Satty-org/Satty/pull/823
+[#824]: https://github.com/Satty-org/Satty/pull/824
 
 <!-- --8<-- [end:changelog] -->
