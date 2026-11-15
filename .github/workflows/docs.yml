@@ -11,6 +11,7 @@ on:
       - 'zensical.toml'
       - 'src/configuration.rs'
       - 'cli/src/command_line.rs'
+  workflow_dispatch:
 permissions:
   contents: read
   pages: write
