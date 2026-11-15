@@ -104,7 +104,8 @@ fn inner_color() -> Paint {
 }
 
 fn outer_color() -> Paint {
-    Paint::color(Color::rgb(70u8, 130u8, 180u8))
+    // the blue accent color of libadwaita, like the marker of the style toolbar
+    Paint::color(Color::rgb(53, 132, 228))
 }
 
 pub fn draw_center_marker(canvas: &mut femtovg::Canvas<femtovg::renderer::OpenGl>, center: Vec2D) {

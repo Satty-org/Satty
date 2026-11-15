@@ -5,6 +5,7 @@ use femtovg::rgb::{ComponentBytes, RGBA};
 use relm4::gtk::gdk_pixbuf::Pixbuf;
 use relm4::gtk::gdk_pixbuf::glib::Bytes;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::io::Write;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -24,7 +25,8 @@ use crate::ime::pango_adapter::spans_from_pango_attrs;
 use crate::keybindings::{self, ActionTrigger, ShortcutCommand, ShortcutRegistry};
 use crate::logging::{LogLevel, LogSeverity, log, log_result_with_pixbuf, log_with_severity};
 use crate::math::{Vec2D, crop_rect_in_bounds};
-use crate::style::{Color, Size, Style};
+use crate::style::{Color, Size, SizePreset, Style, StyleField, StyleFields, StyleScope};
+
 use crate::tools::{
     ImagePlacement, PointerTool, RenderingMode, TextTool, Tool, ToolEvent, ToolUpdateResult, Tools,
     ToolsManager,
@@ -72,8 +74,10 @@ pub enum SketchBoardOutput {
     ColorSwitchShortcut(u64),
     SetColor(Color),
     SetSize(Size),
-    SetAnnotationSizeFactor(f32),
-    FocusAnnotationSizeFactorShortcut,
+    SetSizePresets([Size; 3]),
+    /// the active tool and the style fields it has itself
+    SetStyleScope(StyleScope),
+    FocusSizeShortcut,
     SetFill(bool),
     SetRoundCaps(bool),
     DimensionsUpdate(Vec2D),
@@ -345,7 +349,13 @@ pub struct SketchBoard {
     text_tool: Rc<RefCell<TextTool>>,
     return_to_pointer_after_text_commit: bool,
     temporary_pointer_previous_tool: Option<Tools>,
+    // the style shown in the toolbar, of the active tool or the selected drawable
     style: Style,
+    // shared by the tools for the fields they do not have themselves
+    shared_style: Style,
+    // what the style toolbar was last told its changes apply to
+    style_scope: Option<StyleScope>,
+    tool_styles: HashMap<Tools, ToolStyle>,
     pointer_layer_scroll_accumulator: f32,
     im_context: gtk::IMMulticontext,
     last_saved_filepath: RefCell<Option<String>>,
@@ -353,7 +363,97 @@ pub struct SketchBoard {
     last_pointer_pos: Option<Vec2D>,
 }
 
+/// The own fields of a tool, the others are taken from the shared style.
+struct ToolStyle {
+    style: Style,
+    own: StyleFields,
+}
+
 impl SketchBoard {
+    fn tool_style(&mut self, tool: Tools) -> &mut ToolStyle {
+        self.tool_styles.entry(tool).or_insert_with(|| {
+            let config = APP_CONFIG.read();
+            ToolStyle {
+                style: config.style_for(tool),
+                own: config.own_style_fields(tool),
+            }
+        })
+    }
+
+    fn effective_style(&mut self, tool: Tools) -> Style {
+        let shared = self.shared_style;
+        let tool_style = self.tool_style(tool);
+        tool_style.style.merged_with(&shared, tool_style.own)
+    }
+
+    /// Whether style changes go to the drawable selected with the pointer.
+    fn styling_selection(&self) -> bool {
+        self.active_tool_type() == Tools::Pointer
+            && self.pointer_tool.borrow().selected_index().is_some()
+    }
+
+    /// Stores the changed `field` of the toolbar style for the active tool if
+    /// it has the field itself, else in the shared style for all tools.
+    fn store_style_field(&mut self, field: StyleField) {
+        if self.styling_selection() {
+            return;
+        }
+        let style = self.style;
+        let tool_style = self.tool_style(self.active_tool_type());
+        if tool_style.own.contains(field) {
+            tool_style.style.copy_field(field, &style);
+        } else {
+            self.shared_style.copy_field(field, &style);
+        }
+    }
+
+    /// Clears the pointer selection; with the pointer active the toolbar then
+    /// shows the shared style again instead of the one of the drawable.
+    fn deselect(&mut self, sender: &ComponentSender<Self>) {
+        let had_selection = self.pointer_tool.borrow().selected_index().is_some();
+        self.pointer_tool.borrow_mut().deselect();
+        if had_selection && self.active_tool_type() == Tools::Pointer {
+            self.style = self.effective_style(Tools::Pointer);
+            self.emit_style_to_toolbar(sender);
+            self.emit_style_scope(sender);
+        }
+    }
+
+    /// The style of the drawable selected with the pointer, if it has one.
+    fn selection_style(&self) -> Option<Style> {
+        if !self.styling_selection() {
+            return None;
+        }
+        let index = self.pointer_tool.borrow().selected_index()?;
+        let drawable = self.renderer.get_drawable_clone(index)?;
+        drawable.get_style().copied()
+    }
+
+    /// Tells the style toolbar what its changes apply to, if that changed; a
+    /// new selection also brings its style to the toolbar.
+    fn emit_style_scope(&mut self, sender: &ComponentSender<Self>) {
+        let selection_style = self.selection_style();
+        let scope = if selection_style.is_some() {
+            StyleScope::Selection
+        } else {
+            let tool = self.active_tool_type();
+            StyleScope::Tool(tool, self.tool_style(tool).own)
+        };
+        if self.style_scope == Some(scope) {
+            return;
+        }
+        if let Some(style) = selection_style
+            && style != self.style
+        {
+            self.style = style;
+            self.emit_style_to_toolbar(sender);
+        }
+        self.style_scope = Some(scope);
+        sender
+            .output_sender()
+            .emit(SketchBoardOutput::SetStyleScope(scope));
+    }
+
     fn sync_toolbar_style_from_drawable(
         &mut self,
         drawable: &dyn crate::tools::Drawable,
@@ -375,12 +475,10 @@ impl SketchBoard {
                 .output_sender()
                 .emit(SketchBoardOutput::SetSize(style.size));
         }
-        if old_style.annotation_size_factor != style.annotation_size_factor {
+        if old_style.presets != style.presets {
             sender
                 .output_sender()
-                .emit(SketchBoardOutput::SetAnnotationSizeFactor(
-                    style.annotation_size_factor,
-                ));
+                .emit(SketchBoardOutput::SetSizePresets(style.presets));
         }
         if old_style.fill != style.fill {
             sender
@@ -393,6 +491,15 @@ impl SketchBoard {
                 .emit(SketchBoardOutput::SetRoundCaps(style.round_caps));
         }
         self.style = *style;
+    }
+
+    fn emit_style_to_toolbar(&self, sender: &ComponentSender<Self>) {
+        let output = sender.output_sender();
+        output.emit(SketchBoardOutput::SetColor(self.style.color));
+        output.emit(SketchBoardOutput::SetSizePresets(self.style.presets));
+        output.emit(SketchBoardOutput::SetSize(self.style.size));
+        output.emit(SketchBoardOutput::SetFill(self.style.fill));
+        output.emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
     }
 
     fn set_drawable_style_from_toolbar_style(&mut self) -> ToolUpdateResult {
@@ -925,7 +1032,7 @@ impl SketchBoard {
             self.active_tool.borrow_mut().handle_undo()
         } else if self.renderer.undo() {
             self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+            self.deselect(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -938,7 +1045,7 @@ impl SketchBoard {
             self.active_tool.borrow_mut().handle_redo()
         } else if self.renderer.redo() {
             self.renderer.set_hidden_drawable_index(None);
-            self.pointer_tool.borrow_mut().deselect();
+            self.deselect(sender);
             self.emit_shape_dimensions(sender, self.current_output_dimensions());
             ToolUpdateResult::Redraw
         } else {
@@ -951,7 +1058,7 @@ impl SketchBoard {
         let did_reset = self.deactivate_active_tool() | self.renderer.clear_all();
 
         self.renderer.set_hidden_drawable_index(None);
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.emit_shape_dimensions(sender, self.current_output_dimensions());
 
         // Reset marker numbering after drawable undo hooks ran.
@@ -1146,6 +1253,8 @@ impl SketchBoard {
                 self.pointer_tool
                     .borrow_mut()
                     .begin_resize(idx, drawable, handle, anchors, me.pos);
+                // after the selection is set
+                self.emit_style_scope(sender);
                 return Some(ToolUpdateResult::Redraw);
             }
         }
@@ -1194,12 +1303,14 @@ impl SketchBoard {
             self.pointer_tool
                 .borrow_mut()
                 .begin_move(sel_idx, drawable, anchors, me.pos);
+            // after the selection is set
+            self.emit_style_scope(sender);
             return Some(ToolUpdateResult::Redraw);
         }
 
         // Clicked on empty space: deselect
         self.renderer.set_hidden_drawable_index(None);
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.emit_shape_dimensions(sender, self.current_output_dimensions());
         Some(ToolUpdateResult::Redraw)
     }
@@ -1218,7 +1329,7 @@ impl SketchBoard {
             .clone();
 
         // Remove the committed drawable and clear selection
-        self.pointer_tool.borrow_mut().deselect();
+        self.deselect(sender);
         self.renderer.set_hidden_drawable_index(None);
         self.renderer.remove_drawable(idx);
 
@@ -1306,7 +1417,13 @@ impl SketchBoard {
                     .borrow_mut()
                     .set_sender(sender.input_sender().clone());
 
-                // send style event
+                // switch to the style of the new tool, or of the drawable that
+                // stays selected with the pointer, e.g. after an auto select
+                self.style = self
+                    .selection_style()
+                    .unwrap_or_else(|| self.effective_style(target_tool));
+                self.emit_style_to_toolbar(&sender);
+                self.emit_style_scope(&sender);
                 self.active_tool
                     .borrow_mut()
                     .handle_event(ToolEvent::StyleChanged(self.style));
@@ -1319,13 +1436,17 @@ impl SketchBoard {
             }
             ToolbarEvent::ColorSelected(color) => {
                 self.style.color = color;
+                self.store_style_field(StyleField::Color);
                 self.set_drawable_style_from_toolbar_style()
             }
+            // from the size field, which already shows it: sending it back could
+            // arrive after further changes and set the field back to an old value
             ToolbarEvent::SizeSelected(size) => {
+                if self.style.size == size {
+                    return ToolUpdateResult::Unmodified;
+                }
                 self.style.size = size;
-                sender
-                    .output_sender()
-                    .emit(SketchBoardOutput::SetSize(size));
+                self.store_style_field(StyleField::Size);
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFile => self.handle_action(&[Action::SaveToFile]),
@@ -1335,6 +1456,7 @@ impl SketchBoard {
             ToolbarEvent::ClearAll => self.handle_clear_all(&sender),
             ToolbarEvent::ToggleFill => {
                 self.style.fill = !self.style.fill;
+                self.store_style_field(StyleField::Fill);
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::SetFill(self.style.fill));
@@ -1342,17 +1464,22 @@ impl SketchBoard {
             }
             ToolbarEvent::ToggleRoundCaps => {
                 self.style.round_caps = !self.style.round_caps;
+                self.store_style_field(StyleField::RoundCaps);
                 sender
                     .output_sender()
                     .emit(SketchBoardOutput::SetRoundCaps(self.style.round_caps));
                 self.set_drawable_style_from_toolbar_style()
             }
-            ToolbarEvent::AnnotationSizeFactorChanged(value) => {
-                self.style.annotation_size_factor = value;
-                self.set_drawable_style_from_toolbar_style()
+            ToolbarEvent::SizePresetSelected(preset) => {
+                let size = self.style.preset(preset);
+                sender
+                    .output_sender()
+                    .emit(SketchBoardOutput::SetSize(size));
+                self.handle_toolbar_event(ToolbarEvent::SizeSelected(size), sender)
             }
             ToolbarEvent::SetFill(fill_enabled) => {
                 self.style.fill = fill_enabled;
+                self.store_style_field(StyleField::Fill);
                 self.set_drawable_style_from_toolbar_style()
             }
             ToolbarEvent::SaveFileAs => self.handle_action(&[Action::SaveToFileAs]),
@@ -1492,27 +1619,27 @@ impl SketchBoard {
                     .emit(SketchBoardOutput::ColorSwitchShortcut(index));
                 ToolUpdateResult::Unmodified
             }
-            ShortcutCommand::SelectSize(size) => {
-                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
-                    size,
-                )));
+            ShortcutCommand::SelectSize(preset) => {
+                sender.input(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::SizePresetSelected(preset),
+                ));
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::CycleSize => {
-                self.style.size = match self.style.size {
-                    Size::Small => Size::Large,
-                    Size::Medium => Size::Small,
-                    Size::Large => Size::Medium,
-                };
-                sender.input(SketchBoardInput::ToolbarEvent(ToolbarEvent::SizeSelected(
-                    self.style.size,
-                )));
+                let preset = self
+                    .style
+                    .matching_preset()
+                    .unwrap_or(SizePreset::Medium)
+                    .cycled();
+                sender.input(SketchBoardInput::ToolbarEvent(
+                    ToolbarEvent::SizePresetSelected(preset),
+                ));
                 ToolUpdateResult::Unmodified
             }
-            ShortcutCommand::FocusAnnotationSizeFactor => {
+            ShortcutCommand::FocusSize => {
                 sender
                     .output_sender()
-                    .emit(SketchBoardOutput::FocusAnnotationSizeFactorShortcut);
+                    .emit(SketchBoardOutput::FocusSizeShortcut);
                 ToolUpdateResult::Unmodified
             }
             ShortcutCommand::ToggleFill => {
@@ -1572,7 +1699,7 @@ impl SketchBoard {
             ShortcutCommand::DeleteSelection => {
                 let pointer_selection = self.pointer_tool.borrow().selected_index();
                 if let Some(idx) = pointer_selection {
-                    self.pointer_tool.borrow_mut().deselect();
+                    self.deselect(&sender);
                     self.renderer.set_hidden_drawable_index(None);
                     self.renderer.remove_drawable(idx);
                     // without the drawable, also without a deleted crop
@@ -1858,7 +1985,7 @@ impl Component for SketchBoard {
                         && self.active_tool_type() == Tools::Pointer
                         && self.pointer_tool.borrow().selected_index().is_some()
                     {
-                        self.pointer_tool.borrow_mut().deselect();
+                        self.deselect(&sender);
                         self.renderer.set_hidden_drawable_index(None);
                         self.emit_shape_dimensions(&sender, self.current_output_dimensions());
                         ToolUpdateResult::Redraw
@@ -2067,7 +2194,7 @@ impl Component for SketchBoard {
                         self.temporary_pointer_previous_tool = Some(previous_tool);
                     }
                 } else {
-                    self.pointer_tool.borrow_mut().deselect();
+                    self.deselect(&sender_for_post_commit);
                 }
 
                 if APP_CONFIG.read().auto_copy() {
@@ -2105,6 +2232,9 @@ impl Component for SketchBoard {
                 self.refresh_screen()
             }
         };
+
+        // a selection can start or end in many ways, e.g. by an auto select
+        self.emit_style_scope(&sender_clone);
     }
 
     fn init(
@@ -2138,7 +2268,10 @@ impl Component for SketchBoard {
             shortcut_registry: ShortcutRegistry::from_config(),
             active_tool: tools.get(&config.initial_tool()),
             tool_edit_mode: false,
-            style: Style::default(),
+            style: config.style_for(config.initial_tool()),
+            shared_style: config.style(),
+            style_scope: None,
+            tool_styles: HashMap::new(),
             pointer_layer_scroll_accumulator: 0.0,
             pinch_last_scale: 1.0,
             pointer_tool,
@@ -2150,6 +2283,12 @@ impl Component for SketchBoard {
             last_saved_filepath: RefCell::new(None),
             last_pointer_pos: None,
         };
+
+        // the other tools get their style when switching to them
+        model
+            .active_tool
+            .borrow_mut()
+            .handle_event(ToolEvent::StyleChanged(model.style));
 
         let area = &mut model.renderer;
         area.init(

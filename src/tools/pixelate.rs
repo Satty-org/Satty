@@ -69,12 +69,7 @@ impl Pixelate {
         pos: Vec2D,
         size: Vec2D,
     ) -> Result<Option<(ImageId, Vec2D, Vec2D)>> {
-        let blocksize = self
-            .style
-            .size
-            .to_blocksize(self.style.annotation_size_factor);
-        // for testing
-        // let blocksize = self.style.annotation_size_factor.max(2.0) as usize;
+        let blocksize = self.style.size.at_least(2.0).round() as usize;
 
         // pos/size are pre-clamped in float space, but rounding pos and size
         // independently can push pos+size one pixel past the image edge, so
@@ -340,7 +335,7 @@ impl Drawable for Pixelate {
                 paint_pos.y,
                 paint_size.x,
                 paint_size.y,
-                self.style.corner_radius(),
+                self.style.effective_corner_radius(),
             );
             canvas.fill_path(
                 &path,

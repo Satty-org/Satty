@@ -90,6 +90,49 @@ The search order for configuration files is:
 
 <!-- --8<-- [end:config-search] -->
 
+### Styles <sup>NEXTRELEASE</sup>
+
+Each tool has a style: color, size, fill, round caps, corner radius and opacity.
+The opacity is given in percent and multiplied with the alpha of the color, by default 100 and 40 for the highlighter, text uses it for its background, see below.
+It is configured in the `[style]` section of the [config.toml](config.toml), with a table per tool like `[style.arrow]`.
+Values missing for a tool are taken from the shared `[style]`.
+Values set for a tool, or built in like the sizes of text or pixelate, belong to the tool; the others are shared by all tools.
+Changing a shared value, e.g. the color, changes it for all tools sharing it; changing an own value only for the tool.
+A triangle in the top left corner of a style button in the toolbar shows that the value is the tool's own, the tooltips tell which applies.
+
+The size means:
+
+- pen, brush, line, arrow, rectangle, ellipse: line width (at least 0.5), sizes from the shared style, by default 3/5/7
+- highlighter: width, by default 15/30/45
+- text, marker: font size (at least 4), by default 36/54/96
+- pixelate, fringe-pixelate: block size (at least 2), by default 4/8/16
+- blur, lensblur: blur strength (at least 1), by default 4/8/16
+- highlight block, spotlight: opacity in percent (block at least 20, spotlight at least 25), by default 40/60/80 <sup>experimental</sup>
+
+Blur, highlight block and blackout are filled by default, i.e. drawn as rectangle instead of ellipse. <sup>experimental</sup>
+
+`annotation-size-factor` in `[general]` or on the command line scales the sizes of the tools using line widths or font sizes once at startup: pen, brush, highlighter, line, arrow, rectangle, ellipse, text and marker.
+Other sizes, like block size, blur strength or opacity, are not scaled.
+
+The buttons S, M and L in the toolbar are presets: they set the size to the small, medium or large size of the active tool.
+The size itself can be any value, e.g. typed into the size field; the button of the preset matching the current size is shown pressed.
+The presets are configured with `small`, `medium` and `large` in `[style]` or a tool's table, each one falls back like the other values.
+A tool setting any of them, or `size`, has its own size and presets.
+The shortcut <kbd>-</kbd> cycles through the presets, `select-size:small`, `select-size:medium` and `select-size:large` select one.
+
+Examples:
+
+```toml
+# change default color of the highlighter
+[style.highlighter]
+color = 3 # 3rd color in the palette
+# color = "#FFE600A6" # nice yellow with alpha
+round-caps = false
+
+[style.marker]
+fill = true
+```
+
 ### Shortcuts
 <!-- --8<-- [start:shortcuts] -->
 
@@ -131,22 +174,25 @@ If out of range select custom color <sup>0.21.0</sup>
 #### Size Selection <sup>0.22.0</sup>
 
 In the bottom toolbar the size can be edited directly or by + and - buttons.
-Minimum is 0.1 and maximum to 99.99.
+The size is a value from 0 to 999 with one decimal place <sup>NEXTRELEASE</sup>.
+Its meaning depends on the tool, see [Styles](#styles).
+The buttons S, M and L are presets for the small, medium and large size of the active tool, see [Styles](#styles) <sup>NEXTRELEASE</sup>.
 
 The bindings are:
 
-- Mouse <kbd>left-button</kbd>, <kbd>wheel</kbd> and key <kbd>up</kbd>/<kbd>down</kbd> step size is 0.1
-- Holding <kbd>Shift</kbd> will switch to 0.01 step size
-- Holding <kbd>Ctrl</kbd> will switch to 1.0 step size
-- Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 1.0
+- Mouse <kbd>left-button</kbd>, <kbd>wheel</kbd> and key <kbd>up</kbd>/<kbd>down</kbd> step size is 1.0
+- Holding <kbd>Shift</kbd> will switch to 0.1 step size
+- Holding <kbd>Ctrl</kbd> will switch to 10.0 step size
+- Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 10.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
-- <kbd>w</kbd> focuses the annotation size factor input field <sup>NEXTRELEASE</sup>
+- <kbd>w</kbd> focuses the size input field <sup>NEXTRELEASE</sup>
 - <kbd>-</kbd> cycles through the sizes small, medium and large <sup>NEXTRELEASE</sup>
 
 #### Fill and Round Caps <sup>NEXTRELEASE</sup>
 
 - <kbd>f</kbd>: Toggle fill
 - <kbd>k</kbd>: Toggle round caps
+- <kbd>w</kbd>: Focus the size input field <sup>NEXTRELEASE</sup>
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 
@@ -203,6 +249,7 @@ The defaults are listed in the [config.toml](config.toml).
 
 Annotations can be selected by click.
 This will update the toolbar to the annotation's style and allow style changes.
+Style changes then apply only to the selected annotation, not to the style of a tool, the style toolbar is marked by a line on top. Undo reverts them.
 Newly created annotations can be autoselected if enabled in the config.
 
 - Hold <kbd>Alt</kbd> while clicking to select between overlapping annotations.
@@ -260,6 +307,8 @@ Text:
 - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
 - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 - Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>0.22.0</sup>
+  The effect is set by (fill, round caps) <sup>NEXTRELEASE</sup>: none (false, true), inverted outline (true, false), contrast outline (true, true), drop shadow (false, false). <sup>experimental</sup>
+- The opacity of the style is the one of a background in the contrast color (black/white) behind the text, by default 0, i.e. no background. <sup>NEXTRELEASE</sup>
 
 Marker:
 
