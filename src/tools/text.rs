@@ -1036,9 +1036,11 @@ impl Tool for TextTool {
                 }
                 _ => event.key,
             };
+            // Caps Lock must not keep Enter and Escape from working
+            let modifier = event.modifier - ModifierType::LOCK_MASK;
             match key {
                 Key::Return | Key::KP_Enter
-                    if event.modifier.is_empty() || event.modifier == ModifierType::SHIFT_MASK =>
+                    if modifier.is_empty() || modifier == ModifierType::SHIFT_MASK =>
                 {
                     // delete selection
                     Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
@@ -1046,8 +1048,8 @@ impl Tool for TextTool {
                     tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
                 }
                 Key::Escape | Key::Return | Key::KP_Enter
-                    if (key == Key::Escape && event.modifier.is_empty())
-                        || event.modifier == ModifierType::CONTROL_MASK =>
+                    if (key == Key::Escape && modifier.is_empty())
+                        || modifier == ModifierType::CONTROL_MASK =>
                 {
                     let content = t.get_text();
                     if content.is_empty() {
