@@ -1036,40 +1036,38 @@ impl Tool for TextTool {
                 }
                 _ => event.key,
             };
+            // Caps Lock must not keep Enter and Escape from working
+            let modifier = event.modifier - ModifierType::LOCK_MASK;
             match key {
-                Key::Return => match event.modifier {
-                    ModifierType::SHIFT_MASK => {
-                        //delete selection
-                        Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
-                        t.text_buffer.insert_at_cursor("\n");
+                Key::Return | Key::KP_Enter
+                    if modifier.is_empty() || modifier == ModifierType::SHIFT_MASK =>
+                {
+                    // delete selection
+                    Self::handle_text_buffer_action(t, Action::Delete, ActionScope::None);
+                    t.text_buffer.insert_at_cursor("\n");
+                    tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                }
+                Key::Escape | Key::Return | Key::KP_Enter
+                    if (key == Key::Escape && modifier.is_empty())
+                        || modifier == ModifierType::CONTROL_MASK =>
+                {
+                    let content = t.get_text();
+                    if content.is_empty() {
+                        self.text = None;
+                        self.input_enabled = false;
                         tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
+                    } else {
+                        t.preedit = None;
+                        t.editing = false;
+                        t.im_context = None;
+                        t.text_buffer
+                            .select_range(&t.text_buffer.start_iter(), &t.text_buffer.start_iter());
+                        *t.draw_rect.borrow_mut() = false;
+                        let result = t.clone_box();
+                        self.text = None;
+                        self.input_enabled = false;
+                        tool_update_result = ToolUpdateResult::Commit(result);
                     }
-                    _ => {
-                        let content = t.get_text();
-                        if content.is_empty() {
-                            self.text = None;
-                            self.input_enabled = false;
-                            tool_update_result = ToolUpdateResult::RedrawAndStopPropagation;
-                        } else {
-                            t.preedit = None;
-                            t.editing = false;
-                            t.im_context = None;
-                            t.text_buffer.select_range(
-                                &t.text_buffer.start_iter(),
-                                &t.text_buffer.start_iter(),
-                            );
-                            *t.draw_rect.borrow_mut() = false;
-                            let result = t.clone_box();
-                            self.text = None;
-                            self.input_enabled = false;
-                            tool_update_result = ToolUpdateResult::Commit(result);
-                        }
-                    }
-                },
-                Key::Escape => {
-                    self.input_enabled = false;
-                    self.text = None;
-                    tool_update_result = ToolUpdateResult::Redraw;
                 }
                 Key::Alt_L | Key::Alt_R => {
                     // Start tracking a potential Alt tap; the text effect is cycled on
@@ -2115,7 +2113,11 @@ mod tests {
         let mut tool = edit_copy_of(&typed_text("before"));
         edited_text(&tool).text_buffer.set_text("");
 
-        tool.handle_key_event(key_press(Key::Return));
+        // Ctrl+Return ends the edit, Return alone inserts a line break
+        tool.handle_key_event(KeyEventMsg {
+            modifier: ModifierType::CONTROL_MASK,
+            ..key_press(Key::Return)
+        });
         assert!(tool.text.is_none());
 
         tool.handle_mouse_event(click(Vec2D::new(10.0, 10.0)));
