@@ -1,18 +1,17 @@
 # <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
 
-<!-- --8<-- [start:intro] -->
-Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
+https://github.com/user-attachments/assets/9c584f69-72a4-4aa6-b462-55730301ad26
 
-![](assets/usage.gif)
+<!-- --8<-- [start:intro] -->
 
 Satty has been created to provide the following improvements over existing screenshot annotation tools:
 
-- very simple and easy to understand toolset (like Swappy)
-- fullscreen annotation mode and post shot cropping (like Flameshot)
+- simple and easy to understand toolset
+- fullscreen annotation mode and post shot cropping
 - extremely smooth rendering thanks to HW acceleration (OpenGL)
 - working on wlroots based compositors (Sway, Hyprland, River, ...)
 - minimal, modern looking UI, thanks to GTK and Adwaita
-- be a playground for new features (post window selection, post paint editing, ...)
+- be a playground for new features
 <!-- --8<-- [end:intro] -->
 
 See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
