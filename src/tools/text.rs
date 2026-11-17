@@ -498,6 +498,15 @@ impl Drawable for Text {
                 glyphs.push(line_glyphs);
             }
 
+            // without any glyph the box is around the cursor at the start
+            if first_segment && let Some(line) = line_layouts.first() {
+                let offset_y = cursor_metrics.line_height * 0.1;
+                tl.x = self.pos.x - 1.0;
+                tl.y = line.baseline + cursor_metrics.top_offset + offset_y - 1.0;
+                wh.x = 1.0;
+                wh.y = cursor_metrics.line_height + 2.0;
+            }
+
             wh.x += 1.0; // extend here, above it would add up
             rect.set_height(wh.y as i32);
             rect.set_width(wh.x as i32);
@@ -886,9 +895,14 @@ impl Text {
 
         let extra_height = caret_height * 0.1;
         if cursor_visible {
+            let width = 2.0 / canvas.transform().average_scale().max(f32::EPSILON);
             let mut path = Path::new();
-            path.move_to(cursor_x, cursor_top + extra_height);
-            path.line_to(cursor_x, cursor_top + caret_height + extra_height);
+            path.rect(
+                cursor_x - width / 2.0,
+                cursor_top + extra_height,
+                width,
+                caret_height,
+            );
             canvas.fill_path(&path, &caret_paint);
         }
 
