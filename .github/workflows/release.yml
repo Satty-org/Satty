@@ -13,31 +13,23 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
-            container: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             archive: tar.gz
-            container: ""
 
+    # both architectures build natively on Ubuntu 24.04, so the binaries need
+    # the same glibc and GTK versions
     runs-on: ${{ matrix.os }}
-    # x86_64 builds in the gtk4-rs Fedora container (yum); aarch64 runs natively
-    # on GitHub's free arm64 runner with GTK installed via apt (empty container).
-    container: ${{ matrix.container }}
     environment: release
 
     permissions:
       contents: write
 
     steps:
-      - name: Install dependencies (Fedora container, x86_64)
-        if: matrix.container != ''
-        run: yum install -y gtk4-devel libadwaita-devel
-
-      - name: Install dependencies (Ubuntu host, aarch64)
-        if: matrix.container == ''
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
@@ -106,16 +98,17 @@ jobs:
           files: satty-${{ github.ref_name }}.flatpak
 
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Re-publish to crates.io is not possible if this fails. As a precaution, depend
     # on successful release job.
     needs: release
-    container: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
     environment: release
 
     steps:
       - name: Install dependencies
-        run: yum install -y gtk4-devel libadwaita-devel
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
 
       - uses: actions/checkout@v7
 
