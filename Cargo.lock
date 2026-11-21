@@ -272,9 +272,9 @@ dependencies = [
 
 [[package]]
 name = "clapdown"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8f2a42d22b905f09c7e696e2f46a17e4aa956c8d8b8cd09806137fd99c8544c"
+checksum = "b247c825c52bf1a125ed92810ee82340e304938d4162683c4c4af2fe5e205748"
 dependencies = [
  "clap",
 ]
@@ -1003,9 +1003,9 @@ dependencies = [
 
 [[package]]
 name = "libloading"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+checksum = "a1832accd5a4ca2795ace4d05d15c4039be15b62d3b950eff99746a990e3cc10"
 dependencies = [
  "cfg-if",
  "windows-link",
@@ -1403,7 +1403,7 @@ dependencies = [
  "gtk4",
  "hex_color",
  "image",
- "libloading 0.9.0",
+ "libloading 0.9.1",
  "relm4",
  "relm4-icons",
  "relm4-icons-build",
