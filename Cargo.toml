@@ -76,7 +76,7 @@ version = "0.22.0"
 edition = "2024"
 authors = ["Matthias Gabriel <gabm+aur@mailbox.org>"]
 description = "Modern Screenshot Annotation."
-homepage = "https://github.com/Satty-org/Satty"
+homepage = "https://satty-org.github.io/Satty/"
 repository = "https://github.com/Satty-org/Satty"
 license = "MPL-2.0"
 

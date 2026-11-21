@@ -17,6 +17,8 @@ Satty has been created to provide the following improvements over existing scree
 
 See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
 
+Documentation: <https://satty-org.github.io/Satty/>
+
 ## Install
 <!-- --8<-- [start:install] -->
 
@@ -30,6 +32,7 @@ For emoji support please install the "Noto Color Emoji" font.
 
 | Distribution | Command | Note |
 | --- | --- | --- |
+| Arch | `pacman -S satty` | Repository [Extra](https://archlinux.org/packages/extra/x86_64/satty/) |
 | Gentoo | `emerge -av satty` | You need guru overlay (see [wiki](https://github.com/Satty-org/Satty/wiki/Gentoo-Guru)). Pending [PR](https://github.com/gentoo/gentoo/pull/33908) |
 | Alpine Linux | `apk add satty` | Available in [Alpine Community](https://pkgs.alpinelinux.org/packages?name=satty&branch=edge&repo=&arch=&maintainer=) |
 
@@ -90,11 +93,15 @@ The search order for configuration files is:
 
 <!-- --8<-- [end:config-search] -->
 
+<a id="styles"></a>
+
 ### Styles <sup>NEXTRELEASE</sup>
+
+<!-- --8<-- [start:styles] -->
 
 Each tool has a style: color, size, fill, round caps, corner radius and opacity.
 The opacity is given in percent and multiplied with the alpha of the color, by default 100 and 40 for the highlighter, text uses it for its background, see below.
-It is configured in the `[style]` section of the [config.toml](config.toml), with a table per tool like `[style.arrow]`.
+It is configured in the `[style]` section of the [config.toml][config.toml], with a table per tool like `[style.arrow]`.
 Values missing for a tool are taken from the shared `[style]`.
 Values set for a tool, or built in like the sizes of text or pixelate, belong to the tool; the others are shared by all tools.
 Changing a shared value, e.g. the color, changes it for all tools sharing it; changing an own value only for the tool.
@@ -132,6 +139,10 @@ round-caps = false
 [style.marker]
 fill = true
 ```
+
+<!-- --8<-- [end:styles] -->
+
+[config.toml]: config.toml
 
 ### Shortcuts
 <!-- --8<-- [start:shortcuts] -->
@@ -176,8 +187,8 @@ If out of range select custom color <sup>0.21.0</sup>
 
 In the bottom toolbar the size can be edited directly or by + and - buttons.
 The size is a value from 0 to 999 with one decimal place <sup>NEXTRELEASE</sup>.
-Its meaning depends on the tool, see [Styles](#styles).
-The buttons S, M and L are presets for the small, medium and large size of the active tool, see [Styles](#styles) <sup>NEXTRELEASE</sup>.
+Its meaning depends on the tool, see [Styles][styles].
+The buttons S, M and L are presets for the small, medium and large size of the active tool, see [Styles][styles] <sup>NEXTRELEASE</sup>.
 
 The bindings are:
 
@@ -242,6 +253,8 @@ A binding also matches a key that needs Shift to be typed, without the Shift. Fo
 When the active layout produces a letter of a non-Latin script, for example Cyrillic or Greek, a binding also matches the same key in the first configured Latin layout. If no Latin layout is configured, it matches the key at the same position in the US QWERTY layout. A binding for the non-Latin key itself has priority. This also applies to <kbd>Ctrl+A</kbd>, <kbd>Ctrl+C</kbd>, <kbd>Ctrl+V</kbd> and <kbd>Ctrl+X</kbd> in the text tool.
 
 <!-- --8<-- [end:shortcuts] -->
+
+[styles]: #styles
 
 The defaults are listed in the [config.toml](config.toml).
 
@@ -329,7 +342,7 @@ Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <s
 ### CSS
 <!-- --8<-- [start:css] -->
 
-Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/tree/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`@headerbar_fg_color` and `@headerbar_bg_color`) which Satty uses <sup>0.21.0</sup> may lack transparency, here's an override example:
+Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/blob/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`var(--headerbar-fg-color)` and `var(--headerbar-bg-color)`) which Satty uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
 
 ```css
 .outer_box,

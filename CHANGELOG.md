@@ -70,7 +70,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - WebP images can be opened even if gdk-pixbuf has no WebP loader. [#563]
 - New config `notification-grace-period` to wait for the notification daemon to read the thumbnail before exiting. [#635]
 - New `--log-level` option, log output has level and severity, and a dialog is shown for fatal errors. [#711]
-- Documentation website at <https://satty-org.github.io/Satty/>. [#668], [#763]
+- Documentation website at <https://satty-org.github.io/Satty/>. [#668], [#763], [#830]
 
 ### Changed
 
@@ -189,5 +189,6 @@ Thanks to everyone who contributed to this release:
 [#824]: https://github.com/Satty-org/Satty/pull/824
 [#826]: https://github.com/Satty-org/Satty/pull/826
 [#827]: https://github.com/Satty-org/Satty/pull/827
+[#830]: https://github.com/Satty-org/Satty/pull/830
 
 <!-- --8<-- [end:changelog] -->

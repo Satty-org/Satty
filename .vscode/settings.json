@@ -6,5 +6,6 @@
   "[toml]": {
     "editor.tabSize": 4,
     "editor.insertSpaces": true
-  }
+  },
+  "makefile.configureOnOpen": false
 }
