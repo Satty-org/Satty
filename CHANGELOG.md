@@ -80,6 +80,7 @@ Please check these when upgrading, especially if you use your own `config.toml` 
 - The size sets the opacity of the block highlighter, the darkness of the spotlight and the strength of blur and lensblur. [#804], [#814]
 - Highlight, spotlight, blur, lensblur and marker draw a rectangle with fill or an ellipse without. [#804], [#808]
 - Switching tools updates the toolbar to the style of the tool. [#814]
+- Updated usage demo, it now shows the new tools and features. [#833]
 
 ### Fixed
 
@@ -190,5 +191,6 @@ Thanks to everyone who contributed to this release:
 [#826]: https://github.com/Satty-org/Satty/pull/826
 [#827]: https://github.com/Satty-org/Satty/pull/827
 [#830]: https://github.com/Satty-org/Satty/pull/830
+[#833]: https://github.com/Satty-org/Satty/pull/833
 
 <!-- --8<-- [end:changelog] -->

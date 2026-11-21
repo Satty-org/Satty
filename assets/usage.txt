@@ -1,0 +1,20 @@
+
+
+         Brush          Line           Arrow        Highlight
+                                                      Block
+
+
+       Rectangle       Square        Centered          With
+        Ellipse        Circle                         Aspect
+ 
+ 
+        Blur   Pixelate   Fringe   Fringe-Pixelate   Blackout
+       Some very secret  password  should really be blacked out!
+
+       Marker                  Text             Image
+ 
+       Edit: position, size.   Style: color, size, fill, caps.
+
+       Crop, Undo, Redo, Zoom, Pan, Save, Copy to Clipboard.
+
+

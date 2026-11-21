@@ -104,8 +104,8 @@ prepare-zensical: | .venv
 	. .venv/bin/activate && pip install zensical
 
 build-docs: prepare-zensical
+	cp assets/satty.svg assets/usage.mp4 assets/usage.png docs/assets
 	. .venv/bin/activate && zensical build
-	cp -r assets/satty.svg assets/usage.gif docs/assets
 
 serve-docs: build-docs
 	. .venv/bin/activate && zensical serve
