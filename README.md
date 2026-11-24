@@ -24,9 +24,14 @@ Highlights:
 - minimal, modern looking UI, thanks to GTK and Adwaita
 - be a playground for new features
 
-Non-goals: Satty does not capture screenshots itself, is not an image browser,
-does not draw directly on the live screen and does not integrate deeply into a
-specific desktop shell. It works well together with tools that do.
+Non-goals:
+
+- capturing screenshots itself
+- being an image browser
+- drawing directly on the live screen
+- deep integration into a specific desktop shell
+
+Satty works well together with tools that do these things.
 
 <!-- --8<-- [end:intro] -->
 
