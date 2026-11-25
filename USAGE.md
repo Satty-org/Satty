@@ -21,10 +21,10 @@ Modern Screenshot Annotation.
 :   Path to input image or `-` to read from stdin. Required unless --from_clipboard is provided
 
 `--from-clipboard <CLIPBOARD_COMMAND>`
-:   Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE) If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided
+:   Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (0.23.0) If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided
 
 `--log-level <LOG_LEVEL>`
-:   set log level, note that this is not effective before config has been read (NEXTRELEASE)
+:   set log level, note that this is not effective before config has been read (0.23.0)
 
     Possible values: `fatal`, `error`, `warn`, `info`, `debug`, `trace`
 
@@ -50,7 +50,7 @@ Modern Screenshot Annotation.
     Possible values: `all`, `copy`, `save`, `save-as`
 
 `--corner-radius <CORNER_RADIUS>`
-:   Radius of the rounded corners of rectangles in pixels (Defaults to 12) (0 disables rounded corners) (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
+:   Radius of the rounded corners of rectangles in pixels (Defaults to 12) (0 disables rounded corners) (0.23.0: renamed from --corner-roundness, which is still accepted)
 
 `--initial-tool <TOOL>`
 :   Select the tool on startup
@@ -132,10 +132,10 @@ Modern Screenshot Annotation.
     Possible values: `screenshot`, `app-icon`
 
 `--profile-startup`
-:   Print profiling, deprecated since NEXTRELEASE Preferably use `log-level` option with at least `debug` instead
+:   Print profiling, deprecated since 0.23.0 Preferably use `log-level` option with at least `debug` instead
 
 `--primary-highlighter <PRIMARY_HIGHLIGHTER>`
-:   The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE
+:   The primary highlighter to use, secondary is accessible with CTRL, deprecated since 0.23.0
 
     Possible values: `block`, `freehand`
 

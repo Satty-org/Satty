@@ -54,14 +54,14 @@ output-filename = "~/Pictures/Screenshots/screenshot-%Y-%m-%d_%H:%M:%S.png"
 
 # Select the tool on startup [possible values: see `satty --help`]
 initial-tool = "brush"
-# Change to true to automatically select newly created annotation (NEXTRELEASE)
+# Change to true to automatically select newly created annotation (0.23.0)
 auto-select-new = false
-# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since NEXTRELEASE
+# The primary highlighter to use, the other is accessible by holding CTRL at the start of a highlight [possible values: block, freehand], deprecated since 0.23.0
 primary-highlighter = "block"
 # Aspect ratios used when holding Shift while drawing - also matches inverse aspect ratios
 aspect-ratios = [[1, 1], [1, 2], [5, 4], [4, 3], [7, 5], [3, 2], [16, 9]]
 # Scale the sizes of the tools using line widths or font sizes (pen, brush, highlighter,
-# line, arrow, rectangle, ellipse, text, marker), applied once at startup (changed in NEXTRELEASE)
+# line, arrow, rectangle, ellipse, text, marker), applied once at startup (changed in 0.23.0)
 annotation-size-factor = 1
 # experimental feature: adjust history size for brush input smoothing (0: disabled, default: 0, try e.g. 5 or 10)
 brush-smooth-history-size = 10
@@ -94,7 +94,7 @@ text-move-length = 50.0
 # Note, before 0.21.0 this is ignored with explicit resize.
 input-scale = 1.0
 
-# Styles of the tools (NEXTRELEASE)
+# Styles of the tools (0.23.0)
 # corner-roundness (now corner-radius), default-fill-shapes and default-round-caps
 # from [general] were replaced by this section.
 # The shared style, used for all values not set for a tool
@@ -195,7 +195,7 @@ fill = true
 # [style.rectangle]
 # corner-radius = 0
 
-# Generic keyboard shortcuts (NEXTRELEASE)
+# Generic keyboard shortcuts (0.23.0)
 [keybinds]
 # "<Control>q" = "run-actions-on-escape" # additionally to Escape
 # "i" = "none" # unbind "i" default for line

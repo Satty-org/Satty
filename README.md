@@ -106,7 +106,7 @@ See [config.toml](config.toml) for the configuration.
 The search order for configuration files is:
 
 - builtin
-- system wide config (`$XDG_CONFIG_DIRS/satty/config.toml`, usually `/etc/xdg/satty/config.toml`) if present <sup>NEXTRELEASE</sup>
+- system wide config (`$XDG_CONFIG_DIRS/satty/config.toml`, usually `/etc/xdg/satty/config.toml`) if present <sup>0.23.0</sup>
 - user config (`$XDG_CONFIG_HOME/satty/config.toml`, usually `$HOME/.config/satty/config.toml`) if present
 - config specified in command line, if any. Please note: in this case Satty ignores the former two files, and a file not found error on the given config file becomes fatal
 - command line options
@@ -115,7 +115,7 @@ The search order for configuration files is:
 
 <a id="styles"></a>
 
-### Styles <sup>NEXTRELEASE</sup>
+### Styles <sup>0.23.0</sup>
 
 <!-- --8<-- [start:styles] -->
 
@@ -171,20 +171,20 @@ fill = true
 
 - <kbd>Enter</kbd>: as configured (see below), default: copy-to-clipboard (may be masked by active tool)
 - <kbd>Esc</kbd>: as configured (see below), default: exit (may be masked by active tool)
-- <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>NEXTRELEASE</sup>
+- <kbd>Shift+Delete</kbd> reset (clear) <sup>experimental</sup> <sup>0.23.0</sup>
 - <kbd>Ctrl+C</kbd>: Save to clipboard (may be masked by active tool)
 - <kbd>Ctrl+Shift+D</kbd> or <kbd>Ctrl+Shift+I</kbd>: Open GTK inspector if not already opened
-- <kbd>Ctrl+S</kbd>: Save to specified output file, creating missing folders in its path <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl+S</kbd>: Save to specified output file, creating missing folders in its path <sup>0.23.0</sup>
 - <kbd>Ctrl+Shift+S</kbd>: Save using file dialog <sup>0.20.0</sup>. The dialog uses `output-filename` as initial filename/path when available and remembers the last selected folder. <sup>0.21.0</sup>
 - <kbd>Ctrl+Alt+C</kbd>: Copy last saved filepath to clipboard <sup>0.20.1</sup>
 - <kbd>Ctrl+T</kbd>: Toggle toolbars
 - <kbd>Ctrl+Y</kbd>: Redo
 - <kbd>Ctrl+Z</kbd>: Undo
 - <kbd>Alt</kbd>+(<kbd>Left</kbd>/<kbd>Right</kbd>/<kbd>Up</kbd>/<kbd>Down</kbd>): Pan, also available with middle mouse button drag <sup>0.20.1</sup>
-- <kbd>Ctrl++</kbd> or <kbd>Ctrl+=</kbd>: Zoom in, <kbd>Ctrl+-</kbd>: Zoom out <sup>NEXTRELEASE</sup>
-- <kbd>Ctrl+1</kbd>: Fit to window, <kbd>Alt+1</kbd>: 100% <sup>NEXTRELEASE</sup>
-- <kbd>Ctrl+2</kbd>/<kbd>Ctrl+3</kbd>/<kbd>Ctrl+4</kbd>: 200%/300%/400%, <kbd>Alt+2</kbd>/<kbd>Alt+3</kbd>/<kbd>Alt+4</kbd>: 50%/33%/25% <sup>NEXTRELEASE</sup>
-- <kbd>Ctrl+Shift+l</kbd> show log messages viewer <sup>NEXTRELEASE</sup>
+- <kbd>Ctrl++</kbd> or <kbd>Ctrl+=</kbd>: Zoom in, <kbd>Ctrl+-</kbd>: Zoom out <sup>0.23.0</sup>
+- <kbd>Ctrl+1</kbd>: Fit to window, <kbd>Alt+1</kbd>: 100% <sup>0.23.0</sup>
+- <kbd>Ctrl+2</kbd>/<kbd>Ctrl+3</kbd>/<kbd>Ctrl+4</kbd>: 200%/300%/400%, <kbd>Alt+2</kbd>/<kbd>Alt+3</kbd>/<kbd>Alt+4</kbd>: 50%/33%/25% <sup>0.23.0</sup>
+- <kbd>Ctrl+Shift+l</kbd> show log messages viewer <sup>0.23.0</sup>
 
 Mouse:
 
@@ -206,9 +206,9 @@ If out of range select custom color <sup>0.21.0</sup>
 #### Size Selection <sup>0.22.0</sup>
 
 In the bottom toolbar the size can be edited directly or by + and - buttons.
-The size is a value from 0 to 999 with one decimal place <sup>NEXTRELEASE</sup>.
+The size is a value from 0 to 999 with one decimal place <sup>0.23.0</sup>.
 Its meaning depends on the tool, see [Styles][styles].
-The buttons S, M and L are presets for the small, medium and large size of the active tool, see [Styles][styles] <sup>NEXTRELEASE</sup>.
+The buttons S, M and L are presets for the small, medium and large size of the active tool, see [Styles][styles] <sup>0.23.0</sup>.
 
 The bindings are:
 
@@ -217,39 +217,39 @@ The bindings are:
 - Holding <kbd>Ctrl</kbd> will switch to 10.0 step size
 - Mouse <kbd>middle-button</kbd> and <kbd>page up</kbd>/<kbd>page down</kbd> step size is 10.0
 - Mouse <kbd>right-button</kbd> jumps to minimum/maximum
-- <kbd>w</kbd> focuses the size input field <sup>NEXTRELEASE</sup>
-- <kbd>-</kbd> cycles through the sizes small, medium and large <sup>NEXTRELEASE</sup>
+- <kbd>w</kbd> focuses the size input field <sup>0.23.0</sup>
+- <kbd>-</kbd> cycles through the sizes small, medium and large <sup>0.23.0</sup>
 
-#### Fill and Round Caps <sup>NEXTRELEASE</sup>
+#### Fill and Round Caps <sup>0.23.0</sup>
 
 - <kbd>f</kbd>: Toggle fill
 - <kbd>k</kbd>: Toggle round caps
-- <kbd>w</kbd>: Focus the size input field <sup>NEXTRELEASE</sup>
+- <kbd>w</kbd>: Focus the size input field <sup>0.23.0</sup>
 
 #### Tool Selection Shortcuts (configurable) <sup>0.20.0</sup>
 
 Default shortcuts:
 
-- <kbd>v</kbd>: Pointer tool <sup>NEXTRELEASE</sup>
+- <kbd>v</kbd>: Pointer tool <sup>0.23.0</sup>
 - <kbd>c</kbd>: Crop tool
-- <kbd>p</kbd>: Pen tool (hard edges = old brush) <sup>NEXTRELEASE</sup>
-- <kbd>h</kbd>: Highlighter tool <sup>NEXTRELEASE</sup>
-- <kbd>b</kbd>: Brush tool (soft edges) <sup>NEXTRELEASE</sup>
+- <kbd>p</kbd>: Pen tool (hard edges = old brush) <sup>0.23.0</sup>
+- <kbd>h</kbd>: Highlighter tool <sup>0.23.0</sup>
+- <kbd>b</kbd>: Brush tool (soft edges) <sup>0.23.0</sup>
 - <kbd>i</kbd>: Line tool
 - <kbd>z</kbd>: Arrow tool
 - <kbd>r</kbd>: Rectangle tool
 - <kbd>e</kbd>: Ellipse tool
 - <kbd>t</kbd>: Text tool
 - <kbd>m</kbd>: Numbered Marker tool
-- <kbd>x</kbd>: Fringe inpaint+Pixelate tool <sup>NEXTRELEASE</sup>
+- <kbd>x</kbd>: Fringe inpaint+Pixelate tool <sup>0.23.0</sup>
 - <kbd>u</kbd>: Blur tool
-- <kbd>Shift+X</kbd>: Blackout tool <sup>NEXTRELEASE</sup>
+- <kbd>Shift+X</kbd>: Blackout tool <sup>0.23.0</sup>
 - <kbd>g</kbd>: Block Highlight tool
-- <kbd>s</kbd>: Spotlight tool <sup>NEXTRELEASE</sup>
-- <kbd>Shift+U</kbd>: Lensblur tool <sup>NEXTRELEASE</sup>
-- <kbd>o</kbd>: Image tool <sup>NEXTRELEASE</sup>
+- <kbd>s</kbd>: Spotlight tool <sup>0.23.0</sup>
+- <kbd>Shift+U</kbd>: Lensblur tool <sup>0.23.0</sup>
+- <kbd>o</kbd>: Image tool <sup>0.23.0</sup>
 
-#### Overwriting Keybindings <sup>NEXTRELEASE</sup>
+#### Overwriting Keybindings <sup>0.23.0</sup>
 
 Shortcuts can be overwritten in the config by
 
@@ -264,7 +264,7 @@ Pressing any unbound key will print its name to the console.
 
 Setting a binding to `"none"` will unbind it.
 
-#### Keyboard Layouts <sup>NEXTRELEASE</sup>
+#### Keyboard Layouts <sup>0.23.0</sup>
 
 A binding matches the key that the active layout produces. In QWERTZ or Dvorak, it follows the letters on the keys, not their positions.
 
@@ -279,7 +279,7 @@ When the active layout produces a letter of a non-Latin script, for example Cyri
 The defaults are listed in the [config.toml](config.toml).
 
 <!-- --8<-- [start:tools] -->
-### Pointer Tool <sup>NEXTRELEASE</sup>
+### Pointer Tool <sup>0.23.0</sup>
 
 Annotations can be selected by click.
 This will update the toolbar to the annotation's style and allow style changes.
@@ -301,7 +301,7 @@ Newly created annotations can be autoselected if enabled in the config.
 - Double-click on a text annotation to edit it.
 - Horizontal resizing on a marker changes its number, and vertical resizing changes the extra ring.
 
-### Image Tool <sup>NEXTRELEASE</sup>
+### Image Tool <sup>0.23.0</sup>
 
 Click the screenshot with the tool to open a file chooser, and the picked image is inserted as an annotation centred where you clicked, scaled down to at most half the screenshot if it does not fit. Drag a box instead of clicking, and the image is scaled to fit into it with its aspect ratio kept. From there it behaves like any other annotation: select it with the pointer tool to move it, resize it by its handles or change its layer.
 
@@ -316,21 +316,21 @@ Formats are those gdk-pixbuf has a loader for, plus webp.
 
 Pen, Brush, Highlighter, Line and Arrow:
 
-- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. (for Pen, Brush and Highlighter in <sup>NEXTRELEASE</sup>)
-- <kbd>Ctrl</kbd> for a horizontal line. <sup>NEXTRELEASE</sup>
+- Hold <kbd>Shift</kbd> for a straight 15° aligned line. Release <kbd>Shift</kbd> to continue freehand, or hold it again to start another straight segment. (for Pen, Brush and Highlighter in <sup>0.23.0</sup>)
+- <kbd>Ctrl</kbd> for a horizontal line. <sup>0.23.0</sup>
 
-Crop <sup>NEXTRELEASE</sup>, rectangle, ellipse, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>NEXTRELEASE</sup>, fringe<sup>NEXTRELEASE</sup>, blur <sup>0.22.0</sup>, lensblur <sup>NEXTRELASE</sup>, highlight block<sup>0.22.0</sup>, spotlight<sup>NEXTRELEASE</sup>, image<sup>NEXTRELEASE</sup>:
+Crop <sup>0.23.0</sup>, rectangle, ellipse, pixelate<sup>NEXTRELASE</sup>, fringe-pixelate<sup>0.23.0</sup>, fringe<sup>0.23.0</sup>, blur <sup>0.22.0</sup>, lensblur <sup>NEXTRELASE</sup>, highlight block<sup>0.22.0</sup>, spotlight<sup>0.23.0</sup>, image<sup>0.23.0</sup>:
 
 - <kbd>Alt</kbd> to center the tool around origin.
-- <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>NEXTRELEASE</sup>
-- Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>NEXTRELEASE</sup>
+- <kbd>Shift</kbd> to snap to defined aspect ratios. <sup>0.23.0</sup>
+- Hold <kbd>Control</kbd> to preserve aspect ratio. Draws square if starting from zero size. <sup>0.23.0</sup>
 - Hold multiple to combine them.
 
 Text:
 
-- Press <kbd>Shift+Enter</kbd> or <kbd>Enter</kbd> (<sup>NEXTRELEASE</sup>) to insert line break.
+- Press <kbd>Shift+Enter</kbd> or <kbd>Enter</kbd> (<sup>0.23.0</sup>) to insert line break.
 - Combine <kbd>Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> for word jump or <kbd>Ctrl</kbd> with <kbd>Backspace</kbd> or <kbd>Delete</kbd> for word delete.
-- Press <kbd>Ctrl+Enter</kbd> or <kbd>Escape</kbd> or switch to another tool to accept input and exit text tool. <sup>NEXTRELEASE</sup>
+- Press <kbd>Ctrl+Enter</kbd> or <kbd>Escape</kbd> or switch to another tool to accept input and exit text tool. <sup>0.23.0</sup>
 - <kbd>Home</kbd> and <kbd>End</kbd> go to the start/end of current line or previous/next line if already on first/last character of line (automatic wrapping is not considered for this). <kbd>Ctrl</kbd> with <kbd>Home</kbd>/<kbd>End</kbd> jumps to start/end of text buffer.
 - <kbd>Up</kbd> or <kbd>Down</kbd> to jump to previous/next line (if already on first/last line, it jumps to the start/end of text buffer). <sup>0.20.1</sup>
 - Combine <kbd>Shift</kbd> with other keys to select text (e.g. `Shift+Home` to select from start of line to cursor, <kbd>Shift+Left</kbd> to select characters before cursor, <kbd>Ctrl+Shift+Left</kbd> to select words before cursor,and so on) <sup>0.20.1</sup>
@@ -341,8 +341,8 @@ Text:
 - <kbd>Ctrl+V</kbd> to paste text from clipboard. <sup>0.20.1</sup>
 - <kbd>Alt+Ctrl</kbd> with <kbd>Left</kbd> or <kbd>Right</kbd> or <kbd>Up</kbd> or <kbd>Down</kbd> to move the text. Use <kbd>Alt+Ctrl+Shift</kbd> with arrow keys to nudge the text. <sup>0.20.1</sup>
 - Press <kbd>Alt</kbd> to cycle the text effect: none → inverted outline → contrast outline (black/white) → drop shadow. <sup>experimental</sup> <sup>0.22.0</sup>
-  The effect is set by (fill, round caps) <sup>NEXTRELEASE</sup>: none (false, true), inverted outline (true, false), contrast outline (true, true), drop shadow (false, false). <sup>experimental</sup>
-- The opacity of the style is the one of a background in the contrast color (black/white) behind the text, by default 0, i.e. no background. <sup>NEXTRELEASE</sup>
+  The effect is set by (fill, round caps) <sup>0.23.0</sup>: none (false, true), inverted outline (true, false), contrast outline (true, true), drop shadow (false, false). <sup>experimental</sup>
+- The opacity of the style is the one of a background in the contrast color (black/white) behind the text, by default 0, i.e. no background. <sup>0.23.0</sup>
 
 Marker:
 
@@ -350,10 +350,10 @@ Marker:
 
 Highlight:
 
-- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below). Removed in favour of distinct tool variants <sup>NEXTRELEASE</sup>
+- Hold <kbd>Ctrl</kbd> to switch between block and freehand mode (default configurable, see below). Removed in favour of distinct tool variants <sup>0.23.0</sup>
 - Hold <kbd>Shift</kbd> in freehand mode for a straight 15° aligned line. Stop at some position and release and hold <kbd>Shift</kbd> again to achieve perfectly aligned turns.
 
-Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <sup>NEXTRELEASE</sup>:
+Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <sup>0.23.0</sup>:
 
 - **Maximum Privacy:** For the paranoid among us, we recommend using a solid, filled rectangle instead, e.g. the blackout tool.
 - **Optimized Pixelation:** For best results when censoring text, ensure your block size matches the line height to guarantee unreadable characters.
@@ -362,7 +362,7 @@ Additional note on blur, fringe inpaint, pixelate and fringe inpaint-pixelate <s
 ### CSS
 <!-- --8<-- [start:css] -->
 
-Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/blob/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`var(--headerbar-fg-color)` and `var(--headerbar-bg-color)`) which Satty uses <sup>NEXTRELEASE</sup> may lack transparency, here's an override example:
+Satty ships with [minimal builtin CSS](https://github.com/Satty-org/Satty/blob/main/src/assets/default.css) which can be overridden by `$XDG_CONFIG_HOME/satty/overrides.css`. Adwaita defaults for headerbar (`var(--headerbar-fg-color)` and `var(--headerbar-bg-color)`) which Satty uses <sup>0.23.0</sup> may lack transparency, here's an override example:
 
 ```css
 .outer_box,

@@ -13,6 +13,20 @@ Please add link(s) to PR(s) as [#N] to the end of each entry, and add a link tar
 
 ### Breaking changes
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Contributors
+
+Thanks to everyone who contributed to this release:
+
+## 0.23.0
+
+### Breaking changes
+
 Please check these when upgrading, especially if you use your own `config.toml` or key bindings.
 
 - The `[keybinds]` section uses a new syntax `"BINDING" = "TOOL-OR-COMMAND"`, e.g. `"<Control>l" = "line"`. The old syntax `line = "l"` still works but is deprecated and logs a warning. [#555]

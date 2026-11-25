@@ -29,12 +29,12 @@ pub struct CommandLine {
     )]
     pub filename: Option<String>,
 
-    /// Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (NEXTRELEASE)
+    /// Configure CLIPBOARD_COMMAND to read clipboard at startup to use instead of filename. (0.23.0)
     /// If CLIPBOARD_COMMAND missing, uses wl-paste. Required unless --filename is provided.
     #[arg(long, required_unless_present("filename"), value_name="CLIPBOARD_COMMAND", conflicts_with("filename"), num_args = 0..=1, default_missing_value = "wl-paste -t image")]
     pub from_clipboard: Option<String>,
 
-    /// set log level, note that this is not effective before config has been read (NEXTRELEASE)
+    /// set log level, note that this is not effective before config has been read (0.23.0)
     #[arg(long, value_enum)]
     pub log_level: Option<LogLevel>,
 
@@ -68,7 +68,7 @@ pub struct CommandLine {
 
     /// Radius of the rounded corners of rectangles in pixels
     /// (Defaults to 12) (0 disables rounded corners)
-    /// (NEXTRELEASE: renamed from --corner-roundness, which is still accepted)
+    /// (0.23.0: renamed from --corner-roundness, which is still accepted)
     #[arg(long, visible_alias = "corner-roundness")]
     pub corner_radius: Option<f32>,
 
@@ -174,12 +174,12 @@ pub struct CommandLine {
     pub notification_thumbnail: Option<NotificationThumbnail>,
 
     // --- deprecated options ---
-    /// Print profiling, deprecated since NEXTRELEASE
+    /// Print profiling, deprecated since 0.23.0
     /// Preferably use `log-level` option with at least `debug` instead
     #[arg(long)]
     pub profile_startup: bool,
 
-    /// The primary highlighter to use, secondary is accessible with CTRL, deprecated since NEXTRELEASE
+    /// The primary highlighter to use, secondary is accessible with CTRL, deprecated since 0.23.0
     #[arg(long)]
     pub primary_highlighter: Option<Highlighters>,
 
