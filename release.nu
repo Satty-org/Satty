@@ -35,7 +35,7 @@ export def main [version: string] {
     update_next_release config.toml $version
     update_next_release USAGE.md $version
     update_next_release README.md $version
-    update_next_release CHANGELOG.md $version
+    update_next_release_changelog $version
 
     # show diff so we can review the replacements
     git_diff
@@ -106,6 +106,28 @@ def update_cargo_lock_all [] {
 
 def update_next_release [filename: string, version: string] {
     sed -i -e $'s,NEXTRELEASE,($version),g' $filename
+}
+
+def update_next_release_changelog [version: string] {
+    "Updating CHANGELOG.md" | echo_section_headline
+    
+    let template = $'## NEXTRELEASE
+
+### Breaking changes
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Contributors
+
+Thanks to everyone who contributed to this release:
+
+## ($version)'
+
+    open --raw CHANGELOG.md | str replace '## NEXTRELEASE' $template | save -f CHANGELOG.md
 }
 
 def git_commit [tag: string] {
