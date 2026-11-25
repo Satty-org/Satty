@@ -1,18 +1,38 @@
 # <img src="assets/satty.svg" height="42"> Satty: Modern Screenshot Annotation.
 
+<a href="https://github.com/Satty-org/Satty/wiki/Gallery" title="See the Gallery for more"><img src="assets/usage.png" alt="Satty usage demo" width="600"></a>
+
 <!-- --8<-- [start:intro] -->
-Satty is a screenshot annotation tool inspired by [Swappy](https://github.com/jtheoof/swappy) and [Flameshot](https://flameshot.org/).
 
-![](assets/usage.gif)
+✏️ **The most efficient way to annotate screenshots.**
 
-Satty has been created to provide the following improvements over existing screenshot annotation tools:
+Satty takes a screenshot from your capture tool of choice and lets you annotate,
+crop and share it in seconds: keyboard-driven, fast and highly configurable.
 
-- very simple and easy to understand toolset (like Swappy)
-- fullscreen annotation mode and post shot cropping (like Flameshot)
+Annotating a screenshot is the short step between capturing and sharing, and it
+should stay short. Many existing tools feel dated and heavy, others try to be
+capture tool, image browser and desktop shell at once. Satty focuses on the one
+thing in between and aims to do it as efficiently as possible, happily borrowing
+the best ideas from other tools along the way.
+
+Highlights:
+
+- simple and easy to understand, yet powerful toolset
+- fullscreen annotation mode and post shot cropping
 - extremely smooth rendering thanks to HW acceleration (OpenGL)
 - working on wlroots based compositors (Sway, Hyprland, River, ...)
 - minimal, modern looking UI, thanks to GTK and Adwaita
-- be a playground for new features (post window selection, post paint editing, ...)
+- be a playground for new features
+
+Non-goals:
+
+- capturing screenshots itself
+- being an image browser
+- drawing directly on the live screen
+- deep integration into a specific desktop shell
+
+Satty works well together with tools that do these things.
+
 <!-- --8<-- [end:intro] -->
 
 See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
